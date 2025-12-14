@@ -1,0 +1,44 @@
+{
+  "lib/LayerZero-v2": {
+    "rev": "ab9b083410b9359285a5756807e1b6145d4711a7"
+  },
+  "lib/devtools": {
+    "rev": "27ce84efc6609ac0e290cb00be677c64ffb5e2df"
+  },
+  "lib/flexible-voting": {
+    "tag": {
+      "name": "v3.0.0",
+      "rev": "d3c62a33c7a6e065c994aab7e882fecc2e57e904"
+    }
+  },
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.12.0",
+      "rev": "7117c90c8cf6c68e5acce4f09a6b24715cea4de6"
+    }
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "tag": {
+      "name": "v5.5.0",
+      "rev": "aa677e9d28ed78fc427ec47ba2baef2030c58e7c"
+    }
+  },
+  "lib/openzeppelin-foundry-upgrades": {
+    "tag": {
+      "name": "v0.4.0",
+      "rev": "cbce1e00305e943aa1661d43f41e5ac72c662b07"
+    }
+  },
+  "lib/solidity-bytes-utils": {
+    "rev": "fc502455bb2a7e26a743378df042612dd50d1eb9"
+  },
+  "lib/solmate": {
+    "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
+  },
+  "lib/v4-core": {
+    "tag": {
+      "name": "v4.0.0",
+      "rev": "e50237c43811bd9b526eff40f26772152a42daba"
+    }
+  }
+}

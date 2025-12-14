@@ -1,0 +1,14 @@
+forge-std/=lib/forge-std/src/
+@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
+
+@uniswap/v4-core/=lib/v4-core/
+@uniswap/v4-periphery/=lib/v4-periphery/
+permit2/=lib/v4-periphery/lib/permit2/
+
+@layerzerolabs/oft-evm/=lib/devtools/packages/oft-evm/
+@layerzerolabs/oapp-evm/=lib/devtools/packages/oapp-evm/
+@layerzerolabs/lz-evm-protocol-v2/=lib/LayerZero-v2/packages/layerzero-v2/evm/protocol
+@layerzerolabs/lz-evm-messagelib-v2/=lib/LayerZero-v2/packages/layerzero-v2/evm/messagelib
+solidity-bytes-utils/=lib/solidity-bytes-utils/
