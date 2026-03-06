@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { OutrunNoncesInit } from "../common/OutrunNoncesInit.sol";
-import { IMemeLiquidProof } from "./interfaces/IMemeLiquidProof.sol";
+import { IMemeLiquidProof, PoolId } from "./interfaces/IMemeLiquidProof.sol";
 import { OutrunOFTInit } from "../common/layerzero/oft/OutrunOFTInit.sol";
 import { OutrunERC20PermitInit } from "../common/OutrunERC20PermitInit.sol";
 import { OutrunERC20Init, OutrunERC20VotesInit } from "../common/governance/OutrunERC20VotesInit.sol";
@@ -11,15 +11,16 @@ import { OutrunERC20Init, OutrunERC20VotesInit } from "../common/governance/Outr
  * @title Omnichain Memecoin Proof Of Liquidity(POL) Token
  */
 contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20VotesInit, OutrunOFTInit {
-    address public pair;
     address public memecoin;
     address public memeverseLauncher;
+
+    PoolId public poolId;
 
     modifier onlyMemeverseLauncher() {
         _onlyMemeverseLauncher();
         _;
     }
- 
+
     function _onlyMemeverseLauncher() internal view {
         require(msg.sender == memeverseLauncher, PermissionDenied());
     }
@@ -38,9 +39,9 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
      * @param delegate_ - The address of the OFT delegate.
      */
     function initialize(
-        string memory name_, 
-        string memory symbol_, 
-        address memecoin_, 
+        string memory name_,
+        string memory symbol_,
+        address memecoin_,
         address memeverseLauncher_,
         address delegate_
     ) external override initializer {
@@ -50,7 +51,7 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
         memecoin = memecoin_;
         memeverseLauncher = memeverseLauncher_;
     }
-    
+
     function clock() public view override returns (uint48) {
         return uint48(block.timestamp);
     }
@@ -60,11 +61,10 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
     }
 
     /**
-     * @dev Set pair address after deploying liquidity
+     * @dev Set PoolId(Uniswap V4) after deploying liquidity
      */
-    function setPair(address _pair) external override onlyMemeverseLauncher {
-        require(_pair != address(0), ZeroInput());
-        pair = _pair;
+    function setPoolId(PoolId _poolId) external override onlyMemeverseLauncher {
+        poolId = _poolId;
     }
 
     /**
@@ -75,7 +75,7 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
      */
     function mint(address account, uint256 amount) external override onlyMemeverseLauncher {
         require(amount != 0, ZeroInput());
-        
+
         _mint(account, amount);
     }
 
@@ -87,7 +87,7 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
      */
     function burn(address account, uint256 amount) external {
         require(amount != 0, ZeroInput());
-        if(msg.sender != account) _spendAllowance(account, msg.sender, amount);
+        if (msg.sender != account) _spendAllowance(account, msg.sender, amount);
         _burn(account, amount);
     }
 

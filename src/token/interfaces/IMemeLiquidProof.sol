@@ -1,6 +1,7 @@
 //SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
+import { PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -22,17 +23,17 @@ interface IMemeLiquidProof is IERC20 {
      * @param delegate_ - The address of the OFT delegate.
      */
     function initialize(
-        string memory name_, 
-        string memory symbol_, 
-        address memecoin_, 
+        string memory name_,
+        string memory symbol_,
+        address memecoin_,
         address memeverseLauncher_,
         address delegate_
     ) external;
 
     /**
-     * @dev Set pair address after deploying liquidity
+     * @dev Set PoolId after deploying liquidity
      */
-    function setPair(address pair) external;
+    function setPoolId(PoolId poolId) external;
 
     /**
      * @dev Mint the memeverse proof.
