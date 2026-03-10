@@ -98,6 +98,12 @@ interface IMemeverseSwapRouter {
     /// @notice Reverts when native input is used without a refund recipient.
     error InvalidNativeRefundRecipient();
 
+    /// @notice Reverts when Permit2 batch arrays do not match the expected ERC20 funding leg count.
+    error InvalidPermit2Length();
+
+    /// @notice Reverts when a Permit2 batch entry does not match the expected token ordering.
+    error InvalidPermit2Token(uint256 index, address expectedToken, address actualToken);
+
     /// @notice Returns the configured Memeverse hook used by the router.
     /// @dev Useful for verifying the router is wired to the expected hook deployment.
     /// @return memeverseHook The hook contract that owns anti-snipe and LP accounting logic.

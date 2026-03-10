@@ -197,6 +197,8 @@ contract MockPermit2ForRouterTest {
     address public lastRecipient;
     address public lastToken;
     uint256 public lastRequestedAmount;
+    address public lastBatchOwner;
+    uint256 public lastBatchLength;
     bytes32 public lastWitness;
     string public lastWitnessTypeString;
     bytes public lastSignature;
@@ -218,6 +220,25 @@ contract MockPermit2ForRouterTest {
         lastSignature = signature;
 
         MockERC20(permit.permitted.token).transferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
+    }
+
+    function permitWitnessTransferFrom(
+        ISignatureTransfer.PermitBatchTransferFrom memory permit,
+        ISignatureTransfer.SignatureTransferDetails[] calldata transferDetails,
+        address owner,
+        bytes32 witness,
+        string calldata witnessTypeString,
+        bytes calldata signature
+    ) external {
+        lastBatchOwner = owner;
+        lastBatchLength = transferDetails.length;
+        lastWitness = witness;
+        lastWitnessTypeString = witnessTypeString;
+        lastSignature = signature;
+
+        for (uint256 i = 0; i < transferDetails.length; ++i) {
+            MockERC20(permit.permitted[i].token).transferFrom(owner, transferDetails[i].to, transferDetails[i].requestedAmount);
+        }
     }
 }
 
@@ -333,6 +354,182 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(token0.balanceOf(address(router)), 0, "router refunded surplus");
     }
 
+    function testAddLiquidityWithPermit2_TwoErc20Inputs() external {
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
+            _batchPermit(address(token0), 100 ether, address(token1), 100 ether);
+
+        vm.prank(alice);
+        uint128 liquidity = router.addLiquidityWithPermit2(
+            batchPermit,
+            MemeverseSwapRouter.AddLiquidityParams({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                amount0Desired: 100 ether,
+                amount1Desired: 100 ether,
+                amount0Min: 90 ether,
+                amount1Min: 90 ether,
+                to: alice,
+                nativeRefundRecipient: alice,
+                deadline: block.timestamp
+            })
+        );
+
+        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(mockPermit2.lastBatchOwner(), alice, "owner");
+        assertEq(mockPermit2.lastBatchLength(), 2, "batch length");
+        assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
+    }
+
+    function testAddLiquidityWithPermit2_OneErc20PlusNative() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        PoolId nativePoolId = nativeKey.toId();
+        vm.deal(alice, 1_000_000 ether);
+        manager.initialize(nativeKey, SQRT_PRICE_1_1);
+
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit = _batchPermitSingle(address(token1), 100 ether);
+
+        vm.prank(alice);
+        uint128 liquidity = router.addLiquidityWithPermit2{value: 100 ether}(
+            batchPermit,
+            MemeverseSwapRouter.AddLiquidityParams({
+                currency0: nativeKey.currency0,
+                currency1: nativeKey.currency1,
+                amount0Desired: 100 ether,
+                amount1Desired: 100 ether,
+                amount0Min: 90 ether,
+                amount1Min: 90 ether,
+                to: alice,
+                nativeRefundRecipient: alice,
+                deadline: block.timestamp
+            })
+        );
+
+        (address liquidityToken,,,) = hook.poolInfo(nativePoolId);
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(mockPermit2.lastBatchLength(), 1, "batch length");
+        assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
+        assertEq(address(router).balance, 0, "router keeps no native");
+    }
+
+    function testRemoveLiquidityWithPermit2() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,,) = hook.poolInfo(poolId);
+
+        vm.prank(alice);
+        MockERC20(liquidityToken).approve(address(mockPermit2), type(uint256).max);
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit =
+            _singlePermit(liquidityToken, uint256(liquidity));
+        uint256 balance0Before = token0.balanceOf(alice);
+        uint256 balance1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        BalanceDelta delta = router.removeLiquidityWithPermit2(
+            singlePermit,
+            MemeverseSwapRouter.RemoveLiquidityParams({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                liquidity: liquidity,
+                amount0Min: 1,
+                amount1Min: 1,
+                to: alice,
+                deadline: block.timestamp
+            })
+        );
+
+        assertGt(int256(delta.amount0()), 0, "delta0");
+        assertGt(int256(delta.amount1()), 0, "delta1");
+        assertGt(token0.balanceOf(alice), balance0Before, "token0 returned");
+        assertGt(token1.balanceOf(alice), balance1Before, "token1 returned");
+        assertEq(MockERC20(liquidityToken).balanceOf(alice), 0, "lp burned");
+    }
+
+    function testCreatePoolAndAddLiquidityWithPermit2() external {
+        MockERC20 tokenA = new MockERC20("A", "A", 18);
+        MockERC20 tokenB = new MockERC20("B", "B", 18);
+        tokenA.mint(alice, 1_000_000 ether);
+        tokenB.mint(alice, 1_000_000 ether);
+        vm.prank(alice);
+        tokenA.approve(address(mockPermit2), type(uint256).max);
+        vm.prank(alice);
+        tokenB.approve(address(mockPermit2), type(uint256).max);
+
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
+            _batchPermit(address(tokenA), 100 ether, address(tokenB), 100 ether);
+
+        vm.prank(alice);
+        (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidityWithPermit2(
+            batchPermit,
+            MemeverseSwapRouter.CreatePoolAndAddLiquidityParams({
+                tokenA: address(tokenA),
+                tokenB: address(tokenB),
+                amountADesired: 100 ether,
+                amountBDesired: 100 ether,
+                recipient: alice,
+                nativeRefundRecipient: alice,
+                deadline: block.timestamp
+            })
+        );
+
+        (address liquidityToken,,,) = hook.poolInfo(createdKey.toId());
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(address(createdKey.hooks), address(hook), "hook");
+        assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
+    }
+
+    function testCreatePoolAndAddLiquidityWithPermit2_InvalidBatchLengthReverts() external {
+        MockERC20 tokenA = new MockERC20("A", "A", 18);
+        MockERC20 tokenB = new MockERC20("B", "B", 18);
+        tokenA.mint(alice, 1_000_000 ether);
+        tokenB.mint(alice, 1_000_000 ether);
+        vm.prank(alice);
+        tokenA.approve(address(mockPermit2), type(uint256).max);
+
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit = _batchPermitSingle(address(tokenA), 100 ether);
+
+        vm.expectRevert(MemeverseSwapRouter.InvalidPermit2Length.selector);
+        vm.prank(alice);
+        router.createPoolAndAddLiquidityWithPermit2(
+            batchPermit,
+            MemeverseSwapRouter.CreatePoolAndAddLiquidityParams({
+                tokenA: address(tokenA),
+                tokenB: address(tokenB),
+                amountADesired: 100 ether,
+                amountBDesired: 100 ether,
+                recipient: alice,
+                nativeRefundRecipient: alice,
+                deadline: block.timestamp
+            })
+        );
+    }
+
+    function testAddLiquidityWithPermit2_TokenMismatchReverts() external {
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
+            _batchPermit(address(token0), 100 ether, address(0xBEEF), 100 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MemeverseSwapRouter.InvalidPermit2Token.selector, 1, address(token1), address(0xBEEF)
+            )
+        );
+        vm.prank(alice);
+        router.addLiquidityWithPermit2(
+            batchPermit,
+            MemeverseSwapRouter.AddLiquidityParams({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                amount0Desired: 100 ether,
+                amount1Desired: 100 ether,
+                amount0Min: 90 ether,
+                amount1Min: 90 ether,
+                to: alice,
+                nativeRefundRecipient: alice,
+                deadline: block.timestamp
+            })
+        );
+    }
+
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {
         return PoolKey({
             currency0: currency0,
@@ -341,6 +538,28 @@ contract MemeverseSwapRouterPermit2Test is Test {
             tickSpacing: 200,
             hooks: IHooks(address(hook))
         });
+    }
+
+    function _mintAliceLiquidity() internal returns (uint128 liquidity) {
+        vm.prank(alice);
+        token0.approve(address(router), type(uint256).max);
+        vm.prank(alice);
+        token1.approve(address(router), type(uint256).max);
+
+        vm.prank(alice);
+        liquidity = router.addLiquidity(
+            MemeverseSwapRouter.AddLiquidityParams({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                amount0Desired: 100 ether,
+                amount1Desired: 100 ether,
+                amount0Min: 90 ether,
+                amount1Min: 90 ether,
+                to: alice,
+                nativeRefundRecipient: alice,
+                deadline: block.timestamp
+            })
+        );
     }
 
     function _singlePermit(address token, uint256 amount)
@@ -357,5 +576,38 @@ contract MemeverseSwapRouterPermit2Test is Test {
             transferDetails: ISignatureTransfer.SignatureTransferDetails({to: address(router), requestedAmount: amount}),
             signature: hex"1234"
         });
+    }
+
+    function _batchPermit(address token0_, uint256 amount0_, address token1_, uint256 amount1_)
+        internal
+        view
+        returns (IMemeverseSwapRouter.Permit2BatchParams memory permitParams)
+    {
+        permitParams.permit.permitted = new ISignatureTransfer.TokenPermissions[](2);
+        permitParams.permit.permitted[0] = ISignatureTransfer.TokenPermissions({token: token0_, amount: amount0_});
+        permitParams.permit.permitted[1] = ISignatureTransfer.TokenPermissions({token: token1_, amount: amount1_});
+        permitParams.permit.nonce = 2;
+        permitParams.permit.deadline = block.timestamp;
+        permitParams.transferDetails = new ISignatureTransfer.SignatureTransferDetails[](2);
+        permitParams.transferDetails[0] =
+            ISignatureTransfer.SignatureTransferDetails({to: address(router), requestedAmount: amount0_});
+        permitParams.transferDetails[1] =
+            ISignatureTransfer.SignatureTransferDetails({to: address(router), requestedAmount: amount1_});
+        permitParams.signature = hex"1234";
+    }
+
+    function _batchPermitSingle(address token, uint256 amount)
+        internal
+        view
+        returns (IMemeverseSwapRouter.Permit2BatchParams memory permitParams)
+    {
+        permitParams.permit.permitted = new ISignatureTransfer.TokenPermissions[](1);
+        permitParams.permit.permitted[0] = ISignatureTransfer.TokenPermissions({token: token, amount: amount});
+        permitParams.permit.nonce = 3;
+        permitParams.permit.deadline = block.timestamp;
+        permitParams.transferDetails = new ISignatureTransfer.SignatureTransferDetails[](1);
+        permitParams.transferDetails[0] =
+            ISignatureTransfer.SignatureTransferDetails({to: address(router), requestedAmount: amount});
+        permitParams.signature = hex"1234";
     }
 }
