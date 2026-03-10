@@ -13,7 +13,7 @@ typechain-types
 broadcast
 
 # Docs
-docs/
+docs/book/
 
 # Dotenv file
 .env
