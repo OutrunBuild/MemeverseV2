@@ -1,6 +1,9 @@
 ## Scope
 - Task 1: Router 新增 `getHookPoolKey` 与 `previewClaimableFees` 只读入口
-- 对应测试：`test/MemeverseSwapRouter.t.sol`
+- Task 2: `MemeverseLauncher.previewGenesisMakerFees` 改为走 Router 预览并恢复校验
+- 对应测试：
+- `test/MemeverseSwapRouter.t.sol`
+- `test/MemeverseLauncherPreviewFees.t.sol`
 
 ## Findings
 - No issues found.
@@ -12,6 +15,8 @@
 ## Verification
 - `forge test --match-test testRouterGetHookPoolKey_ReturnsDynamicHookKey -vvv`
 - `forge test --match-test testRouterPreviewClaimableFees_MatchesHookClaimableFees -vvv`
+- `forge test --match-test testPreviewGenesisMakerFees_MapsFeesCorrectly -vvv`
+- `forge test --match-test testPreviewGenesisMakerFees_RevertsWhenNotLocked -vvv`
 
 ## Decision
-- Approved for Task 1 changes.
+- Approved for Task 1-2 changes.
