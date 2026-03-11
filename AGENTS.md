@@ -52,7 +52,7 @@
 - Generation rewrites the default nested path so docs are stored directly under `docs/contracts/`.
 - Contract doc generation is checked by a git `pre-commit` hook.
 - One-time setup: run `npm run hooks:install` to set `core.hooksPath` to `.githooks`.
-- On each commit, if staged files include `src/**/*.sol`, the hook runs `npm run docs:gen`.
+- On each commit, run `npm run quality:gate`. If staged files include `src/**/*.sol`, the gate runs `npm run docs:gen`.
 - `docs/plans/` is local planning content and is not committed.
 - CI runs `script/check-docs.sh` to ensure docs generation succeeds and directory naming is normalized.
 - Optional live workflow during editing: `npm run docs:watch`.
