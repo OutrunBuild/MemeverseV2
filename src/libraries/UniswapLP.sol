@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Owned} from "solmate/auth/Owned.sol";
 
-import {IMemeverseUniswapHook, PoolId} from "../verse/interfaces/IMemeverseUniswapHook.sol";
+import {IMemeverseUniswapHook, PoolId} from "../swap/interfaces/IMemeverseUniswapHook.sol";
 
 /// @notice LP Token For MemeverseUniswapHook
 contract UniswapLP is Owned {

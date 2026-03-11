@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import { MemeverseOFTEnum } from "../../common/MemeverseOFTEnum.sol";
+import {MemeverseOFTEnum} from "../../common/MemeverseOFTEnum.sol";
 
 /**
  * @title MemeverseLauncher interface
@@ -15,38 +15,38 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     }
 
     struct Memeverse {
-        string name;                    // Token name
-        string symbol;                  // Token symbol
-        string uri;                     // Token icon uri
-        string desc;                    // Description
-        address UPT;                    // Genesis fund UPT address
-        address memecoin;               // Omnichain memecoin address
-        address liquidProof;            // POL token address
-        address yieldVault;             // Memecoin yield vault
-        address governor;               // Memecoin DAO governor
-        address incentivizer;           // Governance cycle incentivizer
-        uint128 endTime;                // End time of Genesis stage 
-        uint128 unlockTime;             // UnlockTime of liquidity
-        uint32[] omnichainIds;          // ChainIds of the token's omnichain(EVM),The first chainId is main governance chain
-        Stage currentStage;             // Current stage
-        bool flashGenesis;              // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
+        string name; // Token name
+        string symbol; // Token symbol
+        string uri; // Token icon uri
+        string desc; // Description
+        address UPT; // Genesis fund UPT address
+        address memecoin; // Omnichain memecoin address
+        address liquidProof; // POL token address
+        address yieldVault; // Memecoin yield vault
+        address governor; // Memecoin DAO governor
+        address incentivizer; // Governance cycle incentivizer
+        uint128 endTime; // End time of Genesis stage
+        uint128 unlockTime; // UnlockTime of liquidity
+        uint32[] omnichainIds; // ChainIds of the token's omnichain(EVM),The first chainId is main governance chain
+        Stage currentStage; // Current stage
+        bool flashGenesis; // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
     }
 
-    struct FundMetaData{
-        uint256 minTotalFund;           // The minimum participation genesis fund corresponding to UPT
-        uint256 fundBasedAmount;        // The number of Memecoins minted per unit of Memecoin genesis fund
+    struct FundMetaData {
+        uint256 minTotalFund; // The minimum participation genesis fund corresponding to UPT
+        uint256 fundBasedAmount; // The number of Memecoins minted per unit of Memecoin genesis fund
     }
 
     struct GenesisFund {
-        uint128 totalMemecoinFunds;     // Initial fundraising(UPT) for memecoin liquidity
-        uint128 totalLiquidProofFunds;  // Initial fundraising(UPT) for liquidProof liquidity
+        uint128 totalMemecoinFunds; // Initial fundraising(UPT) for memecoin liquidity
+        uint128 totalLiquidProofFunds; // Initial fundraising(UPT) for liquidProof liquidity
     }
 
     struct GenesisData {
-        uint256 genesisFund;            // The amount of UPT user has contributed to the genesis fund
-        bool isRefunded;                // Whether the user has refunded the UPT
-        bool isClaimed;                 // Whether the user has claimed the POL
-        bool isRedeemed;                // Whether the user has redeemed the POL liquidity
+        uint256 genesisFund; // The amount of UPT user has contributed to the genesis fund
+        bool isRefunded; // Whether the user has refunded the UPT
+        bool isClaimed; // Whether the user has claimed the POL
+        bool isRedeemed; // Whether the user has redeemed the POL liquidity
     }
 
     function getVerseIdByMemecoin(address memecoin) external view returns (uint256 verseId);
@@ -69,7 +69,6 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     function quoteDistributionLzFee(uint256 verseId) external view returns (uint256 lzFee);
 
-
     function genesis(uint256 verseId, uint128 amountInUPT, address user) external;
 
     function changeStage(uint256 verseId) external returns (Stage currentStage);
@@ -78,15 +77,17 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     function claimPOLToken(uint256 verseId) external returns (uint256 amount);
 
-    function redeemAndDistributeFees(uint256 verseId, address rewardReceiver) external payable 
-    returns (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward);
+    function redeemAndDistributeFees(uint256 verseId, address rewardReceiver)
+        external
+        payable
+        returns (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward);
 
     function redeemMemecoinLiquidity(uint256 verseId, uint256 amountInPOL) external returns (uint256 amountInLP);
 
     function redeemPolLiquidity(uint256 verseId) external returns (uint256 amountInLP);
 
     function mintPOLToken(
-        uint256 verseId, 
+        uint256 verseId,
         uint256 amountInUPTDesired,
         uint256 amountInMemecoinDesired,
         uint256 amountInUPTMin,
@@ -108,7 +109,7 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     function removeGasDust(address receiver) external;
 
-    function setLiquidityRouter(address liquidityRouter) external;
+    function setMemeverseSwapRouter(address memeverseSwapRouter) external;
 
     function setMemeverseCommonInfo(address memeverseCommonInfo) external;
 
@@ -129,8 +130,7 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
         string calldata uri,
         string calldata description,
         string[] calldata communities
-    ) external; 
-
+    ) external;
 
     error ZeroInput();
 
@@ -139,9 +139,9 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     error InvalidRefund();
 
     error InvalidRedeem();
-    
+
     error NoPOLAvailable();
-    
+
     error NotRefundStage();
 
     error InvalidVerseId();
@@ -157,15 +157,14 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     error InsufficientLzFee();
 
     error ReachedFinalStage();
-    
+
     error InsufficientLPBalance();
-    
+
     error NotReachedLockedStage();
 
     error StillInGenesisStage(uint256 endTime);
 
     error InvalidOmnichainId(uint32 omnichainId);
-
 
     event Genesis(
         uint256 indexed verseId,
@@ -181,30 +180,22 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     event ClaimPOLToken(uint256 indexed verseId, address indexed receiver, uint256 claimedAmount);
 
     event RedeemAndDistributeFees(
-        uint256 indexed verseId, 
-        uint256 govFee, 
-        uint256 memecoinFee, 
-        uint256 liquidProofFee, 
-        uint256 executorReward
+        uint256 indexed verseId, uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward
     );
 
     event RedeemMemecoinLiquidity(uint256 indexed verseId, address indexed receiver, uint256 memecoinLiquidity);
 
     event RedeemPolLiquidity(uint256 indexed verseId, address indexed receiver, uint256 polLiquidity);
-    
+
     event MintPOLToken(
-        uint256 indexed verseId, 
-        address indexed memecoin, 
-        address indexed liquidProof, 
-        address receiver, 
-        uint256 amount
+        uint256 indexed verseId, address indexed memecoin, address indexed liquidProof, address receiver, uint256 amount
     );
 
     event RegisterMemeverse(uint256 indexed verseId, Memeverse verse);
 
     event RemoveGasDust(address indexed receiver, uint256 dust);
 
-    event SetLiquidityRouter(address liquidityRouter);
+    event SetMemeverseSwapRouter(address memeverseSwapRouter);
 
     event SetMemeverseCommonInfo(address memeverseCommonInfo);
 

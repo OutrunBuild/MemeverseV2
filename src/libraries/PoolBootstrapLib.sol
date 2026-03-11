@@ -3,7 +3,8 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "./LiquidityAmounts.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
@@ -14,27 +15,28 @@ import {IMulticall_v4} from "@uniswap/v4-periphery/src/interfaces/IMulticall_v4.
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {InitialPriceCalculator} from "../libraries/InitialPriceCalculator.sol";
+import {LiquidityQuote} from "../libraries/LiquidityQuote.sol";
 
 interface IHookLiquidityManager {
-    struct AddLiquidityParams {
+    struct AddLiquidityCoreParams {
         Currency currency0;
         Currency currency1;
-        uint24 fee;
         uint256 amount0Desired;
         uint256 amount1Desired;
-        uint256 amount0Min;
-        uint256 amount1Min;
         address to;
-        uint256 deadline;
     }
 
-    function addLiquidity(AddLiquidityParams calldata params) external returns (uint128 liquidity);
+    function addLiquidityCore(AddLiquidityCoreParams calldata params)
+        external
+        payable
+        returns (uint128 liquidity, BalanceDelta delta);
 }
 
 /**
- * @title Liquidity Manager(For uniswap v4)
+ * @title PoolBootstrapLib
+ * @notice Bootstrap helpers for initializing Memeverse-compatible pools and seeding first liquidity.
  */
-library LiquidityManager {
+library PoolBootstrapLib {
     int24 public constant TICK_SPACING = 200;
     int24 public constant TICK_LOWER = -887200;
     int24 public constant TICK_UPPER = 887200;
@@ -75,6 +77,11 @@ library LiquidityManager {
 
         bytes memory hookData = new bytes(0);
         if (address(hook) == address(0)) {
+            // No-hook path:
+            // - Bootstrap goes through the standard position manager mint flow.
+            // - Liquidity is computed directly from the desired token budgets at the initialized price.
+            // - The desired amounts are then forwarded as the position manager's max token budgets
+            //   (with the usual 1 wei dust padding via `_toUint128WithDust`).
             liquidity = LiquidityAmounts.getLiquidityForAmounts(
                 startingPrice, SQRT_PRICE_LOWER_X96, SQRT_PRICE_UPPER_X96, amount0Desired, amount1Desired
             );
@@ -102,23 +109,28 @@ library LiquidityManager {
             return (liquidity, poolKey);
         }
 
-        // For hook-based pools (for example MemeverseUniswapHook), liquidity must be added through the hook.
+        // Hook path:
+        // - Bootstrap must go through the hook Core entrypoint instead of the standard position manager mint flow.
+        // - The hook still receives the caller's desired token budgets, but the bootstrap helper separately quotes
+        //   the actual token usage implied by those budgets at the initialized price.
+        // - That quote is used here only to determine the exact native value that must accompany the hook call,
+        //   because hook-backed liquidity adds enforce exact native funding.
         IPoolInitializer_v4(positionManager).initializePool(poolKey, startingPrice);
         tokenApprovalsToSpender(tokenA, tokenB, address(hook));
-        liquidity = IHookLiquidityManager(address(hook))
-            .addLiquidity(
-                IHookLiquidityManager.AddLiquidityParams({
-                    currency0: currency0,
-                    currency1: currency1,
-                    fee: fee,
-                    amount0Desired: amount0Desired,
-                    amount1Desired: amount1Desired,
-                    amount0Min: 0,
-                    amount1Min: 0,
-                    to: recipient,
-                    deadline: block.timestamp
-                })
-            );
+        (, uint256 amount0Used, uint256 amount1Used) =
+            LiquidityQuote.quote(startingPrice, amount0Desired, amount1Desired);
+        uint256 nativeValue = currency0 == Currency.wrap(address(0))
+            ? amount0Used
+            : currency1 == Currency.wrap(address(0)) ? amount1Used : 0;
+        (liquidity,) = IHookLiquidityManager(address(hook)).addLiquidityCore{value: nativeValue}(
+            IHookLiquidityManager.AddLiquidityCoreParams({
+                currency0: currency0,
+                currency1: currency1,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                to: recipient
+            })
+        );
         if (liquidity == 0) revert ZeroLiquidity();
     }
 

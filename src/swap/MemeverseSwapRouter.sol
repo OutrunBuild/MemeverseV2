@@ -11,8 +11,6 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {SafeCallback} from "@uniswap/v4-periphery/src/base/SafeCallback.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
-import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
-import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/ISignatureTransfer.sol";
 
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
@@ -31,7 +29,7 @@ import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 /// The underlying hook remains callable as a Core API for custom routers and integrators, but this router is the
 /// intended canonical entrypoint for end-user and on-chain SDK integrations, covering quote, swap, LP, fee claim,
 /// and hook-backed pool bootstrap flows.
-contract MemeverseSwapRouter is SafeCallback {
+contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     using CurrencySettler for Currency;
     using CurrencyLibrary for Currency;
     using PoolIdLibrary for PoolKey;
@@ -45,86 +43,12 @@ contract MemeverseSwapRouter is SafeCallback {
         bytes hookData;
     }
 
-    struct AddLiquidityParams {
-        Currency currency0;
-        Currency currency1;
-        uint256 amount0Desired;
-        uint256 amount1Desired;
-        uint256 amount0Min;
-        uint256 amount1Min;
-        address to;
-        address nativeRefundRecipient;
-        uint256 deadline;
-    }
-
-    struct RemoveLiquidityParams {
-        Currency currency0;
-        Currency currency1;
-        uint128 liquidity;
-        uint256 amount0Min;
-        uint256 amount1Min;
-        address to;
-        uint256 deadline;
-    }
-
-    struct ClaimFeesParams {
-        PoolKey key;
-        address recipient;
-        uint256 deadline;
-        uint8 v;
-        bytes32 r;
-        bytes32 s;
-    }
-
-    struct CreatePoolAndAddLiquidityParams {
-        address tokenA;
-        address tokenB;
-        uint256 amountADesired;
-        uint256 amountBDesired;
-        address recipient;
-        address nativeRefundRecipient;
-        uint256 deadline;
-    }
-
-    /// @notice Reverts when the provided pool key does not point to the configured Memeverse hook.
-    error InvalidHook();
-
-    /// @notice Reverts when `deadline` is in the past.
-    error ExpiredPastDeadline();
-
-    /// @notice Reverts when the requested swap amount is zero.
-    error SwapAmountCannotBeZero();
-
-    /// @notice Reverts when an exact-output swap does not provide an input upper bound.
-    error AmountInMaximumRequired();
-
-    /// @notice Reverts when the final required input exceeds the user-specified upper bound.
-    error InputAmountExceedsMaximum(uint256 actualInputAmount, uint256 amountInMaximum);
-
-    /// @notice Reverts when the final received output is below the user-specified lower bound.
-    error OutputAmountBelowMinimum(uint256 actualOutputAmount, uint256 amountOutMinimum);
-
-    /// @notice Reverts when bootstrap is attempted with identical token addresses.
-    error InvalidTokenPair();
-
-    /// @notice Reverts when a payable native refund recipient is required but not provided.
-    error InvalidNativeRefundRecipient();
-
-    /// @notice Reverts when Permit2 batch arrays do not match the expected ERC20 funding leg count.
-    error InvalidPermit2Length();
-
-    /// @notice Reverts when a Permit2 batch entry does not match the expected token ordering.
-    error InvalidPermit2Token(uint256 index, address expectedToken, address actualToken);
-
     IMemeverseUniswapHook public immutable hook;
-    IPermit2 public immutable permit2;
 
     /// @param _manager The Uniswap v4 pool manager.
     /// @param _hook The Memeverse hook that owns anti-snipe attempt tracking for routed swaps.
-    /// @param _permit2 The Permit2 entrypoint used for signature-based ERC20 pulls.
-    constructor(IPoolManager _manager, IMemeverseUniswapHook _hook, IPermit2 _permit2) SafeCallback(_manager) {
+    constructor(IPoolManager _manager, IMemeverseUniswapHook _hook) SafeCallback(_manager) {
         hook = _hook;
-        permit2 = _permit2;
     }
 
     /// @notice Returns the current swap quote from the underlying Memeverse hook.
@@ -182,131 +106,189 @@ contract MemeverseSwapRouter is SafeCallback {
         payable
         returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason)
     {
-        return _swap(
-            key,
-            params,
-            recipient,
-            nativeRefundRecipient,
-            deadline,
-            amountOutMinimum,
-            amountInMaximum,
-            hookData,
-            msg.sender,
-            msg.sender,
-            false
-        );
-    }
-
-    function swapWithPermit2(
-        IMemeverseSwapRouter.Permit2SingleParams calldata permitParams,
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address recipient,
-        address nativeRefundRecipient,
-        uint256 deadline,
-        uint256 amountOutMinimum,
-        uint256 amountInMaximum,
-        bytes calldata hookData
-    )
-        external
-        payable
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason)
-    {
+        if (deadline < block.timestamp) {
+            revert ExpiredPastDeadline();
+        }
+        if (address(key.hooks) != address(hook)) revert InvalidHook();
+        if (params.amountSpecified == 0) revert SwapAmountCannotBeZero();
+        if (params.amountSpecified > 0 && amountInMaximum == 0) revert AmountInMaximumRequired();
+        bool antiSnipeActive = hook.isAntiSnipeActive(key.toId());
         Currency inputCurrency = _inputCurrency(key, params.zeroForOne);
         uint256 inputBudget = _swapInputBudget(params, amountInMaximum);
-        if (!inputCurrency.isAddressZero() && inputBudget > 0) {
-            (bytes32 witness, string memory witnessTypeString) = _swapPermit2Witness(
-                key,
-                params,
-                recipient,
-                nativeRefundRecipient,
-                deadline,
-                amountOutMinimum,
-                amountInMaximum,
-                hookData
-            );
-            _pullCurrencyWithPermit2(
-                permitParams, msg.sender, Currency.unwrap(inputCurrency), inputBudget, witness, witnessTypeString
-            );
+        uint256 nativeSwapBudget = _nativeSwapBudget(key, params, amountInMaximum);
+        IMemeverseUniswapHook.FailedAttemptQuote memory failedAttemptQuote;
+        if (antiSnipeActive) {
+            failedAttemptQuote = hook.quoteFailedAttempt(key, params, inputBudget);
+            if (!inputCurrency.isAddressZero() && inputBudget > 0) {
+                _pullCurrency(inputCurrency, msg.sender, inputBudget);
+                _ensureHookApproval(inputCurrency, inputBudget);
+            }
+        }
+        uint256 totalNativeBudget = nativeSwapBudget;
+        if (msg.value != totalNativeBudget) {
+            revert IMemeverseUniswapHook.InvalidNativeValue(totalNativeBudget, msg.value);
+        }
+        address refundRecipient = _validatedNativeRefundRecipient(nativeRefundRecipient, msg.value);
+
+        if (antiSnipeActive) {
+            (executed, failureReason) =
+                hook.requestSwapAttempt{value: nativeSwapBudget}(key, params, msg.sender, inputBudget, address(this));
+            if (!executed) {
+                if (!inputCurrency.isAddressZero()) {
+                    _refundUnusedInput(inputCurrency, msg.sender, inputBudget, failedAttemptQuote.feeAmount);
+                }
+                _refundUnusedNative(refundRecipient, nativeSwapBudget, failedAttemptQuote.feeAmount);
+                return (BalanceDeltaLibrary.ZERO_DELTA, false, failureReason);
+            }
+        } else {
+            executed = true;
+            failureReason = IMemeverseUniswapHook.AntiSnipeFailureReason.None;
         }
 
-        return _swap(
-            key,
-            params,
-            recipient,
-            nativeRefundRecipient,
-            deadline,
-            amountOutMinimum,
-            amountInMaximum,
-            hookData,
-            msg.sender,
-            address(this),
-            true
+        delta = abi.decode(
+            poolManager.unlock(
+                abi.encode(
+                    CallbackData({
+                        payer: antiSnipeActive ? address(this) : msg.sender,
+                        recipient: recipient,
+                        key: key,
+                        params: params,
+                        hookData: hookData
+                    })
+                )
+            ),
+            (BalanceDelta)
         );
+
+        uint256 actualInputAmount = _actualInputAmount(delta, params.zeroForOne);
+        if (amountInMaximum > 0) {
+            if (actualInputAmount > amountInMaximum) {
+                revert InputAmountExceedsMaximum(actualInputAmount, amountInMaximum);
+            }
+        }
+        if (amountOutMinimum > 0) {
+            uint256 actualOutputAmount = _actualOutputAmount(delta, params.zeroForOne);
+            if (actualOutputAmount < amountOutMinimum) {
+                revert OutputAmountBelowMinimum(actualOutputAmount, amountOutMinimum);
+            }
+        }
+
+        if (antiSnipeActive && !inputCurrency.isAddressZero()) {
+            _refundUnusedInput(inputCurrency, msg.sender, inputBudget, actualInputAmount);
+        }
+        _refundUnusedNative(refundRecipient, msg.value, _nativeSwapInputSpent(key, delta));
+
+        return (delta, true, IMemeverseUniswapHook.AntiSnipeFailureReason.None);
     }
 
     /// @notice Adds liquidity through the hook core entrypoint while applying periphery protections.
     /// @dev Pulls the caller's desired ERC20 budgets into the router, derives the actual full-range spend at the
     /// current pool price, forwards only the exact required native amount to the hook core, validates min amounts,
-    /// and refunds any unused input budget to `params.nativeRefundRecipient`. This path is separate from the swap
+    /// and refunds any unused input budget to `nativeRefundRecipient`. This path is separate from the swap
     /// protection-window budget logic.
-    /// @param params The user-facing liquidity add parameters.
-    /// @return liquidity The LP liquidity minted to `params.to`.
-    function addLiquidity(AddLiquidityParams calldata params) external payable returns (uint128 liquidity) {
-        return _addLiquidity(params, msg.sender, msg.sender, false);
-    }
+    /// @param currency0 Pool currency0.
+    /// @param currency1 Pool currency1.
+    /// @param amount0Desired Desired currency0 budget.
+    /// @param amount1Desired Desired currency1 budget.
+    /// @param amount0Min Minimum currency0 spend accepted.
+    /// @param amount1Min Minimum currency1 spend accepted.
+    /// @param to Recipient of minted LP shares.
+    /// @param nativeRefundRecipient Recipient of any unused native refund.
+    /// @param deadline The latest timestamp at which the call is valid.
+    /// @return liquidity The LP liquidity minted to `to`.
+    function addLiquidity(
+        Currency currency0,
+        Currency currency1,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address to,
+        address nativeRefundRecipient,
+        uint256 deadline
+    ) external payable override returns (uint128 liquidity) {
+        if (deadline < block.timestamp) revert ExpiredPastDeadline();
 
-    function addLiquidityWithPermit2(
-        IMemeverseSwapRouter.Permit2BatchParams calldata permitParams,
-        AddLiquidityParams calldata params
-    ) external payable returns (uint128 liquidity) {
-        (address[] memory expectedTokens, uint256[] memory expectedAmounts) =
-            _expectedPermit2CurrenciesForLiquidity(params.currency0, params.currency1, params.amount0Desired, params.amount1Desired);
-        (bytes32 witness, string memory witnessTypeString) = _addLiquidityPermit2Witness(params);
-        _pullCurrenciesWithPermit2(
-            permitParams, msg.sender, expectedTokens, expectedAmounts, witness, witnessTypeString
+        uint256 nativeDesired =
+            currency0.isAddressZero() ? amount0Desired : currency1.isAddressZero() ? amount1Desired : 0;
+        if (msg.value != nativeDesired) revert IMemeverseUniswapHook.InvalidNativeValue(nativeDesired, msg.value);
+        address refundRecipient = _validatedNativeRefundRecipient(nativeRefundRecipient, msg.value);
+
+        PoolKey memory key = _hookPoolKey(currency0, currency1);
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
+        return _addLiquidityViaHook(
+            key,
+            amount0Desired,
+            amount1Desired,
+            amount0Min,
+            amount1Min,
+            to,
+            refundRecipient,
+            nativeDesired,
+            sqrtPriceX96
         );
-
-        return _addLiquidity(params, address(this), msg.sender, true);
     }
 
     /// @notice Removes liquidity through the hook core entrypoint while applying periphery protections.
     /// @dev Pulls LP shares into the router, calls the hook core, validates minimum outputs, and forwards the assets.
-    /// @param params The user-facing liquidity remove parameters.
+    /// @param currency0 Pool currency0.
+    /// @param currency1 Pool currency1.
+    /// @param liquidity LP liquidity to burn.
+    /// @param amount0Min Minimum currency0 output accepted.
+    /// @param amount1Min Minimum currency1 output accepted.
+    /// @param to Recipient of withdrawn assets.
+    /// @param deadline The latest timestamp at which the call is valid.
     /// @return delta The balance delta returned by the hook core.
-    function removeLiquidity(RemoveLiquidityParams calldata params) external returns (BalanceDelta delta) {
-        return _removeLiquidity(params, msg.sender, false);
-    }
+    function removeLiquidity(
+        Currency currency0,
+        Currency currency1,
+        uint128 liquidity,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address to,
+        uint256 deadline
+    ) external override returns (BalanceDelta delta) {
+        if (deadline < block.timestamp) revert ExpiredPastDeadline();
 
-    function removeLiquidityWithPermit2(
-        IMemeverseSwapRouter.Permit2SingleParams calldata permitParams,
-        RemoveLiquidityParams calldata params
-    ) external returns (BalanceDelta delta) {
-        PoolKey memory key = _hookPoolKey(params.currency0, params.currency1);
+        PoolKey memory key = _hookPoolKey(currency0, currency1);
         (address liquidityToken,,,) = hook.poolInfo(key.toId());
-        (bytes32 witness, string memory witnessTypeString) = _removeLiquidityPermit2Witness(params);
-        _pullCurrencyWithPermit2(
-            permitParams, msg.sender, liquidityToken, uint256(params.liquidity), witness, witnessTypeString
+        if (!UniswapLP(liquidityToken).transferFrom(msg.sender, address(this), liquidity)) {
+            revert IMemeverseUniswapHook.ERC20TransferFailed();
+        }
+
+        delta = hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: currency0, currency1: currency1, liquidity: liquidity, recipient: address(this)
+            })
         );
 
-        return _removeLiquidity(params, msg.sender, true);
+        (uint256 amount0Out, uint256 amount1Out) = _receivedLiquidityAmounts(delta);
+        if (amount0Out < amount0Min || amount1Out < amount1Min) {
+            revert IMemeverseUniswapHook.TooMuchSlippage();
+        }
+
+        _transferCurrency(currency0, to, amount0Out);
+        _transferCurrency(currency1, to, amount1Out);
     }
 
     /// @notice Claims pending LP fees for the caller through the hook core entrypoint.
     /// @dev The caller may either invoke this directly as owner or provide a signature so the router can relay the claim.
-    /// @param params The user-facing fee-claim parameters.
+    /// @param key The pool key whose fees are being claimed.
+    /// @param recipient Recipient of the claimed fees.
+    /// @param deadline The latest timestamp at which the signature remains valid.
+    /// @param v Signature `v`.
+    /// @param r Signature `r`.
+    /// @param s Signature `s`.
     /// @return fee0Amount The claimed amount of currency0 fees.
     /// @return fee1Amount The claimed amount of currency1 fees.
-    function claimFees(ClaimFeesParams calldata params) external returns (uint256 fee0Amount, uint256 fee1Amount) {
+    function claimFees(PoolKey calldata key, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        override
+        returns (uint256 fee0Amount, uint256 fee1Amount)
+    {
         return hook.claimFeesCore(
             IMemeverseUniswapHook.ClaimFeesCoreParams({
-                key: params.key,
-                owner: msg.sender,
-                recipient: params.recipient,
-                deadline: params.deadline,
-                v: params.v,
-                r: params.r,
-                s: params.s
+                key: key, owner: msg.sender, recipient: recipient, deadline: deadline, v: v, r: r, s: s
             })
         );
     }
@@ -314,30 +296,48 @@ contract MemeverseSwapRouter is SafeCallback {
     /// @notice Initializes a hook-backed pool and seeds its first full-range liquidity position through the hook core.
     /// @dev Pulls the caller's desired budgets, initializes the pool, derives the actual full-range spend, forwards
     /// only the exact required native amount to the hook core, and refunds any unused input budget to
-    /// `params.nativeRefundRecipient`.
-    /// @param params The bootstrap parameters.
+    /// `nativeRefundRecipient`.
+    /// @param tokenA One side of the pool pair.
+    /// @param tokenB The other side of the pool pair.
+    /// @param amountADesired Desired budget for `tokenA`.
+    /// @param amountBDesired Desired budget for `tokenB`.
+    /// @param recipient Recipient of minted LP shares.
+    /// @param nativeRefundRecipient Recipient of any unused native refund.
+    /// @param deadline The latest timestamp at which the call is valid.
     /// @return liquidity The minted LP liquidity.
     /// @return poolKey The initialized pool key.
-    function createPoolAndAddLiquidity(CreatePoolAndAddLiquidityParams calldata params)
-        external
-        payable
-        returns (uint128 liquidity, PoolKey memory poolKey)
-    {
-        return _createPoolAndAddLiquidity(params, msg.sender, msg.sender, false);
-    }
+    function createPoolAndAddLiquidity(
+        address tokenA,
+        address tokenB,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        address recipient,
+        address nativeRefundRecipient,
+        uint256 deadline
+    ) external payable override returns (uint128 liquidity, PoolKey memory poolKey) {
+        if (deadline < block.timestamp) revert ExpiredPastDeadline();
+        if (tokenA == tokenB) revert InvalidTokenPair();
 
-    function createPoolAndAddLiquidityWithPermit2(
-        IMemeverseSwapRouter.Permit2BatchParams calldata permitParams,
-        CreatePoolAndAddLiquidityParams calldata params
-    ) external payable returns (uint128 liquidity, PoolKey memory poolKey) {
-        (address[] memory expectedTokens, uint256[] memory expectedAmounts) =
-            _expectedPermit2TokensForBootstrap(params.tokenA, params.tokenB, params.amountADesired, params.amountBDesired);
-        (bytes32 witness, string memory witnessTypeString) = _createPoolAndAddLiquidityPermit2Witness(params);
-        _pullCurrenciesWithPermit2(
-            permitParams, msg.sender, expectedTokens, expectedAmounts, witness, witnessTypeString
+        (Currency currency0, Currency currency1) = tokenA < tokenB
+            ? (Currency.wrap(tokenA), Currency.wrap(tokenB))
+            : (Currency.wrap(tokenB), Currency.wrap(tokenA));
+        uint256 amount0Desired = tokenA < tokenB ? amountADesired : amountBDesired;
+        uint256 amount1Desired = tokenA < tokenB ? amountBDesired : amountADesired;
+
+        uint256 nativeDesired = tokenA == address(0) ? amountADesired : tokenB == address(0) ? amountBDesired : 0;
+        if (msg.value != nativeDesired) revert IMemeverseUniswapHook.InvalidNativeValue(nativeDesired, msg.value);
+        address refundRecipient = _validatedNativeRefundRecipient(nativeRefundRecipient, msg.value);
+
+        _prepareCurrencyBudget(currency0, msg.sender, amount0Desired);
+        _prepareCurrencyBudget(currency1, msg.sender, amount1Desired);
+
+        uint160 startingPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(amount0Desired, amount1Desired);
+        poolKey = _hookPoolKey(currency0, currency1);
+
+        poolManager.initialize(poolKey, startingPrice);
+        liquidity = _addLiquidityViaHook(
+            poolKey, amount0Desired, amount1Desired, 0, 0, recipient, refundRecipient, nativeDesired, startingPrice
         );
-
-        return _createPoolAndAddLiquidity(params, address(this), msg.sender, true);
     }
 
     /// @dev Executes the actual swap during the manager unlock window and settles the caller delta.
@@ -364,97 +364,6 @@ contract MemeverseSwapRouter is SafeCallback {
 
     receive() external payable {}
 
-    function _swap(
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address recipient,
-        address nativeRefundRecipient,
-        uint256 deadline,
-        uint256 amountOutMinimum,
-        uint256 amountInMaximum,
-        bytes calldata hookData,
-        address trader,
-        address payer,
-        bool inputBudgetPrepared
-    )
-        internal
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason)
-    {
-        if (deadline < block.timestamp) revert ExpiredPastDeadline();
-        if (address(key.hooks) != address(hook)) revert InvalidHook();
-        if (params.amountSpecified == 0) revert SwapAmountCannotBeZero();
-        if (params.amountSpecified > 0 && amountInMaximum == 0) revert AmountInMaximumRequired();
-
-        bool antiSnipeActive = hook.isAntiSnipeActive(key.toId());
-        Currency inputCurrency = _inputCurrency(key, params.zeroForOne);
-        uint256 inputBudget = _swapInputBudget(params, amountInMaximum);
-        uint256 nativeSwapBudget = _nativeSwapBudget(key, params, amountInMaximum);
-        IMemeverseUniswapHook.FailedAttemptQuote memory failedAttemptQuote;
-
-        if (antiSnipeActive) {
-            failedAttemptQuote = hook.quoteFailedAttempt(key, params, inputBudget);
-            if (!inputCurrency.isAddressZero() && inputBudget > 0) {
-                if (!inputBudgetPrepared) {
-                    _pullCurrency(inputCurrency, trader, inputBudget);
-                }
-                _ensureHookApproval(inputCurrency, inputBudget);
-            }
-        }
-
-        if (msg.value != nativeSwapBudget) {
-            revert IMemeverseUniswapHook.InvalidNativeValue(nativeSwapBudget, msg.value);
-        }
-        address refundRecipient = _validatedNativeRefundRecipient(nativeRefundRecipient, msg.value);
-
-        if (antiSnipeActive) {
-            (executed, failureReason) =
-                hook.requestSwapAttempt{value: nativeSwapBudget}(key, params, trader, inputBudget, address(this));
-            if (!executed) {
-                if (!inputCurrency.isAddressZero() && (antiSnipeActive || payer == address(this))) {
-                    _refundUnusedInput(inputCurrency, trader, inputBudget, failedAttemptQuote.feeAmount);
-                }
-                _refundUnusedNative(refundRecipient, nativeSwapBudget, failedAttemptQuote.feeAmount);
-                return (BalanceDeltaLibrary.ZERO_DELTA, false, failureReason);
-            }
-        } else {
-            executed = true;
-            failureReason = IMemeverseUniswapHook.AntiSnipeFailureReason.None;
-        }
-
-        delta = abi.decode(
-            poolManager.unlock(
-                abi.encode(
-                    CallbackData({
-                        payer: antiSnipeActive ? address(this) : payer,
-                        recipient: recipient,
-                        key: key,
-                        params: params,
-                        hookData: hookData
-                    })
-                )
-            ),
-            (BalanceDelta)
-        );
-
-        uint256 actualInputAmount = _actualInputAmount(delta, params.zeroForOne);
-        if (amountInMaximum > 0 && actualInputAmount > amountInMaximum) {
-            revert InputAmountExceedsMaximum(actualInputAmount, amountInMaximum);
-        }
-        if (amountOutMinimum > 0) {
-            uint256 actualOutputAmount = _actualOutputAmount(delta, params.zeroForOne);
-            if (actualOutputAmount < amountOutMinimum) {
-                revert OutputAmountBelowMinimum(actualOutputAmount, amountOutMinimum);
-            }
-        }
-
-        if (!inputCurrency.isAddressZero() && (antiSnipeActive || payer == address(this))) {
-            _refundUnusedInput(inputCurrency, trader, inputBudget, actualInputAmount);
-        }
-        _refundUnusedNative(refundRecipient, msg.value, _nativeSwapInputSpent(key, delta));
-
-        return (delta, true, IMemeverseUniswapHook.AntiSnipeFailureReason.None);
-    }
-
     function _pullCurrency(Currency currency, address from, uint256 amount) internal {
         if (amount == 0 || currency.isAddressZero()) return;
         if (!IERC20Minimal(Currency.unwrap(currency)).transferFrom(from, address(this), amount)) {
@@ -462,166 +371,9 @@ contract MemeverseSwapRouter is SafeCallback {
         }
     }
 
-    function _pullCurrencyWithPermit2(
-        IMemeverseSwapRouter.Permit2SingleParams calldata permitParams,
-        address owner,
-        address token,
-        uint256 amount,
-        bytes32 witness,
-        string memory witnessTypeString
-    ) internal {
-        if (permitParams.permit.permitted.token != token) revert IMemeverseUniswapHook.ERC20TransferFailed();
-        if (permitParams.transferDetails.to != address(this)) revert IMemeverseUniswapHook.ERC20TransferFailed();
-        if (permitParams.transferDetails.requestedAmount != amount) revert IMemeverseUniswapHook.ERC20TransferFailed();
-
-        permit2.permitWitnessTransferFrom(
-            permitParams.permit,
-            permitParams.transferDetails,
-            owner,
-            witness,
-            witnessTypeString,
-            permitParams.signature
-        );
-    }
-
-    function _pullCurrenciesWithPermit2(
-        IMemeverseSwapRouter.Permit2BatchParams calldata permitParams,
-        address owner,
-        address[] memory expectedTokens,
-        uint256[] memory expectedAmounts,
-        bytes32 witness,
-        string memory witnessTypeString
-    ) internal {
-        uint256 expectedLength = expectedTokens.length;
-        if (permitParams.permit.permitted.length != expectedLength || permitParams.transferDetails.length != expectedLength) {
-            revert InvalidPermit2Length();
-        }
-
-        for (uint256 i = 0; i < expectedLength; ++i) {
-            address actualToken = permitParams.permit.permitted[i].token;
-            if (actualToken != expectedTokens[i]) revert InvalidPermit2Token(i, expectedTokens[i], actualToken);
-            if (permitParams.transferDetails[i].to != address(this)) revert IMemeverseUniswapHook.ERC20TransferFailed();
-            if (permitParams.transferDetails[i].requestedAmount != expectedAmounts[i]) {
-                revert IMemeverseUniswapHook.ERC20TransferFailed();
-            }
-        }
-
-        permit2.permitWitnessTransferFrom(
-            permitParams.permit,
-            permitParams.transferDetails,
-            owner,
-            witness,
-            witnessTypeString,
-            permitParams.signature
-        );
-    }
-
     function _prepareCurrencyBudget(Currency currency, address from, uint256 amount) internal {
         _pullCurrency(currency, from, amount);
         _ensureHookApproval(currency, amount);
-    }
-
-    function _addLiquidity(
-        AddLiquidityParams calldata params,
-        address payer,
-        address inputRefundRecipient,
-        bool budgetsPrepared
-    ) internal returns (uint128 liquidity) {
-        if (params.deadline < block.timestamp) revert ExpiredPastDeadline();
-
-        uint256 nativeDesired = params.currency0.isAddressZero()
-            ? params.amount0Desired
-            : params.currency1.isAddressZero() ? params.amount1Desired : 0;
-        if (msg.value != nativeDesired) revert IMemeverseUniswapHook.InvalidNativeValue(nativeDesired, msg.value);
-        address refundRecipient = _validatedNativeRefundRecipient(params.nativeRefundRecipient, msg.value);
-
-        PoolKey memory key = _hookPoolKey(params.currency0, params.currency1);
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
-        return _addLiquidityViaHook(
-            key,
-            params.amount0Desired,
-            params.amount1Desired,
-            params.amount0Min,
-            params.amount1Min,
-            params.to,
-            refundRecipient,
-            nativeDesired,
-            sqrtPriceX96,
-            payer,
-            inputRefundRecipient,
-            budgetsPrepared
-        );
-    }
-
-    function _removeLiquidity(RemoveLiquidityParams calldata params, address payer, bool liquidityPrepared)
-        internal
-        returns (BalanceDelta delta)
-    {
-        if (params.deadline < block.timestamp) revert ExpiredPastDeadline();
-
-        PoolKey memory key = _hookPoolKey(params.currency0, params.currency1);
-        (address liquidityToken,,,) = hook.poolInfo(key.toId());
-        if (!liquidityPrepared) {
-            UniswapLP(liquidityToken).transferFrom(payer, address(this), params.liquidity);
-        }
-
-        delta = hook.removeLiquidityCore(
-            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
-                currency0: params.currency0,
-                currency1: params.currency1,
-                liquidity: params.liquidity,
-                recipient: address(this)
-            })
-        );
-
-        (uint256 amount0Out, uint256 amount1Out) = _receivedLiquidityAmounts(delta);
-        if (amount0Out < params.amount0Min || amount1Out < params.amount1Min) {
-            revert IMemeverseUniswapHook.TooMuchSlippage();
-        }
-
-        _transferCurrency(params.currency0, params.to, amount0Out);
-        _transferCurrency(params.currency1, params.to, amount1Out);
-    }
-
-    function _createPoolAndAddLiquidity(
-        CreatePoolAndAddLiquidityParams calldata params,
-        address payer,
-        address inputRefundRecipient,
-        bool budgetsPrepared
-    ) internal returns (uint128 liquidity, PoolKey memory poolKey) {
-        if (params.deadline < block.timestamp) revert ExpiredPastDeadline();
-        if (params.tokenA == params.tokenB) revert InvalidTokenPair();
-
-        (Currency currency0, Currency currency1) = params.tokenA < params.tokenB
-            ? (Currency.wrap(params.tokenA), Currency.wrap(params.tokenB))
-            : (Currency.wrap(params.tokenB), Currency.wrap(params.tokenA));
-        uint256 amount0Desired = params.tokenA < params.tokenB ? params.amountADesired : params.amountBDesired;
-        uint256 amount1Desired = params.tokenA < params.tokenB ? params.amountBDesired : params.amountADesired;
-
-        uint256 nativeDesired = params.tokenA == address(0)
-            ? params.amountADesired
-            : params.tokenB == address(0) ? params.amountBDesired : 0;
-        if (msg.value != nativeDesired) revert IMemeverseUniswapHook.InvalidNativeValue(nativeDesired, msg.value);
-        address refundRecipient = _validatedNativeRefundRecipient(params.nativeRefundRecipient, msg.value);
-
-        uint160 startingPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(amount0Desired, amount1Desired);
-        poolKey = _hookPoolKey(currency0, currency1);
-
-        poolManager.initialize(poolKey, startingPrice);
-        liquidity = _addLiquidityViaHook(
-            poolKey,
-            amount0Desired,
-            amount1Desired,
-            0,
-            0,
-            params.recipient,
-            refundRecipient,
-            nativeDesired,
-            startingPrice,
-            payer,
-            inputRefundRecipient,
-            budgetsPrepared
-        );
     }
 
     function _addLiquidityViaHook(
@@ -633,18 +385,10 @@ contract MemeverseSwapRouter is SafeCallback {
         address to,
         address refundRecipient,
         uint256 nativeDesired,
-        uint160 sqrtPriceX96,
-        address payer,
-        address inputRefundRecipient,
-        bool budgetsPrepared
+        uint160 sqrtPriceX96
     ) internal returns (uint128 liquidity) {
-        if (budgetsPrepared) {
-            _ensureHookApproval(key.currency0, amount0Desired);
-            _ensureHookApproval(key.currency1, amount1Desired);
-        } else {
-            _prepareCurrencyBudget(key.currency0, payer, amount0Desired);
-            _prepareCurrencyBudget(key.currency1, payer, amount1Desired);
-        }
+        _prepareCurrencyBudget(key.currency0, msg.sender, amount0Desired);
+        _prepareCurrencyBudget(key.currency1, msg.sender, amount1Desired);
 
         (, uint256 quotedAmount0Used, uint256 quotedAmount1Used) =
             LiquidityQuote.quote(sqrtPriceX96, amount0Desired, amount1Desired);
@@ -667,8 +411,8 @@ contract MemeverseSwapRouter is SafeCallback {
             revert IMemeverseUniswapHook.TooMuchSlippage();
         }
 
-        _refundUnusedInput(key.currency0, inputRefundRecipient, amount0Desired, amount0Used);
-        _refundUnusedInput(key.currency1, inputRefundRecipient, amount1Desired, amount1Used);
+        _refundUnusedInput(key.currency0, msg.sender, amount0Desired, amount0Used);
+        _refundUnusedInput(key.currency1, msg.sender, amount1Desired, amount1Used);
         _refundUnusedNative(refundRecipient, nativeDesired, nativeToForward);
     }
 
@@ -780,140 +524,6 @@ contract MemeverseSwapRouter is SafeCallback {
             return uint256(int256(-delta.amount1()));
         }
         return 0;
-    }
-
-    function _swapPermit2Witness(
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address recipient,
-        address nativeRefundRecipient,
-        uint256 deadline,
-        uint256 amountOutMinimum,
-        uint256 amountInMaximum,
-        bytes calldata hookData
-    ) internal pure returns (bytes32 witness, string memory witnessTypeString) {
-        witness = keccak256(
-            abi.encode(
-                key.toId(),
-                params.zeroForOne,
-                params.amountSpecified,
-                params.sqrtPriceLimitX96,
-                recipient,
-                nativeRefundRecipient,
-                deadline,
-                amountOutMinimum,
-                amountInMaximum,
-                keccak256(hookData)
-            )
-        );
-        witnessTypeString =
-            "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
-    }
-
-    function _addLiquidityPermit2Witness(AddLiquidityParams calldata params)
-        internal
-        pure
-        returns (bytes32 witness, string memory witnessTypeString)
-    {
-        witness = keccak256(
-            abi.encode(
-                Currency.unwrap(params.currency0),
-                Currency.unwrap(params.currency1),
-                params.amount0Desired,
-                params.amount1Desired,
-                params.amount0Min,
-                params.amount1Min,
-                params.to,
-                params.nativeRefundRecipient,
-                params.deadline
-            )
-        );
-        witnessTypeString =
-            "MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
-    }
-
-    function _removeLiquidityPermit2Witness(RemoveLiquidityParams calldata params)
-        internal
-        pure
-        returns (bytes32 witness, string memory witnessTypeString)
-    {
-        witness = keccak256(
-            abi.encode(
-                Currency.unwrap(params.currency0),
-                Currency.unwrap(params.currency1),
-                params.liquidity,
-                params.amount0Min,
-                params.amount1Min,
-                params.to,
-                params.deadline
-            )
-        );
-        witnessTypeString =
-            "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
-    }
-
-    function _createPoolAndAddLiquidityPermit2Witness(CreatePoolAndAddLiquidityParams calldata params)
-        internal
-        pure
-        returns (bytes32 witness, string memory witnessTypeString)
-    {
-        witness = keccak256(
-            abi.encode(
-                params.tokenA,
-                params.tokenB,
-                params.amountADesired,
-                params.amountBDesired,
-                params.recipient,
-                params.nativeRefundRecipient,
-                params.deadline
-            )
-        );
-        witnessTypeString =
-            "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
-    }
-
-    function _expectedPermit2CurrenciesForLiquidity(
-        Currency currency0,
-        Currency currency1,
-        uint256 amount0Desired,
-        uint256 amount1Desired
-    ) internal pure returns (address[] memory tokens, uint256[] memory amounts) {
-        uint256 length = currency0.isAddressZero() || currency1.isAddressZero() ? 1 : 2;
-        tokens = new address[](length);
-        amounts = new uint256[](length);
-
-        uint256 index;
-        if (!currency0.isAddressZero()) {
-            tokens[index] = Currency.unwrap(currency0);
-            amounts[index] = amount0Desired;
-            ++index;
-        }
-        if (!currency1.isAddressZero()) {
-            tokens[index] = Currency.unwrap(currency1);
-            amounts[index] = amount1Desired;
-        }
-    }
-
-    function _expectedPermit2TokensForBootstrap(
-        address tokenA,
-        address tokenB,
-        uint256 amountADesired,
-        uint256 amountBDesired
-    ) internal pure returns (address[] memory tokens, uint256[] memory amounts) {
-        uint256 length = tokenA == address(0) || tokenB == address(0) ? 1 : 2;
-        tokens = new address[](length);
-        amounts = new uint256[](length);
-
-        uint256 index;
-        if (tokenA != address(0)) {
-            tokens[index] = tokenA;
-            amounts[index] = amountADesired;
-            ++index;
-        }
-        if (tokenB != address(0)) {
-            tokens[index] = tokenB;
-            amounts[index] = amountBDesired;
-        }
     }
 
     function _transferCurrency(Currency currency, address to, uint256 amount) internal {

@@ -1,0 +1,164 @@
+# SafeCast
+[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/f6152b6dbfadcd8a23a2d518905418243cf2a5e1/src/libraries/SafeCast.sol)
+
+**Title:**
+Safe casting methods
+
+Contains methods for safely casting between types
+
+
+## Functions
+### toUint160
+
+Cast a uint256 to a uint160, revert on overflow
+
+
+```solidity
+function toUint160(uint256 x) internal pure returns (uint160 y);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`uint256`|The uint256 to be downcasted|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`y`|`uint160`|The downcasted integer, now type uint160|
+
+
+### toUint128
+
+Cast a uint256 to a uint128, revert on overflow
+
+
+```solidity
+function toUint128(uint256 x) internal pure returns (uint128 y);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`uint256`|The uint256 to be downcasted|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`y`|`uint128`|The downcasted integer, now type uint128|
+
+
+### toUint128
+
+Cast a int128 to a uint128, revert on overflow or underflow
+
+
+```solidity
+function toUint128(int128 x) internal pure returns (uint128 y);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`int128`|The int128 to be casted|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`y`|`uint128`|The casted integer, now type uint128|
+
+
+### toInt128
+
+Cast a int256 to a int128, revert on overflow or underflow
+
+
+```solidity
+function toInt128(int256 x) internal pure returns (int128 y);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`int256`|The int256 to be downcasted|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`y`|`int128`|The downcasted integer, now type int128|
+
+
+### toInt256
+
+Cast a uint256 to a int256, revert on overflow
+
+
+```solidity
+function toInt256(uint256 x) internal pure returns (int256 y);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`uint256`|The uint256 to be casted|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`y`|`int256`|The casted integer, now type int256|
+
+
+### toInt128
+
+Cast a uint256 to a int128, revert on overflow
+
+
+```solidity
+function toInt128(uint256 x) internal pure returns (int128);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`uint256`|The uint256 to be downcasted|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`<none>`|`int128`|The downcasted integer, now type int128|
+
+
+### abs
+
+Gets the absolute value of an int256, revert if the value is MIN_INT256
+
+
+```solidity
+function abs(int256 x) internal pure returns (uint256 y);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`x`|`int256`|The int256 value|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`y`|`uint256`|The absolute value, now type uint256|
+
+
+## Errors
+### SafeCastOverflow
+
+```solidity
+error SafeCastOverflow();
+```
+

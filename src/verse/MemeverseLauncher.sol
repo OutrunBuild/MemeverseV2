@@ -3,17 +3,14 @@ pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import {ILayerZeroComposer} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroComposer.sol";
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {TokenHelper} from "../common/TokenHelper.sol";
 import {IMemecoin} from "../token/interfaces/IMemecoin.sol";
-import {PoolBootstrapLib, PoolKey} from "../libraries/PoolBootstrapLib.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
 import {IMemeLiquidProof} from "../token/interfaces/IMemeLiquidProof.sol";
 import {IMemeverseCommonInfo} from "./interfaces/IMemeverseCommonInfo.sol";
@@ -29,9 +26,6 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     using PoolIdLibrary for PoolKey;
 
     uint256 public constant RATIO = 10000;
-
-    // Uniswap V4
-    address public liquidityRouter;
 
     address public localLzEndpoint;
     address public memeverseCommonInfo;
@@ -422,38 +416,23 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         // Deploy memecoin liquidity
         uint256 memecoinAmount = totalMemecoinFunds * fundMetaDatas[UPT].fundBasedAmount;
         IMemecoin(memecoin).mint(address(this), memecoinAmount);
-        
-        IMemeverseSwapRouter.CreatePoolAndAddLiquidityParams memory param =
-            IMemeverseSwapRouter.CreatePoolAndAddLiquidityParams({
-            tokenA: memecoin,
-            tokenB: UPT,
-            amountADesired: memecoinAmount,
-            amountBDesired: totalMemecoinFunds,
-            recipient: address(this),
-            nativeRefundRecipient: address(this),
-            deadline: block.timestamp
-        });
-        (uint128 memecoinLiquidity, PoolKey memory poolKey) =
-            IMemeverseSwapRouter(liquidityRouter).createPoolAndAddLiquidity(param);
-        
+
+        (uint128 memecoinLiquidity, PoolKey memory poolKey) = IMemeverseSwapRouter(memeverseSwapRouter)
+            .createPoolAndAddLiquidity(
+                memecoin, UPT, memecoinAmount, totalMemecoinFunds, address(this), address(this), block.timestamp
+            );
+
         // Mint liquidity proof token
         IMemeLiquidProof(pol).mint(address(this), memecoinLiquidity);
         IMemeLiquidProof(pol).setPoolId(poolKey.toId());
 
         // Deploy POL liquidity
         uint256 deployedPOL = memecoinLiquidity / 3;
-        param = IMemeverseSwapRouter.CreatePoolAndAddLiquidityParams({
-            tokenA: pol,
-            tokenB: UPT,
-            amountADesired: deployedPOL,
-            amountBDesired: totalLiquidProofFunds,
-            recipient: address(this),
-            nativeRefundRecipient: address(this),
-            deadline: block.timestamp
-        });
+        (uint128 polLiquidity,) = IMemeverseSwapRouter(memeverseSwapRouter)
+            .createPoolAndAddLiquidity(
+                pol, UPT, deployedPOL, totalLiquidProofFunds, address(this), address(this), block.timestamp
+            );
 
-        (uint128 polLiquidity,) = IMemeverseSwapRouter(liquidityRouter).createPoolAndAddLiquidity(param);
-        
         totalPolLiquidity[verseId] = polLiquidity;
         totalClaimablePOL[verseId] = memecoinLiquidity - deployedPOL;
     }
@@ -676,8 +655,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         // address memecoin = verse.memecoin;
         // _transferIn(UPT, msg.sender, amountInUPTDesired);
         // _transferIn(memecoin, msg.sender, amountInMemecoinDesired);
-        // _safeApproveInf(UPT, liquidityRouter);
-        // _safeApproveInf(memecoin, liquidityRouter);
+        // _safeApproveInf(UPT, memeverseSwapRouter);
+        // _safeApproveInf(memecoin, memeverseSwapRouter);
 
         // if (amountOutDesired == 0) {
         //     (amountInUPT, amountInMemecoin, amountOut) = _addExactTokensForLiquidity(
@@ -806,15 +785,15 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set liquidity router contract
-     * @param _liquidityRouter - Address of liquidityRouter
+     * @dev Set memeverse swap router contract
+     * @param _memeverseSwapRouter - Address of memeverseSwapRouter
      */
-    function setLiquidityRouter(address _liquidityRouter) external override onlyOwner {
-        require(_liquidityRouter != address(0), ZeroInput());
+    function setMemeverseSwapRouter(address _memeverseSwapRouter) external override onlyOwner {
+        require(_memeverseSwapRouter != address(0), ZeroInput());
 
-        liquidityRouter = _liquidityRouter;
+        memeverseSwapRouter = _memeverseSwapRouter;
 
-        emit SetLiquidityRouter(_liquidityRouter);
+        emit SetMemeverseSwapRouter(_memeverseSwapRouter);
     }
 
     /**
@@ -949,7 +928,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 triggerTime,
         uint256 deadline
     ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
-        // (amountInUPT, amountInMemecoin, amountOut) = IMemeverseLiquidityRouter(liquidityRouter).addExactTokensForLiquidity(
+        // (amountInUPT, amountInMemecoin, amountOut) = IMemeverseLiquidityRouter(memeverseSwapRouter).addExactTokensForLiquidity(
         //     UPT,
         //     memecoin,
         //     SWAP_FEERATE,
@@ -971,7 +950,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 amountInMemecoinDesired,
         uint256 deadline
     ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
-        // (amountInUPT, amountInMemecoin, amountOut) = IMemeverseLiquidityRouter(liquidityRouter).addTokensForExactLiquidity(
+        // (amountInUPT, amountInMemecoin, amountOut) = IMemeverseLiquidityRouter(memeverseSwapRouter).addTokensForExactLiquidity(
         //     UPT,
         //     memecoin,
         //     SWAP_FEERATE,

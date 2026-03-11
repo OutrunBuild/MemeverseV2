@@ -6,7 +6,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -15,7 +14,6 @@ import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-cor
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
-import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
@@ -144,7 +142,7 @@ contract MockPoolManagerForRouterTest {
             (bool success,) = to.call{value: amount}("");
             require(success, "native take");
         } else {
-            MockERC20(Currency.unwrap(currency)).transfer(to, amount);
+            require(MockERC20(Currency.unwrap(currency)).transfer(to, amount), "erc20 take");
         }
     }
 
@@ -245,8 +243,7 @@ contract MemeverseSwapRouterTest is Test {
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
         hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, 10, 1);
-        router =
-            new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0)));
+        router = new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)));
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -458,17 +455,15 @@ contract MemeverseSwapRouterTest is Test {
     function testSoftFail_ChargesLpWhenInputIsNotProtocolCurrency() external {
         _setProtocolFeeCurrency(key.currency1);
         router.addLiquidity(
-            MemeverseSwapRouter.AddLiquidityParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                amount0Desired: 100 ether,
-                amount1Desired: 100 ether,
-                amount0Min: 90 ether,
-                amount1Min: 90 ether,
-                to: address(this),
-                nativeRefundRecipient: address(this),
-                deadline: block.timestamp
-            })
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
         );
         IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
             key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), 300 ether
@@ -924,17 +919,7 @@ contract MemeverseSwapRouterTest is Test {
 
         vm.prank(alice);
         router.addLiquidity(
-            MemeverseSwapRouter.AddLiquidityParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                amount0Desired: 100 ether,
-                amount1Desired: 100 ether,
-                amount0Min: 90 ether,
-                amount1Min: 90 ether,
-                to: alice,
-                nativeRefundRecipient: alice,
-                deadline: block.timestamp
-            })
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
         );
 
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
@@ -972,11 +957,7 @@ contract MemeverseSwapRouterTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ALICE_PK, digest);
 
         vm.prank(alice);
-        (uint256 fee0Amount, uint256 fee1Amount) = router.claimFees(
-            MemeverseSwapRouter.ClaimFeesParams({
-                key: key, recipient: alice, deadline: block.timestamp, v: v, r: r, s: s
-            })
-        );
+        (uint256 fee0Amount, uint256 fee1Amount) = router.claimFees(key, alice, block.timestamp, v, r, s);
 
         assertGt(fee0Amount, 0, "fee0 claimed");
         assertEq(fee1Amount, 0, "fee1 claimed");
@@ -992,15 +973,7 @@ contract MemeverseSwapRouterTest is Test {
         tokenB.approve(address(router), type(uint256).max);
 
         (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
-            MemeverseSwapRouter.CreatePoolAndAddLiquidityParams({
-                tokenA: address(tokenA),
-                tokenB: address(tokenB),
-                amountADesired: 100 ether,
-                amountBDesired: 100 ether,
-                recipient: address(this),
-                nativeRefundRecipient: address(this),
-                deadline: block.timestamp
-            })
+            address(tokenA), address(tokenB), 100 ether, 100 ether, address(this), address(this), block.timestamp
         );
 
         (address liquidityToken,,,) = hook.poolInfo(createdKey.toId());

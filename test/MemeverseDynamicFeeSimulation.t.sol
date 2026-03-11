@@ -1,0 +1,670 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.28;
+
+import {Test} from "forge-std/Test.sol";
+import {console2 as console} from "forge-std/console2.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+
+/// @notice Focused CPMM simulation tests for the ewVWAP + PIF + DAMM v2-style volatility fee model.
+contract MemeverseDynamicFeeSimulation is Test {
+    uint256 internal constant PRECISION = 1e18;
+    uint256 internal constant BPS_BASE = 10_000;
+    uint256 internal constant PPM_BASE = 1_000_000;
+    uint256 internal constant Q96 = 1 << 96;
+    uint256 internal constant Q96_SQUARED = Q96 * Q96;
+    uint256 internal constant U = 1e18;
+
+    // x = 2e28 COIN, y = 2e22 USDT => full-range equivalent L ~= sqrt(x*y) = 2e25.
+    uint128 internal constant INITIAL_LIQUIDITY = 2e25;
+    uint160 internal constant INITIAL_SQRT_PRICE_X96 = 79_228_162_514_264_337_593_543_950;
+
+    // Default inputs (raw, decimals=18)
+    uint256 internal constant DEFAULT_ONE_BIG_INPUT_U = 2_000 * U;
+    uint256 internal constant DEFAULT_ATTACK_TOTAL_INPUT_U = 2_000 * U;
+    uint256 internal constant DEFAULT_VICTIM_INPUT_U = 100 * U;
+    uint256 internal constant DEFAULT_HIGH_FREQUENCY_INPUT_U = 100 * U;
+    uint256 internal constant DEFAULT_ATTACK_BATCH_N = 300;
+    uint256 internal constant DEFAULT_HIGH_FREQUENCY_SWAPS = 300;
+    uint256 internal constant DEFAULT_HIGH_FREQUENCY_INTERVAL_SEC = 1;
+    uint256 internal constant DEFAULT_INITIAL_LIQUIDITY_SCALE_X = 1;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_DURATION_SEC = 3600;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_MIN_TX_PER_SEC = 1;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_MAX_TX_PER_SEC = 5;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_MAX_FEE_BPS = 500;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_BUY_BIAS_PPM = 600_000;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_ORDER_SCALE_X = 1;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_SEED = 42;
+
+    struct PoolConfig {
+        uint24 alpha;
+        uint24 dffMaxPpm;
+        uint24 baseFeeBps;
+        uint24 maxFeeBps;
+        uint24 pifCapPpm;
+        uint24 volDeviationStepBps;
+        uint24 volFilterPeriodSec;
+        uint24 volDecayPeriodSec;
+        uint24 volDecayFactorBps;
+        uint24 volQuadraticFeeControl;
+        uint24 volMaxDeviationAccumulator;
+        uint24 shortDecayWindowSec;
+        uint24 shortCoeffBps;
+        uint24 shortFloorPpm;
+        uint24 shortCapPpm;
+    }
+
+    struct EWVWAPParams {
+        uint256 weightedVolume0;
+        uint256 weightedPriceVolume0;
+        uint256 ewVWAPX18;
+        uint160 volAnchorSqrtPriceX96;
+        uint256 volDeviationAccumulator;
+        uint256 volCarryAccumulator;
+        uint256 volLastMoveTs;
+        uint256 shortImpactPpm;
+        uint256 shortLastTs;
+    }
+
+    struct BatchRatioObservation {
+        uint256 n;
+        uint256 ratioPpm;
+        uint256 oneBigFeeAmount;
+        uint256 oneBigFeeBps;
+        uint256 oneBigImpactBps;
+        uint256 batchFeeAmount;
+        uint256 batchAvgFeeBps;
+        uint256 batchMaxFeeBps;
+        uint256 batchAvgImpactBps;
+        uint256 batchMaxImpactBps;
+    }
+
+    struct MixedObservation {
+        uint256 attackerN;
+        uint256 attackerTotalInputU;
+        uint256 attackerPerSwapInputU;
+        uint256 attackerLastSwapInputU;
+        uint256 attackerAvgFeeBps;
+        uint256 attackerMaxFeeBps;
+        uint256 attackerEffectiveFeeBps;
+        uint256 attackerAvgImpactBps;
+        uint256 attackerMaxImpactBps;
+        uint256 victimInputU;
+        uint256 baselineVictimFeeBps;
+        uint256 victimFeeWithHistoryBps;
+        uint256 victimFeeNoHistoryBps;
+        uint256 baselineVictimImpactBps;
+        uint256 victimImpactWithHistoryBps;
+        uint256 victimImpactNoHistoryBps;
+    }
+
+    struct RetailFlowObservation {
+        uint256 durationSec;
+        uint256 minTxPerSec;
+        uint256 maxTxPerSec;
+        uint256 feeToleranceBps;
+        uint256 candidateTrades;
+        uint256 executedTrades;
+        uint256 rejectedTrades;
+        uint256 buyTrades;
+        uint256 sellTrades;
+        uint256 candidateVolumeU;
+        uint256 executedVolumeU;
+        uint256 rejectedVolumeU;
+        uint256 avgQuotedFeeBps;
+        uint256 avgExecutedFeeBps;
+        uint256 maxQuotedFeeBps;
+        uint256 lastExecutedFeeBps;
+        uint256 lastExecutedImpactBps;
+    }
+
+    PoolConfig internal cfg;
+    EWVWAPParams internal ewState;
+    uint160 internal simPrice;
+    uint128 internal simLiquidity;
+    uint128 internal initialLiquidity;
+    uint256 internal retailFlowOrderScaleX;
+
+    /// @notice Initializes the default CPMM dynamic-fee parameters used by each simulation.
+    /// @dev Runs before each test to reset the config to the current baseline tuning.
+    function setUp() external {
+        uint256 initialLiquidityScaleX =
+            vm.envOr("INITIAL_LIQUIDITY_SCALE_X", uint256(DEFAULT_INITIAL_LIQUIDITY_SCALE_X));
+        initialLiquidity = uint128(uint256(INITIAL_LIQUIDITY) * initialLiquidityScaleX);
+        retailFlowOrderScaleX = vm.envOr("RETAIL_FLOW_ORDER_SCALE_X", uint256(DEFAULT_RETAIL_FLOW_ORDER_SCALE_X));
+
+        cfg = PoolConfig({
+            alpha: 500_000,
+            dffMaxPpm: 800_000,
+            baseFeeBps: 100,
+            maxFeeBps: 10_000,
+            pifCapPpm: 60_000,
+            volDeviationStepBps: 1,
+            volFilterPeriodSec: 10,
+            volDecayPeriodSec: 60,
+            volDecayFactorBps: 5_000,
+            volQuadraticFeeControl: 4_500_000,
+            volMaxDeviationAccumulator: 350_000,
+            shortDecayWindowSec: 15,
+            shortCoeffBps: 2_000,
+            shortFloorPpm: 20_000,
+            shortCapPpm: 150_000
+        });
+    }
+
+    function _resetSimulation() internal {
+        simLiquidity = initialLiquidity;
+        simPrice = INITIAL_SQRT_PRICE_X96;
+        ewState = EWVWAPParams({
+            weightedVolume0: 0,
+            weightedPriceVolume0: 0,
+            ewVWAPX18: 0,
+            volAnchorSqrtPriceX96: 0,
+            volDeviationAccumulator: 0,
+            volCarryAccumulator: 0,
+            volLastMoveTs: 0,
+            shortImpactPpm: 0,
+            shortLastTs: 0
+        });
+    }
+
+    function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : b - a;
+    }
+
+    function _spotX18FromSqrtPrice(uint160 sqrtPriceX96) internal pure returns (uint256) {
+        uint256 ratioX18 = FullMath.mulDiv(uint256(sqrtPriceX96), PRECISION, Q96);
+        return FullMath.mulDiv(ratioX18, uint256(sqrtPriceX96), Q96);
+    }
+
+    function _priceMovePpm(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
+        (uint256 upper, uint256 lower) = preSqrtPrice > postSqrtPrice
+            ? (uint256(preSqrtPrice), uint256(postSqrtPrice))
+            : (uint256(postSqrtPrice), uint256(preSqrtPrice));
+        uint256 sqrtRatioPpm = FullMath.mulDiv(upper, PPM_BASE, lower);
+        uint256 priceRatioPpm = FullMath.mulDiv(sqrtRatioPpm, sqrtRatioPpm, PPM_BASE);
+        return priceRatioPpm > PPM_BASE ? priceRatioPpm - PPM_BASE : 0;
+    }
+
+    function _ppmToBps(uint256 ppm) internal pure returns (uint256) {
+        return ppm / (PPM_BASE / BPS_BASE);
+    }
+
+    function _decayLinearPpm(uint256 accumulatorPpm, uint256 lastTs) internal view returns (uint256) {
+        if (accumulatorPpm == 0 || cfg.shortDecayWindowSec == 0 || lastTs == 0) return 0;
+        if (block.timestamp <= lastTs) return accumulatorPpm;
+        uint256 elapsed = block.timestamp - lastTs;
+        if (elapsed >= cfg.shortDecayWindowSec) return 0;
+        return (accumulatorPpm * (uint256(cfg.shortDecayWindowSec) - elapsed)) / uint256(cfg.shortDecayWindowSec);
+    }
+
+    function _refreshVolatilityAnchorAndCarry(uint160 prePrice) internal {
+        if (ewState.volAnchorSqrtPriceX96 == 0) {
+            ewState.volAnchorSqrtPriceX96 = prePrice;
+        }
+
+        uint256 elapsed = block.timestamp > ewState.volLastMoveTs ? block.timestamp - ewState.volLastMoveTs : 0;
+        if (elapsed < cfg.volFilterPeriodSec) return;
+
+        ewState.volAnchorSqrtPriceX96 = prePrice;
+        if (ewState.volLastMoveTs != 0 && elapsed < cfg.volDecayPeriodSec) {
+            ewState.volCarryAccumulator = (ewState.volDeviationAccumulator * cfg.volDecayFactorBps) / BPS_BASE;
+        } else {
+            ewState.volCarryAccumulator = 0;
+        }
+    }
+
+    function _volatilityDeltaSteps(uint160 referencePrice, uint160 currentPrice) internal view returns (uint256) {
+        if (referencePrice == 0 || currentPrice == 0 || cfg.volDeviationStepBps == 0) return 0;
+
+        (uint256 upper, uint256 lower) = referencePrice > currentPrice
+            ? (uint256(referencePrice), uint256(currentPrice))
+            : (uint256(currentPrice), uint256(referencePrice));
+        uint256 sqrtRatioX18 = (upper * PRECISION) / lower;
+        if (sqrtRatioX18 <= PRECISION) return 0;
+
+        return ((sqrtRatioX18 - PRECISION) * BPS_BASE * 2) / (uint256(cfg.volDeviationStepBps) * PRECISION);
+    }
+
+    function _volatilityQuadraticFeeBps() internal view returns (uint256) {
+        if (ewState.volDeviationAccumulator == 0 || cfg.volDeviationStepBps == 0 || cfg.volQuadraticFeeControl == 0) {
+            return 0;
+        }
+
+        uint256 scaledAccumulator = ewState.volDeviationAccumulator * uint256(cfg.volDeviationStepBps);
+        scaledAccumulator *= scaledAccumulator;
+        uint256 variableFeeNumerator =
+            (scaledAccumulator * uint256(cfg.volQuadraticFeeControl) + 100_000_000_000 - 1) / 100_000_000_000;
+        return variableFeeNumerator / 100_000;
+    }
+
+    function _predictPostSqrtPrice(uint160 preSqrtPriceX96, bool zeroForOne, uint256 amountIn)
+        internal
+        view
+        returns (uint160)
+    {
+        if (zeroForOne) {
+            uint256 reserveIn = (uint256(simLiquidity) * uint256(preSqrtPriceX96)) / Q96;
+            uint256 newReserveIn = reserveIn + amountIn;
+            uint256 next = FullMath.mulDiv(uint256(simLiquidity), Q96, newReserveIn);
+            return next == 0 ? 1 : uint160(next);
+        }
+
+        uint256 delta = (amountIn * Q96) / uint256(simLiquidity);
+        uint256 candidate = uint256(preSqrtPriceX96) + delta;
+        return candidate > type(uint160).max ? type(uint160).max : uint160(candidate);
+    }
+
+    function _rand(uint256 seed, uint256 secondIndex, uint256 tradeIndex, uint256 salt)
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(keccak256(abi.encode(seed, secondIndex, tradeIndex, salt)));
+    }
+
+    function _sampleRetailTradeInputU(uint256 seed, uint256 secondIndex, uint256 tradeIndex)
+        internal
+        view
+        returns (uint256 inputU)
+    {
+        uint256 bucket = _rand(seed, secondIndex, tradeIndex, 1) % 100;
+        uint256 draw = _rand(seed, secondIndex, tradeIndex, 2);
+
+        if (bucket < 70) {
+            return ((10 + (draw % 91)) * U) * retailFlowOrderScaleX;
+        }
+        if (bucket < 95) {
+            return ((100 + (draw % 401)) * U) * retailFlowOrderScaleX;
+        }
+        return ((500 + (draw % 1_501)) * U) * retailFlowOrderScaleX;
+    }
+
+    function _quoteDynamicFeeBps(uint160 prePrice, uint160 postPrice)
+        internal
+        view
+        returns (uint256 feeBps, uint256 pifPpm)
+    {
+        feeBps = cfg.baseFeeBps;
+        pifPpm = _priceMovePpm(prePrice, postPrice);
+
+        bool hasHistory = ewState.weightedVolume0 > 0 && ewState.ewVWAPX18 > 0;
+        if (hasHistory) {
+            uint256 spotBefore = _spotX18FromSqrtPrice(prePrice);
+            uint256 spotAfter = _spotX18FromSqrtPrice(postPrice);
+            uint256 distBefore = _absDiff(spotBefore, ewState.ewVWAPX18);
+            uint256 distAfter = _absDiff(spotAfter, ewState.ewVWAPX18);
+            if (distAfter <= distBefore) return (feeBps, pifPpm);
+        }
+
+        uint256 cappedPif = pifPpm > cfg.pifCapPpm ? cfg.pifCapPpm : pifPpm;
+        uint256 satPpm = (cappedPif * PPM_BASE) / (cappedPif + cfg.pifCapPpm);
+        uint256 dffPpm = (uint256(cfg.dffMaxPpm) * satPpm) / PPM_BASE;
+        uint256 dynamicPpm = (dffPpm * cappedPif) / PPM_BASE;
+        uint256 dynamicPartBps = _ppmToBps(dynamicPpm);
+
+        uint256 volPartBps = _volatilityQuadraticFeeBps();
+
+        uint256 decayedShortPpm = _decayLinearPpm(ewState.shortImpactPpm, ewState.shortLastTs);
+        uint256 projectedShortPpm = decayedShortPpm + pifPpm;
+        if (projectedShortPpm > cfg.shortCapPpm) projectedShortPpm = cfg.shortCapPpm;
+        uint256 chargeableShortPpm = projectedShortPpm > cfg.shortFloorPpm ? projectedShortPpm - cfg.shortFloorPpm : 0;
+        uint256 shortPartBps = (chargeableShortPpm * uint256(cfg.shortCoeffBps)) / PPM_BASE;
+
+        feeBps = uint256(cfg.baseFeeBps) + dynamicPartBps + volPartBps + shortPartBps;
+        if (feeBps > cfg.maxFeeBps) feeBps = cfg.maxFeeBps;
+    }
+
+    function _updateStateAfterSwap(uint160 postPrice, uint256 volume0, uint256 pifPpm) internal {
+        uint256 decayedShortPpm = _decayLinearPpm(ewState.shortImpactPpm, ewState.shortLastTs);
+        uint256 updatedShortPpm = decayedShortPpm + pifPpm;
+        if (updatedShortPpm > cfg.shortCapPpm) updatedShortPpm = cfg.shortCapPpm;
+        ewState.shortImpactPpm = updatedShortPpm;
+        ewState.shortLastTs = block.timestamp;
+
+        uint256 deltaSteps = _volatilityDeltaSteps(ewState.volAnchorSqrtPriceX96, postPrice);
+        uint256 updatedVolAccumulator = ewState.volCarryAccumulator + deltaSteps * BPS_BASE;
+        if (updatedVolAccumulator > cfg.volMaxDeviationAccumulator) {
+            updatedVolAccumulator = cfg.volMaxDeviationAccumulator;
+        }
+        ewState.volDeviationAccumulator = updatedVolAccumulator;
+        if (deltaSteps > 0) {
+            ewState.volLastMoveTs = block.timestamp;
+        }
+
+        uint256 spotX18 = _spotX18FromSqrtPrice(postPrice);
+        uint256 priceVolume = (volume0 * spotX18) / PRECISION;
+
+        if (ewState.weightedVolume0 == 0) {
+            ewState.weightedVolume0 = volume0;
+            ewState.weightedPriceVolume0 = priceVolume;
+            ewState.ewVWAPX18 = spotX18;
+        } else {
+            uint256 alpha = cfg.alpha;
+            uint256 alphaR = PPM_BASE - alpha;
+            ewState.weightedVolume0 = (alpha * volume0 + alphaR * ewState.weightedVolume0) / PPM_BASE;
+            ewState.weightedPriceVolume0 = (alpha * priceVolume + alphaR * ewState.weightedPriceVolume0) / PPM_BASE;
+            ewState.ewVWAPX18 = (ewState.weightedPriceVolume0 * PRECISION) / ewState.weightedVolume0;
+        }
+    }
+
+    function _simulateOneSwap(uint256 inputU, bool zeroForOne)
+        internal
+        returns (uint256 feeBps, uint256 impactBps, uint256 feeAmount, uint256 volume0)
+    {
+        uint160 pre = simPrice;
+        uint160 post = _predictPostSqrtPrice(pre, zeroForOne, inputU);
+        _refreshVolatilityAnchorAndCarry(pre);
+
+        uint256 pifPpm;
+        (feeBps, pifPpm) = _quoteDynamicFeeBps(pre, post);
+
+        feeAmount = (inputU * feeBps) / BPS_BASE;
+        impactBps = _ppmToBps(pifPpm);
+
+        if (zeroForOne) {
+            volume0 = inputU;
+        } else {
+            uint256 reserve0Before = (uint256(simLiquidity) * Q96) / uint256(pre);
+            uint256 reserve0After = (uint256(simLiquidity) * Q96) / uint256(post);
+            volume0 = reserve0Before > reserve0After ? reserve0Before - reserve0After : reserve0After - reserve0Before;
+        }
+
+        _updateStateAfterSwap(post, volume0, pifPpm);
+        simPrice = post;
+    }
+
+    function _observeBatchRatio(uint256 totalInputU, uint256 n, uint256 intervalSec)
+        internal
+        returns (BatchRatioObservation memory out)
+    {
+        require(n > 0, "n=0");
+
+        out.n = n;
+
+        _resetSimulation();
+        (out.oneBigFeeBps, out.oneBigImpactBps, out.oneBigFeeAmount,) = _simulateOneSwap(totalInputU, false);
+
+        _resetSimulation();
+        uint256 basePer = totalInputU / n;
+        uint256 rem = totalInputU % n;
+        uint256 sumFee;
+        uint256 sumImpact;
+
+        for (uint256 i = 1; i <= n; i++) {
+            uint256 thisInput = basePer;
+            if (i == n) thisInput += rem;
+
+            (uint256 feeBps, uint256 impactBps, uint256 feeAmount,) = _simulateOneSwap(thisInput, false);
+            out.batchFeeAmount += feeAmount;
+            sumFee += feeBps;
+            sumImpact += impactBps;
+            if (feeBps > out.batchMaxFeeBps) out.batchMaxFeeBps = feeBps;
+            if (impactBps > out.batchMaxImpactBps) out.batchMaxImpactBps = impactBps;
+            if (intervalSec > 0 && i < n) vm.warp(block.timestamp + intervalSec);
+        }
+
+        out.batchAvgFeeBps = sumFee / n;
+        out.batchAvgImpactBps = sumImpact / n;
+        out.ratioPpm = out.oneBigFeeAmount == 0 ? 0 : (out.batchFeeAmount * PPM_BASE) / out.oneBigFeeAmount;
+    }
+
+    function _simulateMixedScenario(
+        uint256 attackerN,
+        uint256 attackerTotalInputU,
+        uint256 victimInputU,
+        bool perSecond
+    ) internal returns (MixedObservation memory out) {
+        require(attackerN > 0, "attackerN=0");
+
+        out.attackerN = attackerN;
+        out.attackerTotalInputU = attackerTotalInputU;
+        out.attackerPerSwapInputU = attackerTotalInputU / attackerN;
+        out.attackerLastSwapInputU = out.attackerPerSwapInputU + (attackerTotalInputU % attackerN);
+        out.victimInputU = victimInputU;
+
+        _resetSimulation();
+        (out.baselineVictimFeeBps, out.baselineVictimImpactBps,,) = _simulateOneSwap(victimInputU, false);
+
+        _resetSimulation();
+        uint256 sumFee;
+        uint256 sumImpact;
+        uint256 totalAttackerFee;
+
+        for (uint256 i = 1; i <= attackerN; i++) {
+            uint256 thisInput = out.attackerPerSwapInputU;
+            if (i == attackerN) thisInput += attackerTotalInputU % attackerN;
+
+            (uint256 feeBps, uint256 impactBps, uint256 feeAmount,) = _simulateOneSwap(thisInput, false);
+            totalAttackerFee += feeAmount;
+            sumFee += feeBps;
+            sumImpact += impactBps;
+            if (feeBps > out.attackerMaxFeeBps) out.attackerMaxFeeBps = feeBps;
+            if (impactBps > out.attackerMaxImpactBps) out.attackerMaxImpactBps = impactBps;
+
+            if (perSecond && i < attackerN) vm.warp(block.timestamp + 1);
+        }
+
+        out.attackerAvgFeeBps = sumFee / attackerN;
+        out.attackerAvgImpactBps = sumImpact / attackerN;
+        out.attackerEffectiveFeeBps = (totalAttackerFee * BPS_BASE) / attackerTotalInputU;
+
+        if (perSecond) vm.warp(block.timestamp + 1);
+        (out.victimFeeWithHistoryBps, out.victimImpactWithHistoryBps,,) = _simulateOneSwap(victimInputU, false);
+
+        uint160 preservedPrice = simPrice;
+        _resetSimulation();
+        simPrice = preservedPrice;
+        (out.victimFeeNoHistoryBps, out.victimImpactNoHistoryBps,,) = _simulateOneSwap(victimInputU, false);
+    }
+
+    function _simulateRetailFlow(
+        uint256 durationSec,
+        uint256 minTxPerSec,
+        uint256 maxTxPerSec,
+        uint256 feeToleranceBps,
+        uint256 buyBiasPpm,
+        uint256 seed
+    ) internal returns (RetailFlowObservation memory out) {
+        require(durationSec > 0, "duration=0");
+        require(minTxPerSec > 0, "minTx=0");
+        require(minTxPerSec <= maxTxPerSec, "txRange");
+        require(feeToleranceBps <= cfg.maxFeeBps, "feeTolerance");
+        require(buyBiasPpm <= PPM_BASE, "buyBias");
+
+        out.durationSec = durationSec;
+        out.minTxPerSec = minTxPerSec;
+        out.maxTxPerSec = maxTxPerSec;
+        out.feeToleranceBps = feeToleranceBps;
+
+        _resetSimulation();
+
+        uint256 sumQuotedFeeBps;
+        uint256 sumExecutedFeeBps;
+
+        for (uint256 secondIndex = 0; secondIndex < durationSec; secondIndex++) {
+            if (secondIndex > 0) vm.warp(block.timestamp + 1);
+
+            uint256 txCountThisSecond = minTxPerSec + (_rand(seed, secondIndex, 0, 3) % (maxTxPerSec - minTxPerSec + 1));
+
+            for (uint256 tradeIndex = 0; tradeIndex < txCountThisSecond; tradeIndex++) {
+                bool zeroForOne = (_rand(seed, secondIndex, tradeIndex, 4) % PPM_BASE) >= buyBiasPpm;
+                uint256 inputU = _sampleRetailTradeInputU(seed, secondIndex, tradeIndex);
+
+                out.candidateTrades++;
+                out.candidateVolumeU += inputU;
+                if (zeroForOne) out.sellTrades++;
+                else out.buyTrades++;
+
+                uint160 prePrice = simPrice;
+                uint160 postPrice = _predictPostSqrtPrice(prePrice, zeroForOne, inputU);
+                (uint256 quotedFeeBps,) = _quoteDynamicFeeBps(prePrice, postPrice);
+
+                sumQuotedFeeBps += quotedFeeBps;
+                if (quotedFeeBps > out.maxQuotedFeeBps) out.maxQuotedFeeBps = quotedFeeBps;
+
+                if (quotedFeeBps > feeToleranceBps) {
+                    out.rejectedTrades++;
+                    out.rejectedVolumeU += inputU;
+                    continue;
+                }
+
+                (uint256 feeBps, uint256 impactBps,,) = _simulateOneSwap(inputU, zeroForOne);
+                out.executedTrades++;
+                out.executedVolumeU += inputU;
+                out.lastExecutedFeeBps = feeBps;
+                out.lastExecutedImpactBps = impactBps;
+                sumExecutedFeeBps += feeBps;
+            }
+        }
+
+        out.avgQuotedFeeBps = out.candidateTrades == 0 ? 0 : sumQuotedFeeBps / out.candidateTrades;
+        out.avgExecutedFeeBps = out.executedTrades == 0 ? 0 : sumExecutedFeeBps / out.executedTrades;
+    }
+
+    function _logBatchObservation(BatchRatioObservation memory obs, bool verbose) internal pure {
+        console.log("N:", obs.n);
+        console.log("ratioPpm:", obs.ratioPpm);
+        console.log("oneBigFeeBps:", obs.oneBigFeeBps);
+        console.log("batchAvgFeeBps:", obs.batchAvgFeeBps);
+        console.log("batchMaxFeeBps:", obs.batchMaxFeeBps);
+        if (!verbose) return;
+        console.log("oneBigFeeAmount:", obs.oneBigFeeAmount);
+        console.log("oneBigImpactBps:", obs.oneBigImpactBps);
+        console.log("batchFeeAmount:", obs.batchFeeAmount);
+        console.log("batchAvgImpactBps:", obs.batchAvgImpactBps);
+        console.log("batchMaxImpactBps:", obs.batchMaxImpactBps);
+    }
+
+    function _logMixedObservation(string memory title, MixedObservation memory obs, bool verbose) internal pure {
+        console.log(title);
+        console.log("attackerN:", obs.attackerN);
+        console.log("attackerEffectiveFeeBps:", obs.attackerEffectiveFeeBps);
+        console.log("attackerAvgFeeBps:", obs.attackerAvgFeeBps);
+        console.log("attackerMaxFeeBps:", obs.attackerMaxFeeBps);
+        console.log("baselineVictimFeeBps:", obs.baselineVictimFeeBps);
+        console.log("victimFeeWithHistoryBps:", obs.victimFeeWithHistoryBps);
+        console.log("victimFeeNoHistoryBps:", obs.victimFeeNoHistoryBps);
+        if (!verbose) return;
+        console.log("attackerTotalInputU:", obs.attackerTotalInputU);
+        console.log("attackerPerSwapInputU:", obs.attackerPerSwapInputU);
+        console.log("attackerLastSwapInputU:", obs.attackerLastSwapInputU);
+        console.log("attackerAvgImpactBps:", obs.attackerAvgImpactBps);
+        console.log("attackerMaxImpactBps:", obs.attackerMaxImpactBps);
+        console.log("victimInputU:", obs.victimInputU);
+        console.log("baselineVictimImpactBps:", obs.baselineVictimImpactBps);
+        console.log("victimImpactWithHistoryBps:", obs.victimImpactWithHistoryBps);
+        console.log("victimImpactNoHistoryBps:", obs.victimImpactNoHistoryBps);
+    }
+
+    function _logRetailFlowObservation(RetailFlowObservation memory obs) internal pure {
+        console.log("=== CPMM retail flow ===");
+        console.log("durationSec:", obs.durationSec);
+        console.log("candidateTrades:", obs.candidateTrades);
+        console.log("executedTrades:", obs.executedTrades);
+        console.log("rejectedTrades:", obs.rejectedTrades);
+        console.log("buyTrades:", obs.buyTrades);
+        console.log("sellTrades:", obs.sellTrades);
+        console.log("candidateVolumeU:", obs.candidateVolumeU);
+        console.log("executedVolumeU:", obs.executedVolumeU);
+        console.log("rejectedVolumeU:", obs.rejectedVolumeU);
+        console.log("avgQuotedFeeBps:", obs.avgQuotedFeeBps);
+        console.log("avgExecutedFeeBps:", obs.avgExecutedFeeBps);
+        console.log("maxQuotedFeeBps:", obs.maxQuotedFeeBps);
+        console.log("lastExecutedFeeBps:", obs.lastExecutedFeeBps);
+        console.log("lastExecutedImpactBps:", obs.lastExecutedImpactBps);
+    }
+
+    /// @notice Spec: runs the batch-ratio observation sequentially for every split count from 1 to 100.
+    /// @dev Uses the same total input for every point and warps one second between split swaps.
+    /// @dev Example: forge test --match-test testCPMM_ObserveBatchRatio_Range -vv
+    function testCPMM_ObserveBatchRatio_Range() external {
+        uint256 totalInputU = vm.envOr("ONE_BIG_INPUT_U", uint256(DEFAULT_ONE_BIG_INPUT_U));
+        bool verbose = vm.envOr("LOG_VERBOSE", false);
+        uint256 intervalSec = 1;
+
+        console.log("=== CPMM batch ratio (range) ===");
+        console.log("totalInputU:", totalInputU);
+        console.log("intervalSec:", intervalSec);
+
+        for (uint256 n = 1; n <= 100; n++) {
+            BatchRatioObservation memory obs = _observeBatchRatio(totalInputU, n, intervalSec);
+            _logBatchObservation(obs, verbose);
+        }
+    }
+
+    /// @notice Spec: measures same-block batch splitting and the fee paid by a small victim swap immediately after.
+    /// @dev Uses the accumulated short-term state from the attack sequence before quoting the victim swap.
+    function testCPMM_Mixed_SameBlockBatchThenVictimSmall() external {
+        uint256 attackerN = vm.envOr("ATTACK_BATCH_N", uint256(DEFAULT_ATTACK_BATCH_N));
+        uint256 attackerTotalInputU = vm.envOr("ATTACK_TOTAL_INPUT", uint256(DEFAULT_ATTACK_TOTAL_INPUT_U));
+        uint256 victimInputU = vm.envOr("VICTIM_INPUT", uint256(DEFAULT_VICTIM_INPUT_U));
+        bool verbose = vm.envOr("LOG_VERBOSE", false);
+
+        MixedObservation memory obs = _simulateMixedScenario(attackerN, attackerTotalInputU, victimInputU, false);
+        _logMixedObservation("=== CPMM mixed #1: same-block split + victim small ===", obs, verbose);
+
+        assertGe(
+            obs.victimFeeWithHistoryBps, obs.victimFeeNoHistoryBps, "victim fee with history should be >= no-history"
+        );
+    }
+
+    /// @notice Spec: simulates repeated regular high-frequency swaps and observes the steady-state fee level.
+    /// @dev Uses a fixed per-swap notional and fixed cadence to expose how the dynamic state builds over time.
+    function testCPMM_HighFrequency() external {
+        uint256 swaps = vm.envOr("HIGH_FREQUENCY_SWAPS", uint256(DEFAULT_HIGH_FREQUENCY_SWAPS));
+        uint256 perSwapInputU = vm.envOr("HIGH_FREQUENCY_INPUT_U", uint256(DEFAULT_HIGH_FREQUENCY_INPUT_U));
+        uint256 intervalSec = vm.envOr("HIGH_FREQUENCY_INTERVAL_SEC", uint256(DEFAULT_HIGH_FREQUENCY_INTERVAL_SEC));
+        bool logSampleOrders = vm.envOr("LOG_SAMPLE_ORDERS", false);
+
+        _resetSimulation();
+
+        uint256 lastFeeBps;
+        uint256 lastImpactBps;
+        uint256 sumFeeBps;
+
+        for (uint256 i = 1; i <= swaps; i++) {
+            (lastFeeBps, lastImpactBps,,) = _simulateOneSwap(perSwapInputU, false);
+            sumFeeBps += lastFeeBps;
+
+            if (logSampleOrders && (swaps <= 200 || i == 1 || i == swaps / 2 || i == swaps)) {
+                console.log("order:", i);
+                console.log("inputU:", perSwapInputU);
+                console.log("impactBps:", lastImpactBps);
+                console.log("feeBps:", lastFeeBps);
+            }
+
+            if (intervalSec > 0 && i < swaps) vm.warp(block.timestamp + intervalSec);
+        }
+
+        console.log("=== CPMM high-frequency ===");
+        console.log("swaps:", swaps);
+        console.log("perSwapInputU:", perSwapInputU);
+        console.log("intervalSec:", intervalSec);
+        console.log("totalInputU:", perSwapInputU * swaps);
+        console.log("lastImpactBps:", lastImpactBps);
+        console.log("lastFeeBps:", lastFeeBps);
+        console.log("avgFeeBps:", sumFeeBps / swaps);
+
+        assertGe(lastFeeBps, cfg.baseFeeBps, "last fee should stay >= base");
+        assertLe(lastFeeBps, cfg.maxFeeBps, "last fee should stay <= max");
+    }
+
+    /// @notice Spec: simulates one hour of retail-like random flow with 1-5 trades per second and a 5% fee ceiling.
+    /// @dev Candidate users refuse any trade whose quoted fee is above `feeToleranceBps`.
+    function testCPMM_RetailFlow_OneHour_Random1To5PerSecond_5PctTolerance() external {
+        uint256 durationSec = vm.envOr("RETAIL_FLOW_DURATION_SEC", uint256(DEFAULT_RETAIL_FLOW_DURATION_SEC));
+        uint256 minTxPerSec = vm.envOr("RETAIL_FLOW_MIN_TX_PER_SEC", uint256(DEFAULT_RETAIL_FLOW_MIN_TX_PER_SEC));
+        uint256 maxTxPerSec = vm.envOr("RETAIL_FLOW_MAX_TX_PER_SEC", uint256(DEFAULT_RETAIL_FLOW_MAX_TX_PER_SEC));
+        uint256 feeToleranceBps = vm.envOr("RETAIL_FLOW_MAX_FEE_BPS", uint256(DEFAULT_RETAIL_FLOW_MAX_FEE_BPS));
+        uint256 buyBiasPpm = vm.envOr("RETAIL_FLOW_BUY_BIAS_PPM", uint256(DEFAULT_RETAIL_FLOW_BUY_BIAS_PPM));
+        uint256 seed = vm.envOr("RETAIL_FLOW_SEED", uint256(DEFAULT_RETAIL_FLOW_SEED));
+
+        RetailFlowObservation memory obs =
+            _simulateRetailFlow(durationSec, minTxPerSec, maxTxPerSec, feeToleranceBps, buyBiasPpm, seed);
+        _logRetailFlowObservation(obs);
+
+        assertEq(obs.candidateTrades, obs.executedTrades + obs.rejectedTrades, "trade accounting mismatch");
+        assertGe(obs.candidateTrades, durationSec * minTxPerSec, "candidate trades too low");
+        assertGt(obs.executedTrades, 0, "should execute at least one trade");
+    }
+}

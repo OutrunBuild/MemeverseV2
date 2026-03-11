@@ -7,14 +7,12 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager, ModifyLiquidityParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
-import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
@@ -103,7 +101,7 @@ contract MockPoolManagerForHookLiquidity {
             (bool success,) = to.call{value: amount}("");
             require(success, "native take");
         } else {
-            MockERC20(Currency.unwrap(currency)).transfer(to, amount);
+            require(MockERC20(Currency.unwrap(currency)).transfer(to, amount), "erc20 take");
         }
     }
 
@@ -170,9 +168,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         token1.mint(address(this), 1_000_000 ether);
 
         hook = new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)), address(this), address(this), 0, 1);
-        router = new MemeverseSwapRouter(
-            IPoolManager(address(mockManager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0))
-        );
+        router = new MemeverseSwapRouter(IPoolManager(address(mockManager)), IMemeverseUniswapHook(address(hook)));
 
         token0.approve(address(hook), type(uint256).max);
         token1.approve(address(hook), type(uint256).max);
@@ -305,17 +301,15 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
     function testRouterAddLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
-            MemeverseSwapRouter.AddLiquidityParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                amount0Desired: 100 ether,
-                amount1Desired: 100 ether,
-                amount0Min: 90 ether,
-                amount1Min: 90 ether,
-                to: address(this),
-                nativeRefundRecipient: address(this),
-                deadline: block.timestamp
-            })
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
         );
 
         (address liquidityToken,,,) = hook.poolInfo(poolId);
@@ -331,17 +325,15 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         uint256 nativeBefore = address(this).balance;
         uint128 liquidity = router.addLiquidity{value: 300 ether}(
-            MemeverseSwapRouter.AddLiquidityParams({
-                currency0: nativeKey.currency0,
-                currency1: nativeKey.currency1,
-                amount0Desired: 300 ether,
-                amount1Desired: 100 ether,
-                amount0Min: 90 ether,
-                amount1Min: 90 ether,
-                to: address(this),
-                nativeRefundRecipient: address(this),
-                deadline: block.timestamp
-            })
+            nativeKey.currency0,
+            nativeKey.currency1,
+            300 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
         );
 
         (address liquidityToken,,,) = hook.poolInfo(nativePoolId);
@@ -354,17 +346,15 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
     function testRouterRemoveLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
-            MemeverseSwapRouter.AddLiquidityParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                amount0Desired: 100 ether,
-                amount1Desired: 100 ether,
-                amount0Min: 90 ether,
-                amount1Min: 90 ether,
-                to: address(this),
-                nativeRefundRecipient: address(this),
-                deadline: block.timestamp
-            })
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
         );
         (address liquidityToken,,,) = hook.poolInfo(poolId);
         UniswapLP(liquidityToken).approve(address(router), liquidity);
@@ -372,17 +362,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
 
-        BalanceDelta delta = router.removeLiquidity(
-            MemeverseSwapRouter.RemoveLiquidityParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                liquidity: liquidity,
-                amount0Min: 1,
-                amount1Min: 1,
-                to: address(this),
-                deadline: block.timestamp
-            })
-        );
+        BalanceDelta delta =
+            router.removeLiquidity(key.currency0, key.currency1, liquidity, 1, 1, address(this), block.timestamp);
 
         assertGt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");

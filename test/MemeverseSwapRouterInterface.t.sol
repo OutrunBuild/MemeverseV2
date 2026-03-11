@@ -32,40 +32,4 @@ contract MemeverseSwapRouterInterfaceTest is Test {
             assertEq(interfaceSelectors[i], routerSelectors[i]);
         }
     }
-
-    function testPermit2SelectorsMatchInterfaceSignatures() external pure {
-        assertEq(IMemeverseSwapRouter.permit2.selector, bytes4(keccak256("permit2()")));
-        assertEq(
-            IMemeverseSwapRouter.swapWithPermit2.selector,
-            bytes4(
-                keccak256(
-                    "swapWithPermit2((((address,uint256),uint256,uint256),(address,uint256),bytes),(address,address,uint24,int24,address),(bool,int256,uint160),address,address,uint256,uint256,uint256,bytes)"
-                )
-            )
-        );
-        assertEq(
-            IMemeverseSwapRouter.addLiquidityWithPermit2.selector,
-            bytes4(
-                keccak256(
-                    "addLiquidityWithPermit2((((address,uint256)[],uint256,uint256),(address,uint256)[],bytes),(address,address,uint256,uint256,uint256,uint256,address,address,uint256))"
-                )
-            )
-        );
-        assertEq(
-            IMemeverseSwapRouter.removeLiquidityWithPermit2.selector,
-            bytes4(
-                keccak256(
-                    "removeLiquidityWithPermit2((((address,uint256),uint256,uint256),(address,uint256),bytes),(address,address,uint128,uint256,uint256,address,uint256))"
-                )
-            )
-        );
-        assertEq(
-            IMemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector,
-            bytes4(
-                keccak256(
-                    "createPoolAndAddLiquidityWithPermit2((((address,uint256)[],uint256,uint256),(address,uint256)[],bytes),(address,address,uint256,uint256,address,address,uint256))"
-                )
-            )
-        );
-    }
 }
