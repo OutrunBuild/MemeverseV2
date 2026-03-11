@@ -4,12 +4,19 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-forge doc
+bash ./script/generate-docs.sh
 
-git diff --exit-code -- docs/src
+if [ -d "docs/contracts/src" ]; then
+    echo "Unexpected nested docs directory: docs/contracts/src"
+    exit 1
+fi
 
-if [ -n "$(git ls-files --others --exclude-standard -- docs/src)" ]; then
-    echo "Generated docs under docs/src are not fully tracked."
-    git ls-files --others --exclude-standard -- docs/src
+if [ ! -d "docs/contracts/common" ]; then
+    echo "Expected docs directory missing: docs/contracts/common"
+    exit 1
+fi
+
+if [ ! -f "docs/contracts/SUMMARY.md" ]; then
+    echo "Expected docs summary missing: docs/contracts/SUMMARY.md"
     exit 1
 fi
