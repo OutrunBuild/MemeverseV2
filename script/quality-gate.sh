@@ -45,25 +45,36 @@ has_src_sol=0
 has_sol_tests=0
 solidity_candidates=()
 solidity_files=()
-
-if echo "$changed_files" | grep -Eq '^src/.*\.sol$'; then
-    has_src_sol=1
-fi
-
-if echo "$changed_files" | grep -Eq '^test/.*\.t\.sol$'; then
-    has_sol_tests=1
-fi
+shell_candidates=()
+shell_files=()
 
 while IFS= read -r file; do
     [ -z "$file" ] && continue
-    if echo "$file" | grep -Eq '^(src|test)/.*\.sol$'; then
+
+    if [[ "$file" =~ ^src/.*\.sol$ ]]; then
+        has_src_sol=1
         solidity_candidates+=("$file")
+    elif [[ "$file" =~ ^test/.*\.t\.sol$ ]]; then
+        has_sol_tests=1
+        solidity_candidates+=("$file")
+    elif [[ "$file" =~ ^test/.*\.sol$ ]]; then
+        solidity_candidates+=("$file")
+    fi
+
+    if [[ "$file" =~ ^(script/.*\.sh|\.githooks/.*)$ ]]; then
+        shell_candidates+=("$file")
     fi
 done <<< "$changed_files"
 
 for file in "${solidity_candidates[@]}"; do
     if [ -f "$file" ]; then
         solidity_files+=("$file")
+    fi
+done
+
+for file in "${shell_candidates[@]}"; do
+    if [ -f "$file" ]; then
+        shell_files+=("$file")
     fi
 done
 
@@ -107,6 +118,11 @@ if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
     forge test -vvv
 fi
 
+if [ "${#shell_files[@]}" -gt 0 ]; then
+    echo "[quality-gate] bash -n (changed shell scripts)"
+    bash -n "${shell_files[@]}"
+fi
+
 if [ "$has_src_sol" -eq 1 ]; then
     echo "[quality-gate] npm run docs:gen"
     npm run docs:gen
@@ -117,15 +133,19 @@ if [ "$has_src_sol" -eq 1 ]; then
             git add "$generated_docs_dir"
         fi
     else
-        if ! git diff --exit-code -- "$generated_docs_dir"; then
-            echo "[quality-gate] ERROR: generated docs are stale. Run npm run docs:gen and commit ${generated_docs_dir} changes."
-            exit 1
-        fi
+        if git check-ignore -q "$generated_docs_dir"; then
+            echo "[quality-gate] ${generated_docs_dir} is ignored in git; skipping CI drift check."
+        else
+            if ! git diff --exit-code -- "$generated_docs_dir"; then
+                echo "[quality-gate] ERROR: generated docs are stale. Run npm run docs:gen and include ${generated_docs_dir} updates."
+                exit 1
+            fi
 
-        if [ -n "$(git ls-files --others --exclude-standard -- "$generated_docs_dir")" ]; then
-            echo "[quality-gate] ERROR: generated docs under ${generated_docs_dir} are not fully tracked."
-            git ls-files --others --exclude-standard -- "$generated_docs_dir"
-            exit 1
+            if [ -n "$(git ls-files --others --exclude-standard -- "$generated_docs_dir")" ]; then
+                echo "[quality-gate] ERROR: generated docs under ${generated_docs_dir} include untracked files."
+                git ls-files --others --exclude-standard -- "$generated_docs_dir"
+                exit 1
+            fi
         fi
     fi
 fi

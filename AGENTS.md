@@ -15,7 +15,7 @@
 - `npm run quality:gate`: run mandatory local quality gate (format/build/test/docs + review note checks for staged changes).
 - `npm run compile`: runs `forge build` and `hardhat compile`.
 - `npm run test`: runs Forge and Hardhat test commands.
-- `npm run lint`: runs ESLint/Prettier and Solidity lint checks.
+- `npm run lint`: runs Solidity lint checks.
 - `npm run clean`: removes local build/cache outputs.
 
 ## Coding Style & Naming Conventions
@@ -59,7 +59,7 @@
 
 ## Testing Guidelines
 - Primary framework is Foundry (`forge-std/Test.sol`); Hardhat tests may be used for JS/TS workflows.
-- Place tests in `test/` and name them by feature or behavior (example: `MemeverseDynamicFeeSimulation.t.sol`).
+- Place tests in `test/` and name them by feature or behavior.
 - Prefer deterministic tests and isolate chain-specific behavior behind configuration.
 - For any staged `src/**/*.sol` or `test/**/*.t.sol` change, run `npm run quality:gate` before commit.
 - Do not rely on mock-only tests for external protocol integrations (Permit2/Uniswap/LayerZero/etc.). Keep fast mock tests, but add at least one conformance/integration test path that validates real protocol semantics (signature/hash/witness/nonce/deadline or equivalent boundary rules).
