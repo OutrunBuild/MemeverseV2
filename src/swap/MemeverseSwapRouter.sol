@@ -12,7 +12,6 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {SafeCallback} from "@uniswap/v4-periphery/src/base/SafeCallback.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
@@ -79,6 +78,26 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
     IMemeverseUniswapHook public immutable override hook;
     IPermit2 public immutable override permit2;
+    bytes32 internal constant SWAP_WITNESS_TYPEHASH = keccak256(
+        "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
+    );
+    bytes32 internal constant ADD_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
+        "MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)"
+    );
+    bytes32 internal constant REMOVE_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
+        "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
+    );
+    bytes32 internal constant CREATE_POOL_WITNESS_TYPEHASH = keccak256(
+        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)"
+    );
+    string internal constant SWAP_WITNESS_TYPE_STRING =
+        "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
+    string internal constant ADD_LIQUIDITY_WITNESS_TYPE_STRING =
+        "MemeverseAddLiquidityWitness witness)MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    string internal constant REMOVE_LIQUIDITY_WITNESS_TYPE_STRING =
+        "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
+        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
 
     /// @param _manager The Uniswap v4 pool manager.
     /// @param _hook The Memeverse hook that owns anti-snipe attempt tracking for routed swaps.
@@ -875,6 +894,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     ) internal pure returns (bytes32 witness, string memory witnessTypeString) {
         witness = keccak256(
             abi.encode(
+                SWAP_WITNESS_TYPEHASH,
                 key.toId(),
                 params.zeroForOne,
                 params.amountSpecified,
@@ -887,8 +907,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
                 keccak256(hookData)
             )
         );
-        witnessTypeString =
-            "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
+        witnessTypeString = SWAP_WITNESS_TYPE_STRING;
     }
 
     function _addLiquidityPermit2Witness(AddLiquidityParams memory params)
@@ -898,6 +917,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     {
         witness = keccak256(
             abi.encode(
+                ADD_LIQUIDITY_WITNESS_TYPEHASH,
                 Currency.unwrap(params.currency0),
                 Currency.unwrap(params.currency1),
                 params.amount0Desired,
@@ -909,8 +929,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
                 params.deadline
             )
         );
-        witnessTypeString =
-            "MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+        witnessTypeString = ADD_LIQUIDITY_WITNESS_TYPE_STRING;
     }
 
     function _removeLiquidityPermit2Witness(RemoveLiquidityParams memory params)
@@ -920,6 +939,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     {
         witness = keccak256(
             abi.encode(
+                REMOVE_LIQUIDITY_WITNESS_TYPEHASH,
                 Currency.unwrap(params.currency0),
                 Currency.unwrap(params.currency1),
                 params.liquidity,
@@ -929,8 +949,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
                 params.deadline
             )
         );
-        witnessTypeString =
-            "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+        witnessTypeString = REMOVE_LIQUIDITY_WITNESS_TYPE_STRING;
     }
 
     function _createPoolAndAddLiquidityPermit2Witness(CreatePoolAndAddLiquidityParams memory params)
@@ -940,6 +959,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     {
         witness = keccak256(
             abi.encode(
+                CREATE_POOL_WITNESS_TYPEHASH,
                 params.tokenA,
                 params.tokenB,
                 params.amountADesired,
@@ -949,8 +969,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
                 params.deadline
             )
         );
-        witnessTypeString =
-            "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+        witnessTypeString = CREATE_POOL_WITNESS_TYPE_STRING;
     }
 
     function _expectedPermit2CurrenciesForLiquidity(

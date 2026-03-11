@@ -243,16 +243,145 @@ contract MockPermit2ForRouterTest {
     }
 }
 
+contract SignatureVerifyingPermit2ForRouterTest {
+    error InvalidAmount(uint256 maxAmount);
+    error InvalidNonce();
+    error InvalidSigner();
+    error LengthMismatch();
+    error SignatureExpired(uint256 deadline);
+
+    bytes32 internal constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
+    string internal constant PERMIT_SINGLE_WITNESS_TYPEHASH_STUB =
+        "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,";
+    string internal constant PERMIT_BATCH_WITNESS_TYPEHASH_STUB =
+        "PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,";
+    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,uint256 chainId,address verifyingContract)");
+    bytes32 internal constant EIP712_NAME_HASH = keccak256("Permit2");
+
+    mapping(address => mapping(uint256 => uint256)) public nonceBitmap;
+
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, EIP712_NAME_HASH, block.chainid, address(this)));
+    }
+
+    function permitWitnessTransferFrom(
+        ISignatureTransfer.PermitTransferFrom memory permit,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        address owner,
+        bytes32 witness,
+        string calldata witnessTypeString,
+        bytes calldata signature
+    ) external {
+        if (block.timestamp > permit.deadline) revert SignatureExpired(permit.deadline);
+        if (transferDetails.requestedAmount > permit.permitted.amount) revert InvalidAmount(permit.permitted.amount);
+
+        _useUnorderedNonce(owner, permit.nonce);
+        bytes32 typeHash = keccak256(abi.encodePacked(PERMIT_SINGLE_WITNESS_TYPEHASH_STUB, witnessTypeString));
+        bytes32 tokenPermissionsHash =
+            keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, permit.permitted.token, permit.permitted.amount));
+        bytes32 dataHash =
+            keccak256(abi.encode(typeHash, tokenPermissionsHash, msg.sender, permit.nonce, permit.deadline, witness));
+        _verifySignature(signature, owner, dataHash);
+        MockERC20(permit.permitted.token).transferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
+    }
+
+    function permitWitnessTransferFrom(
+        ISignatureTransfer.PermitBatchTransferFrom memory permit,
+        ISignatureTransfer.SignatureTransferDetails[] calldata transferDetails,
+        address owner,
+        bytes32 witness,
+        string calldata witnessTypeString,
+        bytes calldata signature
+    ) external {
+        if (block.timestamp > permit.deadline) revert SignatureExpired(permit.deadline);
+        if (permit.permitted.length != transferDetails.length) revert LengthMismatch();
+
+        _useUnorderedNonce(owner, permit.nonce);
+        bytes32[] memory tokenPermissionHashes = new bytes32[](permit.permitted.length);
+        for (uint256 i = 0; i < permit.permitted.length; ++i) {
+            if (transferDetails[i].requestedAmount > permit.permitted[i].amount) {
+                revert InvalidAmount(permit.permitted[i].amount);
+            }
+            tokenPermissionHashes[i] = keccak256(
+                abi.encode(TOKEN_PERMISSIONS_TYPEHASH, permit.permitted[i].token, permit.permitted[i].amount)
+            );
+        }
+
+        bytes32 typeHash = keccak256(abi.encodePacked(PERMIT_BATCH_WITNESS_TYPEHASH_STUB, witnessTypeString));
+        bytes32 dataHash = keccak256(
+            abi.encode(
+                typeHash,
+                keccak256(abi.encodePacked(tokenPermissionHashes)),
+                msg.sender,
+                permit.nonce,
+                permit.deadline,
+                witness
+            )
+        );
+        _verifySignature(signature, owner, dataHash);
+
+        for (uint256 i = 0; i < transferDetails.length; ++i) {
+            MockERC20(permit.permitted[i].token)
+                .transferFrom(owner, transferDetails[i].to, transferDetails[i].requestedAmount);
+        }
+    }
+
+    function _useUnorderedNonce(address from, uint256 nonce) private {
+        uint256 wordPos = uint248(nonce >> 8);
+        uint256 bitPos = uint8(nonce);
+        uint256 bit = 1 << bitPos;
+        uint256 flipped = nonceBitmap[from][wordPos] ^= bit;
+        if (flipped & bit == 0) revert InvalidNonce();
+    }
+
+    function _verifySignature(bytes calldata signature, address owner, bytes32 dataHash) private view {
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), dataHash));
+        if (signature.length != 65) revert InvalidSigner();
+        (bytes32 r, bytes32 s) = abi.decode(signature, (bytes32, bytes32));
+        uint8 v = uint8(signature[64]);
+        address signer = ecrecover(digest, v, r, s);
+        if (signer == address(0) || signer != owner) revert InvalidSigner();
+    }
+}
+
 contract MemeverseSwapRouterPermit2Test is Test {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint256 internal constant ALICE_PK = 0xA11CE;
+    bytes32 internal constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
+    string internal constant PERMIT_SINGLE_WITNESS_TYPEHASH_STUB =
+        "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,";
+    string internal constant PERMIT_BATCH_WITNESS_TYPEHASH_STUB =
+        "PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,";
+    bytes32 internal constant SWAP_WITNESS_TYPEHASH = keccak256(
+        "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
+    );
+    bytes32 internal constant ADD_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
+        "MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)"
+    );
+    bytes32 internal constant REMOVE_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
+        "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
+    );
+    bytes32 internal constant CREATE_POOL_WITNESS_TYPEHASH = keccak256(
+        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)"
+    );
+    string internal constant SWAP_WITNESS_TYPE_STRING =
+        "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
+    string internal constant ADD_LIQUIDITY_WITNESS_TYPE_STRING =
+        "MemeverseAddLiquidityWitness witness)MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    string internal constant REMOVE_LIQUIDITY_WITNESS_TYPE_STRING =
+        "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
+        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
 
     MockPoolManagerForPermit2RouterTest internal manager;
     TestableMemeverseUniswapHookForPermit2Router internal hook;
     MockPermit2ForRouterTest internal mockPermit2;
+    SignatureVerifyingPermit2ForRouterTest internal realPermit2;
     MemeverseSwapRouter internal router;
+    MemeverseSwapRouter internal realPermit2Router;
     MockERC20 internal token0;
     MockERC20 internal token1;
     address internal treasury;
@@ -271,6 +400,10 @@ contract MemeverseSwapRouterPermit2Test is Test {
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(mockPermit2))
         );
+        realPermit2 = new SignatureVerifyingPermit2ForRouterTest();
+        realPermit2Router = new MemeverseSwapRouter(
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(realPermit2))
+        );
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -283,6 +416,10 @@ contract MemeverseSwapRouterPermit2Test is Test {
         token0.approve(address(mockPermit2), type(uint256).max);
         vm.prank(alice);
         token1.approve(address(mockPermit2), type(uint256).max);
+        vm.prank(alice);
+        token0.approve(address(realPermit2), type(uint256).max);
+        vm.prank(alice);
+        token1.approve(address(realPermit2), type(uint256).max);
 
         key = _dynamicPoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)));
         poolId = key.toId();
@@ -496,6 +633,165 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    function testSwapWithPermit2_RealPermit2CanonicalWitnessExecutes() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        uint256 amountIn = 100 ether;
+        uint256 amountOutMinimum = 40 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        SwapParams memory params = SwapParams({
+            zeroForOne: true,
+            amountSpecified: -int256(amountIn),
+            sqrtPriceLimitX96: uint160((uint256(SQRT_PRICE_1_1) * 99) / 100)
+        });
+
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({token: address(token0), amount: amountIn}),
+            nonce: 11,
+            deadline: deadline
+        });
+        ISignatureTransfer.SignatureTransferDetails memory transferDetails =
+            ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: amountIn});
+        bytes32 witness = _swapWitnessHash(key, params, alice, alice, deadline, amountOutMinimum, amountIn, bytes(""));
+        bytes memory signature =
+            _signSingleWitnessPermit(permit, address(realPermit2Router), witness, SWAP_WITNESS_TYPE_STRING);
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = IMemeverseSwapRouter.Permit2SingleParams({
+            permit: permit, transferDetails: transferDetails, signature: signature
+        });
+
+        vm.prank(alice);
+        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = realPermit2Router.swapWithPermit2(
+            permitParams, key, params, alice, alice, deadline, amountOutMinimum, amountIn, bytes("")
+        );
+
+        assertTrue(executed, "executed");
+        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
+        assertLt(int256(delta.amount0()), 0, "delta0");
+        assertGt(int256(delta.amount1()), 0, "delta1");
+    }
+
+    function testAddLiquidityWithPermit2_RealPermit2CanonicalBatchWitnessExecutes() external {
+        uint256 amount0Desired = 100 ether;
+        uint256 amount1Desired = 100 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+
+        ISignatureTransfer.PermitBatchTransferFrom memory permit;
+        permit.permitted = new ISignatureTransfer.TokenPermissions[](2);
+        permit.permitted[0] = ISignatureTransfer.TokenPermissions({token: address(token0), amount: amount0Desired});
+        permit.permitted[1] = ISignatureTransfer.TokenPermissions({token: address(token1), amount: amount1Desired});
+        permit.nonce = 12;
+        permit.deadline = deadline;
+
+        ISignatureTransfer.SignatureTransferDetails[] memory transferDetails =
+            new ISignatureTransfer.SignatureTransferDetails[](2);
+        transferDetails[0] = ISignatureTransfer.SignatureTransferDetails({
+            to: address(realPermit2Router), requestedAmount: amount0Desired
+        });
+        transferDetails[1] = ISignatureTransfer.SignatureTransferDetails({
+            to: address(realPermit2Router), requestedAmount: amount1Desired
+        });
+
+        bytes32 witness = _addLiquidityWitnessHash(
+            key.currency0, key.currency1, amount0Desired, amount1Desired, 90 ether, 90 ether, alice, alice, deadline
+        );
+        bytes memory signature =
+            _signBatchWitnessPermit(permit, address(realPermit2Router), witness, ADD_LIQUIDITY_WITNESS_TYPE_STRING);
+        IMemeverseSwapRouter.Permit2BatchParams memory permitParams = IMemeverseSwapRouter.Permit2BatchParams({
+            permit: permit, transferDetails: transferDetails, signature: signature
+        });
+
+        vm.prank(alice);
+        uint128 liquidity = realPermit2Router.addLiquidityWithPermit2(
+            permitParams,
+            key.currency0,
+            key.currency1,
+            amount0Desired,
+            amount1Desired,
+            90 ether,
+            90 ether,
+            alice,
+            alice,
+            deadline
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+    }
+
+    function testRemoveLiquidityWithPermit2_RealPermit2CanonicalWitnessExecutes() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.prank(alice);
+        MockERC20(liquidityToken).approve(address(realPermit2), type(uint256).max);
+
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({token: liquidityToken, amount: uint256(liquidity)}),
+            nonce: 13,
+            deadline: deadline
+        });
+        ISignatureTransfer.SignatureTransferDetails memory transferDetails = ISignatureTransfer.SignatureTransferDetails({
+            to: address(realPermit2Router), requestedAmount: uint256(liquidity)
+        });
+        bytes32 witness = _removeLiquidityWitnessHash(key.currency0, key.currency1, liquidity, 1, 1, alice, deadline);
+        bytes memory signature =
+            _signSingleWitnessPermit(permit, address(realPermit2Router), witness, REMOVE_LIQUIDITY_WITNESS_TYPE_STRING);
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = IMemeverseSwapRouter.Permit2SingleParams({
+            permit: permit, transferDetails: transferDetails, signature: signature
+        });
+
+        vm.prank(alice);
+        BalanceDelta delta = realPermit2Router.removeLiquidityWithPermit2(
+            permitParams, key.currency0, key.currency1, liquidity, 1, 1, alice, deadline
+        );
+
+        assertGt(int256(delta.amount0()), 0, "delta0");
+        assertGt(int256(delta.amount1()), 0, "delta1");
+    }
+
+    function testCreatePoolAndAddLiquidityWithPermit2_RealPermit2CanonicalBatchWitnessExecutes() external {
+        MockERC20 tokenA = new MockERC20("A", "A", 18);
+        MockERC20 tokenB = new MockERC20("B", "B", 18);
+        tokenA.mint(alice, 1_000_000 ether);
+        tokenB.mint(alice, 1_000_000 ether);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.prank(alice);
+        tokenA.approve(address(realPermit2), type(uint256).max);
+        vm.prank(alice);
+        tokenB.approve(address(realPermit2), type(uint256).max);
+
+        ISignatureTransfer.PermitBatchTransferFrom memory permit;
+        permit.permitted = new ISignatureTransfer.TokenPermissions[](2);
+        permit.permitted[0] = ISignatureTransfer.TokenPermissions({token: address(tokenA), amount: 100 ether});
+        permit.permitted[1] = ISignatureTransfer.TokenPermissions({token: address(tokenB), amount: 100 ether});
+        permit.nonce = 14;
+        permit.deadline = deadline;
+
+        ISignatureTransfer.SignatureTransferDetails[] memory transferDetails =
+            new ISignatureTransfer.SignatureTransferDetails[](2);
+        transferDetails[0] =
+            ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: 100 ether});
+        transferDetails[1] =
+            ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: 100 ether});
+
+        bytes32 witness =
+            _createPoolWitnessHash(address(tokenA), address(tokenB), 100 ether, 100 ether, alice, alice, deadline);
+        bytes memory signature =
+            _signBatchWitnessPermit(permit, address(realPermit2Router), witness, CREATE_POOL_WITNESS_TYPE_STRING);
+        IMemeverseSwapRouter.Permit2BatchParams memory permitParams = IMemeverseSwapRouter.Permit2BatchParams({
+            permit: permit, transferDetails: transferDetails, signature: signature
+        });
+
+        vm.prank(alice);
+        (uint128 liquidity, PoolKey memory createdKey) = realPermit2Router.createPoolAndAddLiquidityWithPermit2(
+            permitParams, address(tokenA), address(tokenB), 100 ether, 100 ether, alice, alice, deadline
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(address(createdKey.hooks), address(hook), "hook");
+    }
+
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {
         return PoolKey({
             currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(address(hook))
@@ -563,5 +859,150 @@ contract MemeverseSwapRouterPermit2Test is Test {
         permitParams.transferDetails[0] =
             ISignatureTransfer.SignatureTransferDetails({to: address(router), requestedAmount: amount});
         permitParams.signature = hex"1234";
+    }
+
+    function _swapWitnessHash(
+        PoolKey memory poolKey,
+        SwapParams memory params,
+        address recipient,
+        address nativeRefundRecipient,
+        uint256 deadline,
+        uint256 amountOutMinimum,
+        uint256 amountInMaximum,
+        bytes memory hookData
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                SWAP_WITNESS_TYPEHASH,
+                poolKey.toId(),
+                params.zeroForOne,
+                params.amountSpecified,
+                params.sqrtPriceLimitX96,
+                recipient,
+                nativeRefundRecipient,
+                deadline,
+                amountOutMinimum,
+                amountInMaximum,
+                keccak256(hookData)
+            )
+        );
+    }
+
+    function _addLiquidityWitnessHash(
+        Currency currency0,
+        Currency currency1,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address to,
+        address nativeRefundRecipient,
+        uint256 deadline
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                ADD_LIQUIDITY_WITNESS_TYPEHASH,
+                Currency.unwrap(currency0),
+                Currency.unwrap(currency1),
+                amount0Desired,
+                amount1Desired,
+                amount0Min,
+                amount1Min,
+                to,
+                nativeRefundRecipient,
+                deadline
+            )
+        );
+    }
+
+    function _removeLiquidityWitnessHash(
+        Currency currency0,
+        Currency currency1,
+        uint128 liquidity,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address to,
+        uint256 deadline
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                REMOVE_LIQUIDITY_WITNESS_TYPEHASH,
+                Currency.unwrap(currency0),
+                Currency.unwrap(currency1),
+                liquidity,
+                amount0Min,
+                amount1Min,
+                to,
+                deadline
+            )
+        );
+    }
+
+    function _createPoolWitnessHash(
+        address tokenA,
+        address tokenB,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        address recipient,
+        address nativeRefundRecipient,
+        uint256 deadline
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                CREATE_POOL_WITNESS_TYPEHASH,
+                tokenA,
+                tokenB,
+                amountADesired,
+                amountBDesired,
+                recipient,
+                nativeRefundRecipient,
+                deadline
+            )
+        );
+    }
+
+    function _signSingleWitnessPermit(
+        ISignatureTransfer.PermitTransferFrom memory permit,
+        address spender,
+        bytes32 witness,
+        string memory witnessTypeString
+    ) internal view returns (bytes memory signature) {
+        bytes32 typeHash = keccak256(abi.encodePacked(PERMIT_SINGLE_WITNESS_TYPEHASH_STUB, witnessTypeString));
+        bytes32 tokenPermissionsHash =
+            keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, permit.permitted.token, permit.permitted.amount));
+        bytes32 permitHash =
+            keccak256(abi.encode(typeHash, tokenPermissionsHash, spender, permit.nonce, permit.deadline, witness));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", realPermit2.DOMAIN_SEPARATOR(), permitHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ALICE_PK, digest);
+        return bytes.concat(r, s, bytes1(v));
+    }
+
+    function _signBatchWitnessPermit(
+        ISignatureTransfer.PermitBatchTransferFrom memory permit,
+        address spender,
+        bytes32 witness,
+        string memory witnessTypeString
+    ) internal view returns (bytes memory signature) {
+        bytes32[] memory tokenPermissionHashes = new bytes32[](permit.permitted.length);
+        for (uint256 i = 0; i < permit.permitted.length; ++i) {
+            tokenPermissionHashes[i] = keccak256(
+                abi.encode(TOKEN_PERMISSIONS_TYPEHASH, permit.permitted[i].token, permit.permitted[i].amount)
+            );
+        }
+
+        bytes32 typeHash = keccak256(abi.encodePacked(PERMIT_BATCH_WITNESS_TYPEHASH_STUB, witnessTypeString));
+        bytes32 permitHash = keccak256(
+            abi.encode(
+                typeHash,
+                keccak256(abi.encodePacked(tokenPermissionHashes)),
+                spender,
+                permit.nonce,
+                permit.deadline,
+                witness
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", realPermit2.DOMAIN_SEPARATOR(), permitHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ALICE_PK, digest);
+        return bytes.concat(r, s, bytes1(v));
     }
 }

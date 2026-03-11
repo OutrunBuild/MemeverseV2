@@ -5,6 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 mode="${QUALITY_GATE_MODE:-staged}"
+generated_docs_dir="docs/contracts"
 
 load_file_list_from_ci() {
     if [ -n "${QUALITY_GATE_FILE_LIST:-}" ] && [ -f "${QUALITY_GATE_FILE_LIST}" ]; then
@@ -110,16 +111,20 @@ if [ "$has_src_sol" -eq 1 ]; then
     echo "[quality-gate] npm run docs:gen"
     npm run docs:gen
     if [ "$mode" = "staged" ]; then
-        git add docs/src
+        if git check-ignore -q "$generated_docs_dir"; then
+            echo "[quality-gate] ${generated_docs_dir} is ignored; skipping auto-stage."
+        else
+            git add "$generated_docs_dir"
+        fi
     else
-        if ! git diff --exit-code -- docs/src; then
-            echo "[quality-gate] ERROR: generated docs are stale. Run npm run docs:gen and commit docs/src changes."
+        if ! git diff --exit-code -- "$generated_docs_dir"; then
+            echo "[quality-gate] ERROR: generated docs are stale. Run npm run docs:gen and commit ${generated_docs_dir} changes."
             exit 1
         fi
 
-        if [ -n "$(git ls-files --others --exclude-standard -- docs/src)" ]; then
-            echo "[quality-gate] ERROR: generated docs under docs/src are not fully tracked."
-            git ls-files --others --exclude-standard -- docs/src
+        if [ -n "$(git ls-files --others --exclude-standard -- "$generated_docs_dir")" ]; then
+            echo "[quality-gate] ERROR: generated docs under ${generated_docs_dir} are not fully tracked."
+            git ls-files --others --exclude-standard -- "$generated_docs_dir"
             exit 1
         fi
     fi

@@ -233,6 +233,8 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 - `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` / `createPoolAndAddLiquidityWithPermit2(...)` 只负责签名拉资
 - Permit2 拉资后，deadline、slippage、anti-snipe 判定与普通入口一致
 - native 资产仍走 `msg.value` 与 `nativeRefundRecipient`，不经过 Permit2
+- witness 签名必须使用 Permit2 规范类型串：`<WitnessType> witness)<WitnessType>(...)TokenPermissions(address token,uint256 amount)`，且 `witness` 取 `keccak256(abi.encode(WITNESS_TYPEHASH, ...业务字段))`
+- 签名里的 `spender` 必须是 Router 地址（Permit2 校验时的 `msg.sender`），并且 `transferDetails.to` 必须是 Router（`address(this)`）
 
 ---
 
