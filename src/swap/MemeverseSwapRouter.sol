@@ -133,6 +133,27 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         return hook.quoteFailedAttempt(key, params, inputBudget);
     }
 
+    /// @notice Returns the hook-managed pool key for the given token pair.
+    /// @dev Uses the Memeverse dynamic-fee pool settings and the router's configured hook.
+    function getHookPoolKey(address tokenA, address tokenB) public view override returns (PoolKey memory key) {
+        if (tokenA == tokenB) revert InvalidTokenPair();
+        (Currency currency0, Currency currency1) = tokenA < tokenB
+            ? (Currency.wrap(tokenA), Currency.wrap(tokenB))
+            : (Currency.wrap(tokenB), Currency.wrap(tokenA));
+        key = _hookPoolKey(currency0, currency1);
+    }
+
+    /// @notice Returns the claimable LP fees for an owner in the hook-managed pool for a token pair.
+    function previewClaimableFees(address tokenA, address tokenB, address owner)
+        external
+        view
+        override
+        returns (uint256 fee0, uint256 fee1)
+    {
+        PoolKey memory key = getHookPoolKey(tokenA, tokenB);
+        return hook.claimableFees(key, owner);
+    }
+
     /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.
     /// @dev If anti-snipe soft-fails, the function returns `(ZERO_DELTA, false, reason)` and does not call
     /// `poolManager.swap`. During the protection window the router prepares a single input budget for the trade:

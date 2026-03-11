@@ -89,6 +89,24 @@ interface IMemeverseSwapRouter {
         view
         returns (IMemeverseUniswapHook.FailedAttemptQuote memory quote);
 
+    /// @notice Returns the hook-managed pool key for the given token pair.
+    /// @dev Uses the Memeverse dynamic-fee pool settings and the router's configured hook.
+    /// @param tokenA First token address (may be native as address(0)).
+    /// @param tokenB Second token address (may be native as address(0)).
+    /// @return key The hook pool key derived from token ordering and hook configuration.
+    function getHookPoolKey(address tokenA, address tokenB) external view returns (PoolKey memory key);
+
+    /// @notice Returns the claimable LP fees for an owner in the hook-managed pool for a token pair.
+    /// @param tokenA First token address (may be native as address(0)).
+    /// @param tokenB Second token address (may be native as address(0)).
+    /// @param owner The owner address whose LP fees are previewed.
+    /// @return fee0 The preview claimable amount in currency0.
+    /// @return fee1 The preview claimable amount in currency1.
+    function previewClaimableFees(address tokenA, address tokenB, address owner)
+        external
+        view
+        returns (uint256 fee0, uint256 fee1);
+
     /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.
     /// @dev On anti-snipe soft-fail, the router returns with `executed == false` and a failure reason.
     /// @custom:security Callers should enforce slippage with `amountOutMinimum` or `amountInMaximum`, and must provide

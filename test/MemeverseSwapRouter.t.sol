@@ -1019,6 +1019,51 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(claimedFee1, previewFee1, "preview fee1 mismatch");
     }
 
+    function testRouterGetHookPoolKey_ReturnsDynamicHookKey() external {
+        address tokenA = address(token0);
+        address tokenB = address(token1);
+        if (tokenB < tokenA) {
+            (tokenA, tokenB) = (tokenB, tokenA);
+        }
+
+        PoolKey memory expected = _dynamicPoolKey(Currency.wrap(tokenA), Currency.wrap(tokenB));
+        PoolKey memory routerKey = router.getHookPoolKey(address(token0), address(token1));
+
+        assertEq(Currency.unwrap(routerKey.currency0), Currency.unwrap(expected.currency0), "currency0");
+        assertEq(Currency.unwrap(routerKey.currency1), Currency.unwrap(expected.currency1), "currency1");
+        assertEq(routerKey.fee, expected.fee, "fee");
+        assertEq(routerKey.tickSpacing, expected.tickSpacing, "tickSpacing");
+        assertEq(address(routerKey.hooks), address(expected.hooks), "hooks");
+    }
+
+    function testRouterPreviewClaimableFees_MatchesHookClaimableFees() external {
+        _setProtocolFeeCurrency(key.currency0);
+
+        vm.prank(alice);
+        router.addLiquidity(
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+        );
+
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            40 ether,
+            100 ether,
+            ""
+        );
+
+        PoolKey memory routerKey = router.getHookPoolKey(address(token0), address(token1));
+        (uint256 hookFee0, uint256 hookFee1) = hook.claimableFees(routerKey, alice);
+        (uint256 routerFee0, uint256 routerFee1) = router.previewClaimableFees(address(token0), address(token1), alice);
+
+        assertEq(routerFee0, hookFee0, "fee0");
+        assertEq(routerFee1, hookFee1, "fee1");
+    }
+
     function testLpToken_ReturnsHookPoolLpTokenAddress() external view {
         (address poolLpToken,,,) = hook.poolInfo(poolId);
         assertEq(hook.lpToken(key), poolLpToken, "lp token");
