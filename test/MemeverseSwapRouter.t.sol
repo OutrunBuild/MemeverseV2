@@ -12,6 +12,7 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
@@ -243,7 +244,9 @@ contract MemeverseSwapRouterTest is Test {
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
         hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, 10, 1);
-        router = new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)));
+        router = new MemeverseSwapRouter(
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+        );
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);

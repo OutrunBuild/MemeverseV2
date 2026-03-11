@@ -1,6 +1,7 @@
 # Memeverse Swap 流程图
 
 本文档聚焦当前 `swap` 主路径的执行与资金流，不展开 LP、claim fee、bootstrap 等其他路径。
+其中资金准备既可来自常规 approve 路径，也可来自 `swapWithPermit2(...)`。
 
 相关实现主要位于：
 
@@ -14,7 +15,7 @@
 
 ```mermaid
 flowchart TD
-    A[用户调用 Router.swap] --> B[Router 基础校验]
+    A[用户调用 Router.swap / swapWithPermit2] --> B[Router 基础校验]
     B --> C{是否处于 anti-snipe 保护期?}
 
     C -- 否 --> D[直接进入真实 swap]
@@ -56,14 +57,16 @@ flowchart TD
     B -- exact-input --> C[inputBudget = abs(amountSpecified)]
     B -- exact-output --> D[inputBudget = amountInMaximum]
 
-    C --> E{输入币是否为 native?}
+    C --> E{资金来源}
     D --> E
 
-    E -- 是 --> F[msg.value = inputBudget]
-    E -- 否 --> G[Router 从用户 pull inputBudget ERC20]
+    E -- native --> F[msg.value = inputBudget]
+    E -- approve --> G[Router 从用户 transferFrom pull ERC20]
+    E -- permit2 --> G1[Router 通过 Permit2 pull ERC20]
 
     F --> H[requestSwapAttempt 使用这同一份预算]
     G --> H
+    G1 --> H
 ```
 
 说明：
@@ -72,6 +75,7 @@ flowchart TD
 - exact-output：总预算等于用户设置的 `amountInMaximum`
 - 失败费与成功成交都从这同一份预算里结算
 - exact-output 时，失败费按预计实际输入计费，`amountInMaximum` 只作为预算上限
+- Permit2 只改变 ERC20 资金准备方式，不改变后续 anti-snipe/swap 语义
 
 ---
 

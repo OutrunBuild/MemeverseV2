@@ -8,25 +8,35 @@ import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.
 
 contract MemeverseSwapRouterInterfaceTest is Test {
     function testInterfaceSelectorsMatchRouter() external pure {
-        bytes4[] memory interfaceSelectors = new bytes4[](8);
+        bytes4[] memory interfaceSelectors = new bytes4[](13);
         interfaceSelectors[0] = IMemeverseSwapRouter.hook.selector;
-        interfaceSelectors[1] = IMemeverseSwapRouter.quoteSwap.selector;
-        interfaceSelectors[2] = IMemeverseSwapRouter.quoteFailedAttempt.selector;
-        interfaceSelectors[3] = IMemeverseSwapRouter.swap.selector;
-        interfaceSelectors[4] = IMemeverseSwapRouter.addLiquidity.selector;
-        interfaceSelectors[5] = IMemeverseSwapRouter.removeLiquidity.selector;
-        interfaceSelectors[6] = IMemeverseSwapRouter.claimFees.selector;
-        interfaceSelectors[7] = IMemeverseSwapRouter.createPoolAndAddLiquidity.selector;
+        interfaceSelectors[1] = IMemeverseSwapRouter.permit2.selector;
+        interfaceSelectors[2] = IMemeverseSwapRouter.quoteSwap.selector;
+        interfaceSelectors[3] = IMemeverseSwapRouter.quoteFailedAttempt.selector;
+        interfaceSelectors[4] = IMemeverseSwapRouter.swap.selector;
+        interfaceSelectors[5] = IMemeverseSwapRouter.swapWithPermit2.selector;
+        interfaceSelectors[6] = IMemeverseSwapRouter.addLiquidity.selector;
+        interfaceSelectors[7] = IMemeverseSwapRouter.addLiquidityWithPermit2.selector;
+        interfaceSelectors[8] = IMemeverseSwapRouter.removeLiquidity.selector;
+        interfaceSelectors[9] = IMemeverseSwapRouter.removeLiquidityWithPermit2.selector;
+        interfaceSelectors[10] = IMemeverseSwapRouter.claimFees.selector;
+        interfaceSelectors[11] = IMemeverseSwapRouter.createPoolAndAddLiquidity.selector;
+        interfaceSelectors[12] = IMemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector;
 
-        bytes4[] memory routerSelectors = new bytes4[](8);
+        bytes4[] memory routerSelectors = new bytes4[](13);
         routerSelectors[0] = bytes4(keccak256("hook()"));
-        routerSelectors[1] = MemeverseSwapRouter.quoteSwap.selector;
-        routerSelectors[2] = MemeverseSwapRouter.quoteFailedAttempt.selector;
-        routerSelectors[3] = MemeverseSwapRouter.swap.selector;
-        routerSelectors[4] = MemeverseSwapRouter.addLiquidity.selector;
-        routerSelectors[5] = MemeverseSwapRouter.removeLiquidity.selector;
-        routerSelectors[6] = MemeverseSwapRouter.claimFees.selector;
-        routerSelectors[7] = MemeverseSwapRouter.createPoolAndAddLiquidity.selector;
+        routerSelectors[1] = bytes4(keccak256("permit2()"));
+        routerSelectors[2] = MemeverseSwapRouter.quoteSwap.selector;
+        routerSelectors[3] = MemeverseSwapRouter.quoteFailedAttempt.selector;
+        routerSelectors[4] = MemeverseSwapRouter.swap.selector;
+        routerSelectors[5] = MemeverseSwapRouter.swapWithPermit2.selector;
+        routerSelectors[6] = MemeverseSwapRouter.addLiquidity.selector;
+        routerSelectors[7] = MemeverseSwapRouter.addLiquidityWithPermit2.selector;
+        routerSelectors[8] = MemeverseSwapRouter.removeLiquidity.selector;
+        routerSelectors[9] = MemeverseSwapRouter.removeLiquidityWithPermit2.selector;
+        routerSelectors[10] = MemeverseSwapRouter.claimFees.selector;
+        routerSelectors[11] = MemeverseSwapRouter.createPoolAndAddLiquidity.selector;
+        routerSelectors[12] = MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector;
 
         for (uint256 i = 0; i < interfaceSelectors.length; ++i) {
             assertEq(interfaceSelectors[i], routerSelectors[i]);

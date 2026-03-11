@@ -11,6 +11,7 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
@@ -168,7 +169,9 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         token1.mint(address(this), 1_000_000 ether);
 
         hook = new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)), address(this), address(this), 0, 1);
-        router = new MemeverseSwapRouter(IPoolManager(address(mockManager)), IMemeverseUniswapHook(address(hook)));
+        router = new MemeverseSwapRouter(
+            IPoolManager(address(mockManager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+        );
 
         token0.approve(address(hook), type(uint256).max);
         token1.approve(address(hook), type(uint256).max);

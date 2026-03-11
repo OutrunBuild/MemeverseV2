@@ -4,6 +4,7 @@
 
 - `MemeverseSwapRouter`
 - `MemeverseSwapRouter.quoteSwap`
+- `MemeverseSwapRouter` 的可选 Permit2 入口
 
 完成 Memeverse 池子的报价、下单、soft-fail 处理与 exact-output 保护。
 
@@ -39,6 +40,7 @@
 - `MemeverseSwapRouter.addLiquidity(...)`
 - `MemeverseSwapRouter.removeLiquidity(...)`
 - `MemeverseSwapRouter.claimFees(...)`
+- 可选：对应 `*WithPermit2(...)` 入口
 
 原因：
 
@@ -176,9 +178,14 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
 
 - `MemeverseSwapRouter.quoteSwap(...)`
 - `MemeverseSwapRouter.swap(...)`
+- `MemeverseSwapRouter.swapWithPermit2(...)`
 - `MemeverseSwapRouter.addLiquidity(...)`
+- `MemeverseSwapRouter.addLiquidityWithPermit2(...)`
 - `MemeverseSwapRouter.removeLiquidity(...)`
+- `MemeverseSwapRouter.removeLiquidityWithPermit2(...)`
 - `MemeverseSwapRouter.claimFees(...)`
+- `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
+- `MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2(...)`
 
 Hook 的 `quoteSwap(...)` 仍然存在，但更适合作为 Core 层能力。
 
@@ -217,6 +224,15 @@ Hook 的 `quoteSwap(...)` 仍然存在，但更适合作为 Core 层能力。
 
 - `MemeverseSwapRouter` = **Recommended Public Entry Points**
 - `MemeverseUniswapHook` 的 Core 接口 = **Low-level Core APIs**
+
+### 3.3 Permit2 入口要点
+
+Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注意：
+
+- `permit2()` 可用于确认 Router 绑定的 Permit2 合约地址
+- `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` / `createPoolAndAddLiquidityWithPermit2(...)` 只负责签名拉资
+- Permit2 拉资后，deadline、slippage、anti-snipe 判定与普通入口一致
+- native 资产仍走 `msg.value` 与 `nativeRefundRecipient`，不经过 Permit2
 
 ---
 
