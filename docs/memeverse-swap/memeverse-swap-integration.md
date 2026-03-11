@@ -177,6 +177,8 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
 当前推荐把 Router 视为统一公开入口：
 
 - `MemeverseSwapRouter.quoteSwap(...)`
+- `MemeverseSwapRouter.previewClaimableFees(...)`
+- `MemeverseSwapRouter.getHookPoolKey(...)`
 - `MemeverseSwapRouter.swap(...)`
 - `MemeverseSwapRouter.swapWithPermit2(...)`
 - `MemeverseSwapRouter.addLiquidity(...)`
