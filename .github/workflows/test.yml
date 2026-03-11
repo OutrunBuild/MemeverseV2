@@ -11,8 +11,8 @@ env:
   FOUNDRY_PROFILE: ci
 
 jobs:
-  check:
-    name: Foundry project
+  quality_gate:
+    name: Quality Gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,6 +21,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          fetch-depth: 0
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -28,31 +29,20 @@ jobs:
       - name: Show Forge version
         run: forge --version
 
-      - name: Run Forge fmt
-        run: forge fmt --check
+      - name: Build changed file list for quality gate
+        run: |
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD" > .quality-gate-changed-files
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            git diff --name-only HEAD~1..HEAD > .quality-gate-changed-files
+          else
+            git ls-files > .quality-gate-changed-files
+          fi
+          echo "Changed files:"
+          sed -n '1,200p' .quality-gate-changed-files
 
-      - name: Run Forge build
-        run: forge build --sizes
-
-      - name: Run Forge tests
-        run: forge test -vvv
-
-  docs:
-    name: Contract docs
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Show Forge version
-        run: forge --version
-
-      - name: Check generated contract docs
-        run: bash ./script/check-docs.sh
+      - name: Run quality gate
+        env:
+          QUALITY_GATE_MODE: ci
+          QUALITY_GATE_FILE_LIST: .quality-gate-changed-files
+        run: npm run quality:gate

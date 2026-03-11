@@ -54,7 +54,7 @@
 - One-time setup: run `npm run hooks:install` to set `core.hooksPath` to `.githooks`.
 - On each commit, run `npm run quality:gate`. If staged files include `src/**/*.sol`, the gate runs `npm run docs:gen`.
 - `docs/plans/` is local planning content and is not committed.
-- CI runs `script/check-docs.sh` to ensure docs generation succeeds and directory naming is normalized.
+- CI runs `npm run quality:gate` in CI mode with PR/Push changed-file scope, and enforces the same finish gate rules as local commits.
 - Optional live workflow during editing: `npm run docs:watch`.
 
 ## Testing Guidelines
