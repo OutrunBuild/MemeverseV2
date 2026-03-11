@@ -176,23 +176,29 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         override
         returns (uint256 UPTFee, uint256 memecoinFee)
     {
-        // require(verseId != 0, ZeroInput());
-        // Memeverse storage verse = memeverses[verseId];
-        // require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
+        require(verseId != 0, ZeroInput());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        // address UPT = verse.UPT;
-        // address memecoin = verse.memecoin;
-        // IOutrunAMMPair memecoinPair = IOutrunAMMPair(OutrunAMMLibrary.pairFor(outrunAMMFactory, memecoin, UPT, SWAP_FEERATE));
-        // (uint256 amount0, uint256 amount1) = memecoinPair.previewMakerFee();
-        // address token0 = memecoinPair.token0();
-        // UPTFee = token0 == UPT ? amount0 : amount1;
-        // memecoinFee = token0 == memecoin ? amount0 : amount1;
+        address UPT = verse.UPT;
+        address memecoin = verse.memecoin;
+        (uint256 fee0, uint256 fee1) =
+            IMemeverseSwapRouter(memeverseSwapRouter).previewClaimableFees(memecoin, UPT, address(this));
+        if (memecoin < UPT) {
+            memecoinFee = fee0;
+            UPTFee = fee1;
+        } else {
+            memecoinFee = fee1;
+            UPTFee = fee0;
+        }
 
-        // address liquidProof = verse.liquidProof;
-        // IOutrunAMMPair liquidProofPair = IOutrunAMMPair(OutrunAMMLibrary.pairFor(outrunAMMFactory, liquidProof, UPT, SWAP_FEERATE));
-        // (amount0, amount1) = liquidProofPair.previewMakerFee();
-        // token0 = liquidProofPair.token0();
-        // UPTFee = token0 == UPT ? UPTFee + amount0 : UPTFee + amount1;
+        address liquidProof = verse.liquidProof;
+        (fee0, fee1) = IMemeverseSwapRouter(memeverseSwapRouter).previewClaimableFees(liquidProof, UPT, address(this));
+        if (liquidProof < UPT) {
+            UPTFee += fee1;
+        } else {
+            UPTFee += fee0;
+        }
     }
 
     /**
