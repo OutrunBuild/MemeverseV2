@@ -1,5 +1,5 @@
 # OutrunERC20VotesInit
-[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/f6152b6dbfadcd8a23a2d518905418243cf2a5e1/src/common/governance/OutrunERC20VotesInit.sol)
+[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/5f1e475fc32b5b93b8a81ca9d545cacad2f7567c/src/common/governance/OutrunERC20VotesInit.sol)
 
 **Inherits:**
 [OutrunERC20Init](/src/common/OutrunERC20Init.sol/abstract.OutrunERC20Init.md), [OutrunVotesInit](/src/common/governance/OutrunVotesInit.sol/abstract.OutrunVotesInit.md)

@@ -165,6 +165,27 @@ interface IMemeverseUniswapHook {
         returns (address liquidityToken, uint96 antiSnipeEndBlock, uint256 fee0PerShare, uint256 fee1PerShare);
 
     /**
+     * @notice Returns the LP token address for a hook-managed pool key.
+     * @dev This is a convenience view over `poolInfo(key.toId()).liquidityToken`.
+     * @param key The pool key to query.
+     * @return liquidityToken The LP token contract address, or `address(0)` when the pool is not initialized.
+     */
+    function lpToken(PoolKey calldata key) external view returns (address liquidityToken);
+
+    /**
+     * @notice Returns the current claimable LP fees for an owner without mutating state.
+     * @dev Includes both already-pending fees and fees implied by the latest per-share values and owner LP balance.
+     * @param key The pool key whose fee accounting is queried.
+     * @param owner The owner address for the fee preview.
+     * @return fee0Amount The preview claimable amount in currency0.
+     * @return fee1Amount The preview claimable amount in currency1.
+     */
+    function claimableFees(PoolKey calldata key, address owner)
+        external
+        view
+        returns (uint256 fee0Amount, uint256 fee1Amount);
+
+    /**
      * @notice Low-level liquidity execution API.
      * @dev Adds full-range liquidity using the caller as payer and mints LP shares to `params.to`.
      * This function is intended for routers and advanced integrators and does not implement end-user deadline or

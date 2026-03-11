@@ -1,5 +1,5 @@
 # Memecoin
-[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/f6152b6dbfadcd8a23a2d518905418243cf2a5e1/src/token/Memecoin.sol)
+[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/5f1e475fc32b5b93b8a81ca9d545cacad2f7567c/src/token/Memecoin.sol)
 
 **Inherits:**
 [IMemecoin](/src/token/interfaces/IMemecoin.sol/interface.IMemecoin.md), [OutrunOFTInit](/src/common/layerzero/oft/OutrunOFTInit.sol/abstract.OutrunOFTInit.md)

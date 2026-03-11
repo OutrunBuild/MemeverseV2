@@ -21,7 +21,7 @@ import {
     toBeforeSwapDelta
 } from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
-import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
+import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {SafeCast} from "../libraries/SafeCast.sol";
 import {LiquidityQuote} from "../libraries/LiquidityQuote.sol";
@@ -321,6 +321,46 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 quote.estimatedProtocolFeeAmount = feeQuote.estimatedGrossOutputAmount - requestedOutputAmount;
                 quote.estimatedUserInputAmount = feeQuote.estimatedInputAmount + quote.estimatedLpFeeAmount;
             }
+        }
+    }
+
+    /// @notice Returns the LP token address for a hook-managed pool key.
+    /// @dev Convenience helper for integrators that already operate with `PoolKey`.
+    /// @param key The pool key to query.
+    /// @return liquidityToken The deployed LP token, or `address(0)` when the pool is not initialized.
+    function lpToken(PoolKey calldata key) external view override returns (address liquidityToken) {
+        return poolInfo[key.toId()].liquidityToken;
+    }
+
+    /// @notice Returns the current claimable LP fees for an owner without mutating accounting state.
+    /// @dev Mirrors the same fee accrual math used by `updateUserSnapshot` and `claimFeesCore`, but keeps storage
+    /// unchanged so routers and frontends can safely preview claim results.
+    /// @param key The pool key whose fee accounting is queried.
+    /// @param owner The owner address for the fee preview.
+    /// @return fee0Amount The preview claimable amount in currency0.
+    /// @return fee1Amount The preview claimable amount in currency1.
+    function claimableFees(PoolKey calldata key, address owner)
+        external
+        view
+        override
+        returns (uint256 fee0Amount, uint256 fee1Amount)
+    {
+        PoolId poolId = key.toId();
+        PoolInfo storage pool = poolInfo[poolId];
+        if (pool.liquidityToken == address(0)) return (0, 0);
+
+        UserFeeState storage state = userFeeState[poolId][owner];
+        fee0Amount = state.pendingFee0;
+        fee1Amount = state.pendingFee1;
+
+        uint256 balance = UniswapLP(pool.liquidityToken).balanceOf(owner);
+        if (balance == 0) return (fee0Amount, fee1Amount);
+
+        if (pool.fee0PerShare > state.fee0Offset) {
+            fee0Amount += FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, PRECISION);
+        }
+        if (pool.fee1PerShare > state.fee1Offset) {
+            fee1Amount += FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, PRECISION);
         }
     }
 

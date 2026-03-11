@@ -13,7 +13,7 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
-import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
+import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
@@ -962,6 +962,63 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(fee0Amount, 0, "fee0 claimed");
         assertEq(fee1Amount, 0, "fee1 claimed");
         assertEq(token0.balanceOf(alice), balanceBefore + fee0Amount, "alice received claimed fee");
+    }
+
+    function testClaimableFees_ViewMatchesClaimAndDoesNotMutateState() external {
+        _setProtocolFeeCurrency(key.currency0);
+
+        vm.prank(alice);
+        router.addLiquidity(
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+        );
+
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            40 ether,
+            100 ether,
+            ""
+        );
+
+        (uint256 fee0OffsetBefore, uint256 fee1OffsetBefore, uint256 pendingFee0Before, uint256 pendingFee1Before) =
+            hook.userFeeState(poolId, alice);
+
+        (uint256 previewFee0, uint256 previewFee1) = hook.claimableFees(key, alice);
+
+        (uint256 fee0OffsetAfter, uint256 fee1OffsetAfter, uint256 pendingFee0After, uint256 pendingFee1After) =
+            hook.userFeeState(poolId, alice);
+
+        assertEq(fee0OffsetAfter, fee0OffsetBefore, "fee0 offset mutated");
+        assertEq(fee1OffsetAfter, fee1OffsetBefore, "fee1 offset mutated");
+        assertEq(pendingFee0After, pendingFee0Before, "pending fee0 mutated");
+        assertEq(pendingFee1After, pendingFee1Before, "pending fee1 mutated");
+        assertGt(previewFee0, 0, "preview fee0");
+        assertEq(previewFee1, 0, "preview fee1");
+
+        vm.prank(alice);
+        (uint256 claimedFee0, uint256 claimedFee1) = hook.claimFeesCore(
+            IMemeverseUniswapHook.ClaimFeesCoreParams({
+                key: key,
+                owner: alice,
+                recipient: alice,
+                deadline: block.timestamp,
+                v: uint8(0),
+                r: bytes32(0),
+                s: bytes32(0)
+            })
+        );
+
+        assertEq(claimedFee0, previewFee0, "preview fee0 mismatch");
+        assertEq(claimedFee1, previewFee1, "preview fee1 mismatch");
+    }
+
+    function testLpToken_ReturnsHookPoolLpTokenAddress() external view {
+        (address poolLpToken,,,) = hook.poolInfo(poolId);
+        assertEq(hook.lpToken(key), poolLpToken, "lp token");
     }
 
     function testRouterCreatePoolAndAddLiquidity_UsesHookCore() external {

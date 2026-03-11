@@ -12,7 +12,7 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
-import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
+import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";

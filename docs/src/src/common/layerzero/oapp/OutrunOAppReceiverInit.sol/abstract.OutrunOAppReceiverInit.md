@@ -1,5 +1,5 @@
 # OutrunOAppReceiverInit
-[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/f6152b6dbfadcd8a23a2d518905418243cf2a5e1/src/common/layerzero/oapp/OutrunOAppReceiverInit.sol)
+[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/5f1e475fc32b5b93b8a81ca9d545cacad2f7567c/src/common/layerzero/oapp/OutrunOAppReceiverInit.sol)
 
 **Inherits:**
 IOAppReceiver, [OutrunOAppCoreInit](/src/common/layerzero/oapp/OutrunOAppCoreInit.sol/abstract.OutrunOAppCoreInit.md)

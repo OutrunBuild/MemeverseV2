@@ -1,5 +1,5 @@
 # MemeverseUniswapHook
-[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/f6152b6dbfadcd8a23a2d518905418243cf2a5e1/src/swap/MemeverseUniswapHook.sol)
+[Git Source](https://github.com/OutrunBuild/MemeverseV2/blob/5f1e475fc32b5b93b8a81ca9d545cacad2f7567c/src/swap/MemeverseUniswapHook.sol)
 
 **Inherits:**
 [IMemeverseUniswapHook](/src/swap/interfaces/IMemeverseUniswapHook.sol/interface.IMemeverseUniswapHook.md), IUnlockCallback, BaseHook, [ReentrancyGuard](/src/common/ReentrancyGuard.sol/abstract.ReentrancyGuard.md), Ownable
@@ -450,6 +450,59 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
 |Name|Type|Description|
 |----|----|-----------|
 |`quote`|`SwapQuote`|The projected fee side, user flows, and fee split.|
+
+
+### lpToken
+
+Returns the LP token address for a hook-managed pool key.
+
+Convenience helper for integrators that already operate with `PoolKey`.
+
+
+```solidity
+function lpToken(PoolKey calldata key) external view override returns (address liquidityToken);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`key`|`PoolKey`|The pool key to query.|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`liquidityToken`|`address`|The deployed LP token, or `address(0)` when the pool is not initialized.|
+
+
+### claimableFees
+
+Returns the current claimable LP fees for an owner without mutating accounting state.
+
+Mirrors the same fee accrual math used by `updateUserSnapshot` and `claimFeesCore`, but keeps storage
+unchanged so routers and frontends can safely preview claim results.
+
+
+```solidity
+function claimableFees(PoolKey calldata key, address owner)
+    external
+    view
+    override
+    returns (uint256 fee0Amount, uint256 fee1Amount);
+```
+**Parameters**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`key`|`PoolKey`|The pool key whose fee accounting is queried.|
+|`owner`|`address`|The owner address for the fee preview.|
+
+**Returns**
+
+|Name|Type|Description|
+|----|----|-----------|
+|`fee0Amount`|`uint256`|The preview claimable amount in currency0.|
+|`fee1Amount`|`uint256`|The preview claimable amount in currency1.|
 
 
 ### _beforeInitialize
