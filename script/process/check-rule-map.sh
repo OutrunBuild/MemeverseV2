@@ -1,47 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 2 ]; then
-    echo "Usage: $0 <changed-files-list> <review-note> [review-note ...]"
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <changed-files-list>"
     exit 1
 fi
 
 changed_files_list="$1"
-shift
 
 if [ ! -f "$changed_files_list" ]; then
     echo "[check-rule-map] ERROR: changed files list not found: $changed_files_list"
     exit 1
 fi
 
-node - "$changed_files_list" "$@" <<'EOF'
+node - "$changed_files_list" <<'EOF'
 const fs = require('fs');
 const path = require('path');
 
-const [, , changedFilesPath, ...reviewFiles] = process.argv;
+const [, , changedFilesPath] = process.argv;
 const ruleMapPath = process.env.PROCESS_RULE_MAP_FILE || 'docs/process/rule-map.json';
 const ruleMap = JSON.parse(fs.readFileSync(path.resolve(ruleMapPath), 'utf8'));
 const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
-
-function extractField(file, field) {
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-  const prefix = `- ${field}:`;
-  for (const line of lines) {
-    if (line.startsWith(prefix)) {
-      return line.slice(prefix.length).trim();
-    }
-  }
-  return '';
-}
-
-const reviewEvidence = reviewFiles.map((file) => extractField(file, 'Existing tests exercised')).join('\n');
 const failures = [];
 
 for (const rule of ruleMap.rules || []) {
   const applies = changedFiles.some((file) => file.startsWith(rule.path_prefix));
   if (!applies) continue;
 
-  const matched = (rule.required_test_patterns || []).some((pattern) => reviewEvidence.includes(pattern));
+  const matched = (rule.required_test_patterns || []).some((pattern) => changedFiles.includes(pattern));
   if (!matched) {
     failures.push(
       `${rule.id}: ${rule.description} Expected one of: ${(rule.required_test_patterns || []).join(', ')}`

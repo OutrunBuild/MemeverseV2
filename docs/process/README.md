@@ -14,7 +14,7 @@
 
 - 将仓库根目录 `AGENTS.md` 纳入版本控制。
 - 用路径触发矩阵约束 `src/**/*.sol` 变更。
-- 用结构化 review note 取代“只有标题的审计记录”。
+- 用本地流程脚本约束 Solidity、shell、PR body 与 docs 相关门禁。
 - 用 `npm run docs:check` 验证生成文档流程，而不是把生成文档当作提交产物。
 - 用 `script/process/check-natspec.sh` 对变更过的 `src/**/*.sol` 做最小 NatSpec lint。
 - 用 PR template 和 PR body 结构检查约束 GitHub 合并入口。
@@ -22,7 +22,7 @@
 文档语言约定：
 
 - 仓库内新增的自然语言文档默认使用简体中文
-- `docs/reviews/*.md` 为兼容现有 gate，固定 section / field key 保持英文，其余说明与正文使用简体中文
+- `docs/reviews/*.md` 如果本地使用，固定 section / field key 保持英文，其余说明与正文使用简体中文
 - 命令、路径、代码标识、协议名、库名保持英文原文
 
 详细规则见：

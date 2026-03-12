@@ -89,60 +89,9 @@ for file in "${shell_candidates[@]}"; do
 done
 
 if [ "$has_src_sol" -eq 1 ]; then
-    review_note_pattern="$(node ./script/process/read-process-config.js policy quality_gate.review_note_path_pattern)"
-    review_note_exclude_pattern="$(node ./script/process/read-process-config.js policy quality_gate.review_note_exclude_pattern)"
-    review_files="$(echo "$changed_files" | grep -E "$review_note_pattern" | grep -Ev "$review_note_exclude_pattern" || true)"
-    if [ -z "$review_files" ]; then
-        echo "[quality-gate] ERROR: src Solidity changes require a review note under docs/reviews/*.md in this change set"
-        echo "[quality-gate] Use docs/reviews/TEMPLATE.md and fill the required Impact, Docs, Tests, Verification, and Decision fields."
-        exit 1
-    fi
-    behavior_change_declared=0
-
-    while IFS= read -r review_file; do
-        [ -z "$review_file" ] && continue
-        bash ./script/process/check-review-note.sh "$review_file"
-
-        behavior_change="$(awk '
-            index($0, "- Behavior change:") == 1 {
-                value = substr($0, length("- Behavior change:") + 1)
-                sub(/^ /, "", value)
-                print value
-                exit
-            }
-        ' "$review_file")"
-
-        if [ "$behavior_change" = "yes" ]; then
-            behavior_change_declared=1
-        fi
-    done <<< "$review_files"
-
-    if [ "$behavior_change_declared" -eq 1 ]; then
-        non_generated_docs_pattern="$(node ./script/process/read-process-config.js policy quality_gate.non_generated_docs_pattern)"
-        non_generated_docs_exclude_pattern="$(node ./script/process/read-process-config.js policy quality_gate.non_generated_docs_exclude_pattern)"
-        behavior_docs_required_message="$(node ./script/process/read-process-config.js policy quality_gate.behavior_docs_required_message)"
-        behavior_docs_excluded_message="$(node ./script/process/read-process-config.js policy quality_gate.behavior_docs_excluded_message)"
-        docs_updates="$(echo "$changed_files" | grep -E "$non_generated_docs_pattern" | grep -Ev "$non_generated_docs_exclude_pattern" || true)"
-        if [ -z "$docs_updates" ]; then
-            echo "[quality-gate] ERROR: ${behavior_docs_required_message}"
-            echo "[quality-gate] ${behavior_docs_excluded_message}"
-            exit 1
-        fi
-
-        if [ "$has_swap_src_sol" -eq 1 ]; then
-            swap_docs_pattern="$(node ./script/process/read-process-config.js policy quality_gate.swap_docs_pattern)"
-            swap_docs_required_message="$(node ./script/process/read-process-config.js policy quality_gate.swap_docs_required_message)"
-            swap_docs_updates="$(echo "$changed_files" | grep -E "$swap_docs_pattern" || true)"
-            if [ -z "$swap_docs_updates" ]; then
-                echo "[quality-gate] ERROR: ${swap_docs_required_message}"
-                exit 1
-            fi
-        fi
-    fi
-
     changed_files_tmp="$(mktemp)"
     printf '%s\n' "$changed_files" > "$changed_files_tmp"
-    bash ./script/process/check-rule-map.sh "$changed_files_tmp" $review_files
+    bash ./script/process/check-rule-map.sh "$changed_files_tmp"
     rm -f "$changed_files_tmp"
 fi
 

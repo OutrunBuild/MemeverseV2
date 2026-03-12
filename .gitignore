@@ -17,6 +17,9 @@ docs/book/
 docs/src/
 docs/contracts/
 docs/plans/
+docs/reviews/*.md
+!docs/reviews/README.md
+!docs/reviews/TEMPLATE.md
 
 # Dotenv file
 .env

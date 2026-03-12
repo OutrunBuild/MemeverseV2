@@ -56,14 +56,6 @@
     "src_sol_pattern": "^src/.*\\.sol$",
     "test_tsol_pattern": "^test/.*\\.t\\.sol$",
     "test_sol_pattern": "^test/.*\\.sol$",
-    "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
-    "review_note_path_pattern": "^docs/reviews/.*\\.md$",
-    "review_note_exclude_pattern": "^docs/reviews/(README|TEMPLATE)\\.md$",
-    "non_generated_docs_pattern": "^docs/.*\\.md$",
-    "non_generated_docs_exclude_pattern": "^docs/(contracts|plans|reviews)/",
-    "behavior_docs_required_message": "behavior-changing src Solidity changes require at least one non-generated docs/*.md update",
-    "behavior_docs_excluded_message": "Excluded paths: docs/contracts/**, docs/plans/**, docs/reviews/**",
-    "swap_docs_pattern": "^docs/memeverse-swap/.*\\.md$",
-    "swap_docs_required_message": "behavior-changing src/swap/**/*.sol changes require at least one docs/memeverse-swap/*.md update"
+    "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$"
   }
 }

@@ -1,5 +1,6 @@
 # <YYYY-MM-DD>-<topic>-review
 
+> 本模板用于本地可选的 review 草稿。
 > review note 正文默认使用简体中文。
 > 为兼容现有 gate，请保留下列英文 section / field key，并只填写冒号后的内容。
 

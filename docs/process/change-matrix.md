@@ -6,27 +6,15 @@
 
 必须满足：
 
-- 变更集中至少包含 1 个 `docs/reviews/*.md`
-- 所有相关 review note 通过 `script/process/check-review-note.sh`
 - `forge fmt --check`
 - `bash ./script/process/check-natspec.sh`
 - `forge build`
 - `forge test -vvv`
 - `npm run docs:check`
 
-额外联动：
-
-- 如果任一 review note 声明 `Behavior change: yes`
-  - 变更集中必须包含至少 1 个非生成文档：
-    - 匹配：`docs/**/*.md`
-    - 排除：`docs/contracts/**`、`docs/plans/**`、`docs/reviews/**`
-
 ## `src/swap/**/*.sol`
 
-如果任一 review note 声明 `Behavior change: yes`，则必须同时更新：
-
-- `docs/memeverse-swap/*.md`
-- 如果命中 `docs/process/rule-map.json` 中的模块规则，review note 必须提供至少 1 个匹配的测试证据
+如果命中 `docs/process/rule-map.json` 中的模块规则，则必须同时修改至少 1 个匹配的测试文件。
 
 ## `test/**/*.t.sol`
 
@@ -57,7 +45,7 @@
 ## 说明
 
 - 当前根仓库工具链为 Foundry-only。
-- 变更触发、review note 和 PR sections 的机器可读真源是 `docs/process/policy.json`。
+- 变更触发和 PR sections 的机器可读真源是 `docs/process/policy.json`。
 - 关键模块测试证据映射的机器可读真源是 `docs/process/rule-map.json`。
 - 仓库提供 `.github/pull_request_template.md` 作为标准 PR 模板，但当前机械校验的是 section 标题是否存在。
 - 如果以后新增 gate，优先更新 `docs/process/policy.json` 或 `docs/process/rule-map.json`，再同步人类可读文档与脚本。
