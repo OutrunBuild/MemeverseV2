@@ -5,7 +5,6 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 mode="${QUALITY_GATE_MODE:-staged}"
-generated_docs_dir="docs/contracts"
 
 load_file_list_from_ci() {
     if [ -n "${QUALITY_GATE_FILE_LIST:-}" ] && [ -f "${QUALITY_GATE_FILE_LIST}" ]; then
@@ -42,6 +41,7 @@ if [ -z "$changed_files" ]; then
 fi
 
 has_src_sol=0
+has_swap_src_sol=0
 has_sol_tests=0
 solidity_candidates=()
 solidity_files=()
@@ -51,7 +51,11 @@ shell_files=()
 while IFS= read -r file; do
     [ -z "$file" ] && continue
 
-    if [[ "$file" =~ ^src/.*\.sol$ ]]; then
+    if [[ "$file" =~ ^src/swap/.*\.sol$ ]]; then
+        has_src_sol=1
+        has_swap_src_sol=1
+        solidity_candidates+=("$file")
+    elif [[ "$file" =~ ^src/.*\.sol$ ]]; then
         has_src_sol=1
         solidity_candidates+=("$file")
     elif [[ "$file" =~ ^test/.*\.t\.sol$ ]]; then
@@ -79,30 +83,48 @@ for file in "${shell_candidates[@]}"; do
 done
 
 if [ "$has_src_sol" -eq 1 ]; then
-    review_files="$(echo "$changed_files" | grep -E '^docs/reviews/.*\.md$' || true)"
+    review_files="$(echo "$changed_files" | grep -E '^docs/reviews/.*\.md$' | grep -Ev '^docs/reviews/(README|TEMPLATE)\.md$' || true)"
     if [ -z "$review_files" ]; then
         echo "[quality-gate] ERROR: src Solidity changes require a review note under docs/reviews/*.md in this change set"
-        echo "[quality-gate] Use docs/reviews/TEMPLATE.md and include findings, simplification, verification, and decision."
+        echo "[quality-gate] Use docs/reviews/TEMPLATE.md and fill the required Impact, Docs, Tests, Verification, and Decision fields."
         exit 1
     fi
-
-    required_sections=(
-        "## Scope"
-        "## Findings"
-        "## Simplification"
-        "## Verification"
-        "## Decision"
-    )
+    behavior_change_declared=0
 
     while IFS= read -r review_file; do
         [ -z "$review_file" ] && continue
-        for section in "${required_sections[@]}"; do
-            if ! grep -qF "$section" "$review_file"; then
-                echo "[quality-gate] ERROR: $review_file is missing required section: $section"
+        bash ./script/check-review-note.sh "$review_file"
+
+        behavior_change="$(awk '
+            index($0, "- Behavior change:") == 1 {
+                value = substr($0, length("- Behavior change:") + 1)
+                sub(/^ /, "", value)
+                print value
+                exit
+            }
+        ' "$review_file")"
+
+        if [ "$behavior_change" = "yes" ]; then
+            behavior_change_declared=1
+        fi
+    done <<< "$review_files"
+
+    if [ "$behavior_change_declared" -eq 1 ]; then
+        docs_updates="$(echo "$changed_files" | grep -E '^docs/.*\.md$' | grep -Ev '^docs/(contracts|plans|reviews)/' || true)"
+        if [ -z "$docs_updates" ]; then
+            echo "[quality-gate] ERROR: behavior-changing src Solidity changes require at least one non-generated docs/*.md update"
+            echo "[quality-gate] Excluded paths: docs/contracts/**, docs/plans/**, docs/reviews/**"
+            exit 1
+        fi
+
+        if [ "$has_swap_src_sol" -eq 1 ]; then
+            swap_docs_updates="$(echo "$changed_files" | grep -E '^docs/memeverse-swap/.*\.md$' || true)"
+            if [ -z "$swap_docs_updates" ]; then
+                echo "[quality-gate] ERROR: behavior-changing src/swap/**/*.sol changes require at least one docs/memeverse-swap/*.md update"
                 exit 1
             fi
-        done
-    done <<< "$review_files"
+        fi
+    fi
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
@@ -124,30 +146,8 @@ if [ "${#shell_files[@]}" -gt 0 ]; then
 fi
 
 if [ "$has_src_sol" -eq 1 ]; then
-    echo "[quality-gate] npm run docs:gen"
-    npm run docs:gen
-    if [ "$mode" = "staged" ]; then
-        if git check-ignore -q "$generated_docs_dir"; then
-            echo "[quality-gate] ${generated_docs_dir} is ignored; skipping auto-stage."
-        else
-            git add "$generated_docs_dir"
-        fi
-    else
-        if git check-ignore -q "$generated_docs_dir"; then
-            echo "[quality-gate] ${generated_docs_dir} is ignored in git; skipping CI drift check."
-        else
-            if ! git diff --exit-code -- "$generated_docs_dir"; then
-                echo "[quality-gate] ERROR: generated docs are stale. Run npm run docs:gen and include ${generated_docs_dir} updates."
-                exit 1
-            fi
-
-            if [ -n "$(git ls-files --others --exclude-standard -- "$generated_docs_dir")" ]; then
-                echo "[quality-gate] ERROR: generated docs under ${generated_docs_dir} include untracked files."
-                git ls-files --others --exclude-standard -- "$generated_docs_dir"
-                exit 1
-            fi
-        fi
-    fi
+    echo "[quality-gate] npm run docs:check"
+    npm run docs:check
 fi
 
 echo "[quality-gate] PASS"
