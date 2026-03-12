@@ -827,7 +827,9 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         uint256 nativeDesired = tokenA == address(0) ? amountADesired : tokenB == address(0) ? amountBDesired : 0;
         address refundRecipient = _validateNativeFunding(nativeDesired, nativeRefundRecipient);
 
-        uint160 startingPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(amount0Desired, amount1Desired);
+        uint160 startingPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
+            Currency.unwrap(currency0), Currency.unwrap(currency1), amount0Desired, amount1Desired
+        );
         poolKey = _hookPoolKey(currency0, currency1);
 
         poolManager.initialize(poolKey, startingPrice);
