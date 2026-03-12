@@ -16,13 +16,26 @@ contract MockSwapRouter {
         uint256 fee1;
     }
 
+    struct AddLiquidityResult {
+        uint128 liquidity;
+        uint256 amount0Used;
+        uint256 amount1Used;
+    }
+
     mapping(bytes32 => Quote) internal previewQuotes;
     mapping(bytes32 => Quote) internal claimQuotes;
     mapping(bytes32 => address) internal lpTokens;
+    mapping(bytes32 => AddLiquidityResult) internal addLiquidityResults;
+    mapping(bytes32 => uint256) internal liquidityQuoteAmountA;
+    mapping(bytes32 => uint256) internal liquidityQuoteAmountB;
 
     function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         return keccak256(abi.encode(token0, token1));
+    }
+
+    function _liquidityKey(address tokenA, address tokenB, uint128 liquidityDesired) internal pure returns (bytes32) {
+        return keccak256(abi.encode(_pairKey(tokenA, tokenB), liquidityDesired));
     }
 
     /// @notice Sets both preview and claim fee quotes for a token pair and owner.
@@ -68,6 +81,46 @@ contract MockSwapRouter {
         lpTokens[_pairKey(tokenA, tokenB)] = liquidityToken;
     }
 
+    /// @notice Sets the mocked add-liquidity execution result for a pair.
+    /// @dev Stores the actual token usage and LP liquidity that `addLiquidity(...)` should produce.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param liquidity Mock LP liquidity to mint.
+    /// @param amountAUsed Mock amount of `tokenA` consumed.
+    /// @param amountBUsed Mock amount of `tokenB` consumed.
+    function setAddLiquidityResult(
+        address tokenA,
+        address tokenB,
+        uint128 liquidity,
+        uint256 amountAUsed,
+        uint256 amountBUsed
+    ) external {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        (uint256 amount0Used, uint256 amount1Used) =
+            tokenA < tokenB ? (amountAUsed, amountBUsed) : (amountBUsed, amountAUsed);
+        addLiquidityResults[_pairKey(token0, token1)] =
+            AddLiquidityResult({liquidity: liquidity, amount0Used: amount0Used, amount1Used: amount1Used});
+    }
+
+    /// @notice Sets the mocked exact-liquidity quote for a pair.
+    /// @dev Stores the required input amounts using the caller-facing token order.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param liquidityDesired Target liquidity to quote.
+    /// @param amountARequired Mock required amount of `tokenA`.
+    /// @param amountBRequired Mock required amount of `tokenB`.
+    function setQuoteAmountsForLiquidity(
+        address tokenA,
+        address tokenB,
+        uint128 liquidityDesired,
+        uint256 amountARequired,
+        uint256 amountBRequired
+    ) external {
+        bytes32 key = _liquidityKey(tokenA, tokenB, liquidityDesired);
+        liquidityQuoteAmountA[key] = amountARequired;
+        liquidityQuoteAmountB[key] = amountBRequired;
+    }
+
     /// @notice Returns the mocked preview fees for a token pair and owner.
     /// @dev Mimics router-side pair normalization.
     /// @param tokenA First token in the pair.
@@ -91,6 +144,22 @@ contract MockSwapRouter {
     /// @return liquidityToken Mock LP token address for the pair.
     function lpToken(address tokenA, address tokenB) external view returns (address liquidityToken) {
         return lpTokens[_pairKey(tokenA, tokenB)];
+    }
+
+    /// @notice Returns the mocked required token amounts for a target liquidity.
+    /// @dev Reads the caller-facing token-order quote seeded by the test.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param liquidityDesired Target liquidity to quote.
+    /// @return amountARequired Mock required amount of `tokenA`.
+    /// @return amountBRequired Mock required amount of `tokenB`.
+    function quoteAmountsForLiquidity(address tokenA, address tokenB, uint128 liquidityDesired)
+        external
+        view
+        returns (uint256 amountARequired, uint256 amountBRequired)
+    {
+        bytes32 key = _liquidityKey(tokenA, tokenB, liquidityDesired);
+        return (liquidityQuoteAmountA[key], liquidityQuoteAmountB[key]);
     }
 
     /// @notice Returns a normalized mock pool key for a token pair.
@@ -136,6 +205,49 @@ contract MockSwapRouter {
 
         if (fee0 != 0) MockERC20(token0).mint(recipient, fee0);
         if (fee1 != 0) MockERC20(token1).mint(recipient, fee1);
+    }
+
+    /// @notice Executes a mocked add-liquidity call for a pair.
+    /// @dev Pulls the configured used amounts from the caller and mints mock LP shares to `to`.
+    /// @param currency0 First pool currency.
+    /// @param currency1 Second pool currency.
+    /// @param amount0Desired Unused desired amount for `currency0`.
+    /// @param amount1Desired Unused desired amount for `currency1`.
+    /// @param amount0Min Unused minimum amount for `currency0`.
+    /// @param amount1Min Unused minimum amount for `currency1`.
+    /// @param to Recipient of the mocked LP shares.
+    /// @param nativeRefundRecipient Unused native refund recipient.
+    /// @param deadline Unused deadline.
+    /// @return liquidity Mock LP liquidity minted to `to`.
+    function addLiquidity(
+        Currency currency0,
+        Currency currency1,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address to,
+        address nativeRefundRecipient,
+        uint256 deadline
+    ) external returns (uint128 liquidity) {
+        amount0Desired;
+        amount1Desired;
+        amount0Min;
+        amount1Min;
+        nativeRefundRecipient;
+        deadline;
+
+        address token0 = Currency.unwrap(currency0);
+        address token1 = Currency.unwrap(currency1);
+        AddLiquidityResult memory result = addLiquidityResults[_pairKey(token0, token1)];
+        if (result.amount0Used != 0) MockERC20(token0).transferFrom(msg.sender, address(this), result.amount0Used);
+        if (result.amount1Used != 0) MockERC20(token1).transferFrom(msg.sender, address(this), result.amount1Used);
+
+        address liquidityToken = lpTokens[_pairKey(token0, token1)];
+        if (result.liquidity != 0 && liquidityToken != address(0)) {
+            MockERC20(liquidityToken).mint(to, result.liquidity);
+        }
+        return result.liquidity;
     }
 }
 
@@ -302,6 +414,13 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
         launcher.setMemeverseForTest(verseId, verse);
+    }
+
+    function _approveMintInputs(address user) internal {
+        vm.startPrank(user);
+        upt.approve(address(launcher), type(uint256).max);
+        memecoin.approve(address(launcher), type(uint256).max);
+        vm.stopPrank();
     }
 
     /// @notice Verifies preview fee mapping preserves token ordering for both pools.
@@ -492,5 +611,100 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         assertFalse(isRefunded, "is refunded");
         assertFalse(isClaimed, "is claimed");
         assertTrue(isRedeemed, "is redeemed");
+    }
+
+    /// @notice Verifies mintPOLToken rejects zero input budgets.
+    /// @dev Confirms the restored zero-input guard is active.
+    function testMintPOLToken_RevertsOnZeroInput() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.mintPOLToken(verseId, 0, 1 ether, 0, 0, 0, block.timestamp);
+    }
+
+    /// @notice Verifies mintPOLToken rejects verses before the locked stage.
+    /// @dev Confirms the restored stage guard is active.
+    function testMintPOLToken_RevertsWhenBeforeLocked() external {
+        uint256 verseId = 1;
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
+        verse.UPT = address(upt);
+        verse.memecoin = address(memecoin);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
+        launcher.mintPOLToken(verseId, 1 ether, 1 ether, 0, 0, 0, block.timestamp);
+    }
+
+    /// @notice Verifies automatic liquidity minting refunds unused inputs and mints matching POL.
+    /// @dev Covers the `amountOutDesired == 0` router path.
+    function testMintPOLToken_WithAutoLiquidity_RefundsUnusedInputsAndMintsPol() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        router.setAddLiquidityResult(address(upt), address(memecoin), 8 ether, 6 ether, 10 ether);
+
+        upt.mint(ALICE, 9 ether);
+        memecoin.mint(ALICE, 13 ether);
+        _approveMintInputs(ALICE);
+
+        vm.prank(ALICE);
+        (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) =
+            launcher.mintPOLToken(verseId, 9 ether, 13 ether, 5 ether, 8 ether, 0, block.timestamp);
+
+        assertEq(amountInUPT, 6 ether, "upt used");
+        assertEq(amountInMemecoin, 10 ether, "memecoin used");
+        assertEq(amountOut, 8 ether, "pol out");
+        assertEq(upt.balanceOf(ALICE), 3 ether, "upt refund");
+        assertEq(memecoin.balanceOf(ALICE), 3 ether, "memecoin refund");
+        assertEq(liquidProof.balanceOf(ALICE), 8 ether, "alice pol");
+        assertEq(memecoinLp.balanceOf(address(launcher)), 8 ether, "launcher lp");
+    }
+
+    /// @notice Verifies exact-liquidity minting uses the router quote and mints the requested POL.
+    /// @dev Covers the `amountOutDesired != 0` router path.
+    function testMintPOLToken_WithExactLiquidity_UsesRouterQuoteAndMintsRequestedPol() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        router.setQuoteAmountsForLiquidity(address(upt), address(memecoin), 5 ether, 7 ether, 9 ether);
+        router.setAddLiquidityResult(address(upt), address(memecoin), 5 ether, 7 ether, 9 ether);
+
+        upt.mint(ALICE, 10 ether);
+        memecoin.mint(ALICE, 12 ether);
+        _approveMintInputs(ALICE);
+
+        vm.prank(ALICE);
+        (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) =
+            launcher.mintPOLToken(verseId, 10 ether, 12 ether, 0, 0, 5 ether, block.timestamp);
+
+        assertEq(amountInUPT, 7 ether, "upt used");
+        assertEq(amountInMemecoin, 9 ether, "memecoin used");
+        assertEq(amountOut, 5 ether, "pol out");
+        assertEq(upt.balanceOf(ALICE), 3 ether, "upt refund");
+        assertEq(memecoin.balanceOf(ALICE), 3 ether, "memecoin refund");
+        assertEq(liquidProof.balanceOf(ALICE), 5 ether, "alice pol");
+        assertEq(memecoinLp.balanceOf(address(launcher)), 5 ether, "launcher lp");
+    }
+
+    /// @notice Verifies exact-liquidity minting reverts when the router quote exceeds the caller budget.
+    /// @dev Confirms the launcher does not over-consume user inputs in exact mode.
+    function testMintPOLToken_WithExactLiquidity_RevertsWhenQuoteExceedsBudget() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        router.setQuoteAmountsForLiquidity(address(upt), address(memecoin), 5 ether, 11 ether, 9 ether);
+        upt.mint(ALICE, 10 ether);
+        memecoin.mint(ALICE, 12 ether);
+        _approveMintInputs(ALICE);
+
+        vm.prank(ALICE);
+        vm.expectRevert();
+        launcher.mintPOLToken(verseId, 10 ether, 12 ether, 0, 0, 5 ether, block.timestamp);
     }
 }

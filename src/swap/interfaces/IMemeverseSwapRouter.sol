@@ -115,6 +115,18 @@ interface IMemeverseSwapRouter {
     /// @return liquidityToken The LP token contract for the pair.
     function lpToken(address tokenA, address tokenB) external view returns (address liquidityToken);
 
+    /// @notice Returns the required token amounts for a target LP liquidity in the pair pool.
+    /// @dev Uses the current pool price and the Router's full-range liquidity math for the hook-managed pair.
+    /// @param tokenA First token address (may be native as address(0)).
+    /// @param tokenB Second token address (may be native as address(0)).
+    /// @param liquidityDesired Target LP liquidity to quote.
+    /// @return amountARequired Required amount of `tokenA`.
+    /// @return amountBRequired Required amount of `tokenB`.
+    function quoteAmountsForLiquidity(address tokenA, address tokenB, uint128 liquidityDesired)
+        external
+        view
+        returns (uint256 amountARequired, uint256 amountBRequired);
+
     /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.
     /// @dev On anti-snipe soft-fail, the router returns with `executed == false` and a failure reason.
     /// @custom:security Callers should enforce slippage with `amountOutMinimum` or `amountInMaximum`, and must provide

@@ -17,6 +17,7 @@ import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
 import {UniswapLP} from "../libraries/UniswapLP.sol";
 import {LiquidityQuote} from "../libraries/LiquidityQuote.sol";
+import {LiquidityAmounts} from "../libraries/LiquidityAmounts.sol";
 import {InitialPriceCalculator} from "../libraries/InitialPriceCalculator.sol";
 import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 
@@ -175,6 +176,28 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     function lpToken(address tokenA, address tokenB) external view override returns (address liquidityToken) {
         PoolKey memory key = getHookPoolKey(tokenA, tokenB);
         return hook.lpToken(key);
+    }
+
+    /// @notice Returns the required token amounts for a target LP liquidity in the pair pool.
+    /// @dev Resolves the hook pool key, reads the current pool price, and applies the same full-range liquidity math
+    /// used by the Router and Hook Core add-liquidity paths.
+    /// @param tokenA First token address (may be native as address(0)).
+    /// @param tokenB Second token address (may be native as address(0)).
+    /// @param liquidityDesired Target LP liquidity to quote.
+    /// @return amountARequired Required amount of `tokenA`.
+    /// @return amountBRequired Required amount of `tokenB`.
+    function quoteAmountsForLiquidity(address tokenA, address tokenB, uint128 liquidityDesired)
+        external
+        view
+        override
+        returns (uint256 amountARequired, uint256 amountBRequired)
+    {
+        PoolKey memory key = getHookPoolKey(tokenA, tokenB);
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
+        (uint256 amount0Required, uint256 amount1Required) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPriceX96, LiquidityQuote.MIN_SQRT_PRICE_X96, LiquidityQuote.MAX_SQRT_PRICE_X96, liquidityDesired
+        );
+        return tokenA < tokenB ? (amount0Required, amount1Required) : (amount1Required, amount0Required);
     }
 
     /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.

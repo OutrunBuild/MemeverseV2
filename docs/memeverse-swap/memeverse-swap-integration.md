@@ -179,6 +179,8 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
 - `MemeverseSwapRouter.quoteSwap(...)`
 - `MemeverseSwapRouter.previewClaimableFees(...)`
 - `MemeverseSwapRouter.getHookPoolKey(...)`
+- `MemeverseSwapRouter.lpToken(...)`
+- `MemeverseSwapRouter.quoteAmountsForLiquidity(...)`
 - `MemeverseSwapRouter.swap(...)`
 - `MemeverseSwapRouter.swapWithPermit2(...)`
 - `MemeverseSwapRouter.addLiquidity(...)`
@@ -188,6 +190,18 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
 - `MemeverseSwapRouter.claimFees(...)`
 - `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
 - `MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2(...)`
+
+对只知道 token pair、不想感知 `PoolKey` / Hook 细节的集成方，当前新增的只读 helper 可以这样理解：
+
+- `lpToken(tokenA, tokenB)`：返回该 pair 对应的 Hook LP token 地址
+- `quoteAmountsForLiquidity(tokenA, tokenB, liquidityDesired)`：按当前池价返回目标 LP liquidity 需要的两侧 token 数量
+
+这两个接口的目标是把 pair 归一化、当前池价读取与 full-range liquidity 公式继续收敛在 Router 一层，而不是让上层业务自己拼 `PoolKey` 或直接读取 `poolManager`。
+
+`MemeverseLauncher` 当前的 Router 化 LP / POL 路径也依赖这组接口：
+
+- `redeemMemecoinLiquidity(...)` / `redeemPolLiquidity(...)` 通过 `lpToken(...)` 读取 pair LP token，再按旧语义直接发 LP，不拆底层资产
+- `mintPOLToken(...)` 的 exact-liquidity 模式通过 `quoteAmountsForLiquidity(...)` 先反推所需 `UPT` / `memecoin`，再调用 `addLiquidity(...)`
 
 Hook 的 `quoteSwap(...)` 仍然存在，但更适合作为 Core 层能力。
 

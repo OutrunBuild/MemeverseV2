@@ -297,6 +297,9 @@ contract MemeverseSwapRouterTest is Test {
     event EmergencyFlagUpdated(bool oldFlag, bool newFlag);
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
+    uint160 internal constant FULL_RANGE_MIN_SQRT_PRICE_X96 = 4_310_618_292;
+    uint160 internal constant FULL_RANGE_MAX_SQRT_PRICE_X96 =
+        1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
     uint256 internal constant ALICE_PK = 0xA11CE;
 
     MockPoolManagerForRouterTest internal manager;
@@ -1205,6 +1208,22 @@ contract MemeverseSwapRouterTest is Test {
     function testRouterLpToken_ReturnsHookPoolLpTokenAddress() external view {
         (address poolLpToken,,,) = hook.poolInfo(poolId);
         assertEq(router.lpToken(address(token0), address(token1)), poolLpToken, "lp token");
+    }
+
+    /// @notice Verifies the router quotes the required pair amounts for a target liquidity.
+    /// @dev Covers the new exact-liquidity read helper.
+    function testRouterQuoteAmountsForLiquidity_ReturnsRequiredPairAmounts() external {
+        uint128 liquidityDesired = 10 ether;
+        (uint160 sqrtPriceX96,,,) = manager.getSlot0(poolId);
+        (uint256 amount0Required, uint256 amount1Required) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPriceX96, FULL_RANGE_MIN_SQRT_PRICE_X96, FULL_RANGE_MAX_SQRT_PRICE_X96, liquidityDesired
+        );
+
+        (uint256 amountToken0, uint256 amountToken1) =
+            router.quoteAmountsForLiquidity(address(token0), address(token1), liquidityDesired);
+
+        assertEq(amountToken0, amount0Required, "token0 required");
+        assertEq(amountToken1, amount1Required, "token1 required");
     }
 
     /// @notice Verifies pool bootstrap and initial liquidity use the hook core path.
