@@ -11,7 +11,7 @@ while true; do
     fingerprint="$(find src -type f -name '*.sol' -print0 | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
 
     if [ "$fingerprint" != "$last_fingerprint" ]; then
-        bash ./script/generate-docs.sh
+        bash ./script/process/generate-docs.sh
         last_fingerprint="$fingerprint"
         echo "Docs updated in docs/contracts"
     fi

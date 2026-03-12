@@ -28,4 +28,4 @@ jobs:
         run: |
           tmp_file="$(mktemp)"
           printf '%s\n' "${PR_BODY}" > "${tmp_file}"
-          bash ./script/check-pr-body.sh "${tmp_file}"
+          bash ./script/process/check-pr-body.sh "${tmp_file}"

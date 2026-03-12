@@ -98,7 +98,7 @@ $review_path
 EOF
 
 set +e
-output="$(PROCESS_RULE_MAP_FILE="$rule_map_path" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" bash ./script/quality-gate.sh 2>&1)"
+output="$(PROCESS_RULE_MAP_FILE="$rule_map_path" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" bash ./script/process/quality-gate.sh 2>&1)"
 status=$?
 set -e
 
@@ -156,4 +156,4 @@ cat > "$review_path" <<'EOF'
 - Residual risks: none.
 EOF
 
-PROCESS_RULE_MAP_FILE="$rule_map_path" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" bash ./script/quality-gate.sh
+PROCESS_RULE_MAP_FILE="$rule_map_path" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" bash ./script/process/quality-gate.sh

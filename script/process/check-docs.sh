@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-bash ./script/generate-docs.sh
+bash ./script/process/generate-docs.sh
 
 if [ -d "docs/contracts/src" ]; then
     echo "Unexpected nested docs directory: docs/contracts/src"

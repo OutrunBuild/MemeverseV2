@@ -7,9 +7,9 @@
 必须满足：
 
 - 变更集中至少包含 1 个 `docs/reviews/*.md`
-- 所有相关 review note 通过 `script/check-review-note.sh`
+- 所有相关 review note 通过 `script/process/check-review-note.sh`
 - `forge fmt --check`
-- `bash ./script/check-natspec.sh`
+- `bash ./script/process/check-natspec.sh`
 - `forge build`
 - `forge test -vvv`
 - `npm run docs:check`
@@ -26,6 +26,7 @@
 如果任一 review note 声明 `Behavior change: yes`，则必须同时更新：
 
 - `docs/memeverse-swap/*.md`
+- 如果命中 `docs/process/rule-map.json` 中的模块规则，review note 必须提供至少 1 个匹配的测试证据
 
 ## `test/**/*.t.sol`
 
@@ -35,7 +36,7 @@
 - `forge build`
 - `forge test -vvv`
 
-## `script/*.sh` 或 `.githooks/*`
+## `script/**/*.sh` 或 `.githooks/*`
 
 必须满足：
 
@@ -45,7 +46,6 @@
 
 必须满足：
 
-- 使用 `.github/pull_request_template.md`
 - PR body 包含：
   - `## Summary`
   - `## Impact`
@@ -57,6 +57,7 @@
 ## 说明
 
 - 当前根仓库工具链为 Foundry-only。
-- P1 已补齐最小 NatSpec lint 和 PR body 结构校验。
-- P2 将变更触发、review note、PR sections 和关键模块测试映射集中到 `docs/process/policy.json` 与 `docs/process/rule-map.json`。
-- 如果以后新增 gate，优先更新本文件，再更新脚本和 `AGENTS.md`。
+- 变更触发、review note 和 PR sections 的机器可读真源是 `docs/process/policy.json`。
+- 关键模块测试证据映射的机器可读真源是 `docs/process/rule-map.json`。
+- 仓库提供 `.github/pull_request_template.md` 作为标准 PR 模板，但当前机械校验的是 section 标题是否存在。
+- 如果以后新增 gate，优先更新 `docs/process/policy.json` 或 `docs/process/rule-map.json`，再同步人类可读文档与脚本。

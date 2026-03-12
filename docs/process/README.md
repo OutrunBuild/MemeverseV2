@@ -10,13 +10,13 @@
 - `docs/process/policy.json` 是当前流程规则的机器可读真源。
 - `docs/process/rule-map.json` 是关键模块规则到测试证据的机器可读映射。
 
-当前已落地范围：
+当前规则覆盖范围：
 
 - 将仓库根目录 `AGENTS.md` 纳入版本控制。
 - 用路径触发矩阵约束 `src/**/*.sol` 变更。
 - 用结构化 review note 取代“只有标题的审计记录”。
 - 用 `npm run docs:check` 验证生成文档流程，而不是把生成文档当作提交产物。
-- 用 `script/check-natspec.sh` 对变更过的 `src/**/*.sol` 做最小 NatSpec lint。
+- 用 `script/process/check-natspec.sh` 对变更过的 `src/**/*.sol` 做最小 NatSpec lint。
 - 用 PR template 和 PR body 结构检查约束 GitHub 合并入口。
 
 文档语言约定：

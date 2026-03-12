@@ -16,7 +16,7 @@ if [ ! -f "$body_file" ]; then
     exit 1
 fi
 
-mapfile -t required_sections < <(node ./script/read-process-config.js policy pull_request.required_sections --lines)
+mapfile -t required_sections < <(node ./script/process/read-process-config.js policy pull_request.required_sections --lines)
 
 missing_sections=()
 

@@ -9,10 +9,10 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-mapfile -t required_headings < <(node ./script/read-process-config.js policy review_note.required_headings --lines)
-mapfile -t required_fields < <(node ./script/read-process-config.js policy review_note.required_fields --lines)
-mapfile -t boolean_fields < <(node ./script/read-process-config.js policy review_note.boolean_fields --lines)
-mapfile -t placeholder_values < <(node ./script/read-process-config.js policy review_note.placeholder_values --lines)
+mapfile -t required_headings < <(node ./script/process/read-process-config.js policy review_note.required_headings --lines)
+mapfile -t required_fields < <(node ./script/process/read-process-config.js policy review_note.required_fields --lines)
+mapfile -t boolean_fields < <(node ./script/process/read-process-config.js policy review_note.boolean_fields --lines)
+mapfile -t placeholder_values < <(node ./script/process/read-process-config.js policy review_note.placeholder_values --lines)
 
 field_is_required() {
     local field="$1"

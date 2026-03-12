@@ -51,7 +51,7 @@ None.
 EOF
 
 set +e
-missing_output="$(bash ./script/check-pr-body.sh "$missing_file" 2>&1)"
+missing_output="$(bash ./script/process/check-pr-body.sh "$missing_file" 2>&1)"
 missing_status=$?
 set -e
 
@@ -66,4 +66,4 @@ if ! printf '%s\n' "$missing_output" | grep -q "missing required sections"; then
     exit 1
 fi
 
-bash ./script/check-pr-body.sh "$passing_file"
+bash ./script/process/check-pr-body.sh "$passing_file"

@@ -44,7 +44,7 @@ contract PassingNatSpec {
 EOF
 
 set +e
-missing_output="$(bash ./script/check-natspec.sh "$missing_file" 2>&1)"
+missing_output="$(bash ./script/process/check-natspec.sh "$missing_file" 2>&1)"
 missing_status=$?
 set -e
 
@@ -59,4 +59,4 @@ if ! printf '%s\n' "$missing_output" | grep -q "missing"; then
     exit 1
 fi
 
-bash ./script/check-natspec.sh "$passing_file"
+bash ./script/process/check-natspec.sh "$passing_file"

@@ -17,19 +17,9 @@
       "ABI change",
       "Storage layout change",
       "Config change",
-      "High findings",
-      "Medium findings",
-      "Low findings",
-      "None",
-      "Candidate simplifications considered",
-      "Applied",
-      "Rejected (with reason)",
       "Docs updated",
-      "Why these docs",
-      "No-doc reason",
       "Tests updated",
       "Existing tests exercised",
-      "No-test-change reason",
       "Commands run",
       "Results",
       "Ready to commit",
@@ -59,8 +49,7 @@
       "## Tests",
       "## Verification",
       "## Risks"
-    ],
-    "template_path": ".github/pull_request_template.md"
+    ]
   },
   "quality_gate": {
     "swap_src_sol_pattern": "^src/swap/.*\\.sol$",

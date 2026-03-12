@@ -26,8 +26,7 @@ cat > "$policy_file" <<'EOF'
     "placeholder_values": ["", "yes/no"]
   },
   "pull_request": {
-    "required_sections": ["## Summary", "## Custom"],
-    "template_path": ".github/pull_request_template.md"
+    "required_sections": ["## Summary", "## Custom"]
   },
   "quality_gate": {}
 }
@@ -83,9 +82,9 @@ Only summary.
 EOF
 
 set +e
-review_output="$(PROCESS_POLICY_FILE="$policy_file" bash ./script/check-review-note.sh "$review_file" 2>&1)"
+review_output="$(PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-review-note.sh "$review_file" 2>&1)"
 review_status=$?
-pr_output="$(PROCESS_POLICY_FILE="$policy_file" bash ./script/check-pr-body.sh "$pr_file" 2>&1)"
+pr_output="$(PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-pr-body.sh "$pr_file" 2>&1)"
 pr_status=$?
 set -e
 
@@ -137,5 +136,5 @@ Summary present.
 Custom section present.
 EOF
 
-PROCESS_POLICY_FILE="$policy_file" bash ./script/check-review-note.sh "$passing_review_file"
-PROCESS_POLICY_FILE="$policy_file" bash ./script/check-pr-body.sh "$passing_pr_file"
+PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-review-note.sh "$passing_review_file"
+PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-pr-body.sh "$passing_pr_file"
