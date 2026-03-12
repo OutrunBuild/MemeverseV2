@@ -19,6 +19,7 @@ import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../src/swap/interfaces/IMemeverseUniswapHook.sol";
+import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {UniswapLP} from "../src/libraries/UniswapLP.sol";
 
 contract MockPoolManagerForRouterTest {
@@ -1224,6 +1225,33 @@ contract MemeverseSwapRouterTest is Test {
 
         assertEq(amountToken0, amount0Required, "token0 required");
         assertEq(amountToken1, amount1Required, "token1 required");
+    }
+
+    /// @notice Verifies liquidity-related router selectors remain aligned with the public interface.
+    /// @dev Guards ABI stability while internal parameter plumbing is refactored.
+    function testRouterLiquiditySelectors_MatchInterface() external pure {
+        assertEq(MemeverseSwapRouter.addLiquidity.selector, IMemeverseSwapRouter.addLiquidity.selector, "add");
+        assertEq(
+            MemeverseSwapRouter.addLiquidityWithPermit2.selector,
+            IMemeverseSwapRouter.addLiquidityWithPermit2.selector,
+            "add permit2"
+        );
+        assertEq(MemeverseSwapRouter.removeLiquidity.selector, IMemeverseSwapRouter.removeLiquidity.selector, "remove");
+        assertEq(
+            MemeverseSwapRouter.removeLiquidityWithPermit2.selector,
+            IMemeverseSwapRouter.removeLiquidityWithPermit2.selector,
+            "remove permit2"
+        );
+        assertEq(
+            MemeverseSwapRouter.createPoolAndAddLiquidity.selector,
+            IMemeverseSwapRouter.createPoolAndAddLiquidity.selector,
+            "create"
+        );
+        assertEq(
+            MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector,
+            IMemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector,
+            "create permit2"
+        );
     }
 
     /// @notice Verifies pool bootstrap and initial liquidity use the hook core path.
