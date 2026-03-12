@@ -12,6 +12,7 @@
 - `src/**/*.sol`
   - 必须提交至少 1 个 `docs/reviews/*.md`
   - 必须通过 Solidity gate：`forge fmt --check`、`forge build`、`forge test -vvv`
+  - 必须通过 NatSpec gate：`bash ./script/check-natspec.sh`
   - 必须通过 docs gate：`npm run docs:check`
   - review note 中必须声明：
     - `Behavior change: yes/no`
@@ -32,7 +33,17 @@
 - `script/*.sh` 或 `.githooks/*`
   - 必须通过：`bash -n`
 
-## 3. Review Note Contract
+## 3. Pull Request Contract
+- PR 必须使用 `.github/pull_request_template.md`
+- PR body 必须包含以下标题：
+  - `## Summary`
+  - `## Impact`
+  - `## Docs`
+  - `## Tests`
+  - `## Verification`
+  - `## Risks`
+
+## 4. Review Note Contract
 - 模板文件：`docs/reviews/TEMPLATE.md`
 - `src/**/*.sol` 变更时，review note 必须与代码一起提交
 - 以下内容不能为空、不能写 `TBD`、不能保留模板占位：
@@ -46,17 +57,17 @@
 - 如果没有发现问题，`Findings` 必须明确写 `None`
 - `Ready to commit` 只能填写 `yes` 或 `no`
 
-## 4. Generated Docs Policy
+## 5. Generated Docs Policy
 - `docs/contracts/` 是生成产物，不手工编辑，不提交到 git
 - `npm run docs:check` 的职责是验证生成流程可运行且输出结构符合预期
 - `docs/plans/` 仅用于本地规划，不提交到 git
 - `docs/reviews/` 是必须提交的审计证据
 
-## 5. Documentation Language
+## 6. Documentation Language
 - 新增的人写文档默认使用简体中文
 - 命令、路径、代码标识、协议名、库名保持英文原文
 
-## 6. References
+## 7. References
 - 规则说明：`docs/process/README.md`
 - 路径与 gate 细则：`docs/process/change-matrix.md`
 - Review note 规范：`docs/process/review-notes.md`

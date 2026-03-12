@@ -133,6 +133,11 @@ if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
         forge fmt --check "${solidity_files[@]}"
     fi
 
+    if [ "$has_src_sol" -eq 1 ] && [ "${#solidity_files[@]}" -gt 0 ]; then
+        echo "[quality-gate] bash ./script/check-natspec.sh (changed src Solidity files only)"
+        bash ./script/check-natspec.sh "${solidity_files[@]}"
+    fi
+
     echo "[quality-gate] forge build"
     forge build
 

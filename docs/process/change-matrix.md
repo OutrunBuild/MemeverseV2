@@ -9,6 +9,7 @@
 - 变更集中至少包含 1 个 `docs/reviews/*.md`
 - 所有相关 review note 通过 `script/check-review-note.sh`
 - `forge fmt --check`
+- `bash ./script/check-natspec.sh`
 - `forge build`
 - `forge test -vvv`
 - `npm run docs:check`
@@ -40,8 +41,21 @@
 
 - `bash -n`
 
+## Pull Request
+
+必须满足：
+
+- 使用 `.github/pull_request_template.md`
+- PR body 包含：
+  - `## Summary`
+  - `## Impact`
+  - `## Docs`
+  - `## Tests`
+  - `## Verification`
+  - `## Risks`
+
 ## 说明
 
 - 当前根仓库工具链为 Foundry-only。
-- P0 不包含 NatSpec lint 和 PR body 校验。
+- P1 已补齐最小 NatSpec lint 和 PR body 结构校验。
 - 如果以后新增 gate，优先更新本文件，再更新脚本和 `AGENTS.md`。

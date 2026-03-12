@@ -14,6 +14,8 @@
 6. 运行了哪些命令，结果是什么？
 7. 当前是否允许提交？剩余风险是什么？
 
+PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks` 语言，但 review note 仍然是本地提交门禁的强约束真源。
+
 ## 结构要求
 
 必须包含以下章节：

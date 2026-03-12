@@ -13,7 +13,7 @@
 ## Findings
 - High findings: none.
 - Medium findings: none.
-- Low findings: The P0 gate still relies on explicit review-note declarations and does not yet lint NatSpec or validate PR-side metadata.
+- Low findings: The P0 gate still relies on explicit review-note declarations for semantic impact and leaves higher-order semantic checks to later layers.
 - None: none.
 
 ## Simplification
@@ -37,4 +37,4 @@
 
 ## Decision
 - Ready to commit: yes
-- Residual risks: NatSpec lint and PR-side enforcement remain outside the P0 scope.
+- Residual risks: Higher-order semantic checks such as `@custom:security`, permission-boundary semantics, and invariant intent still remain outside the P0 gate.

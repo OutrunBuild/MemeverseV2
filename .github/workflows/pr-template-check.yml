@@ -1,0 +1,31 @@
+name: PR Template Check
+
+permissions: {}
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+jobs:
+  pr_template_check:
+    name: PR Template Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check PR body sections
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          tmp_file="$(mktemp)"
+          printf '%s\n' "${PR_BODY}" > "${tmp_file}"
+          bash ./script/check-pr-body.sh "${tmp_file}"
