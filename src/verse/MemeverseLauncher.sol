@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
@@ -15,6 +16,7 @@ import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
 import {IMemeLiquidProof} from "../token/interfaces/IMemeLiquidProof.sol";
 import {IMemeverseCommonInfo} from "./interfaces/IMemeverseCommonInfo.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
+import {IMemeverseOFTDispatcher} from "./interfaces/IMemeverseOFTDispatcher.sol";
 import {IMemeverseProxyDeployer} from "./interfaces/IMemeverseProxyDeployer.sol";
 import {IMemeverseSwapRouter} from "../swap/interfaces/IMemeverseSwapRouter.sol";
 
@@ -79,6 +81,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the verse id by memecoin.
+     * @dev Returns 0 when the memecoin has not been registered.
      * @param memecoin -The address of the memecoin.
      * @return verseId The verse id.
      */
@@ -89,6 +92,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the memeverse by verse id.
+     * @dev Reverts when `verseId` is zero.
      * @param verseId - The verse id.
      * @return verse - The memeverse.
      */
@@ -99,6 +103,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the memeverse by memecoin.
+     * @dev Returns an empty struct when the memecoin is not registered.
      * @param memecoin - The address of the memecoin.
      * @return verse - The memeverse.
      */
@@ -109,6 +114,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the Stage by verse id.
+     * @dev Reverts when `verseId` is zero.
      * @param verseId - The verse id.
      * @return stage - The memeverse current stage.
      */
@@ -119,6 +125,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the Stage by memecoin.
+     * @dev Returns the current stage for the memecoin's registered verse.
      * @param memecoin - The address of the memecoin.
      * @return stage - The memeverse current stage.
      */
@@ -129,6 +136,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the yield vault by verse id.
+     * @dev Reverts when `verseId` is zero.
      * @param verseId - The verse id.
      * @return yieldVault - The yield vault.
      */
@@ -139,6 +147,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the governor by verse id.
+     * @dev Reverts when `verseId` is zero.
      * @param verseId - The verse id.
      * @return governor - The governor.
      */
@@ -148,7 +157,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Preview claimable POL token of user after Genesis Stage
+     * @notice Preview claimable POL token of caller after Genesis stage.
+     * @dev Uses the caller's stored genesis contribution as the claim basis.
      * @param verseId - Memeverse id
      * @return claimableAmount - The claimable amount.
      */
@@ -165,7 +175,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Preview Genesis liquidity market maker fees for DAO Treasury (UPT) and Yield Vault(Memecoin)
+     * @notice Preview Genesis liquidity market maker fees for DAO Treasury (UPT) and Yield Vault (Memecoin).
+     * @dev Aggregates the claimable LP fees from the memecoin/UPT and liquidProof/UPT pools.
      * @param verseId - Memeverse id
      * @return UPTFee - The UPT fee.
      * @return memecoinFee - The memecoin fee.
@@ -181,24 +192,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
         address UPT = verse.UPT;
-        address memecoin = verse.memecoin;
-        (uint256 fee0, uint256 fee1) =
-            IMemeverseSwapRouter(memeverseSwapRouter).previewClaimableFees(memecoin, UPT, address(this));
-        if (memecoin < UPT) {
-            memecoinFee = fee0;
-            UPTFee = fee1;
-        } else {
-            memecoinFee = fee1;
-            UPTFee = fee0;
-        }
-
-        address liquidProof = verse.liquidProof;
-        (fee0, fee1) = IMemeverseSwapRouter(memeverseSwapRouter).previewClaimableFees(liquidProof, UPT, address(this));
-        if (liquidProof < UPT) {
-            UPTFee += fee1;
-        } else {
-            UPTFee += fee0;
-        }
+        (memecoinFee, UPTFee) = _previewPairFees(verse.memecoin, UPT);
+        (, uint256 polPairUPTFee) = _previewPairFees(verse.liquidProof, UPT);
+        UPTFee += polPairUPTFee;
     }
 
     /**
@@ -271,7 +267,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Adaptively change the Memeverse stage
+     * @notice Adaptively change the Memeverse stage.
+     * @dev Advances from `Genesis` to `Locked` or `Refund`, and from `Locked` to `Unlocked` when eligible.
      * @param verseId - Memeverse id
      * @return currentStage - The current stage.
      */
@@ -444,8 +441,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Refund UPT after genesis Failed, total omnichain funds didn't meet the minimum funding requirement
+     * @notice Refund UPT after genesis failed because the omnichain funds did not meet the minimum requirement.
+     * @dev Marks the caller as refunded before transferring funds out.
      * @param verseId - Memeverse id
+     * @return genesisFund - The refunded genesis contribution amount.
      */
     function refund(uint256 verseId) external override whenNotPaused returns (uint256 genesisFund) {
         require(verseId != 0, ZeroInput());
@@ -464,8 +463,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Claim POL token in stage Locked
+     * @notice Claim POL token in stage Locked.
+     * @dev Transfers the caller's proportional claimable liquid proof balance.
      * @param verseId - Memeverse id
+     * @return amount - The claimed POL amount.
      */
     function claimPOLToken(uint256 verseId) external override whenNotPaused returns (uint256 amount) {
         require(verseId != 0, ZeroInput());
@@ -496,96 +497,89 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         whenNotPaused
         returns (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward)
     {
-        // require(verseId != 0 && rewardReceiver != address(0), ZeroInput());
-        // Memeverse storage verse = memeverses[verseId];
-        // require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
+        require(verseId != 0 && rewardReceiver != address(0), ZeroInput());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        // address UPT = verse.UPT;
-        // // Memecoin pair
-        // address memecoin = verse.memecoin;
-        // IOutrunAMMPair memecoinPair = IOutrunAMMPair(OutrunAMMLibrary.pairFor(outrunAMMFactory, memecoin, UPT, SWAP_FEERATE));
-        // (uint256 amount0, uint256 amount1) = memecoinPair.claimMakerFee();
-        // address token0 = memecoinPair.token0();
-        // uint256 UPTFee = token0 == UPT ? amount0 : amount1;
-        // memecoinFee = token0 == memecoin ? amount0 : amount1;
-        // // POL pair
-        // address liquidProof = verse.liquidProof;
-        // IOutrunAMMPair liquidProofPair = IOutrunAMMPair(OutrunAMMLibrary.pairFor(outrunAMMFactory, liquidProof, UPT, SWAP_FEERATE));
-        // (amount0, amount1) = liquidProofPair.claimMakerFee();
-        // token0 = liquidProofPair.token0();
-        // UPTFee = token0 == UPT ? UPTFee + amount0 : UPTFee + amount1;
-        // liquidProofFee = token0 == liquidProof ? amount0 : amount1;
+        address UPT = verse.UPT;
+        address memecoin = verse.memecoin;
+        address liquidProof = verse.liquidProof;
 
-        // if (UPTFee == 0 && memecoinFee == 0 && liquidProofFee == 0) return (0, 0, 0, 0);
-        // // Burn liquidProof fee
-        // IMemeLiquidProof(liquidProof).burn(address(this), liquidProofFee);
+        uint256 UPTFee;
+        uint256 polPairUPTFee;
+        (memecoinFee, UPTFee) = _claimPairFees(memecoin, UPT);
+        (liquidProofFee, polPairUPTFee) = _claimPairFees(liquidProof, UPT);
+        UPTFee += polPairUPTFee;
 
-        // // Executor Reward
-        // unchecked {
-        //     executorReward = UPTFee * executorRewardRate / RATIO;
-        //     govFee = UPTFee - executorReward;
-        // }
-        // if (executorReward != 0) _transferOut(UPT, rewardReceiver, executorReward);
+        if (UPTFee == 0 && memecoinFee == 0 && liquidProofFee == 0) return (0, 0, 0, 0);
+        if (liquidProofFee != 0) IMemeLiquidProof(liquidProof).burn(address(this), liquidProofFee);
 
-        // uint32 govChainId = verse.omnichainIds[0];
-        // address governor = verse.governor;
-        // address yieldVault = verse.yieldVault;
+        unchecked {
+            executorReward = UPTFee * executorRewardRate / RATIO;
+            govFee = UPTFee - executorReward;
+        }
+        if (executorReward != 0) _transferOut(UPT, rewardReceiver, executorReward);
 
-        // if(govChainId == block.chainid) {
-        //     if (govFee != 0) {
-        //         _transferOut(UPT, oftDispatcher, govFee);
-        //         ILayerZeroComposer(oftDispatcher).lzCompose(UPT, bytes32(0), abi.encode(governor, TokenType.UPT, govFee), address(0), "");
-        //     }
-        //     if (memecoinFee != 0) {
-        //         _transferOut(memecoin, oftDispatcher, memecoinFee);
-        //         ILayerZeroComposer(oftDispatcher).lzCompose(memecoin, bytes32(0), abi.encode(yieldVault, TokenType.MEMECOIN, memecoinFee), address(0), "");
-        //     }
-        // } else {
-        //     uint32 govEndpointId = IMemeverseCommonInfo(memeverseCommonInfo).lzEndpointIdMap(govChainId);
+        uint32 govChainId = verse.omnichainIds[0];
+        address governor = verse.governor;
+        address yieldVault = verse.yieldVault;
 
-        //     bytes memory oftDispatcherOptions = OptionsBuilder.newOptions()
-        //         .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
-        //         .addExecutorLzComposeOption(0, oftDispatcherGasLimit, 0);
+        if (govChainId == block.chainid) {
+            if (govFee != 0) {
+                _transferOut(UPT, oftDispatcher, govFee);
+                IMemeverseOFTDispatcher(oftDispatcher)
+                    .lzCompose(UPT, bytes32(0), abi.encode(governor, TokenType.UPT, govFee), address(0), "");
+            }
+            if (memecoinFee != 0) {
+                _transferOut(memecoin, oftDispatcher, memecoinFee);
+                IMemeverseOFTDispatcher(oftDispatcher)
+                    .lzCompose(
+                        memecoin, bytes32(0), abi.encode(yieldVault, TokenType.MEMECOIN, memecoinFee), address(0), ""
+                    );
+            }
+        } else {
+            uint32 govEndpointId = IMemeverseCommonInfo(memeverseCommonInfo).lzEndpointIdMap(govChainId);
+            bytes memory oftDispatcherOptions = OptionsBuilder.newOptions()
+                .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
+                .addExecutorLzComposeOption(0, oftDispatcherGasLimit, 0);
 
-        //     SendParam memory sendUPTParam;
-        //     MessagingFee memory govMessagingFee;
-        //     if (govFee != 0) {
-        //         (sendUPTParam, govMessagingFee) = _buildSendParamAndMessagingFee(
-        //             govEndpointId,
-        //             govFee,
-        //             UPT,
-        //             governor,
-        //             TokenType.UPT,
-        //             oftDispatcherOptions
-        //         );
-        //     }
+            SendParam memory sendUPTParam;
+            MessagingFee memory govMessagingFee;
+            if (govFee != 0) {
+                (sendUPTParam, govMessagingFee) = _buildSendParamAndMessagingFee(
+                    govEndpointId, govFee, UPT, governor, TokenType.UPT, oftDispatcherOptions
+                );
+            }
 
-        //     SendParam memory sendMemecoinParam;
-        //     MessagingFee memory memecoinMessagingFee;
-        //     if (memecoinFee != 0) {
-        //         (sendMemecoinParam, memecoinMessagingFee) = _buildSendParamAndMessagingFee(
-        //             govEndpointId,
-        //             memecoinFee,
-        //             memecoin,
-        //             yieldVault,
-        //             TokenType.MEMECOIN,
-        //             oftDispatcherOptions
-        //         );
-        //     }
+            SendParam memory sendMemecoinParam;
+            MessagingFee memory memecoinMessagingFee;
+            if (memecoinFee != 0) {
+                (sendMemecoinParam, memecoinMessagingFee) = _buildSendParamAndMessagingFee(
+                    govEndpointId, memecoinFee, memecoin, yieldVault, TokenType.MEMECOIN, oftDispatcherOptions
+                );
+            }
 
-        //     require(msg.value >= govMessagingFee.nativeFee + memecoinMessagingFee.nativeFee, InsufficientLzFee());
-        //     if (govFee != 0) IOFT(UPT).send{value: govMessagingFee.nativeFee}(sendUPTParam, govMessagingFee, msg.sender);
-        //     if (memecoinFee != 0) IOFT(memecoin).send{value: memecoinMessagingFee.nativeFee}(sendMemecoinParam, memecoinMessagingFee, msg.sender);
-        // }
+            require(msg.value >= govMessagingFee.nativeFee + memecoinMessagingFee.nativeFee, InsufficientLzFee());
+            if (govFee != 0) {
+                IOFT(UPT).send{value: govMessagingFee.nativeFee}(sendUPTParam, govMessagingFee, msg.sender);
+            }
+            if (memecoinFee != 0) {
+                IOFT(memecoin).send{value: memecoinMessagingFee.nativeFee}(
+                    sendMemecoinParam, memecoinMessagingFee, msg.sender
+                );
+            }
+        }
 
-        // emit RedeemAndDistributeFees(verseId, govFee, memecoinFee, liquidProofFee, executorReward);
+        emit RedeemAndDistributeFees(verseId, govFee, memecoinFee, liquidProofFee, executorReward);
     }
 
     /**
      * @dev Burn POL to redeem the locked memecoin liquidity
+     * @notice Redeem locked memecoin liquidity by burning POL.
      * @param verseId - Memeverse id
      * @param amountInPOL - Burned liquid proof token amount
      * @notice User must have approved this contract to spend POL
+     * @return amountInLP - The redeemed LP amount.
      */
     function redeemMemecoinLiquidity(uint256 verseId, uint256 amountInPOL)
         external
@@ -593,49 +587,51 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         whenNotPaused
         returns (uint256 amountInLP)
     {
-        // require(amountInPOL != 0, ZeroInput());
+        require(amountInPOL != 0, ZeroInput());
 
-        // Memeverse storage verse = memeverses[verseId];
-        // require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
 
-        // IMemeLiquidProof(verse.liquidProof).burn(msg.sender, amountInPOL);
+        IMemeLiquidProof(verse.liquidProof).burn(msg.sender, amountInPOL);
 
-        // amountInLP = amountInPOL;
-        // address lpToken = OutrunAMMLibrary.pairFor(outrunAMMFactory, verse.memecoin, verse.UPT, SWAP_FEERATE);
-        // require(IERC20(lpToken).balanceOf(address(this)) >= amountInLP, InsufficientLPBalance());
+        amountInLP = amountInPOL;
+        address lpToken = _pairLpToken(verse.memecoin, verse.UPT);
+        require(IERC20(lpToken).balanceOf(address(this)) >= amountInLP, InsufficientLPBalance());
 
-        // _transferOut(lpToken, msg.sender, amountInLP);
-
-        // emit RedeemMemecoinLiquidity(verseId, msg.sender, amountInLP);
+        _transferOut(lpToken, msg.sender, amountInLP);
+        emit RedeemMemecoinLiquidity(verseId, msg.sender, amountInLP);
     }
 
     /**
-     * @dev Redeem the locked POL liquidity
+     * @notice Redeem the locked POL liquidity.
+     * @dev Uses the caller's genesis contribution share to determine LP redemption.
      * @param verseId - Memeverse id
+     * @return amountInLP - The redeemed LP amount.
      */
     function redeemPolLiquidity(uint256 verseId) external override whenNotPaused returns (uint256 amountInLP) {
-        // Memeverse storage verse = memeverses[verseId];
-        // require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
 
-        // address msgSender = msg.sender;
-        // GenesisData storage genesisData = userGenesisData[verseId][msgSender];
-        // uint256 userFunds = genesisData.genesisFund;
-        // require(userFunds > 0 && !genesisData.isRedeemed, InvalidRedeem());
+        address msgSender = msg.sender;
+        GenesisData storage genesisData = userGenesisData[verseId][msgSender];
+        uint256 userFunds = genesisData.genesisFund;
+        require(userFunds > 0 && !genesisData.isRedeemed, InvalidRedeem());
 
-        // GenesisFund storage genesisFund = genesisFunds[verseId];
-        // amountInLP = totalPolLiquidity[verseId] * userFunds / (genesisFund.totalMemecoinFunds + genesisFund.totalLiquidProofFunds);
+        GenesisFund storage genesisFund = genesisFunds[verseId];
+        amountInLP = totalPolLiquidity[verseId] * userFunds
+            / (genesisFund.totalMemecoinFunds + genesisFund.totalLiquidProofFunds);
 
-        // address lpToken = OutrunAMMLibrary.pairFor(outrunAMMFactory, verse.liquidProof, verse.UPT, SWAP_FEERATE);
-        // require(IERC20(lpToken).balanceOf(address(this)) >= amountInLP, InsufficientLPBalance());
+        address lpToken = _pairLpToken(verse.liquidProof, verse.UPT);
+        require(IERC20(lpToken).balanceOf(address(this)) >= amountInLP, InsufficientLPBalance());
 
-        // genesisData.isRedeemed = true;
-        // _transferOut(lpToken, msgSender, amountInLP);
-
-        // emit RedeemPolLiquidity(verseId, msgSender, amountInLP);
+        genesisData.isRedeemed = true;
+        _transferOut(lpToken, msgSender, amountInLP);
+        emit RedeemPolLiquidity(verseId, msgSender, amountInLP);
     }
 
     /**
-     * @dev Mint POL token by add memecoin liquidity when currentStage >= Stage.Locked.
+     * @notice Mint POL token by adding memecoin liquidity when `currentStage >= Stage.Locked`.
+     * @dev The exact liquidity path is still commented out and reserved for future router migration work.
      * @param verseId - Memeverse id
      * @param amountInUPTDesired - Amount of UPT transfered into Launcher
      * @param amountInMemecoinDesired - Amount of transfered into Launcher
@@ -643,6 +639,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param amountInMemecoinMin - Minimum amount of memecoin
      * @param amountOutDesired - Amount of POL token desired, If the amountOut is 0, the output quantity will be automatically calculated.
      * @param deadline - Transaction deadline
+     * @return amountInUPT - The consumed UPT amount.
+     * @return amountInMemecoin - The consumed memecoin amount.
+     * @return amountOut - The minted POL amount.
      */
     function mintPOLToken(
         uint256 verseId,
@@ -697,7 +696,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Register memeverse
+     * @notice Register a new memeverse.
+     * @dev Deploys memecoin and POL proxies, initializes them, and stores verse metadata.
      * @param name - Name of memecoin
      * @param symbol - Symbol of memecoin
      * @param uniqueId - Unique verseId
@@ -773,7 +773,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Remove gas dust from the contract
+     * @notice Remove native gas dust from the contract.
+     * @dev Transfers the full native balance to `receiver`.
+     * @param receiver - The recipient of the native dust.
      */
     function removeGasDust(address receiver) external override {
         uint256 dust = address(this).balance;
@@ -782,16 +784,25 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         emit RemoveGasDust(receiver, dust);
     }
 
+    /**
+     * @notice Pause state-changing launcher entrypoints.
+     * @dev Only callable by the owner.
+     */
     function pause() external onlyOwner {
         _pause();
     }
 
+    /**
+     * @notice Unpause state-changing launcher entrypoints.
+     * @dev Only callable by the owner.
+     */
     function unpause() external onlyOwner {
         _unpause();
     }
 
     /**
-     * @dev Set memeverse swap router contract
+     * @notice Set the memeverse swap router contract.
+     * @dev Only callable by the owner.
      * @param _memeverseSwapRouter - Address of memeverseSwapRouter
      */
     function setMemeverseSwapRouter(address _memeverseSwapRouter) external override onlyOwner {
@@ -803,7 +814,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set memeverse common info contract
+     * @notice Set the memeverse common info contract.
+     * @dev Only callable by the owner.
      * @param _memeverseCommonInfo - Address of memeverseCommonInfo
      */
     function setMemeverseCommonInfo(address _memeverseCommonInfo) external override onlyOwner {
@@ -815,7 +827,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set memeverse registrar contract
+     * @notice Set the memeverse registrar contract.
+     * @dev Only callable by the owner.
      * @param _memeverseRegistrar - Address of memeverseRegistrar
      */
     function setMemeverseRegistrar(address _memeverseRegistrar) external override onlyOwner {
@@ -827,7 +840,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set memeverse proxy deployer contract
+     * @notice Set the memeverse proxy deployer contract.
+     * @dev Only callable by the owner.
      * @param _memeverseProxyDeployer - Address of memeverseProxyDeployer
      */
     function setMemeverseProxyDeployer(address _memeverseProxyDeployer) external override onlyOwner {
@@ -839,7 +853,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set memeverse oftDispatcher contract
+     * @notice Set the memeverse OFT dispatcher contract.
+     * @dev Only callable by the owner.
      * @param _oftDispatcher - Address of oftDispatcher
      */
     function setOFTDispatcher(address _oftDispatcher) external override onlyOwner {
@@ -851,7 +866,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set fundMetaData
+     * @notice Set fund metadata for a UPT token.
+     * @dev Only callable by the owner.
      * @param _upt - Genesis fund type
      * @param _minTotalFund - The minimum participation genesis fund corresponding to UPT
      * @param _fundBasedAmount - // The number of Memecoins minted per unit of Memecoin genesis fund
@@ -869,7 +885,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set executor reward rate
+     * @notice Set the executor reward rate.
+     * @dev Only callable by the owner.
      * @param _executorRewardRate - Executor reward rate
      */
     function setExecutorRewardRate(uint256 _executorRewardRate) external override onlyOwner {
@@ -881,7 +898,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set gas limits for OFT receive and yield dispatcher
+     * @notice Set gas limits for OFT receive and yield dispatcher.
+     * @dev Only callable by the owner.
      * @param _oftReceiveGasLimit - Gas limit for OFT receive
      * @param _oftDispatcherGasLimit - Gas limit for yield dispatcher
      */
@@ -895,7 +913,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @dev Set external info
+     * @notice Set external metadata for a memeverse.
+     * @dev Callable by the verse governor or the registrar.
      * @param verseId - Memeverse id
      * @param uri - IPFS URI of memecoin icon
      * @param description - Description
@@ -986,5 +1005,37 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             oftCmd: abi.encode()
         });
         messagingFee = IOFT(token).quoteSend(sendParam, false);
+    }
+
+    function _previewPairFees(address tokenA, address tokenB)
+        internal
+        view
+        returns (uint256 tokenAFee, uint256 tokenBFee)
+    {
+        (uint256 fee0, uint256 fee1) =
+            IMemeverseSwapRouter(memeverseSwapRouter).previewClaimableFees(tokenA, tokenB, address(this));
+        return _mapPairFees(tokenA, tokenB, fee0, fee1);
+    }
+
+    function _claimPairFees(address tokenA, address tokenB) internal returns (uint256 tokenAFee, uint256 tokenBFee) {
+        PoolKey memory key = IMemeverseSwapRouter(memeverseSwapRouter).getHookPoolKey(tokenA, tokenB);
+        (uint256 fee0, uint256 fee1) =
+            IMemeverseSwapRouter(memeverseSwapRouter).claimFees(key, address(this), block.timestamp, 0, 0, 0);
+        return _mapPairFees(tokenA, tokenB, fee0, fee1);
+    }
+
+    function _pairLpToken(address tokenA, address tokenB) internal view returns (address lpToken) {
+        return IMemeverseSwapRouter(memeverseSwapRouter).lpToken(tokenA, tokenB);
+    }
+
+    function _mapPairFees(address tokenA, address tokenB, uint256 fee0, uint256 fee1)
+        internal
+        pure
+        returns (uint256 tokenAFee, uint256 tokenBFee)
+    {
+        if (tokenA < tokenB) {
+            return (fee0, fee1);
+        }
+        return (fee1, fee0);
     }
 }

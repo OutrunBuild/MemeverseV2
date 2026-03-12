@@ -97,6 +97,7 @@ interface IMemeverseSwapRouter {
     function getHookPoolKey(address tokenA, address tokenB) external view returns (PoolKey memory key);
 
     /// @notice Returns the claimable LP fees for an owner in the hook-managed pool for a token pair.
+    /// @dev Thin passthrough for router-first integrations that only know pair addresses.
     /// @param tokenA First token address (may be native as address(0)).
     /// @param tokenB Second token address (may be native as address(0)).
     /// @param owner The owner address whose LP fees are previewed.
@@ -106,6 +107,13 @@ interface IMemeverseSwapRouter {
         external
         view
         returns (uint256 fee0, uint256 fee1);
+
+    /// @notice Returns the LP token address for the hook-managed pool of a token pair.
+    /// @dev Lets integrations derive the hook LP token without depending on hook-specific pool key plumbing.
+    /// @param tokenA First token address (may be native as address(0)).
+    /// @param tokenB Second token address (may be native as address(0)).
+    /// @return liquidityToken The LP token contract for the pair.
+    function lpToken(address tokenA, address tokenB) external view returns (address liquidityToken);
 
     /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.
     /// @dev On anti-snipe soft-fail, the router returns with `executed == false` and a failure reason.

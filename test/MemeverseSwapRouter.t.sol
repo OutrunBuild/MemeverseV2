@@ -46,6 +46,11 @@ contract MockPoolManagerForRouterTest {
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
 
+    /// @notice Initializes mock pool state for a hook-managed pair.
+    /// @dev Seeds slot0 and liquidity before calling the hook initialize callback.
+    /// @param key Pool key to initialize.
+    /// @param sqrtPriceX96 Initial square-root price for the pool.
+    /// @return tick Mock initial tick returned to the caller.
     function initialize(PoolKey memory key, uint160 sqrtPriceX96) external returns (int24 tick) {
         PoolId poolId = key.toId();
         slot0State[poolId] = Slot0State({sqrtPriceX96: sqrtPriceX96, tick: 0, protocolFee: 0, lpFee: 0});
@@ -55,12 +60,22 @@ contract MockPoolManagerForRouterTest {
         tick = 0;
     }
 
+    /// @notice Opens the mock manager unlock window and forwards the callback.
+    /// @dev Mimics the pool manager unlock flow expected by the router and hook.
+    /// @param data Encoded callback payload.
+    /// @return result Raw callback return data.
     function unlock(bytes calldata data) external returns (bytes memory result) {
         unlocked = true;
         result = IUnlockCallbackLike(msg.sender).unlockCallback(data);
         unlocked = false;
     }
 
+    /// @notice Applies a mocked liquidity modification for a pool key.
+    /// @dev Tracks liquidity and returns deterministic token deltas for tests.
+    /// @param key Pool key whose liquidity is modified.
+    /// @param params Liquidity modification parameters.
+    /// @return delta Mock balance delta for the liquidity change.
+    /// @return feesAccrued Mock accrued fees, always zero in this harness.
     function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata)
         external
         returns (BalanceDelta delta, BalanceDelta feesAccrued)
@@ -94,6 +109,12 @@ contract MockPoolManagerForRouterTest {
         delta = toBalanceDelta(int128(int256(amount0Used)), int128(int256(amount1Used)));
     }
 
+    /// @notice Executes a mocked swap against the configured hook callbacks.
+    /// @dev Produces deterministic deltas that are sufficient for router integration tests.
+    /// @param key Pool key to swap against.
+    /// @param params Swap parameters.
+    /// @param hookData Opaque hook data forwarded into the mock hook callbacks.
+    /// @return delta Mock balance delta for the swap.
     function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
         external
         returns (BalanceDelta delta)
@@ -138,6 +159,11 @@ contract MockPoolManagerForRouterTest {
         }
     }
 
+    /// @notice Transfers a mocked currency out of the manager.
+    /// @dev Supports both native and ERC20 payouts for router settlement tests.
+    /// @param currency Currency to transfer.
+    /// @param to Recipient of the transfer.
+    /// @param amount Amount to transfer.
     function take(Currency currency, address to, uint256 amount) external {
         if (currency.isAddressZero()) {
             (bool success,) = to.call{value: amount}("");
@@ -147,22 +173,49 @@ contract MockPoolManagerForRouterTest {
         }
     }
 
-    function sync(Currency) external {}
+    /// @notice No-op sync hook for the mock manager.
+    /// @dev Present only to satisfy the router integration surface.
+    /// @param currency Unused currency argument required by the interface.
+    function sync(Currency currency) external {
+        currency;
+    }
 
+    /// @notice Accepts native settlement in the mock manager.
+    /// @dev Returns the attached value to mimic manager settlement accounting.
+    /// @return Amount of native value received.
     function settle() external payable returns (uint256) {
         return msg.value;
     }
 
+    /// @notice Reads a mocked external storage slot.
+    /// @dev Used by the hook to inspect pool manager state.
+    /// @param slot Storage slot to read.
+    /// @return Mocked slot value.
     function extsload(bytes32 slot) external view returns (bytes32) {
         return extStorage[slot];
     }
 
-    function getSlot0(PoolId poolId) external view returns (uint160, int24, uint24, uint24) {
+    /// @notice Returns the mocked slot0 tuple for a pool.
+    /// @dev Exposes the harness state to tests.
+    /// @param poolId Pool id whose slot0 is requested.
+    /// @return sqrtPriceX96 Mock square-root price.
+    /// @return tick Mock current tick.
+    /// @return protocolFee Mock protocol fee.
+    /// @return lpFee Mock LP fee.
+    function getSlot0(PoolId poolId)
+        external
+        view
+        returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)
+    {
         Slot0State memory state = slot0State[poolId];
         return (state.sqrtPriceX96, state.tick, state.protocolFee, state.lpFee);
     }
 
-    function getLiquidity(PoolId poolId) external view returns (uint128) {
+    /// @notice Returns the mocked active liquidity for a pool.
+    /// @dev Exposes the harness state to tests.
+    /// @param poolId Pool id whose liquidity is requested.
+    /// @return liquidity Mock active liquidity.
+    function getLiquidity(PoolId poolId) external view returns (uint128 liquidity) {
         return liquidityState[poolId];
     }
 
@@ -177,6 +230,10 @@ contract MockPoolManagerForRouterTest {
 }
 
 interface IUnlockCallbackLike {
+    /// @notice Called by the mock manager during the unlock flow.
+    /// @dev Mirrors the router callback surface used in tests.
+    /// @param data Encoded callback payload.
+    /// @return Encoded callback result.
     function unlockCallback(bytes calldata data) external returns (bytes memory);
 }
 
@@ -199,6 +256,19 @@ contract NonPayableSwapCaller {
         router = _router;
     }
 
+    /// @notice Attempts a routed swap from a non-payable caller harness.
+    /// @dev Used to verify native refund routing when the caller cannot receive ETH.
+    /// @param key Pool key to swap against.
+    /// @param params Swap parameters.
+    /// @param recipient Recipient of any swap output.
+    /// @param nativeRefundRecipient Recipient of any native refund.
+    /// @param deadline Latest valid timestamp for the call.
+    /// @param amountOutMinimum Minimum acceptable output amount.
+    /// @param amountInMaximum Maximum acceptable input amount.
+    /// @param hookData Opaque hook data forwarded to the router.
+    /// @return delta Final swap delta returned by the router.
+    /// @return executed Whether the router executed the swap.
+    /// @return failureReason Anti-snipe failure reason when the swap soft-fails.
     function attemptSwap(
         PoolKey calldata key,
         SwapParams calldata params,
@@ -239,6 +309,8 @@ contract MemeverseSwapRouterTest is Test {
     PoolKey internal key;
     PoolId internal poolId;
 
+    /// @notice Deploys the mock manager, hook, router, and test tokens.
+    /// @dev Seeds balances and approvals used throughout the router test suite.
     function setUp() public {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
@@ -273,6 +345,8 @@ contract MemeverseSwapRouterTest is Test {
         hook.setProtocolFeeCurrency(feeCurrency);
     }
 
+    /// @notice Verifies anyone can request a swap attempt from the hook.
+    /// @dev Confirms there is no caller restriction on attempt recording.
     function testRequestSwapAttempt_IsPermissionless() external {
         vm.roll(block.number + 11);
         (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = hook.requestSwapAttempt(
@@ -290,6 +364,8 @@ contract MemeverseSwapRouterTest is Test {
         assertFalse(successful, "successful");
     }
 
+    /// @notice Verifies duplicate same-tx swap attempts on the same pool revert.
+    /// @dev Protects the per-transaction anti-snipe attempt invariant.
     function testRequestSwapAttempt_RevertsOnSecondSamePoolRequestInSameTx() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey, false);
@@ -316,21 +392,29 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Verifies hook deployment rejects a zero anti-snipe probability base.
+    /// @dev Covers constructor validation.
     function testConstructor_RevertsWhenMaxAntiSnipeProbabilityBaseIsZero() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
         new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, 10, 0);
     }
 
+    /// @notice Verifies hook deployment rejects a zero treasury address.
+    /// @dev Covers constructor validation.
     function testConstructor_RevertsWhenTreasuryIsZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
         new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), address(0), 10, 1);
     }
 
+    /// @notice Verifies setting the treasury to the zero address reverts.
+    /// @dev Covers owner configuration validation.
     function testSetTreasury_RevertsOnZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
         hook.setTreasury(address(0));
     }
 
+    /// @notice Verifies toggling the emergency flag updates state and emits the event.
+    /// @dev Covers the hook emergency configuration path.
     function testSetEmergencyFlag_EmitsEventAndUpdatesState() external {
         vm.expectEmit(false, false, false, true);
         emit EmergencyFlagUpdated(false, true);
@@ -339,6 +423,8 @@ contract MemeverseSwapRouterTest is Test {
         assertTrue(hook.emergencyFlag(), "emergency flag");
     }
 
+    /// @notice Verifies swap quotes fall back to the base fee when emergency mode is enabled.
+    /// @dev Covers quote behavior under the emergency flag.
     function testQuoteSwap_WhenEmergencyFlagEnabled_ReturnsBaseFee() external {
         _setProtocolFeeCurrency(key.currency0);
 
@@ -352,6 +438,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGe(normalQuote.feeBps, emergencyQuote.feeBps, "normal fee not below emergency fee");
     }
 
+    /// @notice Verifies swaps handle multiple protocol-fee currencies across pools.
+    /// @dev Covers protocol-fee accounting across independently configured pools.
     function testSwap_SupportsMultipleProtocolFeeCurrenciesAcrossPools() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey, true);
@@ -390,6 +478,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(treasury.balance, treasuryNativeBefore, "native protocol fee collected");
     }
 
+    /// @notice Verifies failed-attempt quotes for exact-output swaps use the estimated input.
+    /// @dev Prevents the quote from overcharging against `amountInMaximum`.
     function testQuoteFailedAttempt_ExactOutputUsesEstimatedInputNotAmountInMaximum() external {
         _setProtocolFeeCurrency(key.currency1);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0});
@@ -402,6 +492,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(failureQuote.feeAmount, 0, "failure fee quoted");
     }
 
+    /// @notice Verifies anti-snipe soft-fails charge the treasury when the input is the protocol currency.
+    /// @dev Covers the input-side failure-fee routing path.
     function testSoftFail_ChargesTreasuryWhenInputIsProtocolCurrency() external {
         _setProtocolFeeCurrency(key.currency0);
         IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
@@ -455,6 +547,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(shortLastTs, 0, "shortLastTs");
     }
 
+    /// @notice Verifies anti-snipe soft-fails charge LPs when the input is not the protocol currency.
+    /// @dev Covers the non-protocol-currency failure-fee routing path.
     function testSoftFail_ChargesLpWhenInputIsNotProtocolCurrency() external {
         _setProtocolFeeCurrency(key.currency1);
         router.addLiquidity(
@@ -500,6 +594,8 @@ contract MemeverseSwapRouterTest is Test {
         assertFalse(successful, "successful");
     }
 
+    /// @notice Verifies soft-failed native-input swaps refund unused native value.
+    /// @dev Covers native refund behavior during anti-snipe failures.
     function testSoftFail_NativeInputRefundsAttachedValue() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         vm.deal(address(this), 1_000_000 ether);
@@ -532,6 +628,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(address(router).balance, 0, "router keeps no native");
     }
 
+    /// @notice Verifies swaps revert when native protocol fees cannot be delivered to the treasury.
+    /// @dev Covers the native protocol-fee settlement failure path.
     function testSwapReverts_WhenNativeProtocolFeeTreasuryCannotReceiveETH() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey, true);
@@ -552,6 +650,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Verifies non-payable callers can specify a different native refund recipient.
+    /// @dev Covers router support for refunding custom payable addresses on soft-fail.
     function testSoftFail_NonPayableCallerCanUseCustomNativeRefundRecipient() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -590,6 +690,8 @@ contract MemeverseSwapRouterTest is Test {
         assertFalse(successful, "successful");
     }
 
+    /// @notice Verifies successful swaps record an anti-snipe attempt and execute.
+    /// @dev Covers the standard exact-input happy path.
     function testSwapPass_RecordsAttemptAndExecutes() external {
         _setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -621,6 +723,8 @@ contract MemeverseSwapRouterTest is Test {
         assertTrue(successful, "successful");
     }
 
+    /// @notice Verifies one-for-zero exact-input swaps execute successfully.
+    /// @dev Covers the basic exact-input routing path.
     function testSwapPass_OneForZeroExactInputExecutes() external {
         _setProtocolFeeCurrency(key.currency1);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -648,6 +752,8 @@ contract MemeverseSwapRouterTest is Test {
         assertLt(delta.amount1(), 0, "delta1");
     }
 
+    /// @notice Verifies zero-for-one exact-input swaps apply output-side protocol fees.
+    /// @dev Covers output-fee accounting for exact-input swaps.
     function testSwapPass_ZeroForOneExactInput_OutputSideProtocolFee() external {
         _setProtocolFeeCurrency(key.currency1);
         uint256 balance1Before = token1.balanceOf(address(this));
@@ -671,6 +777,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
     }
 
+    /// @notice Verifies one-for-zero exact-input swaps apply output-side protocol fees.
+    /// @dev Covers output-fee accounting for exact-input swaps.
     function testSwapPass_OneForZeroExactInput_OutputSideProtocolFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -694,6 +802,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
     }
 
+    /// @notice Verifies zero-for-one exact-output swaps execute and charge input-side fees.
+    /// @dev Covers exact-output fee accounting.
     function testSwapPass_ZeroForOneExactOutputExecutesAndChargesInputFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -721,6 +831,8 @@ contract MemeverseSwapRouterTest is Test {
         assertLt(delta.amount0(), -int128(int256(200 ether)), "delta0 fee-adjusted");
     }
 
+    /// @notice Verifies one-for-zero exact-output swaps execute and charge input-side fees.
+    /// @dev Covers exact-output fee accounting.
     function testSwapPass_OneForZeroExactOutputExecutesAndChargesInputFee() external {
         _setProtocolFeeCurrency(key.currency1);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -748,6 +860,8 @@ contract MemeverseSwapRouterTest is Test {
         assertLt(delta.amount1(), -int128(int256(200 ether)), "delta1 fee-adjusted");
     }
 
+    /// @notice Verifies zero-for-one exact-output swaps gross up output-side protocol fees.
+    /// @dev Covers output-side fee gross-up logic for exact-output swaps.
     function testSwapPass_ZeroForOneExactOutput_OutputSideProtocolFeeGrossesUp() external {
         _setProtocolFeeCurrency(key.currency1);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -773,6 +887,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
     }
 
+    /// @notice Verifies one-for-zero exact-output swaps gross up output-side protocol fees.
+    /// @dev Covers output-side fee gross-up logic for exact-output swaps.
     function testSwapPass_OneForZeroExactOutput_OutputSideProtocolFeeGrossesUp() external {
         _setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -798,6 +914,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
     }
 
+    /// @notice Verifies swaps skip attempt recording after the anti-snipe window ends.
+    /// @dev Covers the post-window fast path.
     function testSwapPass_AfterAntiSnipeWindow_SkipsAttemptRecording() external {
         _setProtocolFeeCurrency(key.currency0);
         vm.roll(block.number + 11);
@@ -828,6 +946,8 @@ contract MemeverseSwapRouterTest is Test {
         assertFalse(successful, "successful");
     }
 
+    /// @notice Verifies exact-output swaps revert when the required input exceeds the maximum.
+    /// @dev Covers router slippage protection.
     function testSwapReverts_WhenExactOutputExceedsAmountInMaximum() external {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
@@ -845,6 +965,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Verifies exact-input swaps revert when output falls below the minimum.
+    /// @dev Covers router slippage protection.
     function testSwapReverts_WhenExactInputFallsBelowAmountOutMinimum() external {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
@@ -862,6 +984,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Verifies exact-output quotes include input-side fees in the user input amount.
+    /// @dev Covers quote semantics for exact-output swaps.
     function testPreviewSwap_ExactOutputInputSideIncludesFeeInUserInput() external {
         _setProtocolFeeCurrency(key.currency0);
         IMemeverseUniswapHook.SwapQuote memory preview =
@@ -878,6 +1002,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Verifies router quotes proxy directly to the hook quote logic.
+    /// @dev Covers the router quote passthrough surface.
     function testRouterQuoteSwap_ProxiesHookQuote() external {
         _setProtocolFeeCurrency(key.currency0);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0});
@@ -893,6 +1019,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(routerQuote.protocolFeeOnInput, hookQuote.protocolFeeOnInput, "fee side");
     }
 
+    /// @notice Verifies native-input exact-output swaps execute successfully.
+    /// @dev Covers native input routing in the exact-output path.
     function testSwapPass_NativeInputExactOutputExecutes() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey, true);
@@ -917,6 +1045,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(delta.amount1(), int128(int256(100 ether)), "delta1");
     }
 
+    /// @notice Verifies router fee claims relay through the hook core with a signature.
+    /// @dev Covers router-mediated LP fee claiming.
     function testRouterClaimFees_UsesHookCoreWithSignature() external {
         _setProtocolFeeCurrency(key.currency0);
 
@@ -967,6 +1097,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(token0.balanceOf(alice), balanceBefore + fee0Amount, "alice received claimed fee");
     }
 
+    /// @notice Verifies claimable-fee previews match claims and do not mutate state.
+    /// @dev Covers the router preview surface for LP fees.
     function testClaimableFees_ViewMatchesClaimAndDoesNotMutateState() external {
         _setProtocolFeeCurrency(key.currency0);
 
@@ -1019,6 +1151,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(claimedFee1, previewFee1, "preview fee1 mismatch");
     }
 
+    /// @notice Verifies the router derives the expected dynamic-fee hook pool key.
+    /// @dev Covers pair normalization and hook wiring.
     function testRouterGetHookPoolKey_ReturnsDynamicHookKey() external {
         address tokenA = address(token0);
         address tokenB = address(token1);
@@ -1036,6 +1170,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(address(routerKey.hooks), address(expected.hooks), "hooks");
     }
 
+    /// @notice Verifies router fee previews match the hook claimable-fee view.
+    /// @dev Covers router passthrough behavior for pair fee previews.
     function testRouterPreviewClaimableFees_MatchesHookClaimableFees() external {
         _setProtocolFeeCurrency(key.currency0);
 
@@ -1064,11 +1200,15 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(routerFee1, hookFee1, "fee1");
     }
 
-    function testLpToken_ReturnsHookPoolLpTokenAddress() external view {
+    /// @notice Verifies the router returns the hook LP token for a pair.
+    /// @dev Covers the new pair-to-LP-token view helper.
+    function testRouterLpToken_ReturnsHookPoolLpTokenAddress() external view {
         (address poolLpToken,,,) = hook.poolInfo(poolId);
-        assertEq(hook.lpToken(key), poolLpToken, "lp token");
+        assertEq(router.lpToken(address(token0), address(token1)), poolLpToken, "lp token");
     }
 
+    /// @notice Verifies pool bootstrap and initial liquidity use the hook core path.
+    /// @dev Covers the router bootstrap helper.
     function testRouterCreatePoolAndAddLiquidity_UsesHookCore() external {
         MockERC20 tokenA = new MockERC20("A", "A", 18);
         MockERC20 tokenB = new MockERC20("B", "B", 18);

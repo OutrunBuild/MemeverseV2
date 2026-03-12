@@ -2,6 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
 import {MemeverseLauncher} from "../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../src/verse/interfaces/IMemeverseLauncher.sol";
@@ -12,21 +16,169 @@ contract MockSwapRouter {
         uint256 fee1;
     }
 
-    mapping(bytes32 => Quote) internal quotes;
+    mapping(bytes32 => Quote) internal previewQuotes;
+    mapping(bytes32 => Quote) internal claimQuotes;
+    mapping(bytes32 => address) internal lpTokens;
 
-    function setQuote(address tokenA, address tokenB, address owner, uint256 fee0, uint256 fee1) external {
+    function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
-        quotes[keccak256(abi.encode(token0, token1, owner))] = Quote({fee0: fee0, fee1: fee1});
+        return keccak256(abi.encode(token0, token1));
     }
 
+    /// @notice Sets both preview and claim fee quotes for a token pair and owner.
+    /// @dev Used by tests to keep preview and redemption expectations aligned.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param owner Owner whose quote should be returned.
+    /// @param fee0 Mock fee amount for token0.
+    /// @param fee1 Mock fee amount for token1.
+    function setQuote(address tokenA, address tokenB, address owner, uint256 fee0, uint256 fee1) external {
+        setPreviewQuote(tokenA, tokenB, owner, fee0, fee1);
+        setClaimQuote(tokenA, tokenB, owner, fee0, fee1);
+    }
+
+    /// @notice Sets the preview fee quote for a token pair and owner.
+    /// @dev Stores fees using normalized token ordering.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param owner Owner whose preview quote should be returned.
+    /// @param fee0 Mock fee amount for token0.
+    /// @param fee1 Mock fee amount for token1.
+    function setPreviewQuote(address tokenA, address tokenB, address owner, uint256 fee0, uint256 fee1) public {
+        previewQuotes[keccak256(abi.encode(_pairKey(tokenA, tokenB), owner))] = Quote({fee0: fee0, fee1: fee1});
+    }
+
+    /// @notice Sets the claim fee quote for a token pair and owner.
+    /// @dev Stores fees using normalized token ordering.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param owner Owner whose claim quote should be returned.
+    /// @param fee0 Mock fee amount for token0.
+    /// @param fee1 Mock fee amount for token1.
+    function setClaimQuote(address tokenA, address tokenB, address owner, uint256 fee0, uint256 fee1) public {
+        claimQuotes[keccak256(abi.encode(_pairKey(tokenA, tokenB), owner))] = Quote({fee0: fee0, fee1: fee1});
+    }
+
+    /// @notice Sets the LP token returned for a token pair.
+    /// @dev Stores the LP token using normalized token ordering.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param liquidityToken Mock LP token address for the pair.
+    function setLpToken(address tokenA, address tokenB, address liquidityToken) external {
+        lpTokens[_pairKey(tokenA, tokenB)] = liquidityToken;
+    }
+
+    /// @notice Returns the mocked preview fees for a token pair and owner.
+    /// @dev Mimics router-side pair normalization.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @param owner Owner whose preview quote is requested.
+    /// @return fee0 Mock fee amount for token0.
+    /// @return fee1 Mock fee amount for token1.
     function previewClaimableFees(address tokenA, address tokenB, address owner)
         external
         view
         returns (uint256 fee0, uint256 fee1)
     {
-        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
-        Quote memory quote = quotes[keccak256(abi.encode(token0, token1, owner))];
+        Quote memory quote = previewQuotes[keccak256(abi.encode(_pairKey(tokenA, tokenB), owner))];
         return (quote.fee0, quote.fee1);
+    }
+
+    /// @notice Returns the mocked LP token for a token pair.
+    /// @dev Mimics router-side pair normalization.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @return liquidityToken Mock LP token address for the pair.
+    function lpToken(address tokenA, address tokenB) external view returns (address liquidityToken) {
+        return lpTokens[_pairKey(tokenA, tokenB)];
+    }
+
+    /// @notice Returns a normalized mock pool key for a token pair.
+    /// @dev Matches the launcher's expectations for router pool-key derivation.
+    /// @param tokenA First token in the pair.
+    /// @param tokenB Second token in the pair.
+    /// @return key Mock pool key for the pair.
+    function getHookPoolKey(address tokenA, address tokenB) external pure returns (PoolKey memory key) {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        return PoolKey({
+            currency0: Currency.wrap(token0),
+            currency1: Currency.wrap(token1),
+            fee: 0,
+            tickSpacing: 0,
+            hooks: IHooks(address(0))
+        });
+    }
+
+    /// @notice Mints mocked claim fees to the requested recipient.
+    /// @dev Uses the caller as the fee owner, matching launcher integration tests.
+    /// @param key Mock pool key whose fees are claimed.
+    /// @param recipient Recipient of the mocked claimed fees.
+    /// @param deadline Unused mock signature deadline.
+    /// @param v Unused mock signature recovery byte.
+    /// @param r Unused mock signature r value.
+    /// @param s Unused mock signature s value.
+    /// @return fee0 Mock claimed fee amount for token0.
+    /// @return fee1 Mock claimed fee amount for token1.
+    function claimFees(PoolKey calldata key, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        returns (uint256 fee0, uint256 fee1)
+    {
+        deadline;
+        v;
+        r;
+        s;
+        address token0 = Currency.unwrap(key.currency0);
+        address token1 = Currency.unwrap(key.currency1);
+        Quote memory quote = claimQuotes[keccak256(abi.encode(_pairKey(token0, token1), msg.sender))];
+
+        fee0 = quote.fee0;
+        fee1 = quote.fee1;
+
+        if (fee0 != 0) MockERC20(token0).mint(recipient, fee0);
+        if (fee1 != 0) MockERC20(token1).mint(recipient, fee1);
+    }
+}
+
+contract MockLiquidProof is MockERC20 {
+    uint256 public burnedAmount;
+
+    constructor() MockERC20("POL", "POL", 18) {}
+
+    /// @notice Burns POL from an account and records the amount.
+    /// @dev Extends the mock token so tests can assert the burn side effect.
+    /// @param from Account whose balance is burned.
+    /// @param value Amount of POL to burn.
+    function burn(address from, uint256 value) public override {
+        burnedAmount += value;
+        super.burn(from, value);
+    }
+}
+
+contract MockOFTDispatcher {
+    uint256 public composeCallCount;
+    address public lastToken;
+    bytes public lastMessage;
+
+    /// @notice Records a mocked compose dispatch.
+    /// @dev Stores the last token and payload for launcher fee-distribution assertions.
+    /// @param _from Token address associated with the compose message.
+    /// @param _guid Unused mock compose guid.
+    /// @param _message Mock compose payload.
+    /// @param _executor Unused mock executor address.
+    /// @param _extraData Unused mock extra data.
+    function lzCompose(
+        address _from,
+        bytes32 _guid,
+        bytes calldata _message,
+        address _executor,
+        bytes calldata _extraData
+    ) external payable {
+        _guid;
+        _executor;
+        _extraData;
+        composeCallCount++;
+        lastToken = _from;
+        lastMessage = _message;
     }
 }
 
@@ -55,41 +207,111 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         )
     {}
 
+    /// @notice Stores mock memeverse state for a verse id.
+    /// @dev Exposes direct storage writes needed by unit tests.
+    /// @param verseId Verse id whose state should be set.
+    /// @param verse Mock memeverse state to store.
     function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
         memeverses[verseId] = verse;
+    }
+
+    /// @notice Stores mock genesis fund totals for a verse id.
+    /// @dev Lets tests control redemption share math directly.
+    /// @param verseId Verse id whose genesis totals should be set.
+    /// @param totalMemecoinFunds Mock memecoin-side genesis total.
+    /// @param totalLiquidProofFunds Mock liquid-proof-side genesis total.
+    function setGenesisFundForTest(uint256 verseId, uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds)
+        external
+    {
+        genesisFunds[verseId] =
+            GenesisFund({totalMemecoinFunds: totalMemecoinFunds, totalLiquidProofFunds: totalLiquidProofFunds});
+    }
+
+    /// @notice Stores mock user genesis data for a verse id.
+    /// @dev Lets tests control redemption eligibility flags directly.
+    /// @param verseId Verse id whose user state should be set.
+    /// @param account Account whose genesis data should be set.
+    /// @param genesisFund Mock contributed genesis amount.
+    /// @param isRefunded Mock refunded flag.
+    /// @param isClaimed Mock claimed flag.
+    /// @param isRedeemed Mock redeemed flag.
+    function setUserGenesisDataForTest(
+        uint256 verseId,
+        address account,
+        uint256 genesisFund,
+        bool isRefunded,
+        bool isClaimed,
+        bool isRedeemed
+    ) external {
+        userGenesisData[verseId][account] = GenesisData({
+            genesisFund: genesisFund, isRefunded: isRefunded, isClaimed: isClaimed, isRedeemed: isRedeemed
+        });
+    }
+
+    /// @notice Stores mock total POL liquidity for a verse id.
+    /// @dev Used to drive POL LP redemption share math in tests.
+    /// @param verseId Verse id whose total POL liquidity should be set.
+    /// @param amount Mock total POL liquidity amount.
+    function setTotalPolLiquidityForTest(uint256 verseId, uint256 amount) external {
+        totalPolLiquidity[verseId] = amount;
     }
 }
 
 contract MemeverseLauncherPreviewFeesTest is Test {
     TestableMemeverseLauncher internal launcher;
     MockSwapRouter internal router;
+    MockOFTDispatcher internal dispatcher;
+    MockERC20 internal upt;
+    MockERC20 internal memecoin;
+    MockLiquidProof internal liquidProof;
 
+    address internal constant REWARD_RECEIVER = address(0xBEEF);
+    address internal constant ALICE = address(0xA11CE);
+
+    /// @notice Deploys the launcher test harness and supporting mocks.
+    /// @dev Wires the launcher to the mock router and mock dispatcher.
     function setUp() external {
         launcher = new TestableMemeverseLauncher(
             address(this), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), 25, 115_000, 135_000
         );
         router = new MockSwapRouter();
+        dispatcher = new MockOFTDispatcher();
+        upt = new MockERC20("UPT", "UPT", 18);
+        memecoin = new MockERC20("MEME", "MEME", 18);
+        liquidProof = new MockLiquidProof();
+
         launcher.setMemeverseSwapRouter(address(router));
+        launcher.setOFTDispatcher(address(dispatcher));
     }
 
-    function testPreviewGenesisMakerFees_MapsFeesCorrectly() external {
-        uint256 verseId = 1;
-        address upt = address(0x1000);
-        address memecoin = address(0x2000);
-        address liquidProof = address(0x3000);
-
+    function _setLockedVerse(uint256 verseId) internal {
         IMemeverseLauncher.Memeverse memory verse;
-        verse.UPT = upt;
-        verse.memecoin = memecoin;
-        verse.liquidProof = liquidProof;
+        verse.UPT = address(upt);
+        verse.memecoin = address(memecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = uint32(block.chainid);
-
         launcher.setMemeverseForTest(verseId, verse);
+    }
 
-        router.setQuote(memecoin, upt, address(launcher), 11 ether, 22 ether);
-        router.setQuote(liquidProof, upt, address(launcher), 33 ether, 44 ether);
+    function _setUnlockedVerse(uint256 verseId) internal {
+        _setLockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
+        launcher.setMemeverseForTest(verseId, verse);
+    }
+
+    /// @notice Verifies preview fee mapping preserves token ordering for both pools.
+    /// @dev Ensures the launcher maps router fee0/fee1 outputs back to semantic token names.
+    function testPreviewGenesisMakerFees_MapsFeesCorrectly() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        router.setQuote(address(memecoin), address(upt), address(launcher), 11 ether, 22 ether);
+        router.setQuote(address(liquidProof), address(upt), address(launcher), 33 ether, 44 ether);
 
         (uint256 uptFee, uint256 memecoinFee) = launcher.previewGenesisMakerFees(verseId);
 
@@ -97,6 +319,8 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         assertEq(uptFee, 44 ether, "upt fee");
     }
 
+    /// @notice Verifies previewing fees reverts before the locked stage.
+    /// @dev The launcher must not preview LP fees during genesis.
     function testPreviewGenesisMakerFees_RevertsWhenNotLocked() external {
         uint256 verseId = 1;
         IMemeverseLauncher.Memeverse memory verse;
@@ -105,5 +329,168 @@ contract MemeverseLauncherPreviewFeesTest is Test {
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
         launcher.previewGenesisMakerFees(verseId);
+    }
+
+    /// @notice Verifies fee redemption reverts before the locked stage.
+    /// @dev The launcher must not claim or distribute fees during genesis.
+    function testRedeemAndDistributeFees_RevertsWhenNotLocked() external {
+        uint256 verseId = 1;
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
+        launcher.setMemeverseForTest(verseId, verse);
+
+        vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
+        launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+    }
+
+    /// @notice Verifies fee redemption returns zero values when no fees are claimable.
+    /// @dev Confirms the early-return path does not mutate balances.
+    function testRedeemAndDistributeFees_ReturnsZeroWhenNoFees() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward) =
+            launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        assertEq(govFee, 0, "govFee");
+        assertEq(memecoinFee, 0, "memecoinFee");
+        assertEq(liquidProofFee, 0, "liquidProofFee");
+        assertEq(executorReward, 0, "executorReward");
+    }
+
+    /// @notice Verifies same-chain fee redemption claims, burns, and dispatches the expected assets.
+    /// @dev Covers the restored fee distribution flow through the mock dispatcher.
+    function testRedeemAndDistributeFees_SameChainClaimsAndDistributesFees() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        router.setClaimQuote(address(memecoin), address(upt), address(launcher), 20 ether, 7 ether);
+        router.setClaimQuote(address(liquidProof), address(upt), address(launcher), 12 ether, 5 ether);
+
+        (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward) =
+            launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        assertEq(memecoinFee, 7 ether, "memecoin fee");
+        assertEq(liquidProofFee, 5 ether, "liquid proof fee");
+        assertEq(executorReward, 0.08 ether, "executor reward");
+        assertEq(govFee, 31.92 ether, "gov fee");
+
+        assertEq(upt.balanceOf(REWARD_RECEIVER), executorReward, "reward receiver UPT");
+        assertEq(upt.balanceOf(address(dispatcher)), govFee, "dispatcher UPT");
+        assertEq(memecoin.balanceOf(address(dispatcher)), memecoinFee, "dispatcher memecoin");
+        assertEq(liquidProof.burnedAmount(), liquidProofFee, "burned liquid proof");
+        assertEq(dispatcher.composeCallCount(), 2, "compose call count");
+        assertEq(upt.balanceOf(address(launcher)), 0, "launcher UPT");
+        assertEq(memecoin.balanceOf(address(launcher)), 0, "launcher memecoin");
+        assertEq(liquidProof.balanceOf(address(launcher)), 0, "launcher liquid proof");
+    }
+
+    /// @notice Verifies preview fee mapping matches actual redemption fee mapping.
+    /// @dev Prevents preview and claim flows from drifting on token ordering.
+    function testPreviewAndRedeemShareTheSameFeeMapping() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        router.setPreviewQuote(address(memecoin), address(upt), address(launcher), 9 ether, 4 ether);
+        router.setPreviewQuote(address(liquidProof), address(upt), address(launcher), 13 ether, 6 ether);
+        router.setClaimQuote(address(memecoin), address(upt), address(launcher), 9 ether, 4 ether);
+        router.setClaimQuote(address(liquidProof), address(upt), address(launcher), 13 ether, 6 ether);
+
+        (uint256 previewUptFee, uint256 previewMemecoinFee) = launcher.previewGenesisMakerFees(verseId);
+        (uint256 govFee, uint256 memecoinFee,, uint256 executorReward) =
+            launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        assertEq(previewMemecoinFee, memecoinFee, "memecoin mapping");
+        assertEq(previewUptFee, govFee + executorReward, "UPT mapping");
+    }
+
+    /// @notice Verifies memecoin LP redemption rejects zero POL input.
+    /// @dev Confirms the restored zero-input guard is active.
+    function testRedeemMemecoinLiquidity_RevertsOnZeroInput() external {
+        uint256 verseId = 1;
+        _setUnlockedVerse(verseId);
+
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.redeemMemecoinLiquidity(verseId, 0);
+    }
+
+    /// @notice Verifies memecoin LP redemption rejects non-unlocked verses.
+    /// @dev Confirms the restored stage guard is active.
+    function testRedeemMemecoinLiquidity_RevertsWhenNotUnlocked() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        vm.expectRevert(IMemeverseLauncher.NotUnlockedStage.selector);
+        launcher.redeemMemecoinLiquidity(verseId, 1 ether);
+    }
+
+    /// @notice Verifies memecoin LP redemption burns POL and transfers pair LP shares.
+    /// @dev Covers the restored router-based pair LP lookup in the happy path.
+    function testRedeemMemecoinLiquidity_BurnsPOLAndTransfersMemecoinLp() external {
+        uint256 verseId = 1;
+        _setUnlockedVerse(verseId);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        memecoinLp.mint(address(launcher), 10 ether);
+        liquidProof.mint(ALICE, 10 ether);
+
+        vm.prank(ALICE);
+        uint256 amountInLP = launcher.redeemMemecoinLiquidity(verseId, 4 ether);
+
+        assertEq(amountInLP, 4 ether, "lp amount");
+        assertEq(liquidProof.burnedAmount(), 4 ether, "burned pol");
+        assertEq(liquidProof.balanceOf(ALICE), 6 ether, "alice pol balance");
+        assertEq(memecoinLp.balanceOf(ALICE), 4 ether, "alice memecoin lp");
+        assertEq(memecoinLp.balanceOf(address(launcher)), 6 ether, "launcher memecoin lp");
+    }
+
+    /// @notice Verifies POL LP redemption rejects non-unlocked verses.
+    /// @dev Confirms the restored stage guard is active for genesis-share redemption.
+    function testRedeemPolLiquidity_RevertsWhenNotUnlocked() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 1 ether, false, false, false);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.NotUnlockedStage.selector);
+        launcher.redeemPolLiquidity(verseId);
+    }
+
+    /// @notice Verifies POL LP redemption rejects accounts that already redeemed.
+    /// @dev Confirms the single-claim protection is preserved.
+    function testRedeemPolLiquidity_RevertsWhenAlreadyRedeemed() external {
+        uint256 verseId = 1;
+        _setUnlockedVerse(verseId);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 1 ether, false, false, true);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.InvalidRedeem.selector);
+        launcher.redeemPolLiquidity(verseId);
+    }
+
+    /// @notice Verifies POL LP redemption transfers the caller's genesis share of POL LP.
+    /// @dev Covers router-based LP lookup and redeemed-flag mutation in the happy path.
+    function testRedeemPolLiquidity_TransfersPolLpByGenesisShare() external {
+        uint256 verseId = 1;
+        _setUnlockedVerse(verseId);
+
+        MockERC20 polLp = new MockERC20("POL-LP", "POL-LP", 18);
+        router.setLpToken(address(liquidProof), address(upt), address(polLp));
+        polLp.mint(address(launcher), 60 ether);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false, false);
+        launcher.setTotalPolLiquidityForTest(verseId, 60 ether);
+
+        vm.prank(ALICE);
+        uint256 amountInLP = launcher.redeemPolLiquidity(verseId);
+
+        (, bool isRefunded, bool isClaimed, bool isRedeemed) = launcher.userGenesisData(verseId, ALICE);
+        assertEq(amountInLP, 12 ether, "lp amount");
+        assertEq(polLp.balanceOf(ALICE), 12 ether, "alice pol lp");
+        assertEq(polLp.balanceOf(address(launcher)), 48 ether, "launcher pol lp");
+        assertFalse(isRefunded, "is refunded");
+        assertFalse(isClaimed, "is claimed");
+        assertTrue(isRedeemed, "is redeemed");
     }
 }
