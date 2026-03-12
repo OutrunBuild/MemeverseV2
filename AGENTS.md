@@ -64,7 +64,8 @@
 - `docs/reviews/` 是必须提交的审计证据
 
 ## 6. Documentation Language
-- 新增的人写文档默认使用简体中文
+- 新增的自然语言文档默认使用简体中文
+- `docs/reviews/*.md` 为兼容现有 gate，固定 section / field key 与 `yes`、`no` 取值保持英文，其余说明与正文使用简体中文
 - 命令、路径、代码标识、协议名、库名保持英文原文
 
 ## 7. References

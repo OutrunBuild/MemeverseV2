@@ -2,6 +2,13 @@
 
 `docs/reviews/*.md` 是 `src/**/*.sol` 变更的强制审计证据。
 
+## 语言约束
+
+- review note 正文默认使用简体中文
+- 为兼容 `script/check-review-note.sh`，固定 section / field key 保持英文
+- `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 的值仍然只能填写 `yes` 或 `no`
+- 路径、命令、代码标识、selector 保持英文原文
+
 ## 必填目标
 
 每份 review note 都必须让脚本能够回答这几个问题：
