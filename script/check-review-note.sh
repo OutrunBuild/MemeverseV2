@@ -6,51 +6,22 @@ if [ "$#" -lt 1 ]; then
     exit 1
 fi
 
-required_headings=(
-    "## Scope"
-    "## Impact"
-    "## Findings"
-    "## Simplification"
-    "## Docs"
-    "## Tests"
-    "## Verification"
-    "## Decision"
-)
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
 
-required_fields=(
-    "Change summary"
-    "Files reviewed"
-    "Behavior change"
-    "ABI change"
-    "Storage layout change"
-    "Config change"
-    "High findings"
-    "Medium findings"
-    "Low findings"
-    "None"
-    "Candidate simplifications considered"
-    "Applied"
-    "Rejected (with reason)"
-    "Docs updated"
-    "Why these docs"
-    "No-doc reason"
-    "Tests updated"
-    "Existing tests exercised"
-    "No-test-change reason"
-    "Commands run"
-    "Results"
-    "Ready to commit"
-    "Residual risks"
-)
+mapfile -t required_headings < <(node ./script/read-process-config.js policy review_note.required_headings --lines)
+mapfile -t required_fields < <(node ./script/read-process-config.js policy review_note.required_fields --lines)
+mapfile -t boolean_fields < <(node ./script/read-process-config.js policy review_note.boolean_fields --lines)
+mapfile -t placeholder_values < <(node ./script/read-process-config.js policy review_note.placeholder_values --lines)
 
-placeholder_values=(
-    ""
-    "TBD"
-    "<path>"
-    "<path>|none"
-    "<selectors or paths>"
-    "yes/no"
-)
+field_is_required() {
+    local field="$1"
+
+    case " ${required_fields[*]} " in
+        *" $field "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 extract_field() {
     local file="$1"
@@ -110,16 +81,18 @@ for file in "$@"; do
             exit 1
         fi
 
-        case "$field" in
-            "Behavior change"|"ABI change"|"Storage layout change"|"Config change"|"Ready to commit")
+        case " ${boolean_fields[*]} " in
+            *" $field "*)
                 validate_boolean_field "$file" "$field" "$value"
                 ;;
         esac
     done
 
-    none_value="$(extract_field "$file" "None")"
-    if [ -z "$none_value" ]; then
-        echo "[check-review-note] ERROR: $file field 'None' must explicitly state 'none' or explain why it is not applicable"
-        exit 1
+    if field_is_required "None"; then
+        none_value="$(extract_field "$file" "None")"
+        if [ -z "$none_value" ]; then
+            echo "[check-review-note] ERROR: $file field 'None' must explicitly state 'none' or explain why it is not applicable"
+            exit 1
+        fi
     fi
 done

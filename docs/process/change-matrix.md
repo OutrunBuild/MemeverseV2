@@ -58,4 +58,5 @@
 
 - 当前根仓库工具链为 Foundry-only。
 - P1 已补齐最小 NatSpec lint 和 PR body 结构校验。
+- P2 将变更触发、review note、PR sections 和关键模块测试映射集中到 `docs/process/policy.json` 与 `docs/process/rule-map.json`。
 - 如果以后新增 gate，优先更新本文件，再更新脚本和 `AGENTS.md`。

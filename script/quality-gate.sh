@@ -40,6 +40,12 @@ if [ -z "$changed_files" ]; then
     exit 0
 fi
 
+swap_src_sol_pattern="$(node ./script/read-process-config.js policy quality_gate.swap_src_sol_pattern)"
+src_sol_pattern="$(node ./script/read-process-config.js policy quality_gate.src_sol_pattern)"
+test_tsol_pattern="$(node ./script/read-process-config.js policy quality_gate.test_tsol_pattern)"
+test_sol_pattern="$(node ./script/read-process-config.js policy quality_gate.test_sol_pattern)"
+shell_pattern="$(node ./script/read-process-config.js policy quality_gate.shell_pattern)"
+
 has_src_sol=0
 has_swap_src_sol=0
 has_sol_tests=0
@@ -51,21 +57,21 @@ shell_files=()
 while IFS= read -r file; do
     [ -z "$file" ] && continue
 
-    if [[ "$file" =~ ^src/swap/.*\.sol$ ]]; then
+    if [[ "$file" =~ $swap_src_sol_pattern ]]; then
         has_src_sol=1
         has_swap_src_sol=1
         solidity_candidates+=("$file")
-    elif [[ "$file" =~ ^src/.*\.sol$ ]]; then
+    elif [[ "$file" =~ $src_sol_pattern ]]; then
         has_src_sol=1
         solidity_candidates+=("$file")
-    elif [[ "$file" =~ ^test/.*\.t\.sol$ ]]; then
+    elif [[ "$file" =~ $test_tsol_pattern ]]; then
         has_sol_tests=1
         solidity_candidates+=("$file")
-    elif [[ "$file" =~ ^test/.*\.sol$ ]]; then
+    elif [[ "$file" =~ $test_sol_pattern ]]; then
         solidity_candidates+=("$file")
     fi
 
-    if [[ "$file" =~ ^(script/.*\.sh|\.githooks/.*)$ ]]; then
+    if [[ "$file" =~ $shell_pattern ]]; then
         shell_candidates+=("$file")
     fi
 done <<< "$changed_files"
@@ -83,7 +89,9 @@ for file in "${shell_candidates[@]}"; do
 done
 
 if [ "$has_src_sol" -eq 1 ]; then
-    review_files="$(echo "$changed_files" | grep -E '^docs/reviews/.*\.md$' | grep -Ev '^docs/reviews/(README|TEMPLATE)\.md$' || true)"
+    review_note_pattern="$(node ./script/read-process-config.js policy quality_gate.review_note_path_pattern)"
+    review_note_exclude_pattern="$(node ./script/read-process-config.js policy quality_gate.review_note_exclude_pattern)"
+    review_files="$(echo "$changed_files" | grep -E "$review_note_pattern" | grep -Ev "$review_note_exclude_pattern" || true)"
     if [ -z "$review_files" ]; then
         echo "[quality-gate] ERROR: src Solidity changes require a review note under docs/reviews/*.md in this change set"
         echo "[quality-gate] Use docs/reviews/TEMPLATE.md and fill the required Impact, Docs, Tests, Verification, and Decision fields."
@@ -110,21 +118,32 @@ if [ "$has_src_sol" -eq 1 ]; then
     done <<< "$review_files"
 
     if [ "$behavior_change_declared" -eq 1 ]; then
-        docs_updates="$(echo "$changed_files" | grep -E '^docs/.*\.md$' | grep -Ev '^docs/(contracts|plans|reviews)/' || true)"
+        non_generated_docs_pattern="$(node ./script/read-process-config.js policy quality_gate.non_generated_docs_pattern)"
+        non_generated_docs_exclude_pattern="$(node ./script/read-process-config.js policy quality_gate.non_generated_docs_exclude_pattern)"
+        behavior_docs_required_message="$(node ./script/read-process-config.js policy quality_gate.behavior_docs_required_message)"
+        behavior_docs_excluded_message="$(node ./script/read-process-config.js policy quality_gate.behavior_docs_excluded_message)"
+        docs_updates="$(echo "$changed_files" | grep -E "$non_generated_docs_pattern" | grep -Ev "$non_generated_docs_exclude_pattern" || true)"
         if [ -z "$docs_updates" ]; then
-            echo "[quality-gate] ERROR: behavior-changing src Solidity changes require at least one non-generated docs/*.md update"
-            echo "[quality-gate] Excluded paths: docs/contracts/**, docs/plans/**, docs/reviews/**"
+            echo "[quality-gate] ERROR: ${behavior_docs_required_message}"
+            echo "[quality-gate] ${behavior_docs_excluded_message}"
             exit 1
         fi
 
         if [ "$has_swap_src_sol" -eq 1 ]; then
-            swap_docs_updates="$(echo "$changed_files" | grep -E '^docs/memeverse-swap/.*\.md$' || true)"
+            swap_docs_pattern="$(node ./script/read-process-config.js policy quality_gate.swap_docs_pattern)"
+            swap_docs_required_message="$(node ./script/read-process-config.js policy quality_gate.swap_docs_required_message)"
+            swap_docs_updates="$(echo "$changed_files" | grep -E "$swap_docs_pattern" || true)"
             if [ -z "$swap_docs_updates" ]; then
-                echo "[quality-gate] ERROR: behavior-changing src/swap/**/*.sol changes require at least one docs/memeverse-swap/*.md update"
+                echo "[quality-gate] ERROR: ${swap_docs_required_message}"
                 exit 1
             fi
         fi
     fi
+
+    changed_files_tmp="$(mktemp)"
+    printf '%s\n' "$changed_files" > "$changed_files_tmp"
+    bash ./script/check-rule-map.sh "$changed_files_tmp" $review_files
+    rm -f "$changed_files_tmp"
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then

@@ -7,6 +7,8 @@
 - `AGENTS.md` 只保留高杠杆、短规则、失败条件和入口命令。
 - 本目录解释这些规则为什么存在、触发范围是什么、哪些脚本负责执行。
 - 如果规则影响 hook、CI 或提交门禁，文档变更必须和脚本变更一起提交。
+- `docs/process/policy.json` 是当前流程规则的机器可读真源。
+- `docs/process/rule-map.json` 是关键模块规则到测试证据的机器可读映射。
 
 当前已落地范围：
 
@@ -27,3 +29,5 @@
 
 - `docs/process/change-matrix.md`
 - `docs/process/review-notes.md`
+- `docs/process/policy.json`
+- `docs/process/rule-map.json`

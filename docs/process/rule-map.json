@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "id": "swap-router-tests",
+      "path_prefix": "src/swap/",
+      "description": "Swap module changes must cite at least one deterministic swap test path in Existing tests exercised.",
+      "required_test_patterns": [
+        "test/MemeverseSwapRouter.t.sol",
+        "test/MemeverseSwapRouterPermit2.t.sol",
+        "test/MemeverseUniswapHookLiquidity.t.sol",
+        "test/MemeverseDynamicFeeSimulation.t.sol"
+      ]
+    }
+  ]
+}

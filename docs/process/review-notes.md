@@ -23,6 +23,8 @@
 
 PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks` 语言，但 review note 仍然是本地提交门禁的强约束真源。
 
+固定字段与占位值的机器可读定义见 `docs/process/policy.json`。
+
 ## 结构要求
 
 必须包含以下章节：

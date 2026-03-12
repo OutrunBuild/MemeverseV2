@@ -6,6 +6,9 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
 body_file="$1"
 
 if [ ! -f "$body_file" ]; then
@@ -13,14 +16,7 @@ if [ ! -f "$body_file" ]; then
     exit 1
 fi
 
-required_sections=(
-    "## Summary"
-    "## Impact"
-    "## Docs"
-    "## Tests"
-    "## Verification"
-    "## Risks"
-)
+mapfile -t required_sections < <(node ./script/read-process-config.js policy pull_request.required_sections --lines)
 
 missing_sections=()
 

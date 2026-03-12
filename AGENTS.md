@@ -72,3 +72,5 @@
 - 规则说明：`docs/process/README.md`
 - 路径与 gate 细则：`docs/process/change-matrix.md`
 - Review note 规范：`docs/process/review-notes.md`
+- 机器可读策略源：`docs/process/policy.json`
+- 规则到测试映射：`docs/process/rule-map.json`
