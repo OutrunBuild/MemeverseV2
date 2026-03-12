@@ -12,7 +12,7 @@
 
 - `MemeverseSwapRouter`：公开 Periphery / 统一入口
 - `MemeverseUniswapHook`：Core 引擎 / 低层 API
-- `PoolBootstrapLib`：启动期 bootstrap 工具库
+- 启动期建池与首笔流动性：收敛到 `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
 
 推荐理解为：
 
@@ -40,6 +40,7 @@
 - `MemeverseSwapRouter.addLiquidity(...)`
 - `MemeverseSwapRouter.removeLiquidity(...)`
 - `MemeverseSwapRouter.claimFees(...)`
+- `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
 - 可选：对应 `*WithPermit2(...)` 入口
 
 原因：

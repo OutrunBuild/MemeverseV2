@@ -53,7 +53,7 @@ Memeverse Swap 旨在同时满足以下目标：
 
 本 PRD 不重点展开以下内容：
 
-- `PoolBootstrapLib` 的实现细节
+- bootstrap 内部实现细节
 - 部署脚本
 - 前端 UI 细节
 - 链下风控与运营流程
