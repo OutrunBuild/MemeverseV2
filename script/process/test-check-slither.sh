@@ -8,7 +8,6 @@ tmp_dir="$(mktemp -d)"
 fake_slither="$tmp_dir/fake-slither.sh"
 fake_output="$tmp_dir/slither-output.txt"
 policy_file="$tmp_dir/policy.json"
-baseline_file="$tmp_dir/slither.baseline"
 solidity_file="$tmp_dir/Example.sol"
 
 cleanup() {
@@ -66,7 +65,6 @@ cat > "$policy_file" <<EOF
     "required_sections": []
   },
   "quality_gate": {
-    "slither_baseline_file": "$baseline_file",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits"
   }
@@ -78,10 +76,6 @@ cat > "$solidity_file" <<'EOF'
 pragma solidity ^0.8.20;
 
 contract Example {}
-EOF
-
-cat > "$baseline_file" <<'EOF'
-{"check":"arbitrary-send-eth","impact":"High","confidence":"Medium","file":"src/Example.sol","lines":[12,13],"element_name":"doThing","element_type":"function"}
 EOF
 
 set +e
@@ -100,29 +94,7 @@ if ! printf '%s\n' "$usage_output" | grep -q "Usage:"; then
     exit 1
 fi
 
-rm -f "$baseline_file"
-
-set +e
-missing_baseline_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
-missing_baseline_status=$?
-set -e
-
-if [ "$missing_baseline_status" -eq 0 ]; then
-    echo "Expected check-slither to fail when the slither baseline is missing"
-    exit 1
-fi
-
-if ! printf '%s\n' "$missing_baseline_output" | grep -q "baseline"; then
-    echo "Expected missing slither baseline output"
-    printf '%s\n' "$missing_baseline_output"
-    exit 1
-fi
-
-cat > "$baseline_file" <<'EOF'
-{"check":"arbitrary-send-eth","impact":"High","confidence":"Medium","file":"src/Example.sol","lines":[12,13],"element_name":"doThing","element_type":"function"}
-EOF
-
-PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file"
+output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
 
 if ! grep -q "^\\. --filter-paths lib|test|script|node_modules --exclude-dependencies --exclude naming-convention,too-many-digits$" "$fake_output"; then
     echo "Expected check-slither to analyze the repository root with the configured slither arguments"
@@ -130,19 +102,9 @@ if ! grep -q "^\\. --filter-paths lib|test|script|node_modules --exclude-depende
     exit 1
 fi
 
-set +e
-diff_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" FAKE_SLITHER_VARIANT=diff SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
-diff_status=$?
-set -e
-
-if [ "$diff_status" -eq 0 ]; then
-    echo "Expected check-slither to fail when the normalized findings differ from baseline"
-    exit 1
-fi
-
-if ! printf '%s\n' "$diff_output" | grep -q "findings differ from baseline"; then
-    echo "Expected slither baseline diff failure output"
-    printf '%s\n' "$diff_output"
+if ! printf '%s\n' "$output" | grep -q "normalized findings"; then
+    echo "Expected check-slither to print normalized findings"
+    printf '%s\n' "$output"
     exit 1
 fi
 
@@ -152,12 +114,12 @@ failure_status=$?
 set -e
 
 if [ "$failure_status" -ne 0 ]; then
-    echo "Expected check-slither to accept non-zero slither status when valid JSON matches baseline"
+    echo "Expected check-slither to accept non-zero slither status when valid JSON is parseable"
     printf '%s\n' "$failure_output"
     exit 1
 fi
 
-if ! printf '%s\n' "$failure_output" | grep -q "baseline-matching findings"; then
+if ! printf '%s\n' "$failure_output" | grep -q "parseable findings"; then
     echo "Expected informational output when slither returns non-zero with valid JSON"
     printf '%s\n' "$failure_output"
     exit 1

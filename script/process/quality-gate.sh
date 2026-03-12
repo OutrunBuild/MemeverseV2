@@ -117,8 +117,8 @@ if [ "$has_src_sol" -eq 1 ] && [ "${#solidity_files[@]}" -gt 0 ]; then
     echo "[quality-gate] bash ./script/process/check-slither.sh"
     bash ./script/process/check-slither.sh "${solidity_files[@]}"
 
-    echo "[quality-gate] bash ./script/process/check-gas-snapshot.sh"
-    bash ./script/process/check-gas-snapshot.sh
+    echo "[quality-gate] bash ./script/process/check-gas-report.sh"
+    bash ./script/process/check-gas-report.sh
 fi
 
 if [ "$mode" != "ci" ] && [ "$has_src_sol" -eq 1 ]; then

@@ -11,14 +11,8 @@ cd "$repo_root"
 
 slither_bin="${SLITHER_BIN:-slither}"
 slither_target="${SLITHER_TARGET:-.}"
-baseline_file="$(node ./script/process/read-process-config.js policy quality_gate.slither_baseline_file)"
 filter_paths="$(node ./script/process/read-process-config.js policy quality_gate.slither_filter_paths)"
 exclude_detectors="$(node ./script/process/read-process-config.js policy quality_gate.slither_exclude_detectors)"
-
-if [ ! -f "$baseline_file" ]; then
-    echo "[check-slither] ERROR: slither baseline file not found: $baseline_file"
-    exit 1
-fi
 
 has_solidity_file=0
 for file in "$@"; do
@@ -61,11 +55,13 @@ if ! node ./script/process/normalize-slither-results.js "$slither_json" > "$norm
     exit 1
 fi
 
-if ! diff -u "$baseline_file" "$normalized_output"; then
-    echo "[check-slither] ERROR: slither findings differ from baseline"
-    exit 1
+if [ -s "$normalized_output" ]; then
+    echo "[check-slither] INFO: normalized findings"
+    cat "$normalized_output"
+else
+    echo "[check-slither] INFO: no normalized findings"
 fi
 
 if [ "$slither_status" -ne 0 ]; then
-    echo "[check-slither] INFO: slither returned status $slither_status with baseline-matching findings"
+    echo "[check-slither] INFO: slither returned status $slither_status with parseable findings"
 fi

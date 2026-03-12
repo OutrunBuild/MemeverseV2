@@ -12,10 +12,10 @@
 - `src/**/*.sol`
   - 必须通过 Solidity gate：`forge fmt --check`、`forge build`、`forge test -vvv`
   - 必须通过 NatSpec gate：`bash ./script/process/check-natspec.sh`
-  - 代码编写完成后，必须执行 `Solidity Security`、`Code Simplifier` 与 Gas 优化
+  - 代码编写完成后，必须按顺序执行 `Code Simplifier`、`Solidity Security`；其中 `Solidity Security` 负责同时完成安全检查与 gas 优化审查
   - 命中该路径时，agent/workflow 应优先调用 `skills/solidity-post-coding-flow/SKILL.md`
   - 必须通过 security gate：`bash ./script/process/check-slither.sh`
-  - 必须通过 gas gate：`bash ./script/process/check-gas-snapshot.sh`
+  - 必须通过 gas gate：`bash ./script/process/check-gas-report.sh`
   - 本地提交前必须提供 review note 证据：`bash ./script/process/check-solidity-review-note.sh`
   - 必须通过 docs gate：`npm run docs:check`
 - `src/swap/**/*.sol`

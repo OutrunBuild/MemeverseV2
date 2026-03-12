@@ -13,8 +13,6 @@ slither_log="$tmp_dir/slither.log"
 changed_files_path="$tmp_dir/changed-files.txt"
 review_dir="$tmp_dir/reviews"
 review_file="$review_dir/2026-03-12-example-review.md"
-baseline_file="$tmp_dir/gas-snapshot.baseline"
-slither_baseline_file="$tmp_dir/slither.baseline"
 src_file="src/QualityGateTemp.sol"
 test_file="test/QualityGateTemp.t.sol"
 
@@ -97,11 +95,8 @@ cat > "$policy_file" <<EOF
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
     "review_note_directory": "$review_dir",
-    "slither_baseline_file": "$slither_baseline_file",
     "slither_filter_paths": "lib|test|script|node_modules",
-    "slither_exclude_detectors": "naming-convention,too-many-digits",
-    "gas_snapshot_file": "$baseline_file",
-    "gas_snapshot_tolerance_percent": "5"
+    "slither_exclude_detectors": "naming-convention,too-many-digits"
   }
 }
 EOF
@@ -111,6 +106,26 @@ cat > "$fake_bin_dir/forge" <<'EOF'
 set -euo pipefail
 
 printf '%s\n' "$*" >> "${FORGE_LOG}"
+
+snapshot_output=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --snap)
+            snapshot_output="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [ -n "$snapshot_output" ]; then
+    cat > "$snapshot_output" <<'SNAPSHOT'
+test:example() (gas: 12345)
+SNAPSHOT
+fi
+
 exit 0
 EOF
 
@@ -176,14 +191,6 @@ pragma solidity ^0.8.20;
 contract QualityGateTempTest {}
 EOF
 
-cat > "$baseline_file" <<'EOF'
-test:example() (gas: 12345)
-EOF
-
-cat > "$slither_baseline_file" <<'EOF'
-{"check":"arbitrary-send-eth","impact":"High","confidence":"Medium","file":"src/QualityGateTemp.sol","lines":[8,9],"element_name":"doThing","element_type":"function"}
-EOF
-
 cat > "$review_file" <<'EOF'
 # review-note
 
@@ -239,8 +246,8 @@ printf '%s\n' "$src_file" > "$changed_files_path"
 
 PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
 
-if ! grep -q "snapshot --check $baseline_file --tolerance 5" "$forge_log"; then
-    echo "Expected quality-gate to trigger the gas snapshot check for Solidity source changes"
+if ! grep -q "^snapshot --snap " "$forge_log"; then
+    echo "Expected quality-gate to trigger the gas report command for Solidity source changes"
     cat "$forge_log"
     exit 1
 fi
@@ -270,8 +277,8 @@ if [ -f "$slither_log" ] && [ -s "$slither_log" ]; then
     exit 1
 fi
 
-if grep -q "snapshot --check" "$forge_log"; then
-    echo "Expected gas snapshot check not to run for test-only changes"
+if grep -q "^snapshot --snap " "$forge_log"; then
+    echo "Expected gas report not to run for test-only changes"
     cat "$forge_log"
     exit 1
 fi

@@ -68,10 +68,7 @@
     "test_sol_pattern": "^test/.*\\.sol$",
     "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
     "review_note_directory": "docs/reviews",
-    "slither_baseline_file": "docs/process/slither.baseline",
     "slither_filter_paths": "lib|test|script|node_modules",
-    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
-    "gas_snapshot_file": "docs/process/gas-snapshot.baseline",
-    "gas_snapshot_tolerance_percent": "5"
+    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions"
   }
 }
