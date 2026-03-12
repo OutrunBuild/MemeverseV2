@@ -16,6 +16,7 @@ review_file="$tmp_dir/review.md"
 pr_file="$tmp_dir/pr.md"
 passing_review_file="$tmp_dir/review-pass.md"
 passing_pr_file="$tmp_dir/pr-pass.md"
+legacy_review_file="$tmp_dir/legacy-review.md"
 
 cat > "$policy_file" <<'EOF'
 {
@@ -138,3 +139,62 @@ EOF
 
 PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-review-note.sh "$passing_review_file"
 PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-pr-body.sh "$passing_pr_file"
+
+cat > "$legacy_review_file" <<'EOF'
+# legacy-review
+
+## Scope
+- Change summary: ok
+- Files reviewed: ok
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: none.
+- No-test-change reason: none.
+
+## Verification
+- Commands run: none.
+- Results: none.
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+EOF
+
+set +e
+legacy_output="$(bash ./script/process/check-review-note.sh "$legacy_review_file" 2>&1)"
+legacy_status=$?
+set -e
+
+if [ "$legacy_status" -eq 0 ]; then
+    echo "Expected default review-note policy to reject legacy notes without security and gas evidence"
+    exit 1
+fi
+
+if ! printf '%s\n' "$legacy_output" | grep -q "## Gas"; then
+    echo "Expected default review-note policy failure output to reference the missing Gas section"
+    printf '%s\n' "$legacy_output"
+    exit 1
+fi

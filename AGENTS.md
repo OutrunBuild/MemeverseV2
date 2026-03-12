@@ -12,6 +12,11 @@
 - `src/**/*.sol`
   - 必须通过 Solidity gate：`forge fmt --check`、`forge build`、`forge test -vvv`
   - 必须通过 NatSpec gate：`bash ./script/process/check-natspec.sh`
+  - 代码编写完成后，必须执行 `Solidity Security`、`Code Simplifier` 与 Gas 优化
+  - 命中该路径时，agent/workflow 应优先调用 `skills/solidity-post-coding-flow/SKILL.md`
+  - 必须通过 security gate：`bash ./script/process/check-slither.sh`
+  - 必须通过 gas gate：`bash ./script/process/check-gas-snapshot.sh`
+  - 本地提交前必须提供 review note 证据：`bash ./script/process/check-solidity-review-note.sh`
   - 必须通过 docs gate：`npm run docs:check`
 - `src/swap/**/*.sol`
   - 如果命中 `docs/process/rule-map.json` 中的模块规则，变更集中必须同时包含至少 1 个匹配的测试文件
@@ -29,10 +34,13 @@
   - `## Tests`
   - `## Verification`
   - `## Risks`
+  - `## Security`
+  - `## Simplification`
+  - `## Gas`
 
 ## 4. Review Note Contract
 - 模板文件：`docs/reviews/TEMPLATE.md`
-- `docs/reviews/*.md` 为本地可选草稿，不再是提交 gate
+- `docs/reviews/*.md` 默认仍是本地草稿；但当命中 `src/**/*.sol` 变更时，本地 `quality:gate` 必须能找到一份有效 review note
 - 以下固定字段不能为空、不能写 `TBD`、不能保留模板占位：
   - `Change summary`
   - `Files reviewed`
@@ -40,6 +48,12 @@
   - `ABI change`
   - `Storage layout change`
   - `Config change`
+  - `Security review summary`
+  - `Security residual risks`
+  - `Gas-sensitive paths reviewed`
+  - `Gas changes applied`
+  - `Gas snapshot/result`
+  - `Gas residual risks`
   - `Docs updated`
   - `Tests updated`
   - `Existing tests exercised`
@@ -66,3 +80,5 @@
 - Review note 规范：`docs/process/review-notes.md`
 - 机器可读策略源：`docs/process/policy.json`
 - 规则到测试映射：`docs/process/rule-map.json`
+- Solidity 后编码流程 skill：`skills/solidity-post-coding-flow/SKILL.md`
+- skill 安装脚本：`script/process/install-repo-skill.sh`

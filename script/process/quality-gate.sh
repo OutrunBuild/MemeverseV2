@@ -113,6 +113,19 @@ if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
     forge test -vvv
 fi
 
+if [ "$has_src_sol" -eq 1 ] && [ "${#solidity_files[@]}" -gt 0 ]; then
+    echo "[quality-gate] bash ./script/process/check-slither.sh"
+    bash ./script/process/check-slither.sh "${solidity_files[@]}"
+
+    echo "[quality-gate] bash ./script/process/check-gas-snapshot.sh"
+    bash ./script/process/check-gas-snapshot.sh
+fi
+
+if [ "$mode" != "ci" ] && [ "$has_src_sol" -eq 1 ]; then
+    echo "[quality-gate] bash ./script/process/check-solidity-review-note.sh"
+    bash ./script/process/check-solidity-review-note.sh
+fi
+
 if [ "${#shell_files[@]}" -gt 0 ]; then
     echo "[quality-gate] bash -n (changed shell scripts)"
     bash -n "${shell_files[@]}"

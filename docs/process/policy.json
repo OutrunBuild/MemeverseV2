@@ -5,6 +5,7 @@
       "## Impact",
       "## Findings",
       "## Simplification",
+      "## Gas",
       "## Docs",
       "## Tests",
       "## Verification",
@@ -17,6 +18,12 @@
       "ABI change",
       "Storage layout change",
       "Config change",
+      "Security review summary",
+      "Security residual risks",
+      "Gas-sensitive paths reviewed",
+      "Gas changes applied",
+      "Gas snapshot/result",
+      "Gas residual risks",
       "Docs updated",
       "Tests updated",
       "Existing tests exercised",
@@ -48,7 +55,10 @@
       "## Docs",
       "## Tests",
       "## Verification",
-      "## Risks"
+      "## Risks",
+      "## Security",
+      "## Simplification",
+      "## Gas"
     ]
   },
   "quality_gate": {
@@ -56,6 +66,12 @@
     "src_sol_pattern": "^src/.*\\.sol$",
     "test_tsol_pattern": "^test/.*\\.t\\.sol$",
     "test_sol_pattern": "^test/.*\\.sol$",
-    "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$"
+    "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
+    "review_note_directory": "docs/reviews",
+    "slither_baseline_file": "docs/process/slither.baseline",
+    "slither_filter_paths": "lib|test|script|node_modules",
+    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
+    "gas_snapshot_file": "docs/process/gas-snapshot.baseline",
+    "gas_snapshot_tolerance_percent": "5"
   }
 }

@@ -10,6 +10,13 @@
 - `bash ./script/process/check-natspec.sh`
 - `forge build`
 - `forge test -vvv`
+- 代码编写完成后执行 `Solidity Security`
+- 代码编写完成后执行 `Code Simplifier`
+- 代码编写完成后执行 Gas 优化
+- 命中该路径时，agent/workflow 优先调用 `skills/solidity-post-coding-flow/SKILL.md` 串行执行上述后编码流程
+- `bash ./script/process/check-slither.sh`
+- `bash ./script/process/check-gas-snapshot.sh`
+- 本地 `quality:gate` 下执行 `bash ./script/process/check-solidity-review-note.sh`
 - `npm run docs:check`
 
 ## `src/swap/**/*.sol`
@@ -41,6 +48,9 @@
   - `## Tests`
   - `## Verification`
   - `## Risks`
+  - `## Security`
+  - `## Simplification`
+  - `## Gas`
 
 ## 说明
 

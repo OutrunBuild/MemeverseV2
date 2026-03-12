@@ -22,12 +22,21 @@
 - Medium findings:
 - Low findings:
 - None: none
+- Security review summary:
+- Security residual risks:
 
 ## Simplification（简化评估）
 - 说明：说明考虑过哪些更简单方案、最终采用什么、为什么拒绝其他方案。
 - Candidate simplifications considered:
 - Applied:
 - Rejected (with reason):
+
+## Gas（Gas 评估）
+- 说明：聚焦 gas-sensitive 路径、已做优化与剩余风险，命令、路径、selector 保持英文。
+- Gas-sensitive paths reviewed:
+- Gas changes applied:
+- Gas snapshot/result:
+- Gas residual risks:
 
 ## Docs（文档）
 - 说明：路径、命令、文件名保持英文，原因说明使用简体中文。

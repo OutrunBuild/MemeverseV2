@@ -15,6 +15,7 @@
 - 将仓库根目录 `AGENTS.md` 纳入版本控制。
 - 用路径触发矩阵约束 `src/**/*.sol` 变更。
 - 用本地流程脚本约束 Solidity、shell、PR body 与 docs 相关门禁。
+- 对 `src/**/*.sol` 的代码编写后流程，要求 agent/workflow 优先调用 `skills/solidity-post-coding-flow/SKILL.md`，显式完成 `Solidity Security`、`Code Simplifier` 与 Gas 优化，并通过 `slither`、gas snapshot 与本地 review note 证据门禁。
 - 用 `npm run docs:check` 验证生成文档流程，而不是把生成文档当作提交产物。
 - 用 `script/process/check-natspec.sh` 对变更过的 `src/**/*.sol` 做最小 NatSpec lint。
 - 用 PR template 和 PR body 结构检查约束 GitHub 合并入口。
@@ -22,7 +23,7 @@
 文档语言约定：
 
 - 仓库内新增的自然语言文档默认使用简体中文
-- `docs/reviews/*.md` 如果本地使用，固定 section / field key 保持英文，其余说明与正文使用简体中文
+- `docs/reviews/*.md` 如果本地使用，固定 section / field key 保持英文，其余说明与正文使用简体中文；当命中 `src/**/*.sol` 变更时，本地 `quality:gate` 会要求存在有效 review note
 - 命令、路径、代码标识、协议名、库名保持英文原文
 
 详细规则见：
@@ -31,3 +32,11 @@
 - `docs/process/review-notes.md`
 - `docs/process/policy.json`
 - `docs/process/rule-map.json`
+
+可复用的 agent 流程封装见：
+
+- `skills/solidity-post-coding-flow/SKILL.md`
+
+如需把仓库内 skill 安装到本机 skills 目录，可运行：
+
+- `bash ./script/process/install-repo-skill.sh solidity-post-coding-flow`
