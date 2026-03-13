@@ -11,6 +11,7 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
 import {TokenHelper} from "../common/TokenHelper.sol";
+import {InitialPriceCalculator} from "../libraries/InitialPriceCalculator.sol";
 import {IMemecoin} from "../token/interfaces/IMemecoin.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
@@ -28,7 +29,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     using OptionsBuilder for bytes;
     using PoolIdLibrary for PoolKey;
 
+    error FundBasedAmountTooHigh(uint256 fundBasedAmount, uint256 maxSupportedFundBasedAmount);
+
     uint256 public constant RATIO = 10000;
+    uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
 
     address public localLzEndpoint;
     address public memeverseCommonInfo;
@@ -419,11 +423,20 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     ) internal {
         // Deploy memecoin liquidity
         uint256 memecoinAmount = totalMemecoinFunds * fundMetaDatas[UPT].fundBasedAmount;
+        uint160 memecoinStartPrice =
+            InitialPriceCalculator.calculateMemecoinStartPriceX96(memecoin, UPT, fundMetaDatas[UPT].fundBasedAmount);
         IMemecoin(memecoin).mint(address(this), memecoinAmount);
 
         (uint128 memecoinLiquidity, PoolKey memory poolKey) = IMemeverseSwapRouter(memeverseSwapRouter)
             .createPoolAndAddLiquidity(
-                memecoin, UPT, memecoinAmount, totalMemecoinFunds, address(this), address(this), block.timestamp
+                memecoin,
+                UPT,
+                memecoinAmount,
+                totalMemecoinFunds,
+                memecoinStartPrice,
+                address(this),
+                address(this),
+                block.timestamp
             );
 
         // Mint liquidity proof token
@@ -432,9 +445,18 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         // Deploy POL liquidity
         uint256 deployedPOL = memecoinLiquidity / 3;
+        uint160 polStartPrice =
+            InitialPriceCalculator.calculateInitialSqrtPriceX96(pol, UPT, deployedPOL, totalLiquidProofFunds);
         (uint128 polLiquidity,) = IMemeverseSwapRouter(memeverseSwapRouter)
             .createPoolAndAddLiquidity(
-                pol, UPT, deployedPOL, totalLiquidProofFunds, address(this), address(this), block.timestamp
+                pol,
+                UPT,
+                deployedPOL,
+                totalLiquidProofFunds,
+                polStartPrice,
+                address(this),
+                address(this),
+                block.timestamp
             );
 
         totalPolLiquidity[verseId] = polLiquidity;
@@ -905,6 +927,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         onlyOwner
     {
         require(_minTotalFund != 0 && _fundBasedAmount != 0, ZeroInput());
+        require(
+            _fundBasedAmount <= MAX_SUPPORTED_FUND_BASED_AMOUNT,
+            FundBasedAmountTooHigh(_fundBasedAmount, MAX_SUPPORTED_FUND_BASED_AMOUNT)
+        );
 
         fundMetaDatas[_upt] = FundMetaData(_minTotalFund, _fundBasedAmount);
 

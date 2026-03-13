@@ -46,6 +46,11 @@ contract MockPoolManagerForPermit2RouterTest {
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
 
+    /// @notice Seeds mock pool state and calls the hook initialize callback.
+    /// @dev Mimics the minimal pool-manager behavior the router expects during bootstrap.
+    /// @param key The pool key being initialized.
+    /// @param sqrtPriceX96 The starting pool price.
+    /// @return tick The mocked initialized tick, always zero.
     function initialize(PoolKey memory key, uint160 sqrtPriceX96) external returns (int24 tick) {
         PoolId poolId = key.toId();
         slot0State[poolId] = Slot0State({sqrtPriceX96: sqrtPriceX96, tick: 0, protocolFee: 0, lpFee: 0});
@@ -55,12 +60,22 @@ contract MockPoolManagerForPermit2RouterTest {
         tick = 0;
     }
 
+    /// @notice Opens the mock unlock window and forwards the callback payload.
+    /// @dev Mirrors the pool manager's unlock callback flow used by the router.
+    /// @param data The callback payload forwarded to `unlockCallback`.
+    /// @return result The callback return data.
     function unlock(bytes calldata data) external returns (bytes memory result) {
         unlocked = true;
         result = IUnlockCallbackLike(msg.sender).unlockCallback(data);
         unlocked = false;
     }
 
+    /// @notice Applies a mocked liquidity modification and returns deterministic deltas.
+    /// @dev Uses full-range liquidity math to approximate manager deltas for router tests.
+    /// @param key The pool key being modified.
+    /// @param params The mocked liquidity modification parameters.
+    /// @return delta The principal amount delta.
+    /// @return feesAccrued The mocked fee delta, always zero here.
     function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata)
         external
         returns (BalanceDelta delta, BalanceDelta feesAccrued)
@@ -94,6 +109,12 @@ contract MockPoolManagerForPermit2RouterTest {
         delta = toBalanceDelta(int128(int256(amount0Used)), int128(int256(amount1Used)));
     }
 
+    /// @notice Executes a mocked swap against the configured hook callbacks.
+    /// @dev Simulates hook-before/hook-after accounting with deterministic price impact.
+    /// @param key The pool key being swapped against.
+    /// @param params The swap parameters.
+    /// @param hookData Opaque hook payload forwarded through the mock.
+    /// @return delta The resulting swap delta after hook adjustments.
     function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
         external
         returns (BalanceDelta delta)
@@ -138,6 +159,11 @@ contract MockPoolManagerForPermit2RouterTest {
         }
     }
 
+    /// @notice Transfers out a mocked currency amount from the manager.
+    /// @dev Supports both native and ERC20 settlement paths used by router tests.
+    /// @param currency The currency to transfer out.
+    /// @param to The recipient address.
+    /// @param amount The amount to transfer.
     function take(Currency currency, address to, uint256 amount) external {
         if (currency.isAddressZero()) {
             (bool success,) = to.call{value: amount}("");
@@ -147,21 +173,44 @@ contract MockPoolManagerForPermit2RouterTest {
         }
     }
 
-    function sync(Currency) external {}
+    /// @notice No-op sync entrypoint for the test harness.
+    /// @dev Preserves the pool-manager interface shape expected by the router.
+    /// @param currency The currency being synced.
+    function sync(Currency currency) external {
+        currency;
+    }
 
+    /// @notice Accepts native settlement and returns the supplied amount.
+    /// @dev Matches the pool-manager settle interface used by router settlement helpers.
+    /// @return amount The received native amount.
     function settle() external payable returns (uint256) {
         return msg.value;
     }
 
+    /// @notice Returns the mock extsload value for a storage slot.
+    /// @dev Allows the hook to read mocked pool-manager storage slots.
+    /// @param slot The storage slot to read.
+    /// @return value The mocked storage value.
     function extsload(bytes32 slot) external view returns (bytes32) {
         return extStorage[slot];
     }
 
+    /// @notice Returns the mocked slot0 tuple for a pool.
+    /// @dev Exposes price and fee state to the router and hook tests.
+    /// @param poolId The pool identifier.
+    /// @return sqrtPriceX96 The mocked square-root price.
+    /// @return tick The mocked current tick.
+    /// @return protocolFee The mocked protocol fee.
+    /// @return lpFee The mocked LP fee.
     function getSlot0(PoolId poolId) external view returns (uint160, int24, uint24, uint24) {
         Slot0State memory state = slot0State[poolId];
         return (state.sqrtPriceX96, state.tick, state.protocolFee, state.lpFee);
     }
 
+    /// @notice Returns the mocked liquidity value for a pool.
+    /// @dev Exposes pool liquidity to the router and hook tests.
+    /// @param poolId The pool identifier.
+    /// @return liquidity The mocked liquidity value.
     function getLiquidity(PoolId poolId) external view returns (uint128) {
         return liquidityState[poolId];
     }
@@ -177,6 +226,10 @@ contract MockPoolManagerForPermit2RouterTest {
 }
 
 interface IUnlockCallbackLike {
+    /// @notice Executes the mock unlock callback.
+    /// @dev Matches the callback interface expected by the pool-manager mock.
+    /// @param data The callback payload.
+    /// @return result The callback return data.
     function unlockCallback(bytes calldata data) external returns (bytes memory);
 }
 
@@ -203,6 +256,14 @@ contract MockPermit2ForRouterTest {
     string public lastWitnessTypeString;
     bytes public lastSignature;
 
+    /// @notice Mocks Permit2 single-token witness transfers and records the last request.
+    /// @dev This test double trusts the payload and focuses on observability rather than signature checks.
+    /// @param permit The signed Permit2 transfer payload.
+    /// @param transferDetails The requested transfer details.
+    /// @param owner The signer and funding account.
+    /// @param witness The witness hash supplied by the router.
+    /// @param witnessTypeString The witness type string supplied by the router.
+    /// @param signature The mocked signature bytes.
     function permitWitnessTransferFrom(
         ISignatureTransfer.PermitTransferFrom memory permit,
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
@@ -222,6 +283,14 @@ contract MockPermit2ForRouterTest {
         MockERC20(permit.permitted.token).transferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
     }
 
+    /// @notice Mocks Permit2 batch witness transfers and records the last request.
+    /// @dev This test double trusts the payload and focuses on observability rather than signature checks.
+    /// @param permit The signed Permit2 batch payload.
+    /// @param transferDetails The requested transfer details.
+    /// @param owner The signer and funding account.
+    /// @param witness The witness hash supplied by the router.
+    /// @param witnessTypeString The witness type string supplied by the router.
+    /// @param signature The mocked signature bytes.
     function permitWitnessTransferFrom(
         ISignatureTransfer.PermitBatchTransferFrom memory permit,
         ISignatureTransfer.SignatureTransferDetails[] calldata transferDetails,
@@ -261,10 +330,21 @@ contract SignatureVerifyingPermit2ForRouterTest {
 
     mapping(address => mapping(uint256 => uint256)) public nonceBitmap;
 
+    /// @notice Returns the EIP-712 domain separator used by the mock Permit2 implementation.
+    /// @dev The separator binds signatures to the current chain and mock Permit2 address.
+    /// @return separator The computed EIP-712 domain separator.
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, EIP712_NAME_HASH, block.chainid, address(this)));
     }
 
+    /// @notice Verifies and executes a mocked single-token witness transfer.
+    /// @dev Enforces nonce, deadline, amount, and EIP-712 signature validity before transfer.
+    /// @param permit The signed Permit2 transfer payload.
+    /// @param transferDetails The requested transfer details.
+    /// @param owner The signer and funding account.
+    /// @param witness The witness hash supplied by the router.
+    /// @param witnessTypeString The witness type string supplied by the router.
+    /// @param signature The signed permit bytes.
     function permitWitnessTransferFrom(
         ISignatureTransfer.PermitTransferFrom memory permit,
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
@@ -286,6 +366,14 @@ contract SignatureVerifyingPermit2ForRouterTest {
         MockERC20(permit.permitted.token).transferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
     }
 
+    /// @notice Verifies and executes a mocked batch witness transfer.
+    /// @dev Enforces nonce, deadline, amount, and EIP-712 signature validity before transfer.
+    /// @param permit The signed Permit2 batch payload.
+    /// @param transferDetails The requested transfer details.
+    /// @param owner The signer and funding account.
+    /// @param witness The witness hash supplied by the router.
+    /// @param witnessTypeString The witness type string supplied by the router.
+    /// @param signature The signed permit bytes.
     function permitWitnessTransferFrom(
         ISignatureTransfer.PermitBatchTransferFrom memory permit,
         ISignatureTransfer.SignatureTransferDetails[] calldata transferDetails,
@@ -365,7 +453,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
     );
     bytes32 internal constant CREATE_POOL_WITNESS_TYPEHASH = keccak256(
-        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)"
+        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)"
     );
     string internal constant SWAP_WITNESS_TYPE_STRING =
         "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
@@ -374,7 +462,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     string internal constant REMOVE_LIQUIDITY_WITNESS_TYPE_STRING =
         "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
-        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
 
     MockPoolManagerForPermit2RouterTest internal manager;
     TestableMemeverseUniswapHookForPermit2Router internal hook;
@@ -389,6 +477,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
     PoolKey internal key;
     PoolId internal poolId;
 
+    /// @notice Deploys the permit2 test harness, mocks, and seeded pool state.
+    /// @dev Initializes both mock and signature-verifying Permit2 flows against the same pool setup.
     function setUp() public {
         manager = new MockPoolManagerForPermit2RouterTest();
         treasury = makeAddr("treasury");
@@ -426,6 +516,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         manager.initialize(key, SQRT_PRICE_1_1);
     }
 
+    /// @notice Verifies single-permit swaps pull input and execute successfully.
+    /// @dev Confirms the router requests the expected Permit2 transfer and completes the swap path.
     function testSwapWithPermit2_TransfersInputAndExecutes() external {
         hook.setProtocolFeeCurrency(key.currency0);
 
@@ -460,6 +552,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(token1.balanceOf(alice), balance1Before, "token1 received");
     }
 
+    /// @notice Verifies anti-snipe soft-fail paths refund unused Permit2 input.
+    /// @dev Failed attempts should retain only the quoted failure fee and refund the remainder.
     function testSwapWithPermit2_SoftFailRefundsUnusedInput() external {
         hook.setProtocolFeeCurrency(key.currency0);
 
@@ -491,6 +585,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(token0.balanceOf(address(router)), 0, "router refunded surplus");
     }
 
+    /// @notice Verifies batch Permit2 funding supports two-ERC20 liquidity adds.
+    /// @dev Exercises the two-token batch funding path used by liquidity adds.
     function testAddLiquidityWithPermit2_TwoErc20Inputs() external {
         IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
             _batchPermit(address(token0), 100 ether, address(token1), 100 ether);
@@ -516,6 +612,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
     }
 
+    /// @notice Verifies batch Permit2 funding supports one ERC20 leg plus native value.
+    /// @dev Confirms the router combines Permit2 ERC20 funding with direct native value.
     function testAddLiquidityWithPermit2_OneErc20PlusNative() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -545,6 +643,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(address(router).balance, 0, "router keeps no native");
     }
 
+    /// @notice Verifies single-permit liquidity removal burns LP and returns both assets.
+    /// @dev Exercises the LP-token Permit2 flow used by liquidity removals.
     function testRemoveLiquidityWithPermit2() external {
         uint128 liquidity = _mintAliceLiquidity();
         (address liquidityToken,,,) = hook.poolInfo(poolId);
@@ -568,6 +668,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(MockERC20(liquidityToken).balanceOf(alice), 0, "lp burned");
     }
 
+    /// @notice Verifies batch Permit2 funding can create a pool and seed liquidity.
+    /// @dev Confirms the create-pool witness path includes the explicit `startPrice`.
     function testCreatePoolAndAddLiquidityWithPermit2() external {
         MockERC20 tokenA = new MockERC20("A", "A", 18);
         MockERC20 tokenB = new MockERC20("B", "B", 18);
@@ -583,7 +685,15 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidityWithPermit2(
-            batchPermit, address(tokenA), address(tokenB), 100 ether, 100 ether, alice, alice, block.timestamp
+            batchPermit,
+            address(tokenA),
+            address(tokenB),
+            100 ether,
+            100 ether,
+            SQRT_PRICE_1_1,
+            alice,
+            alice,
+            block.timestamp
         );
 
         (address liquidityToken,,,) = hook.poolInfo(createdKey.toId());
@@ -592,6 +702,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
     }
 
+    /// @notice Verifies create-pool Permit2 calls reject mismatched batch lengths.
+    /// @dev Pool creation should fail before any transfer when the batch payload shape is wrong.
     function testCreatePoolAndAddLiquidityWithPermit2_InvalidBatchLengthReverts() external {
         MockERC20 tokenA = new MockERC20("A", "A", 18);
         MockERC20 tokenB = new MockERC20("B", "B", 18);
@@ -605,10 +717,20 @@ contract MemeverseSwapRouterPermit2Test is Test {
         vm.expectRevert(IMemeverseSwapRouter.InvalidPermit2Length.selector);
         vm.prank(alice);
         router.createPoolAndAddLiquidityWithPermit2(
-            batchPermit, address(tokenA), address(tokenB), 100 ether, 100 ether, alice, alice, block.timestamp
+            batchPermit,
+            address(tokenA),
+            address(tokenB),
+            100 ether,
+            100 ether,
+            SQRT_PRICE_1_1,
+            alice,
+            alice,
+            block.timestamp
         );
     }
 
+    /// @notice Verifies add-liquidity Permit2 calls reject mismatched token ordering.
+    /// @dev The router must reject batch entries that do not match the expected pool currencies.
     function testAddLiquidityWithPermit2_TokenMismatchReverts() external {
         IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
             _batchPermit(address(token0), 100 ether, address(0xBEEF), 100 ether);
@@ -633,6 +755,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    /// @notice Verifies canonical Permit2 witness signing works for swaps.
+    /// @dev Uses the signature-verifying Permit2 mock to cover the canonical witness format.
     function testSwapWithPermit2_RealPermit2CanonicalWitnessExecutes() external {
         hook.setProtocolFeeCurrency(key.currency0);
 
@@ -670,6 +794,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(int256(delta.amount1()), 0, "delta1");
     }
 
+    /// @notice Verifies canonical Permit2 batch witness signing works for liquidity adds.
+    /// @dev Uses the signature-verifying Permit2 mock to cover canonical batch witnesses.
     function testAddLiquidityWithPermit2_RealPermit2CanonicalBatchWitnessExecutes() external {
         uint256 amount0Desired = 100 ether;
         uint256 amount1Desired = 100 ether;
@@ -717,6 +843,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(liquidity, 0, "liquidity");
     }
 
+    /// @notice Verifies canonical Permit2 witness signing works for liquidity removal.
+    /// @dev Uses the signature-verifying Permit2 mock to cover LP-token witness removals.
     function testRemoveLiquidityWithPermit2_RealPermit2CanonicalWitnessExecutes() external {
         uint128 liquidity = _mintAliceLiquidity();
         (address liquidityToken,,,) = hook.poolInfo(poolId);
@@ -749,6 +877,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(int256(delta.amount1()), 0, "delta1");
     }
 
+    /// @notice Verifies canonical Permit2 batch witness signing works for create-pool flows.
+    /// @dev Uses the signature-verifying Permit2 mock to cover create-pool batch witnesses.
     function testCreatePoolAndAddLiquidityWithPermit2_RealPermit2CanonicalBatchWitnessExecutes() external {
         MockERC20 tokenA = new MockERC20("A", "A", 18);
         MockERC20 tokenB = new MockERC20("B", "B", 18);
@@ -775,8 +905,9 @@ contract MemeverseSwapRouterPermit2Test is Test {
         transferDetails[1] =
             ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: 100 ether});
 
-        bytes32 witness =
-            _createPoolWitnessHash(address(tokenA), address(tokenB), 100 ether, 100 ether, alice, alice, deadline);
+        bytes32 witness = _createPoolWitnessHash(
+            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, alice, deadline
+        );
         bytes memory signature =
             _signBatchWitnessPermit(permit, address(realPermit2Router), witness, CREATE_POOL_WITNESS_TYPE_STRING);
         IMemeverseSwapRouter.Permit2BatchParams memory permitParams = IMemeverseSwapRouter.Permit2BatchParams({
@@ -785,7 +916,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         (uint128 liquidity, PoolKey memory createdKey) = realPermit2Router.createPoolAndAddLiquidityWithPermit2(
-            permitParams, address(tokenA), address(tokenB), 100 ether, 100 ether, alice, alice, deadline
+            permitParams, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, alice, deadline
         );
 
         assertGt(liquidity, 0, "liquidity");
@@ -943,6 +1074,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline
@@ -954,6 +1086,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
                 tokenB,
                 amountADesired,
                 amountBDesired,
+                startPrice,
                 recipient,
                 nativeRefundRecipient,
                 deadline

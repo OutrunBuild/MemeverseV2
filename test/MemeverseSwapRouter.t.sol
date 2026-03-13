@@ -1265,7 +1265,14 @@ contract MemeverseSwapRouterTest is Test {
         tokenB.approve(address(router), type(uint256).max);
 
         (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
-            address(tokenA), address(tokenB), 100 ether, 100 ether, address(this), address(this), block.timestamp
+            address(tokenA),
+            address(tokenB),
+            100 ether,
+            100 ether,
+            SQRT_PRICE_1_1,
+            address(this),
+            address(this),
+            block.timestamp
         );
 
         (address liquidityToken,,,) = hook.poolInfo(createdKey.toId());
@@ -1275,22 +1282,30 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
     }
 
-    /// @notice Verifies pool bootstrap normalizes token decimals before setting the initial pool price.
-    /// @dev Confirms the router uses the decimals-aware initial price helper on the create-and-bootstrap path.
-    function testRouterCreatePoolAndAddLiquidity_NormalizesTokenDecimals() external {
+    /// @notice Verifies pool bootstrap uses the caller-provided start price.
+    /// @dev Confirms the router no longer derives a bootstrap price from token budgets.
+    function testRouterCreatePoolAndAddLiquidity_UsesProvidedStartPrice() external {
         MockERC20 token18 = new MockERC20("Token18", "T18", 18);
         MockERC20 token6 = new MockERC20("Token6", "T6", 6);
+        uint160 startPrice = SQRT_PRICE_1_1 / 2;
         token18.mint(address(this), 1_000_000 ether);
         token6.mint(address(this), 1_000_000 * 1e6);
         token18.approve(address(router), type(uint256).max);
         token6.approve(address(router), type(uint256).max);
 
         (, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
-            address(token18), address(token6), 100 ether, 100 * 1e6, address(this), address(this), block.timestamp
+            address(token18),
+            address(token6),
+            100 ether,
+            100 * 1e6,
+            startPrice,
+            address(this),
+            address(this),
+            block.timestamp
         );
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(createdKey.toId());
-        assertEq(sqrtPriceX96, SQRT_PRICE_1_1, "normalized sqrt price");
+        assertEq(sqrtPriceX96, startPrice, "provided sqrt price");
     }
 
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {

@@ -18,7 +18,6 @@ import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
 import {UniswapLP} from "../libraries/UniswapLP.sol";
 import {LiquidityQuote} from "../libraries/LiquidityQuote.sol";
 import {LiquidityAmounts} from "../libraries/LiquidityAmounts.sol";
-import {InitialPriceCalculator} from "../libraries/InitialPriceCalculator.sol";
 import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 
 /// @title MemeverseSwapRouter
@@ -57,7 +56,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
     );
     bytes32 internal constant CREATE_POOL_WITNESS_TYPEHASH = keccak256(
-        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)"
+        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)"
     );
     string internal constant SWAP_WITNESS_TYPE_STRING =
         "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
@@ -66,7 +65,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     string internal constant REMOVE_LIQUIDITY_WITNESS_TYPE_STRING =
         "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
-        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
 
     /// @param _manager The Uniswap v4 pool manager.
     /// @param _hook The Memeverse hook that owns anti-snipe attempt tracking for routed swaps.
@@ -462,6 +461,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     /// @param tokenB The other side of the pool pair.
     /// @param amountADesired Desired budget for `tokenA`.
     /// @param amountBDesired Desired budget for `tokenB`.
+    /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
     /// @param recipient Recipient of minted LP shares.
     /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
@@ -472,6 +472,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline
@@ -481,6 +482,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
             tokenB,
             amountADesired,
             amountBDesired,
+            startPrice,
             recipient,
             nativeRefundRecipient,
             deadline,
@@ -498,6 +500,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     /// @param tokenB The other side of the pool pair.
     /// @param amountADesired Desired budget for `tokenA`.
     /// @param amountBDesired Desired budget for `tokenB`.
+    /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
     /// @param recipient Recipient of minted LP shares.
     /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
@@ -509,6 +512,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline
@@ -516,7 +520,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         (address[] memory expectedTokens, uint256[] memory expectedAmounts) =
             _expectedPermit2Tokens(tokenA, tokenB, amountADesired, amountBDesired);
         (bytes32 witness, string memory witnessTypeString) = _createPoolAndAddLiquidityPermit2Witness(
-            tokenA, tokenB, amountADesired, amountBDesired, recipient, nativeRefundRecipient, deadline
+            tokenA, tokenB, amountADesired, amountBDesired, startPrice, recipient, nativeRefundRecipient, deadline
         );
         _pullCurrenciesWithPermit2(
             permitParams, msg.sender, expectedTokens, expectedAmounts, witness, witnessTypeString
@@ -527,6 +531,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
             tokenB,
             amountADesired,
             amountBDesired,
+            startPrice,
             recipient,
             nativeRefundRecipient,
             deadline,
@@ -808,6 +813,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline,
@@ -826,13 +832,9 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
         uint256 nativeDesired = tokenA == address(0) ? amountADesired : tokenB == address(0) ? amountBDesired : 0;
         address refundRecipient = _validateNativeFunding(nativeDesired, nativeRefundRecipient);
-
-        uint160 startingPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
-            Currency.unwrap(currency0), Currency.unwrap(currency1), amount0Desired, amount1Desired
-        );
         poolKey = _hookPoolKey(currency0, currency1);
 
-        poolManager.initialize(poolKey, startingPrice);
+        poolManager.initialize(poolKey, startPrice);
         liquidity = _addLiquidityViaHook(
             poolKey,
             amount0Desired,
@@ -842,7 +844,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
             recipient,
             refundRecipient,
             nativeDesired,
-            startingPrice,
+            startPrice,
             payer,
             inputRefundRecipient,
             budgetsPrepared
@@ -1101,6 +1103,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline
@@ -1112,6 +1115,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
                 tokenB,
                 amountADesired,
                 amountBDesired,
+                startPrice,
                 recipient,
                 nativeRefundRecipient,
                 deadline

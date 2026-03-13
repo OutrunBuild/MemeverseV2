@@ -299,13 +299,15 @@ interface IMemeverseSwapRouter {
         returns (uint256 fee0Amount, uint256 fee1Amount);
 
     /// @notice Initializes a hook-backed pool and seeds its first full-range liquidity position.
-    /// @dev The router sorts the token pair, initializes the pool price, adds liquidity, and refunds unused input.
+    /// @dev The router sorts the token pair, initializes the pool at `startPrice`, adds liquidity, and refunds unused
+    /// input.
     /// @custom:security Token addresses must be distinct, and native bootstrap calls require a payable refund
     /// recipient whenever `msg.value` is supplied.
     /// @param tokenA One side of the pool pair.
     /// @param tokenB The other side of the pool pair.
     /// @param amountADesired Desired budget for `tokenA`.
     /// @param amountBDesired Desired budget for `tokenB`.
+    /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
     /// @param recipient Recipient of minted LP shares.
     /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
@@ -316,6 +318,7 @@ interface IMemeverseSwapRouter {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline
@@ -329,6 +332,7 @@ interface IMemeverseSwapRouter {
     /// @param tokenB The other side of the pool pair.
     /// @param amountADesired Desired budget for `tokenA`.
     /// @param amountBDesired Desired budget for `tokenB`.
+    /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
     /// @param recipient Recipient of minted LP shares.
     /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
@@ -340,6 +344,7 @@ interface IMemeverseSwapRouter {
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
+        uint160 startPrice,
         address recipient,
         address nativeRefundRecipient,
         uint256 deadline
