@@ -643,6 +643,35 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(address(router).balance, 0, "router keeps no native");
     }
 
+    /// @notice Verifies single-entry batch Permit2 validation still rejects wrong ERC20 legs for native pairs.
+    /// @dev Covers the `native + ERC20` branch where the router validates only one batch entry without array building.
+    function testAddLiquidityWithPermit2_OneErc20PlusNative_TokenMismatchReverts() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        vm.deal(alice, 1_000_000 ether);
+        manager.initialize(nativeKey, SQRT_PRICE_1_1);
+
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit = _batchPermitSingle(address(0xBEEF), 100 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseSwapRouter.InvalidPermit2Token.selector, 0, address(token1), address(0xBEEF)
+            )
+        );
+        vm.prank(alice);
+        router.addLiquidityWithPermit2{value: 100 ether}(
+            batchPermit,
+            nativeKey.currency0,
+            nativeKey.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            alice,
+            alice,
+            block.timestamp
+        );
+    }
+
     /// @notice Verifies single-permit liquidity removal burns LP and returns both assets.
     /// @dev Exercises the LP-token Permit2 flow used by liquidity removals.
     function testRemoveLiquidityWithPermit2() external {
