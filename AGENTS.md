@@ -11,6 +11,7 @@
 ## 2. Change Matrix
 - `src/**/*.sol`
   - 命中该路径时，agent/workflow 应优先调用 `skills/solidity-post-coding-flow/SKILL.md`
+  - 一旦 `src/**/*.sol` 变更已完成实现，并进入 review、收尾、准备 `git add` / commit，或准备运行 `npm run quality:gate`，上述 skill 视为必选触发，不得跳过
   - 代码编写完成后，必须按顺序执行 `Code Simplifier`、`Solidity Security`；其中 `Solidity Security` 负责同时完成安全检查与 gas 优化审查
   - 必须通过 Solidity gate：`forge fmt --check`、`forge build`、`forge test -vvv`
   - 必须通过 NatSpec gate：`bash ./script/process/check-natspec.sh`

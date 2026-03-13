@@ -13,6 +13,7 @@
 - 代码编写完成后先执行 `Code Simplifier`
 - 然后执行 `Solidity Security`，并在该步骤内同时完成安全检查与 Gas 优化审查
 - 命中该路径时，agent/workflow 优先调用 `skills/solidity-post-coding-flow/SKILL.md` 串行执行上述后编码流程
+- 一旦实现已完成并进入 review、收尾、准备 `git add` / commit，或准备运行 `npm run quality:gate`，必须把 `skills/solidity-post-coding-flow/SKILL.md` 视为必选步骤；如果此前已执行过，但之后又继续修改任意 `src/**/*.sol`，则必须基于最新 diff 重新执行
 - `bash ./script/process/check-slither.sh`
 - `bash ./script/process/check-gas-report.sh`
 - 本地 `quality:gate` 下执行 `bash ./script/process/check-solidity-review-note.sh`
