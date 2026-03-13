@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 
 import {MemeverseLauncher} from "../src/verse/MemeverseLauncher.sol";
+import {IMemeverseLauncher} from "../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract MemeverseLauncherRouterConfigTest is Test {
     MemeverseLauncher internal launcher;
@@ -32,7 +33,7 @@ contract MemeverseLauncherRouterConfigTest is Test {
         uint256 tooHigh = uint256(1 << 64);
 
         vm.expectRevert(
-            abi.encodeWithSelector(MemeverseLauncher.FundBasedAmountTooHigh.selector, tooHigh, uint256((1 << 64) - 1))
+            abi.encodeWithSelector(IMemeverseLauncher.FundBasedAmountTooHigh.selector, tooHigh, uint256((1 << 64) - 1))
         );
         launcher.setFundMetaData(address(0xBEEF), 1 ether, tooHigh);
     }

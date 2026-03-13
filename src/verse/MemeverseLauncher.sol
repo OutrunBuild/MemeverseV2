@@ -29,8 +29,6 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     using OptionsBuilder for bytes;
     using PoolIdLibrary for PoolKey;
 
-    error FundBasedAmountTooHigh(uint256 fundBasedAmount, uint256 maxSupportedFundBasedAmount);
-
     uint256 public constant RATIO = 10000;
     uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
 
