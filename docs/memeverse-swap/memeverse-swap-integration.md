@@ -60,7 +60,7 @@
 这里的关键点是：
 
 - `MemeverseSwapRouter` 仍然是**推荐公开入口**
-- 但 `requestSwapAttempt(...)` 本身已经是 **permissionless anti-snipe primitive**
+- 但 `requestSwapAttemptWithQuote(...)` 本身已经是 **permissionless anti-snipe primitive**
 - 所以第三方自定义 Router / 聚合器也可以先请求 ticket，再在同一笔交易里执行真实 swap
 - 在 anti-snipe 保护期内，同一笔交易对同一个 pool 只允许 request 一次
 
@@ -231,7 +231,7 @@ Hook 的 `quoteSwap(...)` 仍然存在，但更适合作为 Core 层能力。
 - 官方 Router、其他链上自定义 Router / 聚合器
 - 高级集成场景
 
-其中 `requestSwapAttempt(...)` 现在也是开放式能力：
+其中 `requestSwapAttemptWithQuote(...)` 现在也是开放式能力：
 
 - 不需要 Router 白名单
 - 但必须满足：**同一笔交易、同一个 caller、同一组 SwapParams**
@@ -409,13 +409,13 @@ anti-snipe 窗口内，如果交易没有通过 attempt 检查：
 推荐官方 Router 时，会：
 
 1. 先通过 `quoteFailedAttempt(...)` 估算保护期失败费预算
-2. 再调用 hook 的 `requestSwapAttempt(...)`
+2. 再调用 hook 的 `requestSwapAttemptWithQuote(...)`
 2. 如果通过，再继续真实 swap
 3. 如果失败，soft-fail 成功返回，并扣除失败费
 
 如果你使用自定义 Router，则也应遵守同样流程：
 
-1. 先调用 hook 的 `requestSwapAttempt(...)`
+1. 先调用 hook 的 `requestSwapAttemptWithQuote(...)`
 2. 在**同一笔交易**里，由**同一个 Router 地址**继续执行真实 swap
 3. 真实 swap 使用的 `SwapParams` 必须与 request 时完全一致
 

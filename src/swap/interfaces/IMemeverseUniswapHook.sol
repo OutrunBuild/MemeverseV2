@@ -104,22 +104,28 @@ interface IMemeverseUniswapHook {
     }
 
     /**
-     * @notice Low-level anti-snipe primitive for routers and advanced integrators.
-     * @dev The returned `allowed` result is intended to be consumed by a router before it decides whether to proceed to
-     * `poolManager.swap`. This is not a recommended end-user entrypoint.
+     * @notice Low-level anti-snipe primitive that also returns the computed failure-fee quote.
+     * @dev Routers can use the returned quote to settle refunds without paying for a separate quote round-trip.
+     * This is not a recommended end-user entrypoint.
      * @param key The pool key for the attempted swap.
      * @param params The swap parameters for the attempted swap.
      * @param trader The end user on whose behalf the router is attempting the swap.
+     * @param inputBudget The single total input budget attached to this attempt.
+     * @param refundRecipient The address receiving any refunded native failure-fee budget when the attempt succeeds.
      * @return allowed Whether the attempt passed anti-snipe checks.
      * @return failureReason The anti-snipe failure reason when `allowed` is false, otherwise `None`.
+     * @return failedAttemptQuote The failure-fee quote used during the attempt flow.
      */
-    function requestSwapAttempt(
+    function requestSwapAttemptWithQuote(
         PoolKey calldata key,
         SwapParams calldata params,
         address trader,
         uint256 inputBudget,
         address refundRecipient
-    ) external payable returns (bool allowed, AntiSnipeFailureReason failureReason);
+    )
+        external
+        payable
+        returns (bool allowed, AntiSnipeFailureReason failureReason, FailedAttemptQuote memory failedAttemptQuote);
 
     /**
      * @notice Returns the anti-snipe failure-fee quote for a swap attempt during the protection window.
@@ -127,6 +133,7 @@ interface IMemeverseUniswapHook {
      * LPs depending on whether the input currency equals the configured protocol-fee currency.
      * @param key The pool key for the attempted swap.
      * @param params The swap parameters for the attempted swap.
+     * @param inputBudget The single total input budget attached to this attempt.
      * @return quote The quoted failure-fee amount, side, and recipient class.
      */
     function quoteFailedAttempt(PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
@@ -136,6 +143,7 @@ interface IMemeverseUniswapHook {
 
     /**
      * @notice Low-level anti-snipe view helper for routers and SDK orchestration.
+     * @dev Returns whether the pool is still inside the launch protection window.
      * @param poolId The pool id to query.
      * @return active Whether anti-snipe checks are still active for the pool.
      */
@@ -153,6 +161,7 @@ interface IMemeverseUniswapHook {
 
     /**
      * @notice Returns stored pool information for a hook-managed pool.
+     * @dev Exposes the LP token address, anti-snipe window, and fee-per-share accumulators.
      * @param poolId The pool id to query.
      * @return liquidityToken The LP token contract for the pool.
      * @return antiSnipeEndBlock The block at which anti-snipe protection ends.
@@ -185,30 +194,26 @@ interface IMemeverseUniswapHook {
         view
         returns (uint256 fee0Amount, uint256 fee1Amount);
 
-    /**
-     * @notice Low-level liquidity execution API.
-     * @dev Adds full-range liquidity using the caller as payer and mints LP shares to `params.to`.
-     * This function is intended for routers and advanced integrators and does not implement end-user deadline or
-     * min-amount protections. The pool fee is not caller-configurable here: this Hook Core only operates on its
-     * dynamic-fee pool type.
-     * @param params The core liquidity-add parameters.
-     * @return liquidity The LP liquidity minted for this operation.
-     * @return delta The balance delta settled against the caller.
-     */
+    /// @notice Low-level liquidity execution API.
+    /// @dev Adds full-range liquidity using the caller as payer and mints LP shares to `params.to`.
+    /// Intended for routers and advanced integrators and does not implement end-user deadline or
+    /// min-amount protections. The pool fee is not caller-configurable here: this Hook Core only operates on its
+    /// dynamic-fee pool type.
+    /// @param params The core liquidity-add parameters.
+    /// @return liquidity The LP liquidity minted for this operation.
+    /// @return delta The balance delta settled against the caller.
     function addLiquidityCore(AddLiquidityCoreParams calldata params)
         external
         payable
         returns (uint128 liquidity, BalanceDelta delta);
 
-    /**
-     * @notice Low-level liquidity exit API.
-     * @dev Removes full-range liquidity owned by the caller and sends the underlying tokens to `params.recipient`.
-     * This function is intended for routers and advanced integrators and does not implement end-user deadline or
-     * min-amount protections. The pool fee is not caller-configurable here: this Hook Core only operates on its
-     * dynamic-fee pool type.
-     * @param params The core liquidity-remove parameters.
-     * @return delta The balance delta returned by the liquidity removal.
-     */
+    /// @notice Low-level liquidity exit API.
+    /// @dev Removes full-range liquidity owned by the caller and sends the underlying tokens to `params.recipient`.
+    /// Intended for routers and advanced integrators and does not implement end-user deadline or
+    /// min-amount protections. The pool fee is not caller-configurable here: this Hook Core only operates on its
+    /// dynamic-fee pool type.
+    /// @param params The core liquidity-remove parameters.
+    /// @return delta The balance delta returned by the liquidity removal.
     function removeLiquidityCore(RemoveLiquidityCoreParams calldata params) external returns (BalanceDelta delta);
 
     /**

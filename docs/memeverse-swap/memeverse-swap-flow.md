@@ -99,7 +99,7 @@ sequenceDiagram
         U->>R: msg.value = inputBudget
     end
 
-    R->>H: requestSwapAttempt(key, params, trader, inputBudget, refundRecipient)
+    R->>H: requestSwapAttemptWithQuote(key, params, trader, inputBudget, refundRecipient)
     H->>H: _checkAntiSnipe(...)
     H->>H: 判定失败
 
@@ -142,7 +142,7 @@ sequenceDiagram
         U->>R: msg.value = inputBudget
     end
 
-    R->>H: requestSwapAttempt(key, params, trader, inputBudget, refundRecipient)
+    R->>H: requestSwapAttemptWithQuote(key, params, trader, inputBudget, refundRecipient)
     H->>H: anti-snipe 判定通过
     H->>H: arm ticket(poolId, caller, params, inputBudget)
     H-->>R: 整份 inputBudget 原路返回
@@ -219,7 +219,7 @@ flowchart TD
     A[保护期外] --> B[直接 swap]
     B --> C[正常动态费]
 
-    D[保护期内] --> E[先 requestSwapAttempt(inputBudget)]
+    D[保护期内] --> E[先 requestSwapAttemptWithQuote(inputBudget)]
     E --> F{是否失败?}
     F -- 是 --> G[从 inputBudget 扣 failureFee]
     G --> H[退回剩余预算]

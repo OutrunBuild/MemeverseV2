@@ -353,7 +353,7 @@ contract MemeverseSwapRouterTest is Test {
     /// @dev Confirms there is no caller restriction on attempt recording.
     function testRequestSwapAttempt_IsPermissionless() external {
         vm.roll(block.number + 11);
-        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = hook.requestSwapAttempt(
+        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason,) = hook.requestSwapAttemptWithQuote(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             address(this),
@@ -368,6 +368,30 @@ contract MemeverseSwapRouterTest is Test {
         assertFalse(successful, "successful");
     }
 
+    /// @notice Verifies the legacy anti-snipe request selector is no longer exposed.
+    /// @dev Routers should use `requestSwapAttemptWithQuote` as the single low-level attempt API.
+    function testRequestSwapAttempt_LegacySelectorIsUnavailable() external {
+        vm.roll(block.number + 11);
+
+        (bool success,) = address(hook)
+            .call(
+                abi.encodeWithSelector(
+                    bytes4(
+                        keccak256(
+                            "requestSwapAttempt((address,address,uint24,int24,address),(bool,int256,uint160),address,uint256,address)"
+                        )
+                    ),
+                    key,
+                    SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                    address(this),
+                    100 ether,
+                    address(this)
+                )
+            );
+
+        assertFalse(success, "legacy selector exposed");
+    }
+
     /// @notice Verifies duplicate same-tx swap attempts on the same pool revert.
     /// @dev Protects the per-transaction anti-snipe attempt invariant.
     function testRequestSwapAttempt_RevertsOnSecondSamePoolRequestInSameTx() external {
@@ -375,7 +399,9 @@ contract MemeverseSwapRouterTest is Test {
         _dealAndInitializeNativePool(nativeKey, false);
         _setProtocolFeeCurrency(nativeKey.currency0);
 
-        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = hook.requestSwapAttempt{value: 100 ether}(
+        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason,) = hook.requestSwapAttemptWithQuote{
+            value: 100 ether
+        }(
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             address(this),
@@ -387,7 +413,7 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
 
         vm.expectRevert(IMemeverseUniswapHook.PoolAlreadyRequestedThisTransaction.selector);
-        hook.requestSwapAttempt{value: 100 ether}(
+        hook.requestSwapAttemptWithQuote{value: 100 ether}(
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             address(this),
@@ -725,6 +751,34 @@ contract MemeverseSwapRouterTest is Test {
         (uint248 attempts, bool successful) = hook.antiSnipeBlockData(poolId, block.number);
         assertEq(attempts, 1, "attempts");
         assertTrue(successful, "successful");
+    }
+
+    /// @notice Verifies routed anti-snipe swaps do not pay for an extra failure-fee quote round-trip.
+    /// @dev A successful protected swap should read the pool slot0 storage once for attempt pricing and once per swap stage.
+    function testSwapPass_AntiSnipePathAvoidsRedundantFailureQuoteRead() external {
+        _setProtocolFeeCurrency(key.currency0);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        bytes32 poolStateSlot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), bytes32(uint256(6))));
+
+        vm.expectCall(
+            address(manager), abi.encodeCall(MockPoolManagerForRouterTest.extsload, (poolStateSlot)), uint64(4)
+        );
+
+        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            40 ether,
+            100 ether,
+            ""
+        );
+
+        assertTrue(executed, "executed");
+        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
+        assertLt(delta.amount0(), 0, "delta0");
+        assertGt(delta.amount1(), 0, "delta1");
     }
 
     /// @notice Verifies one-for-zero exact-input swaps execute successfully.

@@ -590,7 +590,6 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         IMemeverseUniswapHook.FailedAttemptQuote memory failedAttemptQuote;
 
         if (antiSnipeActive) {
-            failedAttemptQuote = hook.quoteFailedAttempt(key, params, inputBudget);
             if (!inputCurrency.isAddressZero() && inputBudget > 0) {
                 if (!inputBudgetPrepared) {
                     _pullCurrency(inputCurrency, trader, inputBudget);
@@ -602,8 +601,9 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address refundRecipient = _validateNativeFunding(nativeSwapBudget, nativeRefundRecipient);
 
         if (antiSnipeActive) {
-            (executed, failureReason) =
-                hook.requestSwapAttempt{value: nativeSwapBudget}(key, params, trader, inputBudget, address(this));
+            (executed, failureReason, failedAttemptQuote) = hook.requestSwapAttemptWithQuote{value: nativeSwapBudget}(
+                key, params, trader, inputBudget, address(this)
+            );
             if (!executed) {
                 if (!inputCurrency.isAddressZero() && (antiSnipeActive || payer == address(this))) {
                     _refundUnusedInput(inputCurrency, trader, inputBudget, failedAttemptQuote.feeAmount);
@@ -788,8 +788,8 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         if (deadline < block.timestamp) revert ExpiredPastDeadline();
 
         PoolKey memory key = _hookPoolKey(currency0, currency1);
-        (address liquidityToken,,,) = hook.poolInfo(key.toId());
         if (!liquidityPrepared) {
+            (address liquidityToken,,,) = hook.poolInfo(key.toId());
             UniswapLP(liquidityToken).transferFrom(payer, address(this), liquidity);
         }
 

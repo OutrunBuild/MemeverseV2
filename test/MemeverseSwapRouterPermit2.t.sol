@@ -668,6 +668,28 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(MockERC20(liquidityToken).balanceOf(alice), 0, "lp burned");
     }
 
+    /// @notice Verifies LP-token Permit2 removals resolve pool metadata only once.
+    /// @dev The Permit2 path already loads the LP token before entering the shared remove-liquidity flow.
+    function testRemoveLiquidityWithPermit2_ReadsPoolInfoOnce() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,,) = hook.poolInfo(poolId);
+
+        vm.prank(alice);
+        MockERC20(liquidityToken).approve(address(mockPermit2), type(uint256).max);
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(liquidityToken, uint256(liquidity));
+
+        vm.expectCall(address(hook), abi.encodeCall(IMemeverseUniswapHook.poolInfo, (poolId)), uint64(1));
+
+        vm.prank(alice);
+        BalanceDelta delta = router.removeLiquidityWithPermit2(
+            singlePermit, key.currency0, key.currency1, liquidity, 1, 1, alice, block.timestamp
+        );
+
+        assertGt(int256(delta.amount0()), 0, "delta0");
+        assertGt(int256(delta.amount1()), 0, "delta1");
+    }
+
     /// @notice Verifies batch Permit2 funding can create a pool and seed liquidity.
     /// @dev Confirms the create-pool witness path includes the explicit `startPrice`.
     function testCreatePoolAndAddLiquidityWithPermit2() external {

@@ -170,6 +170,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     /// @notice Declares which hook callbacks are enabled for this hook.
+    /// @dev Memeverse uses only `beforeInitialize`, `beforeAddLiquidity`, `beforeSwap`, and `afterSwap`.
+    /// @return permissions The callback permission bitmap consumed by the Uniswap v4 hook framework.
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: true,
@@ -189,12 +191,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         });
     }
 
-    /// @notice Records an anti-snipe attempt and, when allowed, arms a same-transaction swap ticket for the caller.
-    /// @dev This function is permissionless so any router or advanced integrator may request an anti-snipe ticket.
-    /// The armed ticket is transient, bound to `msg.sender` plus the swap params, and is consumed by `beforeSwap`
-    /// during the same transaction. During the protection window, failed attempts are charged an input-side failure
-    /// fee derived from the current dynamic fee quote. `inputBudget` represents the single total input budget that the
-    /// caller is willing to use for either failure-fee settlement or the eventual successful swap.
+    /// @notice Records an anti-snipe attempt and also returns the computed failure-fee quote.
+    /// @dev Intended for routers that need the quote for post-attempt refunds without a second quote call.
     /// @param key The pool key for the attempted swap.
     /// @param params The attempted swap parameters.
     /// @param trader The end user on whose behalf the router is acting.
@@ -202,26 +200,45 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @param refundRecipient The address receiving any refunded native failure-fee budget when the attempt succeeds.
     /// @return allowed Whether the attempt passed anti-snipe checks.
     /// @return failureReason The anti-snipe failure reason when `allowed` is false, otherwise `None`.
-    function requestSwapAttempt(
+    /// @return failedAttemptQuote The failure-fee quote computed for this attempt.
+    function requestSwapAttemptWithQuote(
         PoolKey calldata key,
         SwapParams calldata params,
         address trader,
         uint256 inputBudget,
         address refundRecipient
-    ) external payable override returns (bool allowed, AntiSnipeFailureReason failureReason) {
+    )
+        external
+        payable
+        override
+        returns (bool allowed, AntiSnipeFailureReason failureReason, FailedAttemptQuote memory failedAttemptQuote)
+    {
+        return _requestSwapAttempt(key, params, trader, inputBudget, refundRecipient);
+    }
+
+    function _requestSwapAttempt(
+        PoolKey calldata key,
+        SwapParams calldata params,
+        address trader,
+        uint256 inputBudget,
+        address refundRecipient
+    )
+        internal
+        returns (bool allowed, AntiSnipeFailureReason failureReason, FailedAttemptQuote memory failedAttemptQuote)
+    {
         PoolId poolId = key.toId();
         if (poolInfo[poolId].liquidityToken == address(0)) revert PoolNotInitialized();
 
         if (!_isAntiSnipeActive(poolId)) {
             if (msg.value > 0) _transferCurrency(CurrencyLibrary.ADDRESS_ZERO, refundRecipient, msg.value);
-            return (true, AntiSnipeFailureReason.None);
+            return (true, AntiSnipeFailureReason.None, failedAttemptQuote);
         }
 
         if (!MemeverseTransientState.markAntiSnipeRequestForPool(poolId)) {
             revert PoolAlreadyRequestedThisTransaction();
         }
 
-        FailedAttemptQuote memory failedAttemptQuote = _quoteFailedAttempt(poolId, key, params, inputBudget);
+        failedAttemptQuote = _quoteFailedAttempt(poolId, key, params, inputBudget);
         _validateAttemptFeeFunding(failedAttemptQuote, inputBudget, refundRecipient);
         (allowed, failureReason) = _checkAntiSnipe(poolId, params);
 
@@ -262,6 +279,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @dev The failure fee is always charged on the input side during the protection window. Outside the protection
     /// window this returns a zero fee amount. For exact-output swaps, `inputBudget` acts as an upper bound while the
     /// fee itself is still based on the currently estimated actual input.
+    /// @param key The pool key for the attempted swap.
+    /// @param params The attempted swap parameters.
+    /// @param inputBudget The single total input budget attached to this attempt.
+    /// @return quote The quoted failure-fee amount, side, and recipient class.
     function quoteFailedAttempt(PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
         external
         view
@@ -686,6 +707,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     /// @notice Claims pending LP fees on behalf of an owner using either direct ownership or a signed authorization.
+    /// @dev The owner may call directly, or a third party may relay with a valid owner signature.
     /// @param params The core fee-claim parameters.
     /// @return fee0Amount The claimed amount of currency0 fees.
     /// @return fee1Amount The claimed amount of currency1 fees.
@@ -711,6 +733,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
     /// @notice Callback invoked by the PoolManager during `unlock` flow.
     /// @dev Only callable by the PoolManager.
+    /// @param rawData Encoded liquidity callback payload produced by `_modifyLiquidity`.
+    /// @return result Encoded `BalanceDelta` returned back to the pool manager.
     function unlockCallback(bytes calldata rawData) external override onlyPoolManager returns (bytes memory) {
         ModifyLiquidityCallbackData memory data = abi.decode(rawData, (ModifyLiquidityCallbackData));
 
@@ -810,6 +834,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (recovered == address(0) || recovered != params.owner) revert InvalidClaimSignature();
     }
 
+    /// @notice Returns the EIP-712 domain separator used for fee-claim signatures.
+    /// @dev Recomputes the separator when the chain id changes to preserve replay protection across forks.
+    /// @return separator The active domain separator for this deployment and chain id.
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : _computeDomainSeparator();
     }
@@ -1016,6 +1043,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @notice Updates the user fee accounting snapshot for a pool.
     /// @dev Requires the pool LP token to exist. Accrues newly earned fees into `pendingFee0/1`
     /// and updates per-share offsets for `user`.
+    /// @param id The hook-managed pool id.
+    /// @param user The user whose fee snapshot is synchronized.
     function updateUserSnapshot(PoolId id, address user) public override {
         PoolInfo storage pool = poolInfo[id];
         UserFeeState storage state = userFeeState[id][user];
@@ -1043,6 +1072,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @dev Only callable by the owner. Zero address is rejected because protocol fees require a concrete recipient.
     /// The configured treasury is expected to be a passive receiver and must not use fee receipts to trigger
     /// reentrant swap or liquidity actions.
+    /// @param _treasury The new treasury address.
     function setTreasury(address _treasury) external onlyOwner {
         if (_treasury == address(0)) revert ZeroAddress();
         address old = treasury;
@@ -1060,11 +1090,15 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @notice Updates whether a currency is eligible to receive protocol fees.
     /// @dev If both pool sides are supported, the swap path will prefer charging protocol fees on the input side.
     /// Native currency support is represented by `address(0)`.
+    /// @param currency The currency whose support flag is being updated.
+    /// @param supported Whether protocol fees may settle in `currency`.
     function setProtocolFeeCurrencySupport(Currency currency, bool supported) external onlyOwner {
         _setProtocolFeeCurrencySupport(currency, supported);
     }
 
     /// @notice Sets the default anti-snipe duration, in blocks, used for newly initialized pools.
+    /// @dev Existing pools keep their stored end blocks; only future initializations use the new default.
+    /// @param _durationBlocks The new anti-snipe duration in blocks.
     function setAntiSnipeDuration(uint256 _durationBlocks) external onlyOwner {
         uint256 old = antiSnipeDurationBlocks;
         antiSnipeDurationBlocks = _durationBlocks;
@@ -1072,6 +1106,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     /// @notice Sets the max probability base used by anti-snipe randomness.
+    /// @dev Zero is rejected because the probability denominator must stay non-zero.
+    /// @param _maxBase The new upper bound for anti-snipe probability scaling.
     function setMaxAntiSnipeProbabilityBase(uint256 _maxBase) external onlyOwner {
         if (_maxBase == 0) revert ZeroValue();
         uint256 old = maxAntiSnipeProbabilityBase;
@@ -1080,6 +1116,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     /// @notice Emergency switch: if enabled, dynamic fee charging falls back to base fee only.
+    /// @dev Intended as an owner-controlled safety valve for fee logic incidents.
+    /// @param flag Whether emergency fixed-fee mode should be enabled.
     function setEmergencyFlag(bool flag) external onlyOwner {
         bool old = emergencyFlag;
         emergencyFlag = flag;
