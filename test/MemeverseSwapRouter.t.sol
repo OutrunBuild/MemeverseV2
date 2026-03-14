@@ -13,14 +13,14 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.sol";
-import {UniswapLP} from "../src/libraries/UniswapLP.sol";
+import {UniswapLP} from "../src/swap/tokens/UniswapLP.sol";
 
 contract MockPoolManagerForRouterTest {
     using PoolIdLibrary for PoolKey;
@@ -75,12 +75,14 @@ contract MockPoolManagerForRouterTest {
     /// @dev Tracks liquidity and returns deterministic token deltas for tests.
     /// @param key Pool key whose liquidity is modified.
     /// @param params Liquidity modification parameters.
+    /// @param hookData Unused hook data forwarded by the router test harness.
     /// @return delta Mock balance delta for the liquidity change.
     /// @return feesAccrued Mock accrued fees, always zero in this harness.
-    function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata)
+    function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata hookData)
         external
         returns (BalanceDelta delta, BalanceDelta feesAccrued)
     {
+        hookData;
         if (!unlocked) revert ManagerLocked();
         uint256 amount0Used;
         uint256 amount1Used;
@@ -177,7 +179,7 @@ contract MockPoolManagerForRouterTest {
     /// @notice No-op sync hook for the mock manager.
     /// @dev Present only to satisfy the router integration surface.
     /// @param currency Unused currency argument required by the interface.
-    function sync(Currency currency) external {
+    function sync(Currency currency) external pure {
         currency;
     }
 
@@ -1211,7 +1213,7 @@ contract MemeverseSwapRouterTest is Test {
 
     /// @notice Verifies the router derives the expected dynamic-fee hook pool key.
     /// @dev Covers pair normalization and hook wiring.
-    function testRouterGetHookPoolKey_ReturnsDynamicHookKey() external {
+    function testRouterGetHookPoolKey_ReturnsDynamicHookKey() external view {
         address tokenA = address(token0);
         address tokenB = address(token1);
         if (tokenB < tokenA) {
@@ -1267,7 +1269,7 @@ contract MemeverseSwapRouterTest is Test {
 
     /// @notice Verifies the router quotes the required pair amounts for a target liquidity.
     /// @dev Covers the new exact-liquidity read helper.
-    function testRouterQuoteAmountsForLiquidity_ReturnsRequiredPairAmounts() external {
+    function testRouterQuoteAmountsForLiquidity_ReturnsRequiredPairAmounts() external view {
         uint128 liquidityDesired = 10 ether;
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(poolId);
         (uint256 amount0Required, uint256 amount1Required) = LiquidityAmounts.getAmountsForLiquidity(

@@ -1,33 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
-import { IOFT, SendParam, MessagingFee, MessagingReceipt} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
+import {IOFT, SendParam, MessagingFee, MessagingReceipt} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 
-import { TokenHelper } from "../common/TokenHelper.sol";
-import { IMemeverseLauncher } from "../verse/interfaces/IMemeverseLauncher.sol";
-import { IMemecoinYieldVault } from "../yield/interfaces/IMemecoinYieldVault.sol";
-import { IMemeverseCommonInfo } from "../verse/interfaces/IMemeverseCommonInfo.sol";
-import { IMemeverseOmnichainInteroperation } from "./interfaces/IMemeverseOmnichainInteroperation.sol";
+import {TokenHelper} from "../common/token/TokenHelper.sol";
+import {IMemeverseLauncher} from "../verse/interfaces/IMemeverseLauncher.sol";
+import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
+import {ILzEndpointRegistry} from "../common/omnichain/interfaces/ILzEndpointRegistry.sol";
+import {IMemeverseOmnichainInteroperation} from "./interfaces/IMemeverseOmnichainInteroperation.sol";
 
 /**
  * @title Memeverse Omnichain Interoperation
- */ 
+ */
 contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, TokenHelper, Ownable {
     using OptionsBuilder for bytes;
 
     address public immutable MEMEVERSE_COMMON_INFO;
     address public immutable MEMEVERSE_LAUNCHER;
     address public immutable OMNICHAIN_MEMECOIN_STAKER;
-    
+
     uint128 public oftReceiveGasLimit;
     uint128 public omnichainStakingGasLimit;
 
     /**
      * @dev Constructor
      * @param _owner - The owner of the contract
-     * @param _memeverseCommonInfo - Address of MemeverseCommonInfo
+     * @param _memeverseCommonInfo - Address of LzEndpointRegistry
      * @param _memeverseLauncher - Address of MemeverseLauncher
      * @param _omnichainMemecoinStaker - Address of OmnichainMemecoinStaker
      * @param _oftReceiveGasLimit - Gas limit for OFT receive
@@ -53,18 +53,26 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
      * @param memecoin - Address of memecoin.
      * @param receiver - Address of staked memecoin receiver.
      * @param amount - Amount of memecoin will be staked.
-     * @return lzFee - The LayerZero fee for the Memecoin Omnichain Staking. The value must be sufficient, 
-                       it is recommended that the value be slightly higher than the quote value, otherwise, 
-                       the registration may fail, and the consumed gas will not be refunded.
-    */
-    function quoteMemecoinStaking(
-        address memecoin,
-        address receiver,
-        uint256 amount
-    ) external view override returns (uint256 lzFee) {
+     * @return lzFee - The LayerZero fee for the Memecoin Omnichain Staking. The value must be sufficient,
+     *                    it is recommended that the value be slightly higher than the quote value, otherwise,
+     *                    the registration may fail, and the consumed gas will not be refunded.
+     */
+    /// @notice Returns quote memecoin staking.
+    /// @dev See the implementation for behavior details.
+    /// @param memecoin The memecoin value.
+    /// @param receiver The receiver value.
+    /// @param amount The amount value.
+    /// @return lzFee The lzFee value.
+    function quoteMemecoinStaking(address memecoin, address receiver, uint256 amount)
+        external
+        view
+        override
+        returns (uint256 lzFee)
+    {
         require(memecoin != address(0) && receiver != address(0) && amount != 0, ZeroInput());
 
-        IMemeverseLauncher.Memeverse memory verse = IMemeverseLauncher(MEMEVERSE_LAUNCHER).getMemeverseByMemecoin(memecoin);
+        IMemeverseLauncher.Memeverse memory verse =
+            IMemeverseLauncher(MEMEVERSE_LAUNCHER).getMemeverseByMemecoin(memecoin);
         uint32 govChainId = verse.omnichainIds[0];
         if (govChainId == block.chainid) return 0;
 
@@ -73,7 +81,7 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
             .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
             .addExecutorLzComposeOption(0, omnichainStakingGasLimit, 0);
         SendParam memory sendParam = SendParam({
-            dstEid: IMemeverseCommonInfo(MEMEVERSE_COMMON_INFO).lzEndpointIdMap(govChainId),
+            dstEid: ILzEndpointRegistry(MEMEVERSE_COMMON_INFO).lzEndpointIdOfChain(govChainId),
             to: bytes32(uint256(uint160(OMNICHAIN_MEMECOIN_STAKER))),
             amountLD: amount,
             minAmountLD: 0,
@@ -90,17 +98,19 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
      * @param receiver - Address of staked memecoin receiver.
      * @param amount - Amount of memecoin will be staked.
      */
-    function memecoinStaking(
-        address memecoin,
-        address receiver,
-        uint256 amount
-    ) external payable override {
+    /// @notice Executes memecoin staking.
+    /// @dev See the implementation for behavior details.
+    /// @param memecoin The memecoin value.
+    /// @param receiver The receiver value.
+    /// @param amount The amount value.
+    function memecoinStaking(address memecoin, address receiver, uint256 amount) external payable override {
         require(memecoin != address(0) && receiver != address(0) && amount != 0, ZeroInput());
 
-        IMemeverseLauncher.Memeverse memory verse = IMemeverseLauncher(MEMEVERSE_LAUNCHER).getMemeverseByMemecoin(memecoin);
+        IMemeverseLauncher.Memeverse memory verse =
+            IMemeverseLauncher(MEMEVERSE_LAUNCHER).getMemeverseByMemecoin(memecoin);
         uint32 govChainId = verse.omnichainIds[0];
         address yieldVault = verse.yieldVault;
-        
+
         _transferIn(memecoin, msg.sender, amount);
         if (govChainId == block.chainid) {
             require(yieldVault.code.length != 0, EmptyYieldVault());
@@ -113,7 +123,7 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
             .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
             .addExecutorLzComposeOption(0, omnichainStakingGasLimit, 0);
         SendParam memory sendParam = SendParam({
-            dstEid: IMemeverseCommonInfo(MEMEVERSE_COMMON_INFO).lzEndpointIdMap(govChainId),
+            dstEid: ILzEndpointRegistry(MEMEVERSE_COMMON_INFO).lzEndpointIdOfChain(govChainId),
             to: bytes32(uint256(uint160(OMNICHAIN_MEMECOIN_STAKER))),
             amountLD: amount,
             minAmountLD: 0,
@@ -124,8 +134,9 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         MessagingFee memory messagingFee = IOFT(memecoin).quoteSend(sendParam, false);
         require(msg.value >= messagingFee.nativeFee, InsufficientLzFee());
 
-        (MessagingReceipt memory rec, ) = IOFT(memecoin).send{value: messagingFee.nativeFee}(sendParam, messagingFee, msg.sender);
-        
+        (MessagingReceipt memory rec,) =
+            IOFT(memecoin).send{value: messagingFee.nativeFee}(sendParam, messagingFee, msg.sender);
+
         emit OmnichainMemecoinStaking(rec.guid, msg.sender, receiver, memecoin, amount);
     }
 
@@ -134,6 +145,10 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
      * @param _oftReceiveGasLimit - Gas limit for OFT receive
      * @param _omnichainStakingGasLimit - Gas limit for omnichain memecoin staking
      */
+    /// @notice Executes set gas limits.
+    /// @dev See the implementation for behavior details.
+    /// @param _oftReceiveGasLimit The _oftReceiveGasLimit value.
+    /// @param _omnichainStakingGasLimit The _omnichainStakingGasLimit value.
     function setGasLimits(uint128 _oftReceiveGasLimit, uint128 _omnichainStakingGasLimit) external override onlyOwner {
         require(_oftReceiveGasLimit > 0 && _omnichainStakingGasLimit > 0, ZeroInput());
 

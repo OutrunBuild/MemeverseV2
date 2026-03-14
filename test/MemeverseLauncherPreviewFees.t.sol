@@ -301,7 +301,7 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         address _memeverseRegistrar,
         address _memeverseProxyDeployer,
         address _oftDispatcher,
-        address _memeverseCommonInfo,
+        address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
         uint128 _oftDispatcherGasLimit
@@ -312,7 +312,7 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
             _memeverseRegistrar,
             _memeverseProxyDeployer,
             _oftDispatcher,
-            _memeverseCommonInfo,
+            _lzEndpointRegistry,
             _executorRewardRate,
             _oftReceiveGasLimit,
             _oftDispatcherGasLimit

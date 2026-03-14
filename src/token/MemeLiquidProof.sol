@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import { OutrunNoncesInit } from "../common/OutrunNoncesInit.sol";
-import { IMemeLiquidProof, PoolId } from "./interfaces/IMemeLiquidProof.sol";
-import { OutrunOFTInit } from "../common/layerzero/oft/OutrunOFTInit.sol";
-import { OutrunERC20PermitInit } from "../common/OutrunERC20PermitInit.sol";
-import { OutrunERC20Init, OutrunERC20VotesInit } from "../common/governance/OutrunERC20VotesInit.sol";
+import {OutrunNoncesInit} from "../common/token/OutrunNoncesInit.sol";
+import {IMemeLiquidProof, PoolId} from "./interfaces/IMemeLiquidProof.sol";
+import {OutrunOFTInit} from "../common/omnichain/oft/OutrunOFTInit.sol";
+import {OutrunERC20PermitInit} from "../common/token/OutrunERC20PermitInit.sol";
+import {OutrunERC20Init, OutrunERC20VotesInit} from "../common/token/extensions/governance/OutrunERC20VotesInit.sol";
 
 /**
  * @title Omnichain Memecoin Proof Of Liquidity(POL) Token
@@ -38,6 +38,13 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
      * @param memeverseLauncher_ - The address of the memeverse launcher.
      * @param delegate_ - The address of the OFT delegate.
      */
+    /// @notice Executes initialize.
+    /// @dev See the implementation for behavior details.
+    /// @param name_ The name_ value.
+    /// @param symbol_ The symbol_ value.
+    /// @param memecoin_ The memecoin_ value.
+    /// @param memeverseLauncher_ The memeverseLauncher_ value.
+    /// @param delegate_ The delegate_ value.
     function initialize(
         string memory name_,
         string memory symbol_,
@@ -52,10 +59,16 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
         memeverseLauncher = memeverseLauncher_;
     }
 
+    /// @notice Returns clock.
+    /// @dev See the implementation for behavior details.
+    /// @return uint48 The uint48 value.
     function clock() public view override returns (uint48) {
         return uint48(block.timestamp);
     }
 
+    /// @notice Returns clock mode.
+    /// @dev See the implementation for behavior details.
+    /// @return The return value.
     function CLOCK_MODE() public pure override returns (string memory) {
         return "mode=timestamp";
     }
@@ -63,6 +76,9 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
     /**
      * @dev Set PoolId(Uniswap V4) after deploying liquidity
      */
+    /// @notice Executes set pool id.
+    /// @dev See the implementation for behavior details.
+    /// @param _poolId The _poolId value.
     function setPoolId(PoolId _poolId) external override onlyMemeverseLauncher {
         poolId = _poolId;
     }
@@ -94,11 +110,18 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
     /**
      * @dev Burn the liquid proof by self.
      */
+    /// @notice Executes burn.
+    /// @dev See the implementation for behavior details.
+    /// @param amount The amount value.
     function burn(uint256 amount) external {
         require(amount != 0, ZeroInput());
         _burn(msg.sender, amount);
     }
 
+    /// @notice Returns nonces.
+    /// @dev See the implementation for behavior details.
+    /// @param owner The owner value.
+    /// @return uint256 The uint256 value.
     function nonces(address owner) public view override(OutrunERC20PermitInit, OutrunNoncesInit) returns (uint256) {
         return super.nonces(owner);
     }

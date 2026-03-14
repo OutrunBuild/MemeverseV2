@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {MemeverseOFTEnum} from "../../common/MemeverseOFTEnum.sol";
+import {MemeverseOFTEnum} from "../../common/types/MemeverseOFTEnum.sol";
 
 /**
  * @title MemeverseLauncher interface
@@ -214,10 +214,10 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @param memeverseSwapRouter The new router address.
     function setMemeverseSwapRouter(address memeverseSwapRouter) external;
 
-    /// @notice Updates the shared memeverse info contract.
+    /// @notice Updates the LayerZero endpoint registry contract.
     /// @dev Expected to be restricted by the implementation's access control.
-    /// @param memeverseCommonInfo The new common-info contract address.
-    function setMemeverseCommonInfo(address memeverseCommonInfo) external;
+    /// @param lzEndpointRegistry The new endpoint registry contract address.
+    function setLzEndpointRegistry(address lzEndpointRegistry) external;
 
     /// @notice Updates the registrar contract reference.
     /// @dev Expected to be restricted by the implementation's access control.
@@ -332,7 +332,7 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     event SetMemeverseSwapRouter(address memeverseSwapRouter);
 
-    event SetMemeverseCommonInfo(address memeverseCommonInfo);
+    event SetLzEndpointRegistry(address lzEndpointRegistry);
 
     event SetMemeverseRegistrar(address memeverseRegistrar);
 

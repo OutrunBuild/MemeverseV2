@@ -15,10 +15,10 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
-import {UniswapLP} from "../libraries/UniswapLP.sol";
-import {LiquidityQuote} from "../libraries/LiquidityQuote.sol";
-import {LiquidityAmounts} from "../libraries/LiquidityAmounts.sol";
-import {CurrencySettler} from "../libraries/CurrencySettler.sol";
+import {UniswapLP} from "./tokens/UniswapLP.sol";
+import {LiquidityQuote} from "./libraries/LiquidityQuote.sol";
+import {LiquidityAmounts} from "./libraries/LiquidityAmounts.sol";
+import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 
 /// @title MemeverseSwapRouter
 /// @notice Recommended single public periphery entrypoint for Memeverse swap and LP flows.

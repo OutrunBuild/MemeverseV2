@@ -2,15 +2,15 @@
 // OpenZeppelin Contracts (last updated v5.1.0) (utils/cryptography/EIP712.sol)
 pragma solidity ^0.8.28;
 
-import { IERC5267 } from "@openzeppelin/contracts/interfaces/IERC5267.sol";
-import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-import { Initializable } from "../Initializable.sol";
+import {Initializable} from "../access/Initializable.sol";
 
 /**
  * @dev (Just for minimal proxy)
  * https://eips.ethereum.org/EIPS/eip-712[EIP-712] is a standard for hashing and signing of typed structured data.
- * 
+ *
  * The encoding scheme specified in the EIP requires a domain separator and a hash of the typed structured data, whose
  * encoding is very generic and therefore its implementation in Solidity is not feasible, thus this contract
  * does not implement the encoding itself. Protocols need to implement the type-specific encoding they need in order to
@@ -48,7 +48,8 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
     }
 
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.EIP712")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant EIP712_STORAGE_LOCATION = 0x7e79860d374ca15b9f2dc8f64cbab9fb5227f3686c569a4bd4e3fd9b9bbbf900;
+    bytes32 private constant EIP712_STORAGE_LOCATION =
+        0x7e79860d374ca15b9f2dc8f64cbab9fb5227f3686c569a4bd4e3fd9b9bbbf900;
 
     function _getEIP712Storage() private pure returns (EIP712Storage storage $) {
         assembly {
@@ -115,6 +116,15 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
     /**
      * @dev See {IERC-5267}.
      */
+    /// @notice Returns eip712 domain.
+    /// @dev See the implementation for behavior details.
+    /// @return fields The fields value.
+    /// @return name The name value.
+    /// @return version The version value.
+    /// @return chainId The chainId value.
+    /// @return verifyingContract The verifyingContract value.
+    /// @return salt The salt value.
+    /// @return extensions The extensions value.
     function eip712Domain()
         public
         view
@@ -134,15 +144,16 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
         // and the EIP712 domain is not reliable, as it will be missing name and version.
         require($._hashedName == 0 && $._hashedVersion == 0, "EIP712: Uninitialized");
 
-        return (
-            hex"0f", // 01111
-            _EIP712Name(),
-            _EIP712Version(),
-            block.chainid,
-            address(this),
-            bytes32(0),
-            new uint256[](0)
-        );
+        return
+            (
+                hex"0f", // 01111
+                _EIP712Name(),
+                _EIP712Version(),
+                block.chainid,
+                address(this),
+                bytes32(0),
+                new uint256[](0)
+            );
     }
 
     /**

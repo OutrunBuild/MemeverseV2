@@ -10,13 +10,13 @@ import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/in
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
-import {TokenHelper} from "../common/TokenHelper.sol";
-import {InitialPriceCalculator} from "../libraries/InitialPriceCalculator.sol";
+import {TokenHelper} from "../common/token/TokenHelper.sol";
+import {InitialPriceCalculator} from "./libraries/InitialPriceCalculator.sol";
 import {IMemecoin} from "../token/interfaces/IMemecoin.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
 import {IMemeLiquidProof} from "../token/interfaces/IMemeLiquidProof.sol";
-import {IMemeverseCommonInfo} from "./interfaces/IMemeverseCommonInfo.sol";
+import {ILzEndpointRegistry} from "../common/omnichain/interfaces/ILzEndpointRegistry.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
 import {IMemeverseOFTDispatcher} from "./interfaces/IMemeverseOFTDispatcher.sol";
 import {IMemeverseProxyDeployer} from "./interfaces/IMemeverseProxyDeployer.sol";
@@ -33,7 +33,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
 
     address public localLzEndpoint;
-    address public memeverseCommonInfo;
+    address public lzEndpointRegistry;
     address public oftDispatcher;
     address public memeverseRegistrar;
     address public memeverseProxyDeployer;
@@ -58,7 +58,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address _memeverseRegistrar,
         address _memeverseProxyDeployer,
         address _oftDispatcher,
-        address _memeverseCommonInfo,
+        address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
         uint128 _oftDispatcherGasLimit
@@ -66,7 +66,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         localLzEndpoint = _localLzEndpoint;
         memeverseRegistrar = _memeverseRegistrar;
         memeverseProxyDeployer = _memeverseProxyDeployer;
-        memeverseCommonInfo = _memeverseCommonInfo;
+        lzEndpointRegistry = _lzEndpointRegistry;
         oftDispatcher = _oftDispatcher;
         executorRewardRate = _executorRewardRate;
         oftReceiveGasLimit = _oftReceiveGasLimit;
@@ -214,7 +214,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (govChainId == block.chainid) return 0;
 
         (uint256 UPTFee, uint256 memecoinFee) = previewGenesisMakerFees(verseId);
-        uint32 govEndpointId = IMemeverseCommonInfo(memeverseCommonInfo).lzEndpointIdMap(govChainId);
+        uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
         bytes memory oftDispatcherOptions = OptionsBuilder.newOptions()
             .addExecutorLzReceiveOption(oftReceiveGasLimit, 0).addExecutorLzComposeOption(0, oftDispatcherGasLimit, 0);
 
@@ -559,7 +559,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                     );
             }
         } else {
-            uint32 govEndpointId = IMemeverseCommonInfo(memeverseCommonInfo).lzEndpointIdMap(govChainId);
+            uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
             bytes memory oftDispatcherOptions = OptionsBuilder.newOptions()
                 .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
                 .addExecutorLzComposeOption(0, oftDispatcherGasLimit, 0);
@@ -811,7 +811,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             }
             if (omnichainId == currentChainId) continue;
 
-            uint32 remoteEndpointId = IMemeverseCommonInfo(memeverseCommonInfo).lzEndpointIdMap(omnichainId);
+            uint32 remoteEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(omnichainId);
             require(remoteEndpointId != 0, InvalidOmnichainId(omnichainId));
 
             IOAppCore(memecoin).setPeer(remoteEndpointId, bytes32(uint256(uint160(memecoin))));
@@ -861,16 +861,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @notice Set the memeverse common info contract.
+     * @notice Set the LayerZero endpoint registry contract.
      * @dev Only callable by the owner.
-     * @param _memeverseCommonInfo - Address of memeverseCommonInfo
+     * @param _lzEndpointRegistry - Address of LzEndpointRegistry
      */
-    function setMemeverseCommonInfo(address _memeverseCommonInfo) external override onlyOwner {
-        require(_memeverseCommonInfo != address(0), ZeroInput());
+    function setLzEndpointRegistry(address _lzEndpointRegistry) external override onlyOwner {
+        require(_lzEndpointRegistry != address(0), ZeroInput());
 
-        memeverseCommonInfo = _memeverseCommonInfo;
+        lzEndpointRegistry = _lzEndpointRegistry;
 
-        emit SetMemeverseCommonInfo(_memeverseCommonInfo);
+        emit SetLzEndpointRegistry(_lzEndpointRegistry);
     }
 
     /**

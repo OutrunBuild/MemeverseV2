@@ -12,14 +12,14 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {LiquidityAmounts} from "../src/libraries/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {LiquidityQuote} from "../src/libraries/LiquidityQuote.sol";
-import {UniswapLP} from "../src/libraries/UniswapLP.sol";
+import {LiquidityQuote} from "../src/swap/libraries/LiquidityQuote.sol";
+import {UniswapLP} from "../src/swap/tokens/UniswapLP.sol";
 
 contract MockPoolManagerForHookLiquidity {
     using PoolIdLibrary for PoolKey;
@@ -48,6 +48,10 @@ contract MockPoolManagerForHookLiquidity {
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
 
+    /// @notice Executes initialize.
+    /// @dev See the implementation for behavior details.
+    /// @param key The key value.
+    /// @param sqrtPriceX96 The sqrtPriceX96 value.
     function initialize(PoolKey memory key, uint160 sqrtPriceX96) external {
         PoolId poolId = key.toId();
         slot0State[poolId] = Slot0State({sqrtPriceX96: sqrtPriceX96, tick: 0, protocolFee: 0, lpFee: 0});
@@ -56,16 +60,28 @@ contract MockPoolManagerForHookLiquidity {
         key.hooks.beforeInitialize(msg.sender, key, sqrtPriceX96);
     }
 
+    /// @notice Executes unlock.
+    /// @dev See the implementation for behavior details.
+    /// @param data The data value.
+    /// @return result The result value.
     function unlock(bytes calldata data) external returns (bytes memory result) {
         unlocked = true;
         result = IUnlockCallback(msg.sender).unlockCallback(data);
         unlocked = false;
     }
 
-    function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata)
+    /// @notice Executes modify liquidity.
+    /// @dev See the implementation for behavior details.
+    /// @param key The key value.
+    /// @param params The params value.
+    /// @param hookData The hookData value.
+    /// @return delta The delta value.
+    /// @return feesAccrued The feesAccrued value.
+    function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata hookData)
         external
         returns (BalanceDelta delta, BalanceDelta feesAccrued)
     {
+        hookData;
         if (!unlocked) revert ManagerLocked();
         uint256 amount0Used;
         uint256 amount1Used;
@@ -96,6 +112,11 @@ contract MockPoolManagerForHookLiquidity {
         delta = toBalanceDelta(int128(int256(amount0Used)), int128(int256(amount1Used)));
     }
 
+    /// @notice Executes take.
+    /// @dev See the implementation for behavior details.
+    /// @param currency The currency value.
+    /// @param to The to value.
+    /// @param amount The amount value.
     function take(Currency currency, address to, uint256 amount) external {
         lastTakeRecipient = to;
         if (currency.isAddressZero()) {
@@ -106,25 +127,51 @@ contract MockPoolManagerForHookLiquidity {
         }
     }
 
-    function sync(Currency) external {}
+    /// @notice Executes sync.
+    /// @dev See the implementation for behavior details.
+    /// @param currency The currency value.
+    function sync(Currency currency) external {
+        currency;
+    }
 
+    /// @notice Executes settle.
+    /// @dev See the implementation for behavior details.
+    /// @return uint256 The uint256 value.
     function settle() external payable returns (uint256) {
         return msg.value;
     }
 
+    /// @notice Returns extsload.
+    /// @dev See the implementation for behavior details.
+    /// @param slot The slot value.
+    /// @return bytes32 The bytes32 value.
     function extsload(bytes32 slot) external view returns (bytes32) {
         return extStorage[slot];
     }
 
+    /// @notice Returns get slot0.
+    /// @dev See the implementation for behavior details.
+    /// @param poolId The poolId value.
+    /// @return uint160 The uint160 value.
+    /// @return int24 The int24 value.
+    /// @return uint24 The uint24 value.
+    /// @return uint24 The uint24 value.
     function getSlot0(PoolId poolId) external view returns (uint160, int24, uint24, uint24) {
         Slot0State memory state = slot0State[poolId];
         return (state.sqrtPriceX96, state.tick, state.protocolFee, state.lpFee);
     }
 
+    /// @notice Returns get liquidity.
+    /// @dev See the implementation for behavior details.
+    /// @param poolId The poolId value.
+    /// @return uint128 The uint128 value.
     function getLiquidity(PoolId poolId) external view returns (uint128) {
         return liquidityState[poolId];
     }
 
+    /// @notice Returns last take recipient address.
+    /// @dev See the implementation for behavior details.
+    /// @return address The address value.
     function lastTakeRecipientAddress() external view returns (address) {
         return lastTakeRecipient;
     }
@@ -161,6 +208,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     PoolKey internal key;
     PoolId internal poolId;
 
+    /// @notice Executes set up.
+    /// @dev See the implementation for behavior details.
     function setUp() public {
         mockManager = new MockPoolManagerForHookLiquidity();
         token0 = new MockERC20("Token0", "TK0", 18);
@@ -184,6 +233,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         mockManager.initialize(key, SQRT_PRICE_1_1);
     }
 
+    /// @notice Executes test add liquidity uses unlock flow.
+    /// @dev See the implementation for behavior details.
     function testAddLiquidity_UsesUnlockFlow() external {
         uint128 liquidity = _addLiquidity();
         (address liquidityToken,,,) = hook.poolInfo(poolId);
@@ -193,6 +244,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertGt(mockManager.getLiquidity(poolId), 0, "pool liquidity");
     }
 
+    /// @notice Executes test remove liquidity uses original sender for take.
+    /// @dev See the implementation for behavior details.
     function testRemoveLiquidity_UsesOriginalSenderForTake() external {
         uint128 liquidity = _addLiquidity();
         (address liquidityToken,,,) = hook.poolInfo(poolId);
@@ -217,6 +270,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(token1.balanceOf(address(this)), balance1Before + amount1Out, "token1 returned");
     }
 
+    /// @notice Executes test add liquidity supports native input.
+    /// @dev See the implementation for behavior details.
     function testAddLiquidity_SupportsNativeInput() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -241,6 +296,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(address(hook).balance, 0, "no stranded native");
     }
 
+    /// @notice Executes test add liquidity reverts on excess native value.
+    /// @dev See the implementation for behavior details.
     function testAddLiquidity_RevertsOnExcessNativeValue() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey);
@@ -260,6 +317,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
+    /// @notice Executes test remove liquidity supports native output.
+    /// @dev See the implementation for behavior details.
     function testRemoveLiquidity_SupportsNativeOutput() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -302,6 +361,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(mockManager.getLiquidity(nativePoolId), 1000, "minimum liquidity remains locked");
     }
 
+    /// @notice Executes test router add liquidity uses hook core.
+    /// @dev See the implementation for behavior details.
     function testRouterAddLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
             key.currency0,
@@ -320,6 +381,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
     }
 
+    /// @notice Executes test router add liquidity refunds unused native budget.
+    /// @dev See the implementation for behavior details.
     function testRouterAddLiquidity_RefundsUnusedNativeBudget() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -347,6 +410,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(address(hook).balance, 0, "hook keeps no native");
     }
 
+    /// @notice Executes test router remove liquidity uses hook core.
+    /// @dev See the implementation for behavior details.
     function testRouterRemoveLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
             key.currency0,

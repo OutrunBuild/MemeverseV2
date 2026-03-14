@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import { IMemecoin } from "./interfaces/IMemecoin.sol";
-import { OutrunOFTInit } from "../common/layerzero/oft/OutrunOFTInit.sol";
+import {IMemecoin} from "./interfaces/IMemecoin.sol";
+import {OutrunOFTInit} from "../common/omnichain/oft/OutrunOFTInit.sol";
 
 /**
  * @title Omnichain Memecoin
@@ -22,12 +22,17 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
      * @param _memeverseLauncher - The address of the memeverse launcher.
      * @param _delegate - The address of the OFT delegate.
      */
-    function initialize(
-        string memory name_, 
-        string memory symbol_,
-        address _memeverseLauncher, 
-        address _delegate
-    ) external override initializer {
+    /// @notice Executes initialize.
+    /// @dev See the implementation for behavior details.
+    /// @param name_ The name_ value.
+    /// @param symbol_ The symbol_ value.
+    /// @param _memeverseLauncher The _memeverseLauncher value.
+    /// @param _delegate The _delegate value.
+    function initialize(string memory name_, string memory symbol_, address _memeverseLauncher, address _delegate)
+        external
+        override
+        initializer
+    {
         __OutrunOFT_init(name_, symbol_, _delegate);
         __OutrunOwnable_init(_delegate);
 
@@ -39,6 +44,10 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
      * @param account - The address of the account.
      * @param amount - The amount of the memecoin.
      */
+    /// @notice Executes mint.
+    /// @dev See the implementation for behavior details.
+    /// @param account The account value.
+    /// @param amount The amount value.
     function mint(address account, uint256 amount) external override {
         require(amount != 0, ZeroInput());
         require(msg.sender == memeverseLauncher, PermissionDenied());
@@ -49,6 +58,9 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
      * @notice Burn the memecoin.
      * @param amount - The amount of the memecoin.
      */
+    /// @notice Executes burn.
+    /// @dev See the implementation for behavior details.
+    /// @param amount The amount value.
     function burn(uint256 amount) external override {
         require(amount != 0, ZeroInput());
         _burn(msg.sender, amount);
