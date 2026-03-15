@@ -371,6 +371,14 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
     function setTotalPolLiquidityForTest(uint256 verseId, uint256 amount) external {
         totalPolLiquidity[verseId] = amount;
     }
+
+    /// @notice Stores mock total claimable POL for a verse id.
+    /// @dev Used to drive POL claim math directly in tests.
+    /// @param verseId Verse id whose total claimable POL should be set.
+    /// @param amount Mock total claimable POL amount.
+    function setTotalClaimablePOLForTest(uint256 verseId, uint256 amount) external {
+        totalClaimablePOL[verseId] = amount;
+    }
 }
 
 contract MemeverseLauncherPreviewFeesTest is Test {
@@ -464,6 +472,25 @@ contract MemeverseLauncherPreviewFeesTest is Test {
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
         launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+    }
+
+    /// @notice Verifies POL cannot be claimed twice for the same genesis contribution.
+    /// @dev Exposes the regression where claimed users remained fully claimable.
+    function testClaimPOLToken_RevertsWhenAlreadyClaimed() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false, false);
+        launcher.setTotalClaimablePOLForTest(verseId, 60 ether);
+        liquidProof.mint(address(launcher), 60 ether);
+
+        vm.prank(ALICE);
+        uint256 amount = launcher.claimPOLToken(verseId);
+        assertEq(amount, 12 ether, "claimed amount");
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.NoPOLAvailable.selector);
+        launcher.claimPOLToken(verseId);
     }
 
     /// @notice Verifies fee redemption returns zero values when no fees are claimable.
@@ -710,5 +737,15 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         vm.prank(ALICE);
         vm.expectRevert();
         launcher.mintPOLToken(verseId, 10 ether, 12 ether, 0, 0, 5 ether, block.timestamp);
+    }
+
+    /// @notice Verifies only the owner can sweep native dust from the launcher.
+    /// @dev Exposes the regression where any caller could drain the contract's native balance.
+    function testRemoveGasDust_RevertsWhenCallerIsNotOwner() external {
+        vm.deal(address(launcher), 1 ether);
+
+        vm.prank(ALICE);
+        vm.expectRevert();
+        launcher.removeGasDust(ALICE);
     }
 }

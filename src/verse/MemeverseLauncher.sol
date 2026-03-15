@@ -170,7 +170,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        uint256 userFunds = userGenesisData[verseId][msg.sender].genesisFund;
+        GenesisData storage genesisData = userGenesisData[verseId][msg.sender];
+        if (genesisData.isClaimed) return 0;
+
+        uint256 userFunds = genesisData.genesisFund;
         uint256 totalClaimable = totalClaimablePOL[verseId];
         GenesisFund storage genesisFund = genesisFunds[verseId];
         claimableAmount =
@@ -824,7 +827,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @dev Transfers the full native balance to `receiver`.
      * @param receiver - The recipient of the native dust.
      */
-    function removeGasDust(address receiver) external override {
+    function removeGasDust(address receiver) external override onlyOwner {
         uint256 dust = address(this).balance;
         _transferOut(NATIVE, receiver, dust);
 
