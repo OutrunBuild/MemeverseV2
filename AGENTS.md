@@ -45,7 +45,7 @@
   - 必须通过 security gate：`bash ./script/process/check-slither.sh`
   - 必须通过 gas gate：`bash ./script/process/check-gas-report.sh`
   - 如果在一次已完成的 post-coding / `quality:gate` 之后又新增、修改任意 `src/**/*.sol`，必须基于最新 diff 重新执行 `skills/solidity-post-coding-flow/SKILL.md`，并重新更新 review note 与验证证据
-  - 本地提交前必须提供 review note 证据：`bash ./script/process/check-solidity-review-note.sh`
+  - 本地与 CI 的 `quality:gate` 都必须提供 review note 证据：`bash ./script/process/check-solidity-review-note.sh`
   - 必须通过 docs gate：`npm run docs:check`
 - `src/swap/**/*.sol`
   - 如果命中 `docs/process/rule-map.json` 中的模块规则，变更集中必须同时包含至少 1 个匹配的测试文件
@@ -71,7 +71,7 @@
 ## 6. Review Note Contract
 
 - 模板文件：`docs/reviews/TEMPLATE.md`
-- `docs/reviews/*.md` 默认仍是本地草稿；但当命中 `src/**/*.sol` 变更时，本地 `quality:gate` 必须能找到一份有效 review note
+- `docs/reviews/*.md` 默认仍是本地草稿；但当命中 `src/**/*.sol` 变更时，本地与 CI 的 `quality:gate` 都必须能找到一份有效 review note
 - 以下固定字段不能为空、不能写 `TBD`、不能保留模板占位：
   - `Change summary`
   - `Files reviewed`

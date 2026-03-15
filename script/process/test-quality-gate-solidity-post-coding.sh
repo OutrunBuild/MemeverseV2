@@ -6,6 +6,7 @@ cd "$repo_root"
 
 tmp_dir="$(mktemp -d)"
 policy_file="$tmp_dir/policy.json"
+rule_map_file="$tmp_dir/rule-map.json"
 fake_bin_dir="$tmp_dir/bin"
 forge_log="$tmp_dir/forge.log"
 npm_log="$tmp_dir/npm.log"
@@ -18,6 +19,7 @@ test_file="test/QualityGateTemp.t.sol"
 
 cleanup() {
     rm -rf "$tmp_dir"
+    git reset -- "$src_file" "$test_file" >/dev/null 2>&1 || true
     rm -f "$src_file" "$test_file"
 }
 trap cleanup EXIT
@@ -98,6 +100,34 @@ cat > "$policy_file" <<EOF
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits"
   }
+}
+EOF
+
+cat > "$rule_map_file" <<'EOF'
+{
+  "version": 2,
+  "defaults": {
+    "change_requirement_mode": "none",
+    "evidence_requirement_mode": "any"
+  },
+  "rules": [
+    {
+      "id": "quality-gate-temp-evidence",
+      "description": "QualityGateTemp source changes must cite mapped review-note evidence.",
+      "triggers": {
+        "any_of": [
+          "src/QualityGateTemp.sol"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MappedEvidence.t.sol"
+        ]
+      }
+    }
+  ],
+  "testing_gaps": []
 }
 EOF
 
@@ -242,9 +272,80 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
-printf '%s\n' "$src_file" > "$changed_files_path"
+set +e
+git add "$src_file"
 
-PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+missing_evidence_output="$(PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh 2>&1)"
+missing_evidence_status=$?
+set -e
+
+if [ "$missing_evidence_status" -eq 0 ]; then
+    echo "Expected quality-gate to fail when rule-map evidence is missing from Existing tests exercised"
+    exit 1
+fi
+
+if ! printf '%s\n' "$missing_evidence_output" | grep -q "quality-gate-temp-evidence"; then
+    echo "Expected quality-gate evidence failure output to reference the triggered rule id"
+    printf '%s\n' "$missing_evidence_output"
+    exit 1
+fi
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/QualityGateTemp.sol
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: none.
+- Security residual risks: none.
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: QualityGateTemp.echo
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/MappedEvidence.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+EOF
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+
+git reset -- "$src_file" >/dev/null
+
+printf '%s\n' "$src_file" > "$changed_files_path"
 
 if ! grep -q "^snapshot --snap " "$forge_log"; then
     echo "Expected quality-gate to trigger the gas report command for Solidity source changes"
@@ -263,6 +364,126 @@ if ! grep -q "run docs:check" "$npm_log"; then
     cat "$npm_log"
     exit 1
 fi
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/QualityGateTemp.sol
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: none.
+- Security residual risks: none.
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: QualityGateTemp.echo
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/QualityGateTemp.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+EOF
+
+set +e
+missing_ci_evidence_output="$(PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh 2>&1)"
+missing_ci_evidence_status=$?
+set -e
+
+if [ "$missing_ci_evidence_status" -eq 0 ]; then
+    echo "Expected quality-gate in ci mode to fail when rule-map evidence is missing from Existing tests exercised"
+    exit 1
+fi
+
+if ! printf '%s\n' "$missing_ci_evidence_output" | grep -q "quality-gate-temp-evidence"; then
+    echo "Expected ci evidence failure output to reference the triggered rule id"
+    printf '%s\n' "$missing_ci_evidence_output"
+    exit 1
+fi
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/QualityGateTemp.sol
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: none.
+- Security residual risks: none.
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: QualityGateTemp.echo
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/MappedEvidence.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+EOF
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
 
 : > "$forge_log"
 : > "$npm_log"

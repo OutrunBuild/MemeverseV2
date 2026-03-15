@@ -1,15 +1,176 @@
 {
+  "version": 2,
+  "defaults": {
+    "change_requirement_mode": "none",
+    "evidence_requirement_mode": "any"
+  },
   "rules": [
     {
-      "id": "swap-router-tests",
-      "path_prefix": "src/swap/",
-      "description": "Swap module changes must include at least one mapped deterministic swap test file in the same change set.",
-      "required_test_patterns": [
-        "test/MemeverseSwapRouter.t.sol",
-        "test/MemeverseSwapRouterPermit2.t.sol",
-        "test/MemeverseUniswapHookLiquidity.t.sol",
-        "test/MemeverseDynamicFeeSimulation.t.sol"
-      ]
+      "id": "swap-router-core",
+      "description": "Router core or router interface changes must carry router execution or interface coverage.",
+      "owners": ["swap"],
+      "triggers": {
+        "any_of": [
+          "src/swap/MemeverseSwapRouter.sol",
+          "src/swap/interfaces/IMemeverseSwapRouter.sol"
+        ]
+      },
+      "change_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseSwapRouter.t.sol",
+          "test/MemeverseSwapRouterPermit2.t.sol",
+          "test/MemeverseSwapRouterInterface.t.sol"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseSwapRouter.t.sol",
+          "test/MemeverseSwapRouterPermit2.t.sol",
+          "test/MemeverseSwapRouterInterface.t.sol"
+        ]
+      }
+    },
+    {
+      "id": "swap-hook-liquidity",
+      "description": "Hook, liquidity quote, LP token, or hook interface changes must carry liquidity-path coverage.",
+      "owners": ["swap"],
+      "triggers": {
+        "any_of": [
+          "src/swap/MemeverseUniswapHook.sol",
+          "src/swap/libraries/LiquidityQuote.sol",
+          "src/swap/tokens/UniswapLP.sol",
+          "src/swap/interfaces/IMemeverseUniswapHook.sol"
+        ]
+      },
+      "change_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseUniswapHookLiquidity.t.sol"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseUniswapHookLiquidity.t.sol",
+          "test/MemeverseSwapRouter.t.sol"
+        ]
+      }
+    },
+    {
+      "id": "swap-liquidity-math",
+      "description": "Liquidity math changes must be reflected in at least one swap or hook liquidity test.",
+      "owners": ["swap"],
+      "triggers": {
+        "any_of": [
+          "src/swap/libraries/LiquidityAmounts.sol"
+        ]
+      },
+      "change_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseSwapRouter.t.sol",
+          "test/MemeverseSwapRouterPermit2.t.sol",
+          "test/MemeverseUniswapHookLiquidity.t.sol"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseSwapRouter.t.sol",
+          "test/MemeverseSwapRouterPermit2.t.sol",
+          "test/MemeverseUniswapHookLiquidity.t.sol",
+          "test/MemeverseDynamicFeeSimulation.t.sol"
+        ]
+      }
+    },
+    {
+      "id": "launcher-core",
+      "description": "Launcher changes must carry launcher config or fee-preview coverage.",
+      "owners": ["verse"],
+      "triggers": {
+        "any_of": [
+          "src/verse/MemeverseLauncher.sol",
+          "src/verse/interfaces/IMemeverseLauncher.sol"
+        ]
+      },
+      "change_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseLauncherPreviewFees.t.sol",
+          "test/MemeverseLauncherRouterConfig.t.sol"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/MemeverseLauncherPreviewFees.t.sol",
+          "test/MemeverseLauncherRouterConfig.t.sol"
+        ]
+      }
+    },
+    {
+      "id": "launcher-price-math",
+      "description": "Initial price calculator changes must carry dedicated price math coverage.",
+      "owners": ["verse"],
+      "triggers": {
+        "any_of": [
+          "src/verse/libraries/InitialPriceCalculator.sol"
+        ]
+      },
+      "change_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/InitialPriceCalculator.t.sol"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/InitialPriceCalculator.t.sol"
+        ]
+      }
+    }
+  ],
+  "testing_gaps": [
+    {
+      "id": "verse-registration",
+      "paths": [
+        "src/verse/registration/",
+        "src/verse/MemeverseOFTDispatcher.sol",
+        "src/verse/deployment/"
+      ],
+      "status": "missing-targeted-rule"
+    },
+    {
+      "id": "governance",
+      "paths": [
+        "src/governance/"
+      ],
+      "status": "missing-targeted-rule"
+    },
+    {
+      "id": "interoperation",
+      "paths": [
+        "src/interoperation/"
+      ],
+      "status": "missing-targeted-rule"
+    },
+    {
+      "id": "token-and-yield",
+      "paths": [
+        "src/token/",
+        "src/yield/"
+      ],
+      "status": "missing-targeted-rule"
+    },
+    {
+      "id": "common",
+      "paths": [
+        "src/common/"
+      ],
+      "status": "missing-targeted-rule"
     }
   ]
 }

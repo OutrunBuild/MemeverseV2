@@ -8,7 +8,7 @@
 - 本目录负责保存细化规则、Review note 结构说明以及机器可读配置。
 - 如果规则影响脚本、CI 或提交门禁，文档变更必须和脚本变更一起提交。
 - `docs/process/policy.json` 是当前流程规则的机器可读真源。
-- `docs/process/rule-map.json` 是关键模块规则到测试证据的机器可读映射。
+- `docs/process/rule-map.json` 是关键行为场景到测试证据的机器可读映射，同时记录测试联动要求与测试治理缺口。
 
 详细规则见：
 
