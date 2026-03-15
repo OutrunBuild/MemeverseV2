@@ -13,7 +13,7 @@ cleanup() {
 trap cleanup EXIT
 
 set +e
-usage_output="$(bash ./script/process/install-repo-skill.sh 2>&1)"
+usage_output="$(bash ./script/process/tools/install-repo-skill.sh 2>&1)"
 usage_status=$?
 set -e
 
@@ -29,7 +29,7 @@ if ! printf '%s\n' "$usage_output" | grep -q "Usage:"; then
 fi
 
 set +e
-missing_output="$(SKILL_INSTALL_ROOT="$install_root" bash ./script/process/install-repo-skill.sh missing-skill 2>&1)"
+missing_output="$(SKILL_INSTALL_ROOT="$install_root" bash ./script/process/tools/install-repo-skill.sh missing-skill 2>&1)"
 missing_status=$?
 set -e
 
@@ -44,7 +44,7 @@ if ! printf '%s\n' "$missing_output" | grep -q "skill not found"; then
     exit 1
 fi
 
-SKILL_INSTALL_ROOT="$install_root" bash ./script/process/install-repo-skill.sh solidity-post-coding-flow
+SKILL_INSTALL_ROOT="$install_root" bash ./script/process/tools/install-repo-skill.sh solidity-post-coding-flow
 
 installed_skill_dir="$install_root/solidity-post-coding-flow"
 

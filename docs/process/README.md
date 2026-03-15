@@ -9,6 +9,9 @@
 - 如果规则影响脚本、CI 或提交门禁，文档变更必须和脚本变更一起提交。
 - `docs/process/policy.json` 是当前流程规则的机器可读真源。
 - `docs/process/rule-map.json` 是关键行为场景到测试证据的机器可读映射，同时记录测试联动要求与测试治理缺口。
+- `script/process/` 顶层保留正式流程入口。
+- `script/process/tools/` 存放不参与 gate 的辅助脚本。
+- `script/process/tests/` 存放这些流程脚本的自测；可通过 `npm run process:selftest` 统一执行。
 
 详细规则见：
 

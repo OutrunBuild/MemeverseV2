@@ -205,5 +205,5 @@
 - 机器可读策略源：`docs/process/policy.json`
 - 规则到测试映射：`docs/process/rule-map.json`
 - Solidity 后编码流程 skill：`skills/solidity-post-coding-flow/SKILL.md`
-- skill 安装脚本：`script/process/install-repo-skill.sh`
+- skill 安装脚本：`script/process/tools/install-repo-skill.sh`
 - 质量门禁与相关检查脚本：`script/process/*`
