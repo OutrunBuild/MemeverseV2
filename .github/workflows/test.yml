@@ -23,11 +23,25 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Slither
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --user slither-analyzer
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Show Forge version
         run: forge --version
+
+      - name: Show Slither version
+        run: slither --version
 
       - name: Build changed file list for quality gate
         run: |
