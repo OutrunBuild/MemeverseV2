@@ -45,7 +45,7 @@
 - No-doc reason:
 
 ## Tests（测试）
-- 说明：测试路径、selector、命令保持英文，说明文字使用简体中文。
+- 说明：测试路径、selector、命令保持英文，说明文字使用简体中文；如果命中 `rule-map.json` 的正式规则，`Existing tests exercised` 需要显式写出对应映射测试路径。
 - Tests updated: <path>|none
 - Existing tests exercised: <selectors or paths>
 - No-test-change reason:

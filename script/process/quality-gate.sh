@@ -121,7 +121,7 @@ if [ "$has_src_sol" -eq 1 ] && [ "${#solidity_files[@]}" -gt 0 ]; then
     bash ./script/process/check-gas-report.sh
 fi
 
-if [ "$mode" != "ci" ] && [ "$has_src_sol" -eq 1 ]; then
+if [ "$has_src_sol" -eq 1 ]; then
     echo "[quality-gate] bash ./script/process/check-solidity-review-note.sh"
     bash ./script/process/check-solidity-review-note.sh
 fi

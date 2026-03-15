@@ -1,6 +1,8 @@
 # Review Note 规范
 
-`docs/reviews/*.md` 默认是本地 review 草稿目录，不参与 CI 提交 gate；但当本地改动命中 `src/**/*.sol` 时，`quality:gate` 会要求至少有一份有效 review note 作为安全、简化与 gas 审阅证据。
+`docs/reviews/*.md` 默认是本地 review 草稿目录，不参与 git 提交；但当改动命中 `src/**/*.sol` 时，`quality:gate` 在本地和 CI 下都会要求至少有一份有效 review note 作为安全、简化与 gas 审阅证据。
+
+当命中 `docs/process/rule-map.json` 中带有 `evidence_requirement` 的正式规则时，`bash ./script/process/check-solidity-review-note.sh` 还会额外校验 review note 的 `Existing tests exercised` 是否引用了对应映射测试。
 
 ## 语言约束
 
@@ -19,11 +21,12 @@
 4. 做了哪些 simplification 与 gas 优化？还有哪些 gas 风险？
 5. 更新了哪些文档和测试？
 6. 运行了哪些命令，结果是什么？
-7. 当前是否允许提交？剩余风险是什么？
+7. 如果命中 `rule-map.json` 的正式规则，`Existing tests exercised` 是否覆盖了对应映射测试？
+8. 当前是否允许提交？剩余风险是什么？
 
 `Findings` 和 `Simplification` 仍然保留在模板中，作为建议补充的审计上下文，但当前 gate 不会逐项校验它们的子字段。
 
-PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks / Security / Simplification / Gas` 语言；review note 在命中 `src/**/*.sol` 的本地提交场景下会参与 `quality:gate`。
+PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks / Security / Simplification / Gas` 语言；review note 在命中 `src/**/*.sol` 的本地与 CI 场景下都会参与 `quality:gate`。
 
 固定字段与占位值的机器可读定义见 `docs/process/policy.json`。
 
@@ -63,6 +66,13 @@ PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks / S
 - `Ready to commit: yes/no`
 - `Residual risks: ...`
 
+如果命中 `rule-map.json` 的正式规则，还需要满足：
+
+- `Existing tests exercised` 至少引用触发规则的 `evidence_requirement` 所要求的测试路径
+- `mode = any` 时至少引用 1 个
+- `mode = all` 时必须全部引用
+- `mode = none` 时不要求额外引用
+
 建议补充字段：
 
 - `High findings: ...`
@@ -90,6 +100,7 @@ PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks / S
 ## 使用方式
 
 - 需要本地记录审阅结论时，可基于 `docs/reviews/TEMPLATE.md` 新建草稿
-- 命中 `src/**/*.sol` 变更且准备本地提交时，必须先准备好一份可通过校验的 review note
-- 需要检查草稿格式时，可手动运行 `bash ./script/process/check-review-note.sh <review-note>`
+- 命中 `src/**/*.sol` 变更且准备运行本地或 CI `quality:gate` 时，必须先准备好一份可通过校验的 review note
+- 需要只检查草稿格式时，可手动运行 `bash ./script/process/check-review-note.sh <review-note>`
+- 需要连同 `rule-map.json` 的 `evidence_requirement` 一起检查时，可运行 `bash ./script/process/check-solidity-review-note.sh`
 - 是否保留、分享或转移到其他协作系统，由团队自行决定
