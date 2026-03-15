@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -248,6 +250,8 @@ contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
 }
 
 contract MockPermit2ForRouterTest {
+    using SafeERC20 for IERC20;
+
     address public lastOwner;
     address public lastRecipient;
     address public lastToken;
@@ -282,7 +286,7 @@ contract MockPermit2ForRouterTest {
         lastWitnessTypeString = witnessTypeString;
         lastSignature = signature;
 
-        MockERC20(permit.permitted.token).transferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
+        IERC20(permit.permitted.token).safeTransferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
     }
 
     /// @notice Mocks Permit2 batch witness transfers and records the last request.
@@ -308,13 +312,15 @@ contract MockPermit2ForRouterTest {
         lastSignature = signature;
 
         for (uint256 i = 0; i < transferDetails.length; ++i) {
-            MockERC20(permit.permitted[i].token)
-                .transferFrom(owner, transferDetails[i].to, transferDetails[i].requestedAmount);
+            IERC20(permit.permitted[i].token)
+                .safeTransferFrom(owner, transferDetails[i].to, transferDetails[i].requestedAmount);
         }
     }
 }
 
 contract SignatureVerifyingPermit2ForRouterTest {
+    using SafeERC20 for IERC20;
+
     error InvalidAmount(uint256 maxAmount);
     error InvalidNonce();
     error InvalidSigner();
@@ -365,7 +371,7 @@ contract SignatureVerifyingPermit2ForRouterTest {
         bytes32 dataHash =
             keccak256(abi.encode(typeHash, tokenPermissionsHash, msg.sender, permit.nonce, permit.deadline, witness));
         _verifySignature(signature, owner, dataHash);
-        MockERC20(permit.permitted.token).transferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
+        IERC20(permit.permitted.token).safeTransferFrom(owner, transferDetails.to, transferDetails.requestedAmount);
     }
 
     /// @notice Verifies and executes a mocked batch witness transfer.
@@ -412,14 +418,15 @@ contract SignatureVerifyingPermit2ForRouterTest {
         _verifySignature(signature, owner, dataHash);
 
         for (uint256 i = 0; i < transferDetails.length; ++i) {
-            MockERC20(permit.permitted[i].token)
-                .transferFrom(owner, transferDetails[i].to, transferDetails[i].requestedAmount);
+            IERC20(permit.permitted[i].token)
+                .safeTransferFrom(owner, transferDetails[i].to, transferDetails[i].requestedAmount);
         }
     }
 
     function _useUnorderedNonce(address from, uint256 nonce) private {
         uint256 wordPos = uint248(nonce >> 8);
         uint256 bitPos = uint8(nonce);
+        // forge-lint: disable-next-line(incorrect-shift)
         uint256 bit = 1 << bitPos;
         uint256 flipped = nonceBitmap[from][wordPos] ^= bit;
         if (flipped & bit == 0) revert InvalidNonce();

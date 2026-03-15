@@ -130,7 +130,7 @@ contract MockPoolManagerForHookLiquidity {
     /// @notice Executes sync.
     /// @dev See the implementation for behavior details.
     /// @param currency The currency value.
-    function sync(Currency currency) external {
+    function sync(Currency currency) external pure {
         currency;
     }
 

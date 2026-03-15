@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -11,6 +13,8 @@ import {MemeverseLauncher} from "../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract MockSwapRouter {
+    using SafeERC20 for IERC20;
+
     struct Quote {
         uint256 fee0;
         uint256 fee1;
@@ -240,8 +244,8 @@ contract MockSwapRouter {
         address token0 = Currency.unwrap(currency0);
         address token1 = Currency.unwrap(currency1);
         AddLiquidityResult memory result = addLiquidityResults[_pairKey(token0, token1)];
-        if (result.amount0Used != 0) MockERC20(token0).transferFrom(msg.sender, address(this), result.amount0Used);
-        if (result.amount1Used != 0) MockERC20(token1).transferFrom(msg.sender, address(this), result.amount1Used);
+        if (result.amount0Used != 0) IERC20(token0).safeTransferFrom(msg.sender, address(this), result.amount0Used);
+        if (result.amount1Used != 0) IERC20(token1).safeTransferFrom(msg.sender, address(this), result.amount1Used);
 
         address liquidityToken = lpTokens[_pairKey(token0, token1)];
         if (result.liquidity != 0 && liquidityToken != address(0)) {
