@@ -2,6 +2,12 @@
 
 本矩阵描述“改哪些路径，必须补什么证据，必须跑什么命令”。
 
+## 快速反馈命令
+
+- `npm run quality:quick` 只用于本地高频快速反馈，不是 finish gate
+- `npm run quality:quick` 不能替代 `npm run quality:gate`
+- `npm run quality:quick` 对 Solidity 变更只执行轻量检查和定向测试，不执行 `slither`、gas report、review note 校验、`docs:check`、全量 `forge test -vvv`
+
 ## `src/**/*.sol`
 
 必须满足：

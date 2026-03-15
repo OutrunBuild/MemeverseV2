@@ -19,6 +19,7 @@
     "docs:gen": "bash ./script/process/generate-docs.sh",
     "docs:check": "bash ./script/process/check-docs.sh",
     "process:selftest": "bash ./script/process/tests/run-all.sh",
+    "quality:quick": "bash ./script/process/quality-quick.sh",
     "quality:gate": "bash ./script/process/quality-gate.sh",
     "test": "$npm_execpath run test:forge",
     "test:forge": "forge test"

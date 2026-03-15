@@ -16,7 +16,9 @@
 - 初次 clone 后执行：`git submodule update --init --recursive`
 - 每个工作副本只需执行一次：`npm install`
 - 每个工作副本只需执行一次：`npm run hooks:install`
+- 日常本地快速反馈优先使用：`npm run quality:quick`
 - 任意准备提交的变更，唯一 finish gate：`npm run quality:gate`
+- `npm run quality:quick` 不能替代 `npm run quality:gate`
 - 不要把单独的 `forge build`、`forge test`、`npm run docs:check` 视为 finish gate 替代品
 
 常用命令：
@@ -29,6 +31,7 @@
 ## 3. Workflow Model
 
 - `npm run quality:gate` 是唯一 finish gate。
+- `npm run quality:quick` 只用于本地高频快速反馈，不提供可提交证明。
 - `src/**/*.sol` 命中后，只要实现已经完成并进入 review、收尾、准备 `git add` / commit，或准备运行 `npm run quality:gate`，就必须先执行 `skills/solidity-post-coding-flow/SKILL.md`。
 - `skills/solidity-post-coding-flow/SKILL.md` 负责把 `Code Simplifier`、`Solidity Security`、gas 审查、review note 证据与最终 gate 串成一次可重复的后编码流程。
 - 如果完成一轮 post-coding / `quality:gate` 后又继续修改 `src/**/*.sol`，必须基于最新 diff 重新执行该 skill，并更新 review note 与验证证据。
@@ -37,6 +40,7 @@
 ## 4. Change Matrix
 
 - `src/**/*.sol`
+  - 日常迭代时可先运行 `npm run quality:quick` 获取快速反馈；它只覆盖轻量检查和定向测试
   - 命中该路径时，agent/workflow 应优先调用 `skills/solidity-post-coding-flow/SKILL.md`
   - 一旦 `src/**/*.sol` 变更已完成实现，并进入 review、收尾、准备 `git add` / commit，或准备运行 `npm run quality:gate`，上述 skill 视为必选触发，不得跳过
   - 代码编写完成后，必须按顺序执行 `Code Simplifier`、`Solidity Security`；其中 `Solidity Security` 负责同时完成安全检查与 gas 优化审查
@@ -47,6 +51,10 @@
   - 如果在一次已完成的 post-coding / `quality:gate` 之后又新增、修改任意 `src/**/*.sol`，必须基于最新 diff 重新执行 `skills/solidity-post-coding-flow/SKILL.md`，并重新更新 review note 与验证证据
   - 本地与 CI 的 `quality:gate` 都必须提供 review note 证据：`bash ./script/process/check-solidity-review-note.sh`
   - 必须通过 docs gate：`npm run docs:check`
+- `quality:quick`
+  - 只用于本地快速反馈，不替代 `quality:gate`
+  - 对 `src/**/*.sol` 仅执行 `check-rule-map.sh`、变更文件级 `forge fmt --check`、变更 `src` 文件级 `check-natspec.sh`、`forge build` 与定向 `forge test --match-path`
+  - 不执行 `check-slither.sh`、`check-gas-report.sh`、`check-solidity-review-note.sh`、`npm run docs:check`、全量 `forge test -vvv`
 - `src/swap/**/*.sol`
   - 如果命中 `docs/process/rule-map.json` 中的模块规则，变更集中必须同时包含至少 1 个匹配的测试文件
 - `test/**/*.t.sol`

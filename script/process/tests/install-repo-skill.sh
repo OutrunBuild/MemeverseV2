@@ -6,6 +6,7 @@ cd "$repo_root"
 
 tmp_dir="$(mktemp -d)"
 install_root="$tmp_dir/skills-root"
+source_root="$tmp_dir/source-skills"
 
 cleanup() {
     rm -rf "$tmp_dir"
@@ -44,7 +45,21 @@ if ! printf '%s\n' "$missing_output" | grep -q "skill not found"; then
     exit 1
 fi
 
-SKILL_INSTALL_ROOT="$install_root" bash ./script/process/tools/install-repo-skill.sh solidity-post-coding-flow
+mkdir -p "$source_root/solidity-post-coding-flow/agents"
+cat <<'EOF' > "$source_root/solidity-post-coding-flow/SKILL.md"
+---
+name: solidity-post-coding-flow
+description: test fixture
+---
+EOF
+
+cat <<'EOF' > "$source_root/solidity-post-coding-flow/agents/openai.yaml"
+model: gpt-test
+EOF
+
+SKILL_INSTALL_ROOT="$install_root" \
+SKILL_SOURCE_ROOTS="$source_root" \
+    bash ./script/process/tools/install-repo-skill.sh solidity-post-coding-flow
 
 installed_skill_dir="$install_root/solidity-post-coding-flow"
 

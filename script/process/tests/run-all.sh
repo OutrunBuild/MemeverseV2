@@ -13,6 +13,7 @@ tests=(
     "script/process/tests/ci-workflow.sh"
     "script/process/tests/install-repo-skill.sh"
     "script/process/tests/process-policy.sh"
+    "script/process/tests/quality-quick.sh"
     "script/process/tests/quality-gate-solidity-post-coding.sh"
     "script/process/tests/rule-map-gate.sh"
 )
