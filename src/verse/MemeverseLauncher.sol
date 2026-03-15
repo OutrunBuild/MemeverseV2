@@ -318,19 +318,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint128 totalLiquidProofFunds = genesisFund.totalLiquidProofFunds;
         bool meetMinTotalFund = totalMemecoinFunds + totalLiquidProofFunds >= fundMetaDatas[UPT].minTotalFund;
         uint256 endTime = verse.endTime;
-        require(
-            endTime != 0 && meetMinTotalFund && (currentTime > endTime || verse.flashGenesis),
-            StillInGenesisStage(endTime)
-        );
 
-        if (!meetMinTotalFund) {
-            verse.currentStage = Stage.Refund;
-            return Stage.Refund;
-        } else {
+        if ((verse.flashGenesis && meetMinTotalFund) || (currentTime > endTime && meetMinTotalFund)) {
             _deployAndSetupMemeverse(verseId, verse, UPT, totalMemecoinFunds, totalLiquidProofFunds);
             verse.currentStage = Stage.Locked;
             return Stage.Locked;
         }
+
+        require(currentTime > endTime, StillInGenesisStage(endTime));
+        verse.currentStage = Stage.Refund;
+        return Stage.Refund;
     }
 
     /**

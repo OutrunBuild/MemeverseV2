@@ -253,10 +253,48 @@ contract MockSwapRouter {
         }
         return result.liquidity;
     }
+
+    /// @notice Executes a mocked pool bootstrap for a pair.
+    /// @dev Reuses the configured add-liquidity result and returns the normalized pool key.
+    /// @param tokenA First bootstrap token.
+    /// @param tokenB Second bootstrap token.
+    /// @param amountADesired Unused desired amount for `tokenA`.
+    /// @param amountBDesired Unused desired amount for `tokenB`.
+    /// @param startPrice Unused pool start price.
+    /// @param recipient Recipient of mocked LP shares.
+    /// @param nativeRefundRecipient Unused native refund recipient.
+    /// @param deadline Unused deadline.
+    /// @return liquidity Mock LP liquidity minted to `recipient`.
+    /// @return poolKey Normalized mock pool key for the pair.
+    function createPoolAndAddLiquidity(
+        address tokenA,
+        address tokenB,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        uint160 startPrice,
+        address recipient,
+        address nativeRefundRecipient,
+        uint256 deadline
+    ) external returns (uint128 liquidity, PoolKey memory poolKey) {
+        amountADesired;
+        amountBDesired;
+        startPrice;
+        nativeRefundRecipient;
+        deadline;
+
+        poolKey = this.getHookPoolKey(tokenA, tokenB);
+        AddLiquidityResult memory result = addLiquidityResults[_pairKey(tokenA, tokenB)];
+        address liquidityToken = lpTokens[_pairKey(tokenA, tokenB)];
+        if (result.liquidity != 0 && liquidityToken != address(0)) {
+            MockERC20(liquidityToken).mint(recipient, result.liquidity);
+        }
+        return (result.liquidity, poolKey);
+    }
 }
 
 contract MockLiquidProof is MockERC20 {
     uint256 public burnedAmount;
+    bytes32 public lastPoolId;
 
     constructor() MockERC20("POL", "POL", 18) {}
 
@@ -267,6 +305,48 @@ contract MockLiquidProof is MockERC20 {
     function burn(address from, uint256 value) public override {
         burnedAmount += value;
         super.burn(from, value);
+    }
+
+    /// @notice Stores the latest pool id configured by the launcher.
+    /// @dev Mirrors the launcher-only hook setup side effect for tests.
+    /// @param poolId Mock pool id.
+    function setPoolId(bytes32 poolId) external {
+        lastPoolId = poolId;
+    }
+}
+
+contract MockPredictOnlyProxyDeployer {
+    address public immutable predictedYieldVault;
+    address public immutable predictedGovernor;
+    address public immutable predictedIncentivizer;
+
+    constructor(address yieldVault, address governor, address incentivizer) {
+        predictedYieldVault = yieldVault;
+        predictedGovernor = governor;
+        predictedIncentivizer = incentivizer;
+    }
+
+    /// @notice Returns the mocked predicted yield vault address.
+    /// @dev Ignores the verse id because this mock always returns a fixed address.
+    /// @param uniqueId Unused mock verse id.
+    /// @return yieldVault The mocked predicted yield vault address.
+    function predictYieldVaultAddress(uint256 uniqueId) external view returns (address) {
+        uniqueId;
+        return predictedYieldVault;
+    }
+
+    /// @notice Returns the mocked predicted governor and incentivizer addresses.
+    /// @dev Ignores the verse id because this mock always returns fixed addresses.
+    /// @param uniqueId Unused mock verse id.
+    /// @return governor The mocked governor address.
+    /// @return incentivizer The mocked incentivizer address.
+    function computeGovernorAndIncentivizerAddress(uint256 uniqueId)
+        external
+        view
+        returns (address governor, address incentivizer)
+    {
+        uniqueId;
+        return (predictedGovernor, predictedIncentivizer);
     }
 }
 
@@ -385,6 +465,7 @@ contract MemeverseLauncherPreviewFeesTest is Test {
     TestableMemeverseLauncher internal launcher;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
+    MockPredictOnlyProxyDeployer internal proxyDeployer;
     MockERC20 internal upt;
     MockERC20 internal memecoin;
     MockLiquidProof internal liquidProof;
@@ -403,9 +484,11 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         upt = new MockERC20("UPT", "UPT", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
         liquidProof = new MockLiquidProof();
+        proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
 
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setOFTDispatcher(address(dispatcher));
+        launcher.setMemeverseProxyDeployer(address(proxyDeployer));
     }
 
     function _setLockedVerse(uint256 verseId) internal {
@@ -425,6 +508,19 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
+        launcher.setMemeverseForTest(verseId, verse);
+    }
+
+    function _setGenesisVerse(uint256 verseId, bool flashGenesis, uint128 endTime) internal {
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(upt);
+        verse.memecoin = address(memecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
+        verse.endTime = endTime;
+        verse.flashGenesis = flashGenesis;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = uint32(block.chainid + 1);
         launcher.setMemeverseForTest(verseId, verse);
     }
 
@@ -472,6 +568,51 @@ contract MemeverseLauncherPreviewFeesTest is Test {
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
         launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+    }
+
+    /// @notice Verifies expired Genesis moves to Refund when minimum funding was never met.
+    /// @dev Captures the stage-transition bug where the refund branch was unreachable.
+    function testChangeStage_WhenGenesisEndedWithoutMinimumFund_MovesToRefund() external {
+        uint256 verseId = 7;
+        uint128 endTime = uint128(block.timestamp + 1);
+        _setGenesisVerse(verseId, false, endTime);
+        launcher.setFundMetaData(address(upt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 30 ether, 10 ether);
+        vm.warp(endTime + 1);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Refund), "returned stage");
+        assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Refund), "stored stage");
+    }
+
+    /// @notice Verifies flashGenesis can lock early once the minimum funding target is met.
+    /// @dev Confirms endTime no longer blocks the early-lock path.
+    function testChangeStage_WhenFlashGenesisAndMinimumFundMet_MovesToLocked() external {
+        uint256 verseId = 8;
+        _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
+        launcher.setFundMetaData(address(upt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        router.setAddLiquidityResult(address(memecoin), address(upt), 90 ether, 0, 0);
+        router.setAddLiquidityResult(address(liquidProof), address(upt), 30 ether, 0, 0);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked), "returned stage");
+        assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Locked), "stored stage");
+    }
+
+    /// @notice Verifies non-flash Genesis cannot lock early even if the minimum funding target is met.
+    /// @dev Preserves the requirement that non-flash launches wait for endTime expiry.
+    function testChangeStage_WhenNotFlashGenesisBeforeEnd_Reverts() external {
+        uint256 verseId = 9;
+        uint128 endTime = uint128(block.timestamp + 1 days);
+        _setGenesisVerse(verseId, false, endTime);
+        launcher.setFundMetaData(address(upt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseLauncher.StillInGenesisStage.selector, uint256(endTime)));
+        launcher.changeStage(verseId);
     }
 
     /// @notice Verifies POL cannot be claimed twice for the same genesis contribution.
