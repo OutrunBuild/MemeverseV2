@@ -52,11 +52,6 @@ abstract contract OutrunOAppCoreInit is IOAppCore, OutrunOwnableInit {
         endpoint.setDelegate(_delegate);
     }
 
-    /**
-     * @notice Returns the peer address (OApp instance) associated with a specific endpoint.
-     * @param _eid The endpoint ID.
-     * @return peer The address of the peer associated with the specified endpoint.
-     */
     /// @notice Returns peers.
     /// @dev See the implementation for behavior details.
     /// @param _eid The _eid value.
@@ -66,15 +61,6 @@ abstract contract OutrunOAppCoreInit is IOAppCore, OutrunOwnableInit {
         return $.peers[_eid];
     }
 
-    /**
-     * @notice Sets the peer address (OApp instance) for a corresponding endpoint.
-     * @param _eid The endpoint ID.
-     * @param _peer The address of the peer to be associated with the corresponding endpoint.
-     * @dev Only the owner/admin of the OApp can invoke this method.
-     * @dev Indicates that the peer is trusted to send LayerZero messages to this OApp.
-     * @dev Set this to bytes32(0) to remove the peer address.
-     * @dev Peer is a bytes32 to accommodate non-evm chains.
-     */
     /// @notice Executes set peer.
     /// @dev See the implementation for behavior details.
     /// @param _eid The _eid value.
@@ -98,12 +84,6 @@ abstract contract OutrunOAppCoreInit is IOAppCore, OutrunOwnableInit {
         return peer;
     }
 
-    /**
-     * @notice Sets the delegate address for the OApp.
-     * @param _delegate The address of the delegate to be set.
-     * @dev Only the owner/admin of the OApp can invoke this method.
-     * @dev Provides the ability for a delegate to set configs, on behalf of the OApp, directly on the Endpoint contract.
-     */
     /// @notice Executes set delegate.
     /// @dev See the implementation for behavior details.
     /// @param _delegate The _delegate value.

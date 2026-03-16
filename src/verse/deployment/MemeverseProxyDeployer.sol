@@ -54,9 +54,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         quorumNumerator = _quorumNumerator;
     }
 
-    /**
-     * @dev Predict memecoin yield vault address
-     */
     /// @notice Returns predict yield vault address.
     /// @dev See the implementation for behavior details.
     /// @param uniqueId The uniqueId value.
@@ -65,9 +62,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         return vaultImplementation.predictDeterministicAddress(keccak256(abi.encode(uniqueId)));
     }
 
-    /**
-     * @dev Compute memecoin DAO governor and Incentivizer contract address
-     */
     /// @notice Returns compute governor and incentivizer address.
     /// @dev See the implementation for behavior details.
     /// @param uniqueId The uniqueId value.
@@ -92,9 +86,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         );
     }
 
-    /**
-     * @dev Deploy memecoin proxy contract
-     */
     /// @notice Executes deploy memecoin.
     /// @dev See the implementation for behavior details.
     /// @param uniqueId The uniqueId value.
@@ -105,9 +96,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         emit DeployMemecoin(uniqueId, memecoin);
     }
 
-    /**
-     * @dev Deploy POL proxy contract
-     */
     /// @notice Executes deploy pol.
     /// @dev See the implementation for behavior details.
     /// @param uniqueId The uniqueId value.
@@ -118,9 +106,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         emit DeployPOL(uniqueId, pol);
     }
 
-    /**
-     * @dev Deploy memecoin yield vault proxy contract
-     */
     /// @notice Executes deploy yield vault.
     /// @dev See the implementation for behavior details.
     /// @param uniqueId The uniqueId value.
@@ -131,12 +116,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         emit DeployYieldVault(uniqueId, yieldVault);
     }
 
-    /**
-     * @dev Deploy Memecoin DAO governor and Incentivizer proxy contract
-     * @param memecoinName - The name of memecoin
-     * @param uniqueId - The verseId
-     * @param proposalThreshold - Proposal Threshold
-     */
     /// @notice Executes deploy governor and incentivizer.
     /// @dev See the implementation for behavior details.
     /// @param memecoinName The memecoinName value.
@@ -190,10 +169,6 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         emit DeployGovernorAndIncentivizer(uniqueId, governor, incentivizer);
     }
 
-    /**
-     * @dev Set quorumNumerator
-     * @param _quorumNumerator - quorumNumerator
-     */
     /// @notice Executes set quorum numerator.
     /// @dev See the implementation for behavior details.
     /// @param _quorumNumerator The _quorumNumerator value.

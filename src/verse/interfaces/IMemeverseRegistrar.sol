@@ -31,9 +31,6 @@ interface IMemeverseRegistrar {
         view
         returns (uint256 lzFee);
 
-    /**
-     * @dev Register through cross-chain at the RegistrationCenter
-     */
     /// @notice Executes register at center.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.

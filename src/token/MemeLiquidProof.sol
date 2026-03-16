@@ -30,14 +30,6 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
      */
     constructor(address _lzEndpoint) OutrunOFTInit(_lzEndpoint) {}
 
-    /**
-     * @dev Initialize the memecoin liquidProof.
-     * @param name_ - The name of the memecoin liquidProof.
-     * @param symbol_ - The symbol of the memecoin liquidProof.
-     * @param memecoin_ - The address of the memecoin.
-     * @param memeverseLauncher_ - The address of the memeverse launcher.
-     * @param delegate_ - The address of the OFT delegate.
-     */
     /// @notice Executes initialize.
     /// @dev See the implementation for behavior details.
     /// @param name_ The name_ value.
@@ -73,9 +65,6 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
         return "mode=timestamp";
     }
 
-    /**
-     * @dev Set PoolId(Uniswap V4) after deploying liquidity
-     */
     /// @notice Executes set pool id.
     /// @dev See the implementation for behavior details.
     /// @param _poolId The _poolId value.
@@ -107,9 +96,6 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
         _burn(account, amount);
     }
 
-    /**
-     * @dev Burn the liquid proof by self.
-     */
     /// @notice Executes burn.
     /// @dev See the implementation for behavior details.
     /// @param amount The amount value.

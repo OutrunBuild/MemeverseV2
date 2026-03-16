@@ -14,31 +14,17 @@ interface IOFTCompose {
         bool isExecuted; // Has Been Executed?
     }
 
-    /**
-     * @dev Get the compose tx executed status by guid.
-     * @param guid - The unique identifier for the received LayerZero message.
-     */
     /// @notice Returns get compose tx executed status.
     /// @dev See the implementation for behavior details.
     /// @param guid The guid value.
     /// @return bool The bool value.
     function getComposeTxExecutedStatus(bytes32 guid) external view returns (bool);
 
-    /**
-     * @dev Notify the OFT contract that the composition call has been executed.
-     * @param guid - The unique identifier for the received LayerZero message.
-     */
     /// @notice Executes notify compose executed.
     /// @dev See the implementation for behavior details.
     /// @param guid The guid value.
     function notifyComposeExecuted(bytes32 guid) external;
 
-    /**
-     * @dev Withdraw OFT if the composition call has not been executed.
-     * @param guid - The unique identifier for the received LayerZero message.
-     * @param receiver - Address to receive OFT.
-     * @return amount - Withdraw amount
-     */
     /// @notice Executes withdraw if not executed.
     /// @dev See the implementation for behavior details.
     /// @param guid The guid value.

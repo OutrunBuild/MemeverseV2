@@ -32,12 +32,6 @@ abstract contract OutrunOFTInit is OutrunOFTCoreInit, OutrunERC20Init {
 
     function __OFT_init_unchained() internal onlyInitializing {}
 
-    /**
-     * @dev Retrieves the address of the underlying ERC20 implementation.
-     * @return The address of the OFT token.
-     *
-     * @dev In the case of OFT, address(this) and erc20 are the same contract.
-     */
     /// @notice Returns token.
     /// @dev See the implementation for behavior details.
     /// @return address The address value.
@@ -55,12 +49,6 @@ abstract contract OutrunOFTInit is OutrunOFTCoreInit, OutrunERC20Init {
         return false;
     }
 
-    /**
-     * @dev Withdraw OFT if the composition call has not been executed.
-     * @param guid - The unique identifier for the received LayerZero message.
-     * @param receiver - Address to receive OFT.
-     * @return amount - Withdraw amount
-     */
     /// @notice Executes withdraw if not executed.
     /// @dev See the implementation for behavior details.
     /// @param guid The guid value.

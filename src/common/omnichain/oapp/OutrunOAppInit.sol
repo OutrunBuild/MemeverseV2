@@ -32,11 +32,6 @@ abstract contract OutrunOAppInit is OutrunOAppSenderInit, OutrunOAppReceiverInit
 
     function __OutrunOApp_init_unchained() internal onlyInitializing {}
 
-    /**
-     * @notice Retrieves the OApp version information.
-     * @return senderVersion The version of the OAppSender.sol implementation.
-     * @return receiverVersion The version of the OAppReceiver.sol implementation.
-     */
     /// @notice Returns o app version.
     /// @dev See the implementation for behavior details.
     /// @return senderVersion The senderVersion value.

@@ -49,9 +49,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         $._symbol = symbol_;
     }
 
-    /**
-     * @dev Returns the name of the token.
-     */
     /// @notice Returns name.
     /// @dev See the implementation for behavior details.
     /// @return The return value.
@@ -60,10 +57,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return $._name;
     }
 
-    /**
-     * @dev Returns the symbol of the token, usually a shorter version of the
-     * name.
-     */
     /// @notice Returns symbol.
     /// @dev See the implementation for behavior details.
     /// @return The return value.
@@ -72,19 +65,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return $._symbol;
     }
 
-    /**
-     * @dev Returns the number of decimals used to get its user representation.
-     * For example, if `decimals` equals `2`, a balance of `505` tokens should
-     * be displayed to a user as `5.05` (`505 / 10 ** 2`).
-     *
-     * Tokens usually opt for a value of 18, imitating the relationship between
-     * Ether and Wei. This is the default value returned by this function, unless
-     * it's overridden.
-     *
-     * NOTE: This information is only used for _display_ purposes: it in
-     * no way affects any of the arithmetic of the contract, including
-     * {IERC20-balanceOf} and {IERC20-transfer}.
-     */
     /// @notice Returns decimals.
     /// @dev See the implementation for behavior details.
     /// @return uint8 The uint8 value.
@@ -92,9 +72,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return 18;
     }
 
-    /**
-     * @dev See {IERC20-totalSupply}.
-     */
     /// @notice Returns total supply.
     /// @dev See the implementation for behavior details.
     /// @return uint256 The uint256 value.
@@ -103,9 +80,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return $._totalSupply;
     }
 
-    /**
-     * @dev See {IERC20-balanceOf}.
-     */
     /// @notice Returns balance of.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.
@@ -115,14 +89,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return $._balances[account];
     }
 
-    /**
-     * @dev See {IERC20-transfer}.
-     *
-     * Requirements:
-     *
-     * - `to` cannot be the zero address.
-     * - the caller must have a balance of at least `value`.
-     */
     /// @notice Executes transfer.
     /// @dev See the implementation for behavior details.
     /// @param to The to value.
@@ -134,9 +100,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return true;
     }
 
-    /**
-     * @dev See {IERC20-allowance}.
-     */
     /// @notice Returns allowance.
     /// @dev See the implementation for behavior details.
     /// @param owner The owner value.
@@ -147,16 +110,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return $._allowances[owner][spender];
     }
 
-    /**
-     * @dev See {IERC20-approve}.
-     *
-     * NOTE: If `value` is the maximum `uint256`, the allowance is not updated on
-     * `transferFrom`. This is semantically equivalent to an infinite approval.
-     *
-     * Requirements:
-     *
-     * - `spender` cannot be the zero address.
-     */
     /// @notice Executes approve.
     /// @dev See the implementation for behavior details.
     /// @param spender The spender value.
@@ -168,22 +121,6 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         return true;
     }
 
-    /**
-     * @dev See {IERC20-transferFrom}.
-     *
-     * Emits an {Approval} event indicating the updated allowance. This is not
-     * required by the EIP. See the note at the beginning of {ERC20}.
-     *
-     * NOTE: Does not update the allowance if the current allowance
-     * is the maximum `uint256`.
-     *
-     * Requirements:
-     *
-     * - `from` and `to` cannot be the zero address.
-     * - `from` must have a balance of at least `value`.
-     * - the caller must have allowance for ``from``'s tokens of at least
-     * `value`.
-     */
     /// @notice Executes transfer from.
     /// @dev See the implementation for behavior details.
     /// @param from The from value.

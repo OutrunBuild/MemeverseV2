@@ -51,11 +51,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         MEMEVERSE_COMMON_INFO = _memeverseCommonInfo;
     }
 
-    /**
-     * @notice Preview if the symbol can be registered
-     * @param symbol - The symbol to preview
-     * @return true if the symbol can be registered, false otherwise
-     */
     /// @notice Returns preview registration.
     /// @dev See the implementation for behavior details.
     /// @param symbol The symbol value.
@@ -66,14 +61,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         return block.timestamp > currentRegistration.endTime;
     }
 
-    /**
-     * @notice Calculate the fee quotation for cross-chain transactions
-     * @param omnichainIds - The omnichain ids
-     * @param message - The message to send
-     * @return totalFee - The total cross-chain fee
-     * @return fees - The cross-chain fee for each omnichain id
-     * @return eids - The lz endpoint id for each omnichain id
-     */
     /// @notice Returns quote send.
     /// @dev See the implementation for behavior details.
     /// @param omnichainIds The omnichainIds value.
@@ -118,10 +105,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         return (totalFee, fees, eids);
     }
 
-    /**
-     * @notice Registration memeverse
-     * @param param - The registration parameter
-     */
     /// @notice Executes registration.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.
@@ -163,9 +146,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit Registration(uniqueId, param);
     }
 
-    /**
-     * @dev Remove gas dust from the contract
-     */
     /// @notice Executes remove gas dust.
     /// @dev See the implementation for behavior details.
     /// @param receiver The receiver value.
@@ -176,14 +156,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit RemoveGasDust(receiver, dust);
     }
 
-    /**
-     * @notice lzSend external call. Only called by self.
-     * @param dstEid - The destination eid
-     * @param message - The message
-     * @param options - The options
-     * @param fee - The cross-chain fee
-     * @param refundAddress - The refund address
-     */
     /// @notice Executes lz send.
     /// @dev See the implementation for behavior details.
     /// @param dstEid The dstEid value.
@@ -322,11 +294,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
                 Memeverse Registration Config
     /////////////////////////////////////////////////////*/
 
-    /**
-     * @dev Set supported UPT genesis fund
-     * @param UPT - Address of UPT
-     * @param isSupported - Is Supported?
-     */
     /// @notice Executes set supported upt.
     /// @dev See the implementation for behavior details.
     /// @param UPT The UPT value.
@@ -338,11 +305,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit SetSupportedUPT(UPT, isSupported);
     }
 
-    /**
-     * @dev Set genesis stage duration days range
-     * @param _minDurationDays - Min genesis stage duration days
-     * @param _maxDurationDays - Max genesis stage duration days
-     */
     /// @notice Executes set duration days range.
     /// @dev See the implementation for behavior details.
     /// @param _minDurationDays The _minDurationDays value.
@@ -356,11 +318,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit SetDurationDaysRange(_minDurationDays, _maxDurationDays);
     }
 
-    /**
-     * @dev Set liquidity lockup days range
-     * @param _minLockupDays - Min liquidity lockup days
-     * @param _maxLockupDays - Max liquidity lockup days
-     */
     /// @notice Executes set lockup days range.
     /// @dev See the implementation for behavior details.
     /// @param _minLockupDays The _minLockupDays value.
@@ -374,10 +331,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit SetLockupDaysRange(_minLockupDays, _maxLockupDays);
     }
 
-    /**
-     * @dev Set the register gas limit
-     * @param _registerGasLimit - The register gas limit
-     */
     /// @notice Executes set register gas limit.
     /// @dev See the implementation for behavior details.
     /// @param _registerGasLimit The _registerGasLimit value.

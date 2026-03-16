@@ -19,11 +19,6 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
         registrationCenter = _registrationCenter;
     }
 
-    /**
-     * @dev Quote the LayerZero fee for the registration at the registration center.
-     * @param param - The registration parameter.
-     * @return lzFee - The LayerZero fee for the registration at the registration center.
-     */
     /// @notice Returns quote register.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.
@@ -55,10 +50,6 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
             IMemeverseRegistrationCenter(registrationCenter).quoteSend(param.omnichainIds, abi.encode(memeverseParam));
     }
 
-    /**
-     * @dev On the same chain, the registration center directly calls this method
-     * @notice Only RegistrationCenter can call
-     */
     /// @notice Executes local registration.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.
@@ -68,14 +59,6 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
         _registerMemeverse(param);
     }
 
-    /**
-     * @dev Register through cross-chain at the RegistrationCenter
-     * @param value - The gas cost required for omni-chain registration at the registration center,
-     *                can be estimated through the LayerZero API on the registration center contract.
-     *                The value must be sufficient, otherwise, the registration will fail, and the
-     *                consumed gas will not be refunded.
-     * @notice Only users can call this method.
-     */
     /// @notice Executes register at center.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.

@@ -43,9 +43,6 @@ abstract contract OutrunERC20PermitInit is OutrunERC20Init, IERC20Permit, Outrun
 
     function __ERC20Permit_init_unchained(string memory) internal onlyInitializing {}
 
-    /**
-     * @inheritdoc IERC20Permit
-     */
     /// @notice Executes permit.
     /// @dev See the implementation for behavior details.
     /// @param owner The owner value.
@@ -70,9 +67,6 @@ abstract contract OutrunERC20PermitInit is OutrunERC20Init, IERC20Permit, Outrun
         _approve(owner, spender, value);
     }
 
-    /**
-     * @inheritdoc IERC20Permit
-     */
     /// @notice Returns nonces.
     /// @dev See the implementation for behavior details.
     /// @param owner The owner value.

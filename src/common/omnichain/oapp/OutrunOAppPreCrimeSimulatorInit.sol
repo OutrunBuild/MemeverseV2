@@ -46,12 +46,6 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         return $.preCrime;
     }
 
-    /**
-     * @dev Retrieves the address of the OApp contract.
-     * @return The address of the OApp contract.
-     * @dev The simulator contract is the base contract for the OApp by default.
-     * @dev If the simulator is a separate contract, override this hook.
-     */
     /// @notice Returns o app.
     /// @dev See the implementation for behavior details.
     /// @return The return value.
@@ -59,10 +53,6 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         return address(this);
     }
 
-    /**
-     * @dev Sets the preCrime contract address.
-     * @param _preCrime The address of the preCrime contract.
-     */
     /// @notice Executes set pre crime.
     /// @dev See the implementation for behavior details.
     /// @param _preCrime The _preCrime value.
@@ -72,13 +62,6 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         emit PreCrimeSet(_preCrime);
     }
 
-    /**
-     * @dev Interface for pre-crime simulations. Always reverts at the end with the simulation results.
-     * @param _packets An array of InboundPacket objects representing received packets to be delivered.
-     * @dev WARNING: MUST revert at the end with the simulation results.
-     * @dev Gives the preCrime implementation the ability to mock packet delivery into lzReceive,
-     * WITHOUT actually executing them.
-     */
     /// @notice Executes lz receive and revert.
     /// @dev See the implementation for behavior details.
     /// @param _packets The _packets value.
@@ -105,18 +88,6 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         revert SimulationResult(IPreCrime(msg.sender).buildSimulationResult());
     }
 
-    /**
-     * @dev Is effectively an internal entrypoint because msg.sender must be address(this).
-     * Allows resetting the call stack for 'internal' calls.
-     * @param _origin The origin information containing the source endpoint and sender address.
-     *  - srcEid: The source chain endpoint ID.
-     *  - sender: The sender address on the src chain.
-     *  - nonce: The nonce of the message.
-     * @param _guid The unique identifier of the packet.
-     * @param _message The message payload of the packet.
-     * @param _executor The executor address for the packet.
-     * @param _extraData Additional data for the packet.
-     */
     /// @notice Executes lz receive simulate.
     /// @dev See the implementation for behavior details.
     /// @param _origin The _origin value.
@@ -158,12 +129,6 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         bytes calldata _extraData
     ) internal virtual;
 
-    /**
-     * @dev checks if the specified peer is considered 'trusted' by the OApp.
-     * @param _eid The endpoint Id to check.
-     * @param _peer The peer to check.
-     * @return Whether the peer passed is considered 'trusted' by the OApp.
-     */
     /// @notice Returns is peer.
     /// @dev See the implementation for behavior details.
     /// @param _eid The _eid value.

@@ -15,13 +15,6 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
      */
     constructor(address _lzEndpoint) OutrunOFTInit(_lzEndpoint) {}
 
-    /**
-     * @notice Initialize the memecoin.
-     * @param name_ - The name of the memecoin.
-     * @param symbol_ - The symbol of the memecoin.
-     * @param _memeverseLauncher - The address of the memeverse launcher.
-     * @param _delegate - The address of the OFT delegate.
-     */
     /// @notice Executes initialize.
     /// @dev See the implementation for behavior details.
     /// @param name_ The name_ value.
@@ -39,11 +32,6 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
         memeverseLauncher = _memeverseLauncher;
     }
 
-    /**
-     * @notice Mint the memecoin.
-     * @param account - The address of the account.
-     * @param amount - The amount of the memecoin.
-     */
     /// @notice Executes mint.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.
@@ -54,10 +42,6 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
         _mint(account, amount);
     }
 
-    /**
-     * @notice Burn the memecoin.
-     * @param amount - The amount of the memecoin.
-     */
     /// @notice Executes burn.
     /// @dev See the implementation for behavior details.
     /// @param amount The amount value.

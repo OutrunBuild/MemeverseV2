@@ -57,9 +57,6 @@ abstract contract OutrunOwnableInit is Initializable {
         _;
     }
 
-    /**
-     * @dev Returns the address of the current owner.
-     */
     /// @notice Returns owner.
     /// @dev See the implementation for behavior details.
     /// @return address The address value.
@@ -77,23 +74,12 @@ abstract contract OutrunOwnableInit is Initializable {
         }
     }
 
-    /**
-     * @dev Leaves the contract without owner. It will not be possible to call
-     * `onlyOwner` functions. Can only be called by the current owner.
-     *
-     * NOTE: Renouncing ownership will leave the contract without an owner,
-     * thereby disabling any functionality that is only available to the owner.
-     */
     /// @notice Executes renounce ownership.
     /// @dev See the implementation for behavior details.
     function renounceOwnership() public virtual onlyOwner {
         _transferOwnership(address(0));
     }
 
-    /**
-     * @dev Transfers ownership of the contract to a new account (`newOwner`).
-     * Can only be called by the current owner.
-     */
     /// @notice Executes transfer ownership.
     /// @dev See the implementation for behavior details.
     /// @param newOwner The newOwner value.

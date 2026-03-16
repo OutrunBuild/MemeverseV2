@@ -113,9 +113,6 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
         return MessageHashUtils.toTypedDataHash(_domainSeparatorV4(), structHash);
     }
 
-    /**
-     * @dev See {IERC-5267}.
-     */
     /// @notice Returns eip712 domain.
     /// @dev See the implementation for behavior details.
     /// @return fields The fields value.

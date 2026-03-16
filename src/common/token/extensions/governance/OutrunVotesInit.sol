@@ -68,10 +68,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
 
     function __OutrunVotes_init_unchained() internal onlyInitializing {}
 
-    /**
-     * @dev Clock used for flagging checkpoints. Can be overridden to implement timestamp based
-     * checkpoints (and voting), in which case {CLOCK_MODE} should be overridden as well to match.
-     */
     /// @notice Returns clock.
     /// @dev See the implementation for behavior details.
     /// @return uint48 The uint48 value.
@@ -103,9 +99,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return SafeCast.toUint48(timepoint);
     }
 
-    /**
-     * @dev Returns the current amount of votes that `account` has.
-     */
     /// @notice Returns get votes.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.
@@ -115,14 +108,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return $._delegateCheckpoints[account].latest();
     }
 
-    /**
-     * @dev Returns the amount of votes that `account` had at a specific moment in the past. If the `clock()` is
-     * configured to use block numbers, this will return the value at the end of the corresponding block.
-     *
-     * Requirements:
-     *
-     * - `timepoint` must be in the past. If operating using block numbers, the block must be already mined.
-     */
     /// @notice Returns get past votes.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.
@@ -133,18 +118,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return $._delegateCheckpoints[account].upperLookupRecent(_validateTimepoint(timepoint));
     }
 
-    /**
-     * @dev Returns the total supply of votes available at a specific moment in the past. If the `clock()` is
-     * configured to use block numbers, this will return the value at the end of the corresponding block.
-     *
-     * NOTE: This value is the sum of all available votes, which is not necessarily the sum of all delegated votes.
-     * Votes that have not been delegated are still part of total supply, even though they would not participate in a
-     * vote.
-     *
-     * Requirements:
-     *
-     * - `timepoint` must be in the past. If operating using block numbers, the block must be already mined.
-     */
     /// @notice Returns get past total supply.
     /// @dev See the implementation for behavior details.
     /// @param timepoint The timepoint value.
@@ -162,9 +135,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return $._totalCheckpoints.latest();
     }
 
-    /**
-     * @dev Returns the delegate that `account` has chosen.
-     */
     /// @notice Returns delegates.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.
@@ -174,9 +144,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return $._delegatee[account];
     }
 
-    /**
-     * @dev Delegates votes from the sender to `delegatee`.
-     */
     /// @notice Executes delegate.
     /// @dev See the implementation for behavior details.
     /// @param delegatee The delegatee value.
@@ -185,9 +152,6 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         _delegate(account, delegatee);
     }
 
-    /**
-     * @dev Delegates votes from signer to `delegatee`.
-     */
     /// @notice Executes delegate by sig.
     /// @dev See the implementation for behavior details.
     /// @param delegatee The delegatee value.

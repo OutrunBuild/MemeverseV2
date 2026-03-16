@@ -78,10 +78,6 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         return _convertToAssets(shares, totalAssets);
     }
 
-    /**
-     * @notice Accumulate yields
-     * @param yield - The amount of yields to accumulate
-     */
     /// @notice Executes accumulate yields.
     /// @dev See the implementation for behavior details.
     /// @param yield The yield value.
@@ -102,10 +98,6 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         }
     }
 
-    /**
-     * @dev Re-accumulate yields from unexecuted allocations
-     * @param lzGuid - The unique identifier for the allocation LayerZero message.
-     */
     /// @notice Executes re accumulate yields.
     /// @dev See the implementation for behavior details.
     /// @param lzGuid The lzGuid value.
@@ -125,9 +117,6 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         }
     }
 
-    /**
-     * @dev Mints shares Vault shares to receiver by depositing exactly amount of underlying tokens
-     */
     /// @notice Executes deposit.
     /// @dev See the implementation for behavior details.
     /// @param assets The assets value.
@@ -140,9 +129,6 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         return shares;
     }
 
-    /**
-     * @dev Burns exactly shares from owner and request sends assets of underlying tokens to receiver.
-     */
     /// @notice Executes request redeem.
     /// @dev See the implementation for behavior details.
     /// @param shares The shares value.
@@ -159,9 +145,6 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         return assets;
     }
 
-    /**
-     * @dev Check the redeemable requests in the request queue and execute the redemption.
-     */
     /// @notice Executes execute redeem.
     /// @dev See the implementation for behavior details.
     /// @return redeemedAmount The redeemedAmount value.

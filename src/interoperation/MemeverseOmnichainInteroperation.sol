@@ -48,15 +48,6 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         omnichainStakingGasLimit = _omnichainStakingGasLimit;
     }
 
-    /**
-     * @dev Quote the LayerZero fee for the Memecoin Omnichain Staking
-     * @param memecoin - Address of memecoin.
-     * @param receiver - Address of staked memecoin receiver.
-     * @param amount - Amount of memecoin will be staked.
-     * @return lzFee - The LayerZero fee for the Memecoin Omnichain Staking. The value must be sufficient,
-     *                    it is recommended that the value be slightly higher than the quote value, otherwise,
-     *                    the registration may fail, and the consumed gas will not be refunded.
-     */
     /// @notice Returns quote memecoin staking.
     /// @dev See the implementation for behavior details.
     /// @param memecoin The memecoin value.
@@ -92,12 +83,6 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         lzFee = IOFT(memecoin).quoteSend(sendParam, false).nativeFee;
     }
 
-    /**
-     * @dev Memecoin Omnichain Staking(Cross to GovChain)
-     * @param memecoin - Address of memecoin.
-     * @param receiver - Address of staked memecoin receiver.
-     * @param amount - Amount of memecoin will be staked.
-     */
     /// @notice Executes memecoin staking.
     /// @dev See the implementation for behavior details.
     /// @param memecoin The memecoin value.
@@ -140,11 +125,6 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         emit OmnichainMemecoinStaking(rec.guid, msg.sender, receiver, memecoin, amount);
     }
 
-    /**
-     * @dev Set gas limits for OFT receive and omnichain memecoin staker
-     * @param _oftReceiveGasLimit - Gas limit for OFT receive
-     * @param _omnichainStakingGasLimit - Gas limit for omnichain memecoin staking
-     */
     /// @notice Executes set gas limits.
     /// @dev See the implementation for behavior details.
     /// @param _oftReceiveGasLimit The _oftReceiveGasLimit value.

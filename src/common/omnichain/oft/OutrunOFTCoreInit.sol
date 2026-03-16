@@ -107,10 +107,6 @@ abstract contract OutrunOFTCoreInit is
         return $.msgInspector;
     }
 
-    /**
-     * @dev Get the compose tx executed status by guid.
-     * @param guid The unique identifier for the received LayerZero message.
-     */
     /// @notice Returns get compose tx executed status.
     /// @dev See the implementation for behavior details.
     /// @param guid The guid value.
@@ -134,15 +130,6 @@ abstract contract OutrunOFTCoreInit is
         return (type(IOFT).interfaceId, 1);
     }
 
-    /**
-     * @dev Retrieves the shared decimals of the OFT.
-     * @return The shared decimals of the OFT.
-     * @dev Sets an implicit cap on the amount of tokens, over uint64.max() will need some sort of outbound cap / totalSupply cap
-     * Lowest common decimal denominator between chains.
-     * Defaults to 6 decimal places to provide up to 18,446,744,073,709.551615 units (max uint64).
-     * For tokens exceeding this totalSupply(), they will need to override sharedDecimals with something smaller.
-     * ie. 4 sharedDecimals would be 1,844,674,407,370,955.1615
-     */
     /// @notice Returns shared decimals.
     /// @dev See the implementation for behavior details.
     /// @return The return value.
@@ -150,13 +137,6 @@ abstract contract OutrunOFTCoreInit is
         return 6;
     }
 
-    /**
-     * @dev Sets the message inspector address for the OFT.
-     * @param _msgInspector The address of the message inspector.
-     *
-     * @dev This is an optional contract that can be used to inspect both 'message' and 'options'.
-     * @dev Set it to address(0) to disable it, or set it to a contract address to enable it.
-     */
     /// @notice Executes set msg inspector.
     /// @dev See the implementation for behavior details.
     /// @param _msgInspector The _msgInspector value.
@@ -166,13 +146,6 @@ abstract contract OutrunOFTCoreInit is
         emit MsgInspectorSet(_msgInspector);
     }
 
-    /**
-     * @notice Provides a quote for OFT-related operations.
-     * @param _sendParam The parameters for the send operation.
-     * @return oftLimit The OFT limit information.
-     * @return oftFeeDetails The details of OFT fees.
-     * @return oftReceipt The OFT receipt information.
-     */
     /// @notice Returns quote oft.
     /// @dev See the implementation for behavior details.
     /// @param _sendParam The _sendParam value.
@@ -228,21 +201,6 @@ abstract contract OutrunOFTCoreInit is
         return _quote(_sendParam.dstEid, message, options, _payInLzToken);
     }
 
-    /**
-     * @dev Executes the send operation.
-     * @param _sendParam The parameters for the send operation.
-     * @param _fee The calculated fee for the send() operation.
-     *      - nativeFee: The native fee.
-     *      - lzTokenFee: The lzToken fee.
-     * @param _refundAddress The address to receive any excess funds.
-     * @return msgReceipt The receipt for the send operation.
-     * @return oftReceipt The OFT receipt information.
-     *
-     * @dev MessagingReceipt: LayerZero msg receipt
-     *  - guid: The unique identifier for the sent message.
-     *  - nonce: The nonce of the sent message.
-     *  - fee: The LayerZero fee incurred for the message.
-     */
     /// @notice Executes send.
     /// @dev See the implementation for behavior details.
     /// @param _sendParam The _sendParam value.
@@ -365,10 +323,6 @@ abstract contract OutrunOFTCoreInit is
         emit OFTReceived(_guid, _origin.srcEid, toAddress, amountReceivedLD);
     }
 
-    /**
-     * @dev Notify the OFT contract that the composition call has been executed.
-     * @param guid The unique identifier for the received LayerZero message.
-     */
     /// @notice Executes notify compose executed.
     /// @dev See the implementation for behavior details.
     /// @param guid The guid value.
@@ -405,14 +359,6 @@ abstract contract OutrunOFTCoreInit is
         _lzReceive(_origin, _guid, _message, _executor, _extraData);
     }
 
-    /**
-     * @dev Check if the peer is considered 'trusted' by the OApp.
-     * @param _eid The endpoint ID to check.
-     * @param _peer The peer to check.
-     * @return Whether the peer passed is considered 'trusted' by the OApp.
-     *
-     * @dev Enables OAppPreCrimeSimulator to check whether a potential Inbound Packet is from a trusted source.
-     */
     /// @notice Returns is peer.
     /// @dev See the implementation for behavior details.
     /// @param _eid The _eid value.

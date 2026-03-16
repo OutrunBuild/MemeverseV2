@@ -51,13 +51,6 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
         });
     }
 
-    /**
-     * @dev Quote the LayerZero fee for the registration at the registration center.
-     * @param param - The registration parameter.
-     * @param value - The gas cost required for omni-chain registration at the registration center,
-     *                can be estimated through the LayerZero API on the registration center contract.
-     * @return lzFee - The LayerZero fee for the registration at the registration center.
-     */
     /// @notice Returns quote register.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.
@@ -88,14 +81,6 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
         lzFee = _quote(REGISTRATION_CENTER_EID, message, options, false).nativeFee;
     }
 
-    /**
-     * @dev Register through cross-chain at the RegistrationCenter
-     * @param value - The gas cost required for omni-chain registration at the registration center,
-     *                can be estimated through the LayerZero API on the registration center contract.
-     *                The value must be sufficient, it is recommended that the value be slightly higher
-     *                than the quote value, otherwise, the registration may fail, and the consumed gas
-     *                will not be refunded.
-     */
     /// @notice Executes register at center.
     /// @dev See the implementation for behavior details.
     /// @param param The param value.
@@ -129,10 +114,6 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
         );
     }
 
-    /**
-     * @dev Set the registration gas limit
-     * @param _registrationGasLimit - The registration gas limit
-     */
     /// @notice Executes set registration gas limit.
     /// @dev See the implementation for behavior details.
     /// @param _registrationGasLimit The _registrationGasLimit value.

@@ -71,9 +71,6 @@ abstract contract OutrunERC20VotesInit is OutrunERC20Init, OutrunVotesInit {
         return balanceOf(account);
     }
 
-    /**
-     * @dev Get number of checkpoints for `account`.
-     */
     /// @notice Returns num checkpoints.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.
@@ -82,9 +79,6 @@ abstract contract OutrunERC20VotesInit is OutrunERC20Init, OutrunVotesInit {
         return _numCheckpoints(account);
     }
 
-    /**
-     * @dev Get the `pos`-th checkpoint for `account`.
-     */
     /// @notice Returns checkpoints.
     /// @dev See the implementation for behavior details.
     /// @param account The account value.

@@ -31,9 +31,6 @@ abstract contract OutrunNoncesInit is Initializable {
 
     function __OutrunNonces_init_unchained() internal onlyInitializing {}
 
-    /**
-     * @dev Returns the next unused nonce for an address.
-     */
     /// @notice Returns nonces.
     /// @dev See the implementation for behavior details.
     /// @param owner The owner value.

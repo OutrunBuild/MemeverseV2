@@ -48,15 +48,6 @@ abstract contract OutrunOAppOptionsType3Init is IOAppOptionsType3, OutrunOwnable
         return $.enforcedOptions[_eid][_msgType];
     }
 
-    /**
-     * @dev Sets the enforced options for specific endpoint and message type combinations.
-     * @param _enforcedOptions An array of EnforcedOptionParam structures specifying enforced options.
-     * @dev Only the owner/admin of the OApp can invoke this method.
-     * @dev Provides a way for the OApp to enforce things like paying for PreCrime, AND/OR minimum dst lzReceive gas amounts etc.
-     * @dev These enforced options can vary as the potential options/execution on the remote may differ as per the msgType.
-     * eg. Amount of lzReceive() gas necessary to deliver a lzCompose() message adds overhead you dont want to pay
-     * if you are only making a standard LayerZero message ie. lzReceive() WITHOUT sendCompose().
-     */
     /// @notice Executes set enforced options.
     /// @dev See the implementation for behavior details.
     /// @param _enforcedOptions The _enforcedOptions value.

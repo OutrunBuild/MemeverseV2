@@ -80,17 +80,6 @@ abstract contract OutrunOAppReceiverInit is IOAppReceiver, OutrunOAppCoreInit {
         return peers(origin.srcEid) == origin.sender;
     }
 
-    /**
-     * @notice Retrieves the next nonce for a given source endpoint and sender address.
-     * @dev _srcEid The source endpoint ID.
-     * @dev _sender The sender address.
-     * @return nonce The next nonce.
-     *
-     * @dev The path nonce starts from 1. If 0 is returned it means that there is NO nonce ordered enforcement.
-     * @dev Is required by the off-chain executor to determine the OApp expects msg execution is ordered.
-     * @dev This is also enforced by the OApp.
-     * @dev By default this is NOT enabled. ie. nextNonce is hardcoded to return 0.
-     */
     /// @notice Returns next nonce.
     /// @dev See the implementation for behavior details.
     /// @param _srcEid The _srcEid value.
@@ -102,19 +91,6 @@ abstract contract OutrunOAppReceiverInit is IOAppReceiver, OutrunOAppCoreInit {
         return 0;
     }
 
-    /**
-     * @dev Entry point for receiving messages or packets from the endpoint.
-     * @param _origin The origin information containing the source endpoint and sender address.
-     *  - srcEid: The source chain endpoint ID.
-     *  - sender: The sender address on the src chain.
-     *  - nonce: The nonce of the message.
-     * @param _guid The unique identifier for the received LayerZero message.
-     * @param _message The payload of the received message.
-     * @param _executor The address of the executor for the received message.
-     * @param _extraData Additional arbitrary data provided by the corresponding executor.
-     *
-     * @dev Entry point for receiving msg/packet from the LayerZero endpoint.
-     */
     /// @notice Executes lz receive.
     /// @dev See the implementation for behavior details.
     /// @param _origin The _origin value.
