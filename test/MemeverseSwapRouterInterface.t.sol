@@ -7,6 +7,8 @@ import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.sol";
 
 contract MemeverseSwapRouterInterfaceTest is Test {
+    /// @notice Verifies the router public interface selectors match the implementation selectors.
+    /// @dev Guards against selector drift while refactoring router internals.
     function testInterfaceSelectorsMatchRouter() external pure {
         bytes4[] memory interfaceSelectors = new bytes4[](13);
         interfaceSelectors[0] = IMemeverseSwapRouter.hook.selector;
@@ -41,5 +43,12 @@ contract MemeverseSwapRouterInterfaceTest is Test {
         for (uint256 i = 0; i < interfaceSelectors.length; ++i) {
             assertEq(interfaceSelectors[i], routerSelectors[i]);
         }
+    }
+
+    /// @notice Verifies the router accessor selectors remain unchanged.
+    /// @dev Keeps a tiny focused regression check on the immutable public accessors.
+    function testAccessorSelectorsRemainStable() external pure {
+        assertEq(IMemeverseSwapRouter.hook.selector, bytes4(keccak256("hook()")));
+        assertEq(IMemeverseSwapRouter.permit2.selector, bytes4(keccak256("permit2()")));
     }
 }

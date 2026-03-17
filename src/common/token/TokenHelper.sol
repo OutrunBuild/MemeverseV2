@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {OutrunSafeERC20} from "../../yield/libraries/OutrunSafeERC20.sol";
 
 import {ReentrancyGuard} from "../access/ReentrancyGuard.sol";
 
 abstract contract TokenHelper is ReentrancyGuard {
-    using SafeERC20 for IERC20;
+    using OutrunSafeERC20 for IERC20;
 
     address internal constant NATIVE = address(0);
     uint256 internal constant LOWER_BOUND_APPROVAL = type(uint96).max / 2; // some tokens use 96 bits for approval

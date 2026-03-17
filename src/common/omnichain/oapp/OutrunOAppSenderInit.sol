@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     MessagingParams,
     MessagingFee,
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 
+import {OutrunSafeERC20} from "../../../yield/libraries/OutrunSafeERC20.sol";
 import {OutrunOAppCoreInit} from "./OutrunOAppCoreInit.sol";
 
 /**
@@ -15,7 +16,7 @@ import {OutrunOAppCoreInit} from "./OutrunOAppCoreInit.sol";
  * @dev Abstract contract implementing the OAppSender functionality for sending messages to a LayerZero endpoint.
  */
 abstract contract OutrunOAppSenderInit is OutrunOAppCoreInit {
-    using SafeERC20 for IERC20;
+    using OutrunSafeERC20 for IERC20;
 
     // Custom error messages
     error NotEnoughNative(uint256 msgValue);

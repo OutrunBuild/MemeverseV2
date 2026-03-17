@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL3.0
-// OpenZeppelin Contracts (last updated v5.0.0) (token/ERC20/utils/SafeERC20.sol)
+// OpenZeppelin Contracts (last updated v5.5.0) (token/ERC20/utils/SafeERC20.sol)
 pragma solidity ^0.8.28;
-
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 import {IERC20} from "../../common/token/OutrunERC20Init.sol";
 
@@ -10,8 +8,6 @@ import {IERC20} from "../../common/token/OutrunERC20Init.sol";
  * @dev OutrunSafeERC20, adapted from @openzeppelin
  */
 library OutrunSafeERC20 {
-    using Address for address;
-
     /**
      * @dev An operation with an ERC20 token failed.
      */
@@ -22,7 +18,9 @@ library OutrunSafeERC20 {
      * non-reverting calls are assumed to be successful.
      */
     function safeTransfer(IERC20 token, address to, uint256 value) internal {
-        _callOptionalReturn(token, abi.encodeCall(token.transfer, (to, value)));
+        if (!_safeTransfer(token, to, value, true)) {
+            revert SafeERC20FailedOperation(address(token));
+        }
     }
 
     /**
@@ -30,23 +28,61 @@ library OutrunSafeERC20 {
      * calling contract. If `token` returns no value, non-reverting calls are assumed to be successful.
      */
     function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {
-        _callOptionalReturn(token, abi.encodeCall(token.transferFrom, (from, to, value)));
+        if (!_safeTransferFrom(token, from, to, value, true)) {
+            revert SafeERC20FailedOperation(address(token));
+        }
     }
 
     /**
-     * @dev Imitates a Solidity high-level call (i.e. a regular function call to a contract), relaxing the requirement
-     * on the return value: the return value is optional (but if data is returned, it must not be false).
-     * @param token The token targeted by the call.
-     * @param data The call data (encoded using abi.encode or one of its variants).
+     * @dev Imitates a Solidity `token.transfer(to, value)` call, relaxing the requirement on the return value: the
+     * return value is optional (but if data is returned, it must not be false).
      */
-    function _callOptionalReturn(IERC20 token, bytes memory data) private {
-        // We need to perform a low level call here, to bypass Solidity's return data size checking mechanism, since
-        // we're implementing it ourselves. We use {Address-functionCall} to perform this call, which verifies that
-        // the target address contains contract code and also asserts for success in the low-level call.
+    function _safeTransfer(IERC20 token, address to, uint256 value, bool bubble) private returns (bool success) {
+        bytes4 selector = IERC20.transfer.selector;
 
-        bytes memory returndata = address(token).functionCall(data);
-        if (returndata.length != 0 && !abi.decode(returndata, (bool))) {
-            revert SafeERC20FailedOperation(address(token));
+        assembly ("memory-safe") {
+            let fmp := mload(0x40)
+            mstore(0x00, selector)
+            mstore(0x04, and(to, shr(96, not(0))))
+            mstore(0x24, value)
+            success := call(gas(), token, 0, 0x00, 0x44, 0x00, 0x20)
+            if iszero(and(success, eq(mload(0x00), 1))) {
+                if and(iszero(success), bubble) {
+                    returndatacopy(fmp, 0x00, returndatasize())
+                    revert(fmp, returndatasize())
+                }
+                success := and(success, and(iszero(returndatasize()), gt(extcodesize(token), 0)))
+            }
+            mstore(0x40, fmp)
+        }
+    }
+
+    /**
+     * @dev Imitates a Solidity `token.transferFrom(from, to, value)` call, relaxing the requirement on the return
+     * value: the return value is optional (but if data is returned, it must not be false).
+     */
+    function _safeTransferFrom(IERC20 token, address from, address to, uint256 value, bool bubble)
+        private
+        returns (bool success)
+    {
+        bytes4 selector = IERC20.transferFrom.selector;
+
+        assembly ("memory-safe") {
+            let fmp := mload(0x40)
+            mstore(0x00, selector)
+            mstore(0x04, and(from, shr(96, not(0))))
+            mstore(0x24, and(to, shr(96, not(0))))
+            mstore(0x44, value)
+            success := call(gas(), token, 0, 0x00, 0x64, 0x00, 0x20)
+            if iszero(and(success, eq(mload(0x00), 1))) {
+                if and(iszero(success), bubble) {
+                    returndatacopy(fmp, 0x00, returndatasize())
+                    revert(fmp, returndatasize())
+                }
+                success := and(success, and(iszero(returndatasize()), gt(extcodesize(token), 0)))
+            }
+            mstore(0x40, fmp)
+            mstore(0x60, 0)
         }
     }
 }

@@ -13,8 +13,8 @@ import {SafeCallback} from "@uniswap/v4-periphery/src/base/SafeCallback.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import {OutrunSafeERC20} from "../yield/libraries/OutrunSafeERC20.sol";
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
 import {LiquidityQuote} from "./libraries/LiquidityQuote.sol";
@@ -32,7 +32,7 @@ import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 /// intended canonical entrypoint for end-user and on-chain SDK integrations, covering quote, swap, LP, fee claim,
 /// and hook-backed pool bootstrap flows.
 contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
-    using SafeERC20 for IERC20;
+    using OutrunSafeERC20 for IERC20;
     using CurrencySettler for Currency;
     using CurrencyLibrary for Currency;
     using PoolIdLibrary for PoolKey;
