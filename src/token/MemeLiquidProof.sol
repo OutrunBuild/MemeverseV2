@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {OutrunNoncesInit} from "../common/token/OutrunNoncesInit.sol";
 import {IMemeLiquidProof, PoolId} from "./interfaces/IMemeLiquidProof.sol";
 import {OutrunOFTInit} from "../common/omnichain/oft/OutrunOFTInit.sol";
-import {OutrunERC20PermitInit} from "../common/token/OutrunERC20PermitInit.sol";
-import {OutrunERC20Init, OutrunERC20VotesInit} from "../common/token/extensions/governance/OutrunERC20VotesInit.sol";
 
 /**
  * @title Omnichain Memecoin Proof Of Liquidity(POL) Token
  */
-contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20VotesInit, OutrunOFTInit {
+contract MemeLiquidProof is IMemeLiquidProof, OutrunOFTInit {
     address public memecoin;
     address public memeverseLauncher;
 
@@ -51,20 +48,6 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
         memeverseLauncher = memeverseLauncher_;
     }
 
-    /// @notice Returns clock.
-    /// @dev See the implementation for behavior details.
-    /// @return uint48 The uint48 value.
-    function clock() public view override returns (uint48) {
-        return uint48(block.timestamp);
-    }
-
-    /// @notice Returns clock mode.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
-    function CLOCK_MODE() public pure override returns (string memory) {
-        return "mode=timestamp";
-    }
-
     /// @notice Executes set pool id.
     /// @dev See the implementation for behavior details.
     /// @param _poolId The _poolId value.
@@ -102,17 +85,5 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunERC20PermitInit, OutrunERC20
     function burn(uint256 amount) external {
         require(amount != 0, ZeroInput());
         _burn(msg.sender, amount);
-    }
-
-    /// @notice Returns nonces.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @return uint256 The uint256 value.
-    function nonces(address owner) public view override(OutrunERC20PermitInit, OutrunNoncesInit) returns (uint256) {
-        return super.nonces(owner);
-    }
-
-    function _update(address from, address to, uint256 value) internal override(OutrunERC20Init, OutrunERC20VotesInit) {
-        super._update(from, to, value);
     }
 }

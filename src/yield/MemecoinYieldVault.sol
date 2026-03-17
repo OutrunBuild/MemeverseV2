@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 import {IMemecoin} from "../token/interfaces/IMemecoin.sol";
 import {OutrunNoncesInit} from "../common/token/OutrunNoncesInit.sol";
 import {IOFTCompose} from "../common/omnichain/oft/IOFTCompose.sol";
@@ -84,26 +86,19 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     function accumulateYields(uint256 yield) external override {
         address msgSender = msg.sender;
         IERC20(asset).safeTransferFrom(msgSender, address(this), yield);
-
-        // If the vault is empty, burn the yield
-        if (totalSupply() == 0) {
-            IMemecoin(asset).burn(yield);
-        } else {
-            uint256 _totalAssets = totalAssets + yield;
-            unchecked {
-                totalAssets = _totalAssets;
-            }
-
-            emit AccumulateYields(msgSender, yield, _convertToAssets(1e18, _totalAssets));
-        }
+        _accumulateYield(msgSender, yield);
     }
 
-    /// @notice Executes re accumulate yields.
-    /// @dev See the implementation for behavior details.
+    /// @notice Retries yield accumulation after a LayerZero compose call to `accumulateYields` failed.
+    /// @dev Uses `lzGuid` to withdraw the unexecuted cross-chain yield transfer and then applies the normal local
+    ///      accumulation path.
     /// @param lzGuid The lzGuid value.
     function reAccumulateYields(bytes32 lzGuid) external override {
         uint256 yield = IOFTCompose(asset).withdrawIfNotExecuted(lzGuid, address(this));
+        _accumulateYield(yieldDispatcher, yield);
+    }
 
+    function _accumulateYield(address yieldSource, uint256 yield) internal {
         // If the vault is empty, burn the yield
         if (totalSupply() == 0) {
             IMemecoin(asset).burn(yield);
@@ -113,7 +108,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
                 totalAssets = _totalAssets;
             }
 
-            emit AccumulateYields(yieldDispatcher, yield, _convertToAssets(1e18, _totalAssets));
+            emit AccumulateYields(yieldSource, yield, _convertToAssets(1e18, _totalAssets));
         }
     }
 
@@ -157,7 +152,6 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
             }
             if (block.timestamp >= requestQueue[i].requestTime + REDEEM_DELAY) {
                 uint256 amount = requestQueue[i].amount;
-                IERC20(asset).safeTransfer(msg.sender, amount);
                 redeemedAmount += amount;
 
                 // Remove redeemed request
@@ -167,6 +161,8 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
                     requestQueue[requestQueue.length - 1].requestTime = 0;
                 }
                 requestQueue.pop();
+
+                IERC20(asset).safeTransfer(msg.sender, amount);
 
                 emit RedeemExecuted(msg.sender, amount);
             }
@@ -179,7 +175,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
 
         _burn(sender, shares);
         totalAssets -= assets;
-        redeemRequestQueues[msg.sender].push(
+        redeemRequestQueues[receiver].push(
             RedeemRequest({amount: uint192(assets), requestTime: uint64(block.timestamp)})
         );
 
@@ -187,21 +183,11 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     }
 
     function _convertToShares(uint256 assets, uint256 latestTotalAssets) internal view returns (uint256) {
-        uint256 _totalSupply = totalSupply();
-        _totalSupply = _totalSupply == 0 ? 1 : _totalSupply;
-        uint256 _totalAssets = latestTotalAssets;
-        _totalAssets = _totalAssets == 0 ? 1 : _totalAssets;
-
-        return assets * _totalSupply / _totalAssets;
+        return Math.mulDiv(assets, totalSupply() + 1, latestTotalAssets + 1);
     }
 
     function _convertToAssets(uint256 shares, uint256 latestTotalAssets) internal view returns (uint256) {
-        uint256 _totalSupply = totalSupply();
-        _totalSupply = _totalSupply == 0 ? 1 : _totalSupply;
-        uint256 _totalAssets = latestTotalAssets;
-        _totalAssets = _totalAssets == 0 ? 1 : _totalAssets;
-
-        return shares * _totalAssets / _totalSupply;
+        return Math.mulDiv(shares, latestTotalAssets + 1, totalSupply() + 1);
     }
 
     function _deposit(address sender, address receiver, uint256 assets, uint256 shares) internal {
