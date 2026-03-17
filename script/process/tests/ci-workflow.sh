@@ -25,3 +25,17 @@ if ! grep -Fq "slither --version" "$workflow_file"; then
     echo "Expected CI workflow to verify the slither installation"
     exit 1
 fi
+
+if ! grep -Fq "QUALITY_GATE_REVIEW_NOTE" "$workflow_file"; then
+    echo "Expected CI workflow to provide QUALITY_GATE_REVIEW_NOTE"
+    exit 1
+fi
+
+review_note_file="docs/reviews/CI_REVIEW_NOTE.md"
+
+if [ ! -f "$review_note_file" ]; then
+    echo "Expected tracked CI review note at $review_note_file"
+    exit 1
+fi
+
+bash ./script/process/check-review-note.sh "$review_note_file"

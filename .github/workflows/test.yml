@@ -59,4 +59,5 @@ jobs:
         env:
           QUALITY_GATE_MODE: ci
           QUALITY_GATE_FILE_LIST: .quality-gate-changed-files
+          QUALITY_GATE_REVIEW_NOTE: docs/reviews/CI_REVIEW_NOTE.md
         run: npm run quality:gate
