@@ -123,10 +123,12 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
             });
         }
 
+        uint192 nextNonce = currentNonce + 1;
         uint64 endTime = uint64(currentTime + param.durationDays * DAY);
-        uint256 uniqueId = uint256(keccak256(abi.encodePacked(param.symbol, currentNonce + 1, param.UPT)));
+        uint256 uniqueId = uint256(keccak256(abi.encodePacked(param.symbol, nextNonce, param.UPT)));
         currentRegistration.uniqueId = uniqueId;
         currentRegistration.endTime = endTime;
+        currentRegistration.nonce = nextNonce;
 
         IMemeverseRegistrar.MemeverseParam memory memeverseParam = IMemeverseRegistrar.MemeverseParam({
             name: param.name,

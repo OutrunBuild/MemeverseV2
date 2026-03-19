@@ -241,7 +241,7 @@ contract MemeverseRegistrationCenterTest is Test {
         (uint256 uniqueId, uint64 endTime, uint192 nonce) = center.symbolRegistry(param.symbol);
         assertEq(uniqueId, expectedUniqueId);
         assertEq(endTime, uint64(block.timestamp + param.durationDays * center.DAY()));
-        assertEq(nonce, 0);
+        assertEq(nonce, 1);
 
         assertEq(registrar.lastUniqueId(), expectedUniqueId);
         assertEq(registrar.lastUPT(), param.UPT);
@@ -249,6 +249,33 @@ contract MemeverseRegistrationCenterTest is Test {
         assertEq(endpoint.lastDstEid(), REMOTE_EID);
         assertEq(endpoint.lastRefundAddress(), address(this));
         assertEq(endpoint.lastSendValue(), 0.5 ether);
+    }
+
+    /// @notice Test registration increments nonce and changes unique id on re-registration.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRegistrationIncrementsNonceAndChangesUniqueIdOnReregistration() external {
+        endpoint.setQuotedNativeFee(0.5 ether);
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+
+        center.registration{value: 0.5 ether}(param);
+        (uint256 firstUniqueId, uint64 firstEndTime, uint192 firstNonce) = center.symbolRegistry(param.symbol);
+
+        assertEq(firstUniqueId, uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))));
+        assertEq(firstNonce, 1);
+
+        vm.warp(firstEndTime + 1);
+        center.registration{value: 0.5 ether}(param);
+
+        (uint256 secondUniqueId,, uint192 secondNonce) = center.symbolRegistry(param.symbol);
+        (uint256 historyUniqueId, uint64 historyEndTime, uint192 historyNonce) =
+            center.symbolHistory(param.symbol, firstUniqueId);
+
+        assertEq(secondUniqueId, uint256(keccak256(abi.encodePacked(param.symbol, uint192(2), param.UPT))));
+        assertTrue(secondUniqueId != firstUniqueId);
+        assertEq(secondNonce, 2);
+        assertEq(historyUniqueId, firstUniqueId);
+        assertEq(historyEndTime, firstEndTime);
+        assertEq(historyNonce, 1);
     }
 
     /// @notice Test registration rejects invalid params and stores prior registration in history.
@@ -299,7 +326,7 @@ contract MemeverseRegistrationCenterTest is Test {
         param = _registrationParam();
         center.registration{value: 0.5 ether}(param);
         (uint256 firstUniqueId, uint64 firstEndTime, uint192 firstNonce) = center.symbolRegistry(param.symbol);
-        assertEq(firstNonce, 0);
+        assertEq(firstNonce, 1);
 
         vm.warp(firstEndTime + 1);
         center.registration{value: 0.5 ether}(param);
@@ -308,9 +335,10 @@ contract MemeverseRegistrationCenterTest is Test {
         (uint256 historyUniqueId, uint64 historyEndTime, uint192 historyNonce) =
             center.symbolHistory(param.symbol, firstUniqueId);
         assertTrue(currentUniqueId != 0);
+        assertTrue(currentUniqueId != firstUniqueId);
         assertEq(historyUniqueId, firstUniqueId);
         assertEq(historyEndTime, firstEndTime);
-        assertEq(historyNonce, 0);
+        assertEq(historyNonce, 1);
 
         (, uint64 currentEndTime,) = center.symbolRegistry(param.symbol);
         vm.expectRevert(
