@@ -5,21 +5,21 @@ import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {IPoolManager, ModifyLiquidityParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {LiquidityAmounts} from "../src/swap/libraries/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
-import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
-import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
-import {IMemeverseUniswapHook} from "../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {LiquidityQuote} from "../src/swap/libraries/LiquidityQuote.sol";
-import {UniswapLP} from "../src/swap/tokens/UniswapLP.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
+import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
+import {LiquidityQuote} from "../../src/swap/libraries/LiquidityQuote.sol";
+import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
 contract MockPoolManagerForHookLiquidity {
     using PoolIdLibrary for PoolKey;
@@ -317,6 +317,36 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
+    /// @notice Verifies pool initialization rejects non-default tick spacing.
+    /// @dev Covers the hook's beforeInitialize validation for unsupported pool config.
+    function testInitializeReverts_WhenTickSpacingIsNotDefault() external {
+        PoolKey memory invalidKey = PoolKey({
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
+            fee: 0x800000,
+            tickSpacing: 1,
+            hooks: IHooks(address(hook))
+        });
+
+        vm.expectRevert(IMemeverseUniswapHook.TickSpacingNotDefault.selector);
+        mockManager.initialize(invalidKey, SQRT_PRICE_1_1);
+    }
+
+    /// @notice Verifies pool initialization rejects non-dynamic fees.
+    /// @dev Covers the hook's beforeInitialize validation for static-fee pools.
+    function testInitializeReverts_WhenFeeIsNotDynamic() external {
+        PoolKey memory invalidKey = PoolKey({
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
+            fee: 3000,
+            tickSpacing: 200,
+            hooks: IHooks(address(hook))
+        });
+
+        vm.expectRevert(IMemeverseUniswapHook.FeeMustBeDynamic.selector);
+        mockManager.initialize(invalidKey, SQRT_PRICE_1_1);
+    }
+
     /// @notice Executes test remove liquidity supports native output.
     /// @dev See the implementation for behavior details.
     function testRemoveLiquidity_SupportsNativeOutput() external {
@@ -359,6 +389,64 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(address(hook).balance, 0, "hook keeps no native");
         assertEq(address(mockManager).balance, 1000, "manager keeps minimum-liquidity native dust");
         assertEq(mockManager.getLiquidity(nativePoolId), 1000, "minimum liquidity remains locked");
+    }
+
+    /// @notice Verifies addLiquidity rejects pools that have not been initialized.
+    /// @dev Covers the `PoolNotInitialized` branch before any quote or settlement logic.
+    function testAddLiquidityCoreReverts_WhenPoolNotInitialized() external {
+        PoolKey memory uninitializedKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X", "X", 18))), Currency.wrap(address(token1)));
+
+        vm.expectRevert(IMemeverseUniswapHook.PoolNotInitialized.selector);
+        hook.addLiquidityCore(
+            IMemeverseUniswapHook.AddLiquidityCoreParams({
+                currency0: uninitializedKey.currency0,
+                currency1: uninitializedKey.currency1,
+                amount0Desired: 1 ether,
+                amount1Desired: 1 ether,
+                to: address(this)
+            })
+        );
+    }
+
+    /// @notice Verifies removeLiquidity rejects pools with no initialized liquidity.
+    /// @dev Covers the `PoolNotInitialized` branch on liquidity exit.
+    function testRemoveLiquidityCoreReverts_WhenPoolNotInitialized() external {
+        PoolKey memory uninitializedKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X", "X", 18))), Currency.wrap(address(token1)));
+
+        vm.expectRevert(IMemeverseUniswapHook.PoolNotInitialized.selector);
+        hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: uninitializedKey.currency0,
+                currency1: uninitializedKey.currency1,
+                liquidity: 1 ether,
+                recipient: address(this)
+            })
+        );
+    }
+
+    /// @notice Verifies direct removeLiquidityCore forwards assets when recipient differs from sender.
+    /// @dev Covers the `_forwardLiquidityOutputs` branch in the hook.
+    function testRemoveLiquidityCore_ForwardsOutputsToDifferentRecipient() external {
+        uint128 liquidity = _addLiquidity();
+        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        address recipient = address(0xCAFE);
+
+        uint256 recipient0Before = token0.balanceOf(recipient);
+        uint256 recipient1Before = token1.balanceOf(recipient);
+
+        BalanceDelta delta = hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: key.currency0, currency1: key.currency1, liquidity: liquidity, recipient: recipient
+            })
+        );
+
+        assertEq(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp burned");
+        assertGt(token0.balanceOf(recipient), recipient0Before, "recipient token0");
+        assertGt(token1.balanceOf(recipient), recipient1Before, "recipient token1");
+        assertGt(delta.amount0(), 0, "delta0");
+        assertGt(delta.amount1(), 0, "delta1");
     }
 
     /// @notice Executes test router add liquidity uses hook core.
@@ -437,6 +525,173 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertGt(delta.amount1(), 0, "delta1");
         assertGt(token0.balanceOf(address(this)), balance0Before, "token0 returned");
         assertGt(token1.balanceOf(address(this)), balance1Before, "token1 returned");
+    }
+
+    /// @notice Verifies claiming fees on an uninitialized pool reverts.
+    /// @dev Covers the `PoolNotInitialized` branch in the low-level claim flow.
+    function testClaimFeesCoreReverts_WhenPoolNotInitialized() external {
+        PoolKey memory uninitializedKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X", "X", 18))), Currency.wrap(address(token1)));
+
+        vm.expectRevert(IMemeverseUniswapHook.PoolNotInitialized.selector);
+        hook.claimFeesCore(
+            IMemeverseUniswapHook.ClaimFeesCoreParams({
+                key: uninitializedKey,
+                owner: address(this),
+                recipient: address(this),
+                deadline: block.timestamp,
+                v: 0,
+                r: bytes32(0),
+                s: bytes32(0)
+            })
+        );
+    }
+
+    /// @notice Verifies `updateUserSnapshot` handles zero LP balances by only moving offsets.
+    /// @dev Covers the zero-balance early branch without accruing pending fees.
+    function testUpdateUserSnapshot_ZeroBalanceOnlyUpdatesOffsets() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        router.addLiquidity(
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
+        );
+
+        (address lpToken,,,) = hook.poolInfo(poolId);
+        uint256 lpBalance = UniswapLP(lpToken).balanceOf(address(this));
+        assertTrue(UniswapLP(lpToken).transfer(address(0xCAFE), lpBalance));
+
+        hook.updateUserSnapshot(poolId, address(this));
+
+        (uint256 fee0Offset, uint256 fee1Offset, uint256 pendingFee0, uint256 pendingFee1) =
+            hook.userFeeState(poolId, address(this));
+        (,, uint256 fee0PerShare, uint256 fee1PerShare) = hook.poolInfo(poolId);
+        assertEq(fee0Offset, fee0PerShare, "fee0 offset");
+        assertEq(fee1Offset, fee1PerShare, "fee1 offset");
+        assertEq(pendingFee0, 0, "pending fee0");
+        assertEq(pendingFee1, 0, "pending fee1");
+    }
+
+    /// @notice Verifies relayed claims reject expired signatures.
+    /// @dev Covers the `ExpiredPastDeadline` branch in claim authorization.
+    function testClaimFeesCoreReverts_WhenSignatureExpired() external {
+        router.addLiquidity(
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
+        );
+
+        vm.prank(address(0xCAFE));
+        vm.expectRevert(IMemeverseUniswapHook.ExpiredPastDeadline.selector);
+        hook.claimFeesCore(
+            IMemeverseUniswapHook.ClaimFeesCoreParams({
+                key: key,
+                owner: address(this),
+                recipient: address(this),
+                deadline: block.timestamp - 1,
+                v: 27,
+                r: bytes32(0),
+                s: bytes32(0)
+            })
+        );
+    }
+
+    /// @notice Verifies relayed claims reject invalid signatures.
+    /// @dev Covers the invalid-recovery branch in claim authorization.
+    function testClaimFeesCoreReverts_WhenSignatureInvalid() external {
+        router.addLiquidity(
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp
+        );
+
+        vm.prank(address(0xCAFE));
+        vm.expectRevert(IMemeverseUniswapHook.InvalidClaimSignature.selector);
+        hook.claimFeesCore(
+            IMemeverseUniswapHook.ClaimFeesCoreParams({
+                key: key,
+                owner: address(this),
+                recipient: address(this),
+                deadline: block.timestamp,
+                v: 27,
+                r: bytes32(0),
+                s: bytes32(0)
+            })
+        );
+    }
+
+    /// @notice Verifies owner config setters reject invalid inputs and update state.
+    /// @dev Covers treasury and anti-snipe configuration branches on the hook.
+    function testOwnerSetters_UpdateStateAndRejectInvalidInputs() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.setTreasury(address(0));
+
+        hook.setTreasury(address(0xBEEF));
+        assertEq(hook.treasury(), address(0xBEEF), "treasury");
+
+        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
+        hook.setMaxAntiSnipeProbabilityBase(0);
+
+        hook.setMaxAntiSnipeProbabilityBase(2);
+        assertEq(hook.maxAntiSnipeProbabilityBase(), 2, "max base");
+
+        hook.setAntiSnipeDuration(25);
+        assertEq(hook.antiSnipeDurationBlocks(), 25, "duration");
+    }
+
+    /// @notice Verifies swap quoting reverts when neither side is enabled for protocol fees.
+    /// @dev Covers the `CurrencyNotSupported` branch in fee-context resolution.
+    function testQuoteSwapReverts_WhenProtocolFeeCurrencyUnsupported() external {
+        vm.expectRevert(IMemeverseUniswapHook.CurrencyNotSupported.selector);
+        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+    }
+
+    /// @notice Verifies anti-snipe request rejects overly loose price limits.
+    /// @dev Covers the `SlippageExceedsMaximum` failure branch.
+    function testRequestSwapAttempt_ReturnsSlippageExceedsMaximumWhenLimitTooLoose() external {
+        hook.setAntiSnipeDuration(10);
+        hook.setProtocolFeeCurrency(key.currency0);
+        MockERC20 tokenA = new MockERC20("A", "A", 18);
+        MockERC20 tokenB = new MockERC20("B", "B", 18);
+        tokenA.mint(address(this), 1_000_000 ether);
+        tokenB.mint(address(this), 1_000_000 ether);
+        tokenA.approve(address(hook), type(uint256).max);
+        tokenB.approve(address(hook), type(uint256).max);
+        tokenA.approve(address(router), type(uint256).max);
+        tokenB.approve(address(router), type(uint256).max);
+        PoolKey memory activeKey = _dynamicPoolKey(Currency.wrap(address(tokenA)), Currency.wrap(address(tokenB)));
+        hook.setProtocolFeeCurrency(activeKey.currency0);
+        mockManager.initialize(activeKey, SQRT_PRICE_1_1);
+        uint160 tooLoosePriceLimit = 1;
+
+        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason,) = hook.requestSwapAttemptWithQuote(
+            activeKey,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: tooLoosePriceLimit}),
+            address(this),
+            100 ether,
+            address(this)
+        );
+
+        assertFalse(allowed, "allowed");
+        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.SlippageExceedsMaximum), "reason");
     }
 
     function _addLiquidity() internal returns (uint128 liquidity) {

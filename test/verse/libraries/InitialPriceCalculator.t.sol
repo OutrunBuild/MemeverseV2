@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
-import {InitialPriceCalculator} from "../src/verse/libraries/InitialPriceCalculator.sol";
+import {InitialPriceCalculator} from "../../../src/verse/libraries/InitialPriceCalculator.sol";
 
 contract InitialPriceCalculatorTest is Test {
     uint160 internal constant Q96 = uint160(1 << 96);

@@ -892,18 +892,11 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address inputRefundRecipient,
         bool budgetsPrepared
     ) internal returns (uint128 liquidity) {
-        if (budgetsPrepared) {
-            _ensureHookApproval(key.currency0, amount0Desired);
-            _ensureHookApproval(key.currency1, amount1Desired);
-        } else {
-            _prepareCurrencyBudget(key.currency0, payer, amount0Desired);
-            _prepareCurrencyBudget(key.currency1, payer, amount1Desired);
-        }
-
-        (, uint256 quotedAmount0Used, uint256 quotedAmount1Used) =
-            LiquidityQuote.quote(sqrtPriceX96, amount0Desired, amount1Desired);
+        _prepareAddLiquidityBudgets(
+            key.currency0, key.currency1, amount0Desired, amount1Desired, payer, budgetsPrepared
+        );
         uint256 nativeToForward =
-            _nativeAmountForPair(key.currency0, key.currency1, quotedAmount0Used, quotedAmount1Used);
+            _quoteNativeAmountForLiquidity(key.currency0, key.currency1, sqrtPriceX96, amount0Desired, amount1Desired);
 
         BalanceDelta delta;
         (liquidity, delta) = hook.addLiquidityCore{value: nativeToForward}(
@@ -916,13 +909,70 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
             })
         );
 
+        _handleAddLiquiditySettlement(
+            key.currency0,
+            key.currency1,
+            delta,
+            amount0Desired,
+            amount1Desired,
+            amount0Min,
+            amount1Min,
+            inputRefundRecipient,
+            refundRecipient,
+            nativeDesired,
+            nativeToForward
+        );
+    }
+
+    function _prepareAddLiquidityBudgets(
+        Currency currency0,
+        Currency currency1,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        address payer,
+        bool budgetsPrepared
+    ) internal {
+        if (budgetsPrepared) {
+            _ensureHookApproval(currency0, amount0Desired);
+            _ensureHookApproval(currency1, amount1Desired);
+        } else {
+            _prepareCurrencyBudget(currency0, payer, amount0Desired);
+            _prepareCurrencyBudget(currency1, payer, amount1Desired);
+        }
+    }
+
+    function _quoteNativeAmountForLiquidity(
+        Currency currency0,
+        Currency currency1,
+        uint160 sqrtPriceX96,
+        uint256 amount0Desired,
+        uint256 amount1Desired
+    ) internal pure returns (uint256 nativeToForward) {
+        (, uint256 quotedAmount0Used, uint256 quotedAmount1Used) =
+            LiquidityQuote.quote(sqrtPriceX96, amount0Desired, amount1Desired);
+        nativeToForward = _nativeAmountForPair(currency0, currency1, quotedAmount0Used, quotedAmount1Used);
+    }
+
+    function _handleAddLiquiditySettlement(
+        Currency currency0,
+        Currency currency1,
+        BalanceDelta delta,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address inputRefundRecipient,
+        address refundRecipient,
+        uint256 nativeDesired,
+        uint256 nativeToForward
+    ) internal {
         (uint256 amount0Used, uint256 amount1Used) = _spentLiquidityAmounts(delta);
         if (amount0Used < amount0Min || amount1Used < amount1Min) {
             revert IMemeverseUniswapHook.TooMuchSlippage();
         }
 
-        _refundUnusedInput(key.currency0, inputRefundRecipient, amount0Desired, amount0Used);
-        _refundUnusedInput(key.currency1, inputRefundRecipient, amount1Desired, amount1Used);
+        _refundUnusedInput(currency0, inputRefundRecipient, amount0Desired, amount0Used);
+        _refundUnusedInput(currency1, inputRefundRecipient, amount1Desired, amount1Used);
         _refundUnusedNative(refundRecipient, nativeDesired, nativeToForward);
     }
 

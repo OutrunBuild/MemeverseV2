@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.28;
+
+import {Test} from "forge-std/Test.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+
+import {MemeverseProxyDeployer} from "../../../src/verse/deployment/MemeverseProxyDeployer.sol";
+import {IMemeverseProxyDeployer} from "../../../src/verse/interfaces/IMemeverseProxyDeployer.sol";
+
+contract MockDeployerCloneable {
+    uint256 public marker;
+
+    /// @notice Set marker.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param marker_ See implementation.
+    function setMarker(uint256 marker_) external {
+        marker = marker_;
+    }
+}
+
+contract MockDeployerGovernor {
+    string public name;
+    address public token;
+    uint48 public votingDelay;
+    uint32 public votingPeriod;
+    uint256 public proposalThreshold;
+    uint256 public quorumNumerator;
+    address public incentivizer;
+
+    /// @notice Initialize.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param name_ See implementation.
+    /// @param token_ See implementation.
+    /// @param votingDelay_ See implementation.
+    /// @param votingPeriod_ See implementation.
+    /// @param proposalThreshold_ See implementation.
+    /// @param quorumNumerator_ See implementation.
+    /// @param incentivizer_ See implementation.
+    function initialize(
+        string memory name_,
+        address token_,
+        uint48 votingDelay_,
+        uint32 votingPeriod_,
+        uint256 proposalThreshold_,
+        uint256 quorumNumerator_,
+        address incentivizer_
+    ) external {
+        name = name_;
+        token = token_;
+        votingDelay = votingDelay_;
+        votingPeriod = votingPeriod_;
+        proposalThreshold = proposalThreshold_;
+        quorumNumerator = quorumNumerator_;
+        incentivizer = incentivizer_;
+    }
+}
+
+contract MockDeployerIncentivizer {
+    address public governor;
+    address[] public initFundTokens;
+
+    /// @notice Initialize.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param governor_ See implementation.
+    /// @param initFundTokens_ See implementation.
+    function initialize(address governor_, address[] memory initFundTokens_) external {
+        governor = governor_;
+        initFundTokens = initFundTokens_;
+    }
+
+    /// @notice Init fund token.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param index See implementation.
+    /// @return See implementation.
+    function initFundToken(uint256 index) external view returns (address) {
+        return initFundTokens[index];
+    }
+}
+
+contract MemeverseProxyDeployerTest is Test {
+    using Clones for address;
+
+    address internal constant OWNER = address(0xABCD);
+    address internal constant LAUNCHER = address(0xBEEF);
+    address internal constant OTHER = address(0xCAFE);
+
+    MockDeployerCloneable internal memecoinImplementation;
+    MockDeployerCloneable internal polImplementation;
+    MockDeployerCloneable internal vaultImplementation;
+    MockDeployerGovernor internal governorImplementation;
+    MockDeployerIncentivizer internal incentivizerImplementation;
+    MemeverseProxyDeployer internal deployer;
+
+    /// @notice Set up.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function setUp() external {
+        memecoinImplementation = new MockDeployerCloneable();
+        polImplementation = new MockDeployerCloneable();
+        vaultImplementation = new MockDeployerCloneable();
+        governorImplementation = new MockDeployerGovernor();
+        incentivizerImplementation = new MockDeployerIncentivizer();
+
+        deployer = new MemeverseProxyDeployer(
+            OWNER,
+            LAUNCHER,
+            address(memecoinImplementation),
+            address(polImplementation),
+            address(vaultImplementation),
+            address(governorImplementation),
+            address(incentivizerImplementation),
+            25
+        );
+    }
+
+    /// @notice Test clone deployments only launcher and use deterministic addresses.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testCloneDeploymentsOnlyLauncherAndUseDeterministicAddresses() external {
+        uint256 uniqueId = 7;
+
+        vm.expectRevert(IMemeverseProxyDeployer.PermissionDenied.selector);
+        deployer.deployMemecoin(uniqueId);
+
+        address predictedMemecoin = address(memecoinImplementation)
+            .predictDeterministicAddress(keccak256(abi.encode(uniqueId)), address(deployer));
+        vm.prank(LAUNCHER);
+        address deployedMemecoin = deployer.deployMemecoin(uniqueId);
+        assertEq(deployedMemecoin, predictedMemecoin);
+
+        address predictedPol =
+            address(polImplementation).predictDeterministicAddress(keccak256(abi.encode(uniqueId)), address(deployer));
+        vm.prank(LAUNCHER);
+        address deployedPol = deployer.deployPOL(uniqueId);
+        assertEq(deployedPol, predictedPol);
+
+        address predictedVault = deployer.predictYieldVaultAddress(uniqueId);
+        vm.prank(LAUNCHER);
+        address deployedVault = deployer.deployYieldVault(uniqueId);
+        assertEq(deployedVault, predictedVault);
+    }
+
+    /// @notice Test compute governor and incentivizer matches deployed proxies and initializes them.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testComputeGovernorAndIncentivizerMatchesDeployedProxiesAndInitializesThem() external {
+        uint256 uniqueId = 42;
+        address UPT = address(0x1111);
+        address memecoin = address(0x2222);
+        address pol = address(0x3333);
+        address yieldVault = address(0x4444);
+
+        (address predictedGovernor, address predictedIncentivizer) =
+            deployer.computeGovernorAndIncentivizerAddress(uniqueId);
+
+        vm.prank(LAUNCHER);
+        (address governor, address incentivizer) =
+            deployer.deployGovernorAndIncentivizer("MEME", UPT, memecoin, pol, yieldVault, uniqueId, 123);
+
+        assertEq(governor, predictedGovernor);
+        assertEq(incentivizer, predictedIncentivizer);
+
+        MockDeployerGovernor governorProxy = MockDeployerGovernor(governor);
+        assertEq(governorProxy.name(), "MEME DAO");
+        assertEq(governorProxy.token(), yieldVault);
+        assertEq(governorProxy.votingDelay(), 1 days);
+        assertEq(governorProxy.votingPeriod(), 1 weeks);
+        assertEq(governorProxy.proposalThreshold(), 123);
+        assertEq(governorProxy.quorumNumerator(), 25);
+        assertEq(governorProxy.incentivizer(), incentivizer);
+
+        MockDeployerIncentivizer incentivizerProxy = MockDeployerIncentivizer(incentivizer);
+        assertEq(incentivizerProxy.governor(), governor);
+        assertEq(incentivizerProxy.initFundToken(0), UPT);
+        assertEq(incentivizerProxy.initFundToken(1), memecoin);
+        assertEq(incentivizerProxy.initFundToken(2), pol);
+        assertEq(incentivizerProxy.initFundToken(3), yieldVault);
+    }
+
+    /// @notice Test set quorum numerator only owner and rejects zero.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testSetQuorumNumeratorOnlyOwnerAndRejectsZero() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        deployer.setQuorumNumerator(77);
+
+        vm.prank(OWNER);
+        vm.expectRevert(IMemeverseProxyDeployer.ZeroInput.selector);
+        deployer.setQuorumNumerator(0);
+
+        vm.prank(OWNER);
+        deployer.setQuorumNumerator(77);
+        assertEq(deployer.quorumNumerator(), 77);
+    }
+}

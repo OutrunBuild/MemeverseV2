@@ -17,11 +17,11 @@ import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/ISignatureTransfer.sol";
 import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
-import {LiquidityAmounts} from "../src/swap/libraries/LiquidityAmounts.sol";
-import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
-import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
-import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.sol";
-import {IMemeverseUniswapHook} from "../src/swap/interfaces/IMemeverseUniswapHook.sol";
+import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
+import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
+import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 
 contract MockPoolManagerForPermit2RouterTest {
     using PoolIdLibrary for PoolKey;

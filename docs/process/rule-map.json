@@ -18,17 +18,17 @@
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseSwapRouter.t.sol",
-          "test/MemeverseSwapRouterPermit2.t.sol",
-          "test/MemeverseSwapRouterInterface.t.sol"
+          "test/swap/MemeverseSwapRouter.t.sol",
+          "test/swap/MemeverseSwapRouterPermit2.t.sol",
+          "test/swap/MemeverseSwapRouterInterface.t.sol"
         ]
       },
       "evidence_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseSwapRouter.t.sol",
-          "test/MemeverseSwapRouterPermit2.t.sol",
-          "test/MemeverseSwapRouterInterface.t.sol"
+          "test/swap/MemeverseSwapRouter.t.sol",
+          "test/swap/MemeverseSwapRouterPermit2.t.sol",
+          "test/swap/MemeverseSwapRouterInterface.t.sol"
         ]
       }
     },
@@ -47,14 +47,14 @@
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseUniswapHookLiquidity.t.sol"
+          "test/swap/MemeverseUniswapHookLiquidity.t.sol"
         ]
       },
       "evidence_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseUniswapHookLiquidity.t.sol",
-          "test/MemeverseSwapRouter.t.sol"
+          "test/swap/MemeverseUniswapHookLiquidity.t.sol",
+          "test/swap/MemeverseSwapRouter.t.sol"
         ]
       }
     },
@@ -70,18 +70,18 @@
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseSwapRouter.t.sol",
-          "test/MemeverseSwapRouterPermit2.t.sol",
-          "test/MemeverseUniswapHookLiquidity.t.sol"
+          "test/swap/MemeverseSwapRouter.t.sol",
+          "test/swap/MemeverseSwapRouterPermit2.t.sol",
+          "test/swap/MemeverseUniswapHookLiquidity.t.sol"
         ]
       },
       "evidence_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseSwapRouter.t.sol",
-          "test/MemeverseSwapRouterPermit2.t.sol",
-          "test/MemeverseUniswapHookLiquidity.t.sol",
-          "test/MemeverseDynamicFeeSimulation.t.sol"
+          "test/swap/MemeverseSwapRouter.t.sol",
+          "test/swap/MemeverseSwapRouterPermit2.t.sol",
+          "test/swap/MemeverseUniswapHookLiquidity.t.sol",
+          "test/swap/MemeverseDynamicFeeSimulation.t.sol"
         ]
       }
     },
@@ -98,15 +98,19 @@
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseLauncherPreviewFees.t.sol",
-          "test/MemeverseLauncherRouterConfig.t.sol"
+          "test/verse/MemeverseLauncherLifecycle.t.sol",
+          "test/verse/MemeverseLauncherConfig.t.sol",
+          "test/verse/MemeverseLauncherRegistration.t.sol",
+          "test/verse/MemeverseLauncherViews.t.sol"
         ]
       },
       "evidence_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseLauncherPreviewFees.t.sol",
-          "test/MemeverseLauncherRouterConfig.t.sol"
+          "test/verse/MemeverseLauncherLifecycle.t.sol",
+          "test/verse/MemeverseLauncherConfig.t.sol",
+          "test/verse/MemeverseLauncherRegistration.t.sol",
+          "test/verse/MemeverseLauncherViews.t.sol"
         ]
       }
     },
@@ -122,13 +126,13 @@
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/InitialPriceCalculator.t.sol"
+          "test/verse/libraries/InitialPriceCalculator.t.sol"
         ]
       },
       "evidence_requirement": {
         "mode": "any",
         "tests": [
-          "test/InitialPriceCalculator.t.sol"
+          "test/verse/libraries/InitialPriceCalculator.t.sol"
         ]
       }
     }

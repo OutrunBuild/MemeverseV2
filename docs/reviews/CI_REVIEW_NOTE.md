@@ -1,57 +1,57 @@
-# 2026-03-17-outrunsafeerc20-review
+# 2026-03-19-launcher-swap-test-reorg-review
 
 ## Scope（范围）
 - 说明：用简体中文概述本次改动和实际审阅范围。
-- Change summary: 将 `src/yield/libraries/OutrunSafeERC20.sol` 从旧的 `Address.functionCall` 路径改为对齐 OpenZeppelin v5.5 的 assembly `safeTransfer` / `safeTransferFrom` 实现，并把生产代码里仅依赖 `safeTransfer` / `safeTransferFrom` 的调用点从 OZ `SafeERC20` 切换到 `OutrunSafeERC20`；新增定向回归测试覆盖无代码 token 地址的失败语义；为通过仓库 NatSpec gate，补齐了两份 governance 合约中这次触达函数周边缺失的 NatSpec。
-- Files reviewed: src/yield/libraries/OutrunSafeERC20.sol, src/common/token/TokenHelper.sol, src/governance/MemecoinDaoGovernorUpgradeable.sol, src/governance/GovernanceCycleIncentivizerUpgradeable.sol, src/common/omnichain/oapp/OutrunOAppSenderInit.sol, src/swap/MemeverseSwapRouter.sol, test/OutrunSafeERC20.t.sol, test/MemeverseSwapRouterInterface.t.sol
+- Change summary: 1) 将原先散落在 `test/` 根目录下的 swap、launcher、yield、price calculator 等测试迁移到与源码目录一致的子目录，并同步更新 `docs/process/rule-map.json`，避免路径门禁继续引用已删除测试；2) 为 `MemeverseLauncher`、`MemeverseSwapRouter`、`MemeverseUniswapHook` 补充行为分支测试并重构测试结构，重点覆盖 launcher 生命周期/费用分发/POL mint、router swap 与 add/remove liquidity、hook remove-liquidity recipient 路径；3) 修复 `MemeverseUniswapHook.removeLiquidityCore` 在 `recipient != msg.sender` 时把底层资产错误先发给调用者、再尝试从 hook 二次转发的 bug，并对若干测试做了只影响可维护性的简化。
+- Files reviewed: docs/process/rule-map.json, src/swap/MemeverseSwapRouter.sol, src/swap/MemeverseUniswapHook.sol, src/verse/MemeverseLauncher.sol, test/swap/MemeverseSwapRouter.t.sol, test/swap/MemeverseSwapRouterPermit2.t.sol, test/swap/MemeverseSwapRouterInterface.t.sol, test/swap/MemeverseUniswapHookLiquidity.t.sol, test/swap/MemeverseDynamicFeeSimulation.t.sol, test/verse/MemeverseLauncherLifecycle.t.sol, test/verse/MemeverseLauncherConfig.t.sol, test/verse/MemeverseLauncherRegistration.t.sol, test/verse/MemeverseLauncherViews.t.sol, test/verse/libraries/InitialPriceCalculator.t.sol, test/yield/MemecoinYieldVault.t.sol, test/yield/libraries/OutrunSafeERC20.t.sol
 
 ## Impact（影响）
 - 说明：保持 `yes` / `no` 取值不变，其余解释使用简体中文。
 - Behavior change: yes
 - ABI change: no
 - Storage layout change: no
-- Config change: no
+- Config change: yes
 
 ## Findings（发现）
 - 说明：如果没有问题，保留 `- None: none`，其他发现可用简体中文补充。
 - High findings: none
 - Medium findings: none
-- Low findings: 失败语义从 `AddressEmptyCode` 对齐为 `SafeERC20FailedOperation`，属于预期兼容性调整，已由回归测试覆盖；生产调用点同步切换后，若链下工具曾按旧 error selector 做精细分类，需要一起更新。
+- Low findings: `test/swap/MemeverseDynamicFeeSimulation.t.sol` 仍保留大量 `console.log` 诊断输出，会增加本地阅读噪音，但不影响协议行为或 gate 结果。
 - None: none
-- Security review summary: 本次改动仅替换 ERC20 低层调用库与 import/`using` 绑定，不改变业务授权、外部调用顺序、状态写入路径、升级入口或资金流向。`TokenHelper`、Governor、Incentivizer、OApp sender 与 Router 的调用位点仍然只使用 `safeTransfer` / `safeTransferFrom`，与当前 `OutrunSafeERC20` 暴露的能力完全一致。assembly 逻辑直接对齐 OZ v5.5 的两条核心路径，保留对返回值为空、返回 `true`、返回 `false` 与目标无代码地址的安全判定。
-- Security residual risks: `OutrunSafeERC20` 目前仍未实现 `forceApprove`、`safeIncreaseAllowance`、`safeDecreaseAllowance` 等扩展接口，因此后续若有新调用点需要这些能力，不能机械继续替换；本次已切换文件不受该限制。
+- Security review summary: `MemeverseSwapRouter.sol` 与 `MemeverseLauncher.sol` 的生产改动本质上是内部流程拆分与职责下沉，没有改变访问控制、可调用入口、参数校验顺序或资金流向约束；对应新增测试确认 exact-liquidity 预算保护、pause/owner 权限、slippage/revert 原因和费用路径仍符合预期。`MemeverseUniswapHook.sol` 的改动则是实质 bugfix：`removeLiquidityCore` 现在直接在 `_modifyLiquidity(...)` 时把接收者设为 `params.recipient`，避免 `recipient != msg.sender` 时先把资产发送给调用者、再从 hook 余额二次转发导致错误或资产走向不符的问题。该路径已由 `test/swap/MemeverseUniswapHookLiquidity.t.sol` 的差异接收者用例覆盖。
+- Security residual risks: 当前 worktree 里与本次提交一起收尾的 Solidity 改动主要是 refactor + 单点 bugfix，未发现新的高风险授权或重入面；残余风险主要在业务分支仍然复杂，后续如继续改 launcher/redeem/distribute 或 router quote/swap 路径，仍需维持行为测试而不是依赖覆盖率数字。
 
 ## Simplification（简化评估）
 - 说明：说明考虑过哪些更简单方案、最终采用什么、为什么拒绝其他方案。
-- Candidate simplifications considered: 1) 继续保留 `abi.encodeCall + Address.functionCall`；2) 直接在两个公开函数内联 assembly；3) 一次性把整个 OZ v5.5 `SafeERC20` API 全量搬入；4) 保留 OZ `SafeERC20` 与 `OutrunSafeERC20` 双栈并存。
-- Applied: 采用两个私有 assembly helper 复用 `safeTransfer` / `safeTransferFrom` 的判定逻辑，移除 `Address` 依赖；同时把生产代码里仅依赖这两个接口的调用点统一切到 `OutrunSafeERC20`，减少双栈并存。
-- Rejected (with reason): 拒绝继续使用 `Address.functionCall`，因为目标是对齐当前 OZ v5.5 的汇编路径；拒绝在公开函数内联重复 assembly，因为可读性更差；拒绝全量扩展全部 OZ API，因为当前仓库未使用那些接口，会扩大本次 diff 和审阅面；拒绝继续长期保留双栈并存，因为当前生产调用面已经满足统一条件，保留双栈只会增加维护成本。
+- Candidate simplifications considered: 1) 保留根目录测试文件不动，只继续叠加新测试；2) 继续用大量裸 `vm.expectRevert()` 追求写测试速度；3) 为减少样板引入低层 `call`/selector 驱动的“万能测试 helper”；4) 只按 coverage 缺口机械补测。
+- Applied: 采用“按源码目录分组、每个主合约单文件测试”的结构；将多个关键测试里的裸 `expectRevert()` 收紧为明确 selector；在不损失可读性的前提下，抽取小型 setup/helper，例如 launcher views 的 `_baseVerse(...)`、interoperation 的本地/远程 verse setup，以及 launcher config 的地址 setter 公共断言 helper。
+- Rejected (with reason): 拒绝继续保留根目录旧文件，因为会与路径门禁和源码目录结构脱节；拒绝把任意 revert 都写成“只要 revert 就算通过”，因为会掩盖错误原因漂移；拒绝使用过度抽象的动态 helper，因为会降低测试直观性；拒绝只为刷 branch coverage 写无业务价值测试，因为用户目标是防止 bug、漏洞和回归。
 
 ## Gas（Gas 评估）
 - 说明：聚焦 gas-sensitive 路径、已做优化与剩余风险，命令、路径、selector 保持英文。
-- Gas-sensitive paths reviewed: OutrunSafeERC20.safeTransfer, OutrunSafeERC20.safeTransferFrom, TokenHelper token transfer helpers, MemecoinDaoGovernorUpgradeable treasury transfers, GovernanceCycleIncentivizerUpgradeable reward transfers, OutrunOAppSenderInit._payLzToken, MemeverseSwapRouter LP token pull path
-- Gas changes applied: 用 OZ v5.5 风格的 assembly `call` 路径替换 `abi.encodeCall`、`Address.functionCall` 和 `bytes memory returndata` 分配，减少包装层与内存处理；生产调用点统一到同一轻量库实现，避免继续链接 OZ `SafeERC20` 路径。
-- Gas snapshot/result: `forge test --match-path test/OutrunSafeERC20.t.sol` 中，`testSafeTransferRevertsWithSafeERC20FailedOperationForAddressWithoutCode` gas 从 12115 降到 11990；`testSafeTransferFromRevertsWithSafeERC20FailedOperationForAddressWithoutCode` gas 从 12123 降到 11973。全量 `quality:gate` 通过，未出现因替换导致的 gas gate 异常。
-- Gas residual risks: 当前定量 gas 证据仍以库级失败路径为主，未额外产出各生产入口在成功路径上的逐函数前后基准。
+- Gas-sensitive paths reviewed: MemeverseSwapRouter._addLiquidity / addLiquidityCore settlement path, MemeverseUniswapHook.removeLiquidityCore, MemeverseLauncher.mintPOLToken / registerMemeverse
+- Gas changes applied: 本次 Solidity 改动没有刻意做微观 gas 优化，重点是把长函数拆成可审阅的内部 helper 并修正 hook recipient 语义；router 与 launcher 的重构理论上引入少量内部调用跳转，但没有新增外部调用或额外存储写路径。
+- Gas snapshot/result: 在 `QUALITY_GATE_MODE=ci` + 完整 changed file list 下，`bash ./script/process/quality-gate.sh` 已执行 through `check-gas-report.sh` 并最终 PASS。gas report 过程中出现的是 Foundry lint 级别 warning / note（例如测试里的 unchecked ERC20 transfer 与 unused import），没有把本次变更判为 gas gate 失败。
+- Gas residual risks: 本次没有额外维护逐函数前后 snapshot 表，gas 结论主要来自仓库统一 gas gate 的通过结果；若后续要继续做性能优化，仍建议单独以 snapshot diff 为中心。
 
 ## Docs（文档）
 - 说明：路径、命令、文件名保持英文，原因说明使用简体中文。
-- Docs updated: docs/reviews/README.md
-- Why these docs: 补充 CI 专用 review note 的使用约定，避免后续再因 `.gitignore` 与 workflow 配置不一致导致 gate 失败。
+- Docs updated: docs/process/rule-map.json, docs/reviews/CI_REVIEW_NOTE.md
+- Why these docs: `rule-map.json` 必须跟随测试迁移更新，否则 `quality:quick` / `quality:gate` 会继续要求已删除路径；`CI_REVIEW_NOTE.md` 是本仓库 CI 默认读取的 review note，当前 diff 触达 `src/**/*.sol` 时必须同步更新。
 - No-doc reason: none
 
 ## Tests（测试）
 - 说明：测试路径、selector、命令保持英文，说明文字使用简体中文；如果命中 `rule-map.json` 的正式规则，`Existing tests exercised` 需要显式写出对应映射测试路径。
-- Tests updated: test/OutrunSafeERC20.t.sol, test/MemeverseSwapRouterInterface.t.sol, script/process/tests/ci-workflow.sh
-- Existing tests exercised: test/OutrunSafeERC20.t.sol, test/MemeverseSwapRouterInterface.t.sol, test/MemeverseSwapRouter.t.sol, test/MemeverseSwapRouterPermit2.t.sol, test/MemeverseUniswapHookLiquidity.t.sol, test/MemeverseLauncherPreviewFees.t.sol, test/MemecoinYieldVault.t.sol, script/process/tests/ci-workflow.sh
+- Tests updated: test/swap/MemeverseSwapRouter.t.sol, test/swap/MemeverseSwapRouterPermit2.t.sol, test/swap/MemeverseSwapRouterInterface.t.sol, test/swap/MemeverseUniswapHookLiquidity.t.sol, test/swap/MemeverseDynamicFeeSimulation.t.sol, test/verse/MemeverseLauncherLifecycle.t.sol, test/verse/MemeverseLauncherConfig.t.sol, test/verse/MemeverseLauncherRegistration.t.sol, test/verse/MemeverseLauncherViews.t.sol, test/verse/libraries/InitialPriceCalculator.t.sol, test/yield/MemecoinYieldVault.t.sol, test/yield/libraries/OutrunSafeERC20.t.sol
+- Existing tests exercised: test/swap/MemeverseSwapRouter.t.sol, test/swap/MemeverseSwapRouterPermit2.t.sol, test/swap/MemeverseSwapRouterInterface.t.sol, test/swap/MemeverseUniswapHookLiquidity.t.sol, test/swap/MemeverseDynamicFeeSimulation.t.sol, test/verse/MemeverseLauncherLifecycle.t.sol, test/verse/MemeverseLauncherConfig.t.sol, test/verse/MemeverseLauncherRegistration.t.sol, test/verse/MemeverseLauncherViews.t.sol, test/verse/libraries/InitialPriceCalculator.t.sol, test/yield/MemecoinYieldVault.t.sol, test/yield/libraries/OutrunSafeERC20.t.sol
 - No-test-change reason: none
 
 ## Verification（验证）
 - 说明：命令保持英文；结果总结使用简体中文。
-- Commands run: bash script/process/tests/ci-workflow.sh; forge test --match-path test/OutrunSafeERC20.t.sol; forge test --match-path test/MemeverseSwapRouterInterface.t.sol; forge build; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/outrunsafeerc20-replace-files.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/2026-03-17-outrunsafeerc20-review.md npm run quality:gate
-- Results: CI workflow 自检先红后绿，确认工作流已配置 `QUALITY_GATE_REVIEW_NOTE` 且 CI 专用 review note 可通过格式校验。`OutrunSafeERC20` 的库级回归测试与 router 接口稳定性测试均通过，`forge build` 通过，显式 file-list 模式下 `quality:gate` 全部通过。
+- Commands run: forge test --summary; forge test --match-path test/verse/MemeverseLauncherViews.t.sol --summary; forge test --match-path test/verse/registration/MemeverseRegistrarAtLocal.t.sol --summary; forge test --match-path test/interoperation/MemeverseOmnichainInteroperation.t.sol --summary; forge test --match-path test/verse/MemeverseLauncherConfig.t.sol --summary; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/memeverse_changed_files.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/CI_REVIEW_NOTE.md npm run quality:gate; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/memeverse_changed_files_full.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/CI_REVIEW_NOTE.md bash ./script/process/quality-gate.sh; forge fmt <changed Solidity files>; bash ./script/process/check-natspec.sh <changed Solidity files>; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/memeverse_changed_files_full.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/CI_REVIEW_NOTE.md bash ./script/process/quality-gate.sh
+- Results: `forge test --summary` 与多轮定向测试均通过。由于当前环境中的 `.git` 目录是只读文件系统，`git add -A` 无法创建 `.git/index.lock`，因此无法按仓库默认 staged 模式跑 gate，只能退回 `QUALITY_GATE_MODE=ci` + 完整 changed file list 的等价校验。收尾过程中先后修复了三类 gate 阻塞：1) file list 未覆盖未跟踪的新测试；2) 迁移后测试文件未执行 `forge fmt`；3) 大量迁移测试缺失 NatSpec。修复后，`bash ./script/process/quality-gate.sh` 已在 CI 模式下完整跑通 `check-rule-map`、`forge fmt --check`、`check-natspec.sh`、`forge build`、`forge test -vvv`、`check-slither.sh`、`check-gas-report.sh`、`check-solidity-review-note.sh` 和 `npm run docs:check`，最终 PASS。
 
 ## Decision（结论）
 - 说明：`Ready to commit` 只能填写 `yes` 或 `no`，风险描述使用简体中文。
-- Ready to commit: yes
-- Residual risks: `docs/reviews/CI_REVIEW_NOTE.md` 现在是可跟踪文件，后续每次命中 `src/**/*.sol` 的变更都需要同步更新它；否则 CI 会继续失败。
+- Ready to commit: no
+- Residual risks: 代码层面的 CI 模式 gate 已通过，当前唯一阻塞已经收敛到环境层：`.git` 是只读文件系统，无法创建 `.git/index.lock`，因此不能在这个会话里真正 `git add` / `git commit`，也无法拿到 staged 模式的本地 gate 证据。换到一个可写 `.git` 的环境后，应重新 `git add -A` 并再跑一次仓库默认 `npm run quality:gate`，然后再提交。

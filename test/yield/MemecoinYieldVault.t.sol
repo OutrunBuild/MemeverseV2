@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
-import {MemecoinYieldVault} from "../src/yield/MemecoinYieldVault.sol";
+import {MemecoinYieldVault} from "../../src/yield/MemecoinYieldVault.sol";
+import {IMemecoinYieldVault} from "../../src/yield/interfaces/IMemecoinYieldVault.sol";
 
 contract MockComposeAsset is MockERC20 {
     mapping(bytes32 guid => uint256 amount) internal queuedAmounts;
@@ -98,7 +99,7 @@ contract MemecoinYieldVaultTest is Test {
         uint256 previewBefore = vault.previewDeposit(20 ether);
 
         vm.prank(ATTACKER);
-        asset.transfer(address(vault), 500 ether);
+        assertTrue(asset.transfer(address(vault), 500 ether));
 
         uint256 previewAfter = vault.previewDeposit(20 ether);
 
@@ -200,5 +201,82 @@ contract MemecoinYieldVaultTest is Test {
         composeVault.reAccumulateYields(guid);
 
         assertEq(composeVault.totalAssets(), 15 ether, "total assets after re-accumulate");
+    }
+
+    /// @notice Verifies the vault reports timestamp-based clock metadata.
+    /// @dev Confirms governance snapshotting semantics stay timestamp-based.
+    function testClockMetadataUsesTimestampMode() external view {
+        assertEq(vault.clock(), uint48(block.timestamp), "clock");
+        assertEq(vault.CLOCK_MODE(), "mode=timestamp", "clock mode");
+    }
+
+    /// @notice Verifies redeem requests reject zero receivers and zero-asset burns.
+    /// @dev Covers both guard branches in `requestRedeem`.
+    function testRequestRedeemRevertsOnZeroAddressAndZeroRedeemRequest() external {
+        vm.prank(ATTACKER);
+        vault.deposit(10 ether, ATTACKER);
+
+        vm.prank(ATTACKER);
+        vm.expectRevert(IMemecoinYieldVault.ZeroAddress.selector);
+        vault.requestRedeem(1 ether, address(0));
+
+        vm.prank(ATTACKER);
+        vm.expectRevert(IMemecoinYieldVault.ZeroRedeemRequest.selector);
+        vault.requestRedeem(0, ATTACKER);
+    }
+
+    /// @notice Verifies redeem execution before the delay elapses returns zero and leaves the queue intact.
+    /// @dev Covers the branch where no queued request is yet claimable.
+    function testExecuteRedeemReturnsZeroBeforeDelay() external {
+        vm.prank(ATTACKER);
+        uint256 shares = vault.deposit(10 ether, ATTACKER);
+
+        vm.prank(ATTACKER);
+        vault.requestRedeem(shares / 2, ATTACKER);
+
+        vm.prank(ATTACKER);
+        uint256 redeemedAmount = vault.executeRedeem();
+
+        assertEq(redeemedAmount, 0, "redeemed amount");
+        (uint192 queuedAmount,) = vault.redeemRequestQueues(ATTACKER, 0);
+        assertGt(uint256(queuedAmount), 0, "queue retained");
+    }
+
+    /// @notice Verifies redeem execution removes matured entries even when they are not at the queue tail.
+    /// @dev Covers the swap-pop branch in `executeRedeem`.
+    function testExecuteRedeemRemovesMiddleEntryViaSwapPop() external {
+        vm.prank(ATTACKER);
+        uint256 shares = vault.deposit(20 ether, ATTACKER);
+
+        vm.prank(ATTACKER);
+        vault.requestRedeem(shares / 2, ATTACKER);
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(ATTACKER);
+        vault.requestRedeem(shares / 4, ATTACKER);
+
+        vm.prank(ATTACKER);
+        uint256 redeemedAmount = vault.executeRedeem();
+
+        assertGt(redeemedAmount, 0, "redeemed amount");
+        (uint192 remainingAmount, uint64 remainingRequestTime) = vault.redeemRequestQueues(ATTACKER, 0);
+        assertGt(uint256(remainingAmount), 0, "remaining queue amount");
+        assertGt(uint256(remainingRequestTime), 0, "remaining queue request time");
+    }
+
+    /// @notice Verifies the queue caps outstanding redeem requests.
+    /// @dev Covers the `MaxRedeemRequestsReached` branch.
+    function testRequestRedeemRevertsWhenQueueIsFull() external {
+        vm.prank(ATTACKER);
+        uint256 shares = vault.deposit(10 ether, ATTACKER);
+
+        for (uint256 i = 0; i < vault.MAX_REDEEM_REQUESTS(); i++) {
+            vm.prank(ATTACKER);
+            vault.requestRedeem(shares / 10, ATTACKER);
+        }
+
+        vm.prank(ATTACKER);
+        vm.expectRevert(IMemecoinYieldVault.MaxRedeemRequestsReached.selector);
+        vault.requestRedeem(1, ATTACKER);
     }
 }

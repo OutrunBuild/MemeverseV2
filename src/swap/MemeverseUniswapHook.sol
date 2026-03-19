@@ -685,7 +685,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         UniswapLP lp = UniswapLP(poolInfo[poolId].liquidityToken);
         delta = _modifyLiquidity(
-            msg.sender,
+            params.recipient,
             key,
             ModifyLiquidityParams({
                 tickLower: MIN_TICK, tickUpper: MAX_TICK, liquidityDelta: -(params.liquidity.toInt256()), salt: 0
@@ -700,10 +700,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             uint256(delta.amount0().toUint128()),
             uint256(delta.amount1().toUint128())
         );
-
-        if (params.recipient != msg.sender) {
-            _forwardLiquidityOutputs(params.recipient, key, delta);
-        }
     }
 
     /// @notice Claims pending LP fees on behalf of an owner using either direct ownership or a signed authorization.

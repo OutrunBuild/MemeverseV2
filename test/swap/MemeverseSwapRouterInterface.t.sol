@@ -3,8 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 
-import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
-import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.sol";
+import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 
 contract MemeverseSwapRouterInterfaceTest is Test {
     /// @notice Verifies the router public interface selectors match the implementation selectors.

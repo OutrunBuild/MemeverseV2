@@ -4,13 +4,24 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    IOFT,
+    SendParam,
+    MessagingFee,
+    MessagingReceipt,
+    OFTReceipt,
+    OFTLimit,
+    OFTFeeDetail
+} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
-import {MemeverseLauncher} from "../src/verse/MemeverseLauncher.sol";
-import {IMemeverseLauncher} from "../src/verse/interfaces/IMemeverseLauncher.sol";
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 
 contract MockSwapRouter {
     using SafeERC20 for IERC20;
@@ -378,6 +389,111 @@ contract MockOFTDispatcher {
     }
 }
 
+contract MockLzEndpointRegistry {
+    mapping(uint32 chainId => uint32 endpointId) public lzEndpointIdOfChain;
+
+    /// @notice Set endpoint.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param chainId See implementation.
+    /// @param endpointId See implementation.
+    function setEndpoint(uint32 chainId, uint32 endpointId) external {
+        lzEndpointIdOfChain[chainId] = endpointId;
+    }
+}
+
+contract MockOFTToken is MockERC20, IOFT {
+    MessagingFee internal nextQuoteFee;
+    uint32 public lastSendDstEid;
+    address public lastRefundAddress;
+    uint256 public lastNativeFeePaid;
+    uint256 public sendCallCount;
+
+    constructor(string memory name_, string memory symbol_) MockERC20(name_, symbol_, 18) {}
+
+    /// @notice Set quote fee.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param nativeFee See implementation.
+    function setQuoteFee(uint256 nativeFee) external {
+        nextQuoteFee = MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
+    }
+
+    /// @notice Oft version.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @return interfaceId See implementation.
+    /// @return version See implementation.
+    function oftVersion() external pure returns (bytes4 interfaceId, uint64 version) {
+        return (type(IOFT).interfaceId, 1);
+    }
+
+    /// @notice Token.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @return See implementation.
+    function token() external view returns (address) {
+        return address(this);
+    }
+
+    /// @notice Approval required.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @return See implementation.
+    function approvalRequired() external pure returns (bool) {
+        return false;
+    }
+
+    /// @notice Shared decimals.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @return See implementation.
+    function sharedDecimals() external pure returns (uint8) {
+        return 6;
+    }
+
+    /// @notice Quote oft.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @return See implementation.
+    function quoteOFT(SendParam calldata)
+        external
+        pure
+        returns (OFTLimit memory, OFTFeeDetail[] memory, OFTReceipt memory)
+    {
+        revert("unused");
+    }
+
+    /// @notice Quote send.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param sendParam See implementation.
+    /// @param payInLzToken See implementation.
+    /// @return fee See implementation.
+    function quoteSend(SendParam calldata sendParam, bool payInLzToken)
+        external
+        view
+        returns (MessagingFee memory fee)
+    {
+        sendParam;
+        payInLzToken;
+        fee = nextQuoteFee;
+    }
+
+    /// @notice Send.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param sendParam See implementation.
+    /// @param fee See implementation.
+    /// @param refundAddress See implementation.
+    /// @return receipt See implementation.
+    /// @return oftReceipt See implementation.
+    function send(SendParam calldata sendParam, MessagingFee calldata fee, address refundAddress)
+        external
+        payable
+        returns (MessagingReceipt memory receipt, OFTReceipt memory oftReceipt)
+    {
+        lastSendDstEid = sendParam.dstEid;
+        lastRefundAddress = refundAddress;
+        lastNativeFeePaid = msg.value;
+        sendCallCount++;
+
+        receipt = MessagingReceipt({guid: bytes32("oft-guid"), nonce: 1, fee: fee});
+        oftReceipt = OFTReceipt({amountSentLD: sendParam.amountLD, amountReceivedLD: sendParam.amountLD});
+    }
+}
+
 contract TestableMemeverseLauncher is MemeverseLauncher {
     constructor(
         address _owner,
@@ -461,11 +577,12 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
     }
 }
 
-contract MemeverseLauncherPreviewFeesTest is Test {
+contract MemeverseLauncherLifecycleTest is Test {
     TestableMemeverseLauncher internal launcher;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
+    MockLzEndpointRegistry internal registry;
     MockERC20 internal upt;
     MockERC20 internal memecoin;
     MockLiquidProof internal liquidProof;
@@ -485,10 +602,12 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         memecoin = new MockERC20("MEME", "MEME", 18);
         liquidProof = new MockLiquidProof();
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
+        registry = new MockLzEndpointRegistry();
 
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setOFTDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
+        launcher.setLzEndpointRegistry(address(registry));
     }
 
     function _setLockedVerse(uint256 verseId) internal {
@@ -558,6 +677,114 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         launcher.previewGenesisMakerFees(verseId);
     }
 
+    /// @notice Test claimable poltoken returns zero when already claimed.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testClaimablePOLToken_ReturnsZeroWhenAlreadyClaimed() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, true, false);
+        launcher.setTotalClaimablePOLForTest(verseId, 60 ether);
+
+        vm.prank(ALICE);
+        uint256 amount = launcher.claimablePOLToken(verseId);
+
+        assertEq(amount, 0);
+    }
+
+    /// @notice Test quote distribution lz fee returns zero for local governance chain.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testQuoteDistributionLzFee_ReturnsZeroForLocalGovernanceChain() external {
+        uint256 verseId = 1;
+        _setLockedVerse(verseId);
+
+        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+
+        assertEq(fee, 0);
+    }
+
+    /// @notice Test quote distribution lz fee quotes remote gov and memecoin fees.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testQuoteDistributionLzFee_QuotesRemoteGovAndMemecoinFees() external {
+        uint256 verseId = 1;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setPreviewQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 4 ether);
+        router.setPreviewQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 6 ether);
+        remoteUpt.setQuoteFee(0.15 ether);
+        remoteMemecoin.setQuoteFee(0.25 ether);
+
+        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+
+        assertEq(fee, 0.4 ether);
+    }
+
+    /// @notice Test quote distribution lz fee quotes only gov fee when memecoin fee is zero.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testQuoteDistributionLzFee_QuotesOnlyGovFeeWhenMemecoinFeeIsZero() external {
+        uint256 verseId = 18;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setPreviewQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 0);
+        router.setPreviewQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 0);
+        remoteUpt.setQuoteFee(0.15 ether);
+
+        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+
+        assertEq(fee, 0.15 ether);
+    }
+
+    /// @notice Test quote distribution lz fee quotes only memecoin fee when gov fee is zero.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testQuoteDistributionLzFee_QuotesOnlyMemecoinFeeWhenGovFeeIsZero() external {
+        uint256 verseId = 19;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setPreviewQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 0, 5 ether);
+        router.setPreviewQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 0);
+        remoteMemecoin.setQuoteFee(0.25 ether);
+
+        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+
+        assertEq(fee, 0.25 ether);
+    }
+
     /// @notice Verifies fee redemption reverts before the locked stage.
     /// @dev The launcher must not claim or distribute fees during genesis.
     function testRedeemAndDistributeFees_RevertsWhenNotLocked() external {
@@ -615,6 +842,67 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         launcher.changeStage(verseId);
     }
 
+    /// @notice Test change stage reverts at final stages.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testChangeStage_RevertsAtFinalStages() external {
+        uint256 verseId = 10;
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.memecoin = address(memecoin);
+        verse.currentStage = IMemeverseLauncher.Stage.Refund;
+        launcher.setMemeverseForTest(verseId, verse);
+
+        vm.expectRevert(IMemeverseLauncher.ReachedFinalStage.selector);
+        launcher.changeStage(verseId);
+    }
+
+    /// @notice Test change stage locked before unlock time keeps stage locked.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testChangeStage_LockedBeforeUnlockTimeKeepsStageLocked() external {
+        uint256 verseId = 14;
+        _setLockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.unlockTime = uint128(block.timestamp + 1 days);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked));
+        assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Locked));
+    }
+
+    /// @notice Test change stage locked after unlock time moves to unlocked.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testChangeStage_LockedAfterUnlockTimeMovesToUnlocked() external {
+        uint256 verseId = 20;
+        _setLockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.unlockTime = uint128(block.timestamp - 1);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Unlocked));
+        assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked));
+    }
+
+    /// @notice Test refund reverts when stage or user state invalid.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRefund_RevertsWhenStageOrUserStateInvalid() external {
+        uint256 verseId = 11;
+        _setLockedVerse(verseId);
+
+        vm.expectRevert(IMemeverseLauncher.NotRefundStage.selector);
+        launcher.refund(verseId);
+
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.currentStage = IMemeverseLauncher.Stage.Refund;
+        launcher.setMemeverseForTest(verseId, verse);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.InvalidRefund.selector);
+        launcher.refund(verseId);
+    }
+
     /// @notice Verifies POL cannot be claimed twice for the same genesis contribution.
     /// @dev Exposes the regression where claimed users remained fully claimable.
     function testClaimPOLToken_RevertsWhenAlreadyClaimed() external {
@@ -647,6 +935,142 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         assertEq(memecoinFee, 0, "memecoinFee");
         assertEq(liquidProofFee, 0, "liquidProofFee");
         assertEq(executorReward, 0, "executorReward");
+    }
+
+    /// @notice Test redeem and distribute fees remote path checks lz fee and sends oft.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemAndDistributeFees_RemotePathChecksLzFeeAndSendsOFT() external {
+        uint256 verseId = 2;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 4 ether);
+        router.setClaimQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 6 ether);
+        remoteUpt.setQuoteFee(0.15 ether);
+        remoteMemecoin.setQuoteFee(0.25 ether);
+
+        remoteUpt.mint(address(launcher), 100 ether);
+        remoteMemecoin.mint(address(launcher), 100 ether);
+
+        vm.expectRevert(IMemeverseLauncher.InsufficientLzFee.selector);
+        launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        launcher.redeemAndDistributeFees{value: 0.4 ether}(verseId, REWARD_RECEIVER);
+
+        assertEq(remoteUpt.sendCallCount(), 1);
+        assertEq(remoteMemecoin.sendCallCount(), 1);
+        assertEq(remoteUpt.lastSendDstEid(), 302);
+        assertEq(remoteMemecoin.lastSendDstEid(), 302);
+        assertEq(remoteUpt.lastNativeFeePaid(), 0.15 ether);
+        assertEq(remoteMemecoin.lastNativeFeePaid(), 0.25 ether);
+    }
+
+    /// @notice Test redeem and distribute fees remote path only gov fee skips memecoin send.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemAndDistributeFees_RemotePathOnlyGovFeeSkipsMemecoinSend() external {
+        uint256 verseId = 21;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 0);
+        router.setClaimQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 0);
+        remoteUpt.setQuoteFee(0.15 ether);
+        remoteUpt.mint(address(launcher), 100 ether);
+
+        launcher.redeemAndDistributeFees{value: 0.15 ether}(verseId, REWARD_RECEIVER);
+
+        assertEq(remoteUpt.sendCallCount(), 1);
+        assertEq(remoteMemecoin.sendCallCount(), 0);
+    }
+
+    /// @notice Test redeem and distribute fees remote path only memecoin fee skips gov send.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemAndDistributeFees_RemotePathOnlyMemecoinFeeSkipsGovSend() external {
+        uint256 verseId = 22;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 0, 5 ether);
+        router.setClaimQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 0);
+        remoteMemecoin.setQuoteFee(0.25 ether);
+        remoteMemecoin.mint(address(launcher), 100 ether);
+
+        launcher.redeemAndDistributeFees{value: 0.25 ether}(verseId, REWARD_RECEIVER);
+
+        assertEq(remoteUpt.sendCallCount(), 0);
+        assertEq(remoteMemecoin.sendCallCount(), 1);
+    }
+
+    /// @notice Test redeem and distribute fees local path with only gov fee skips memecoin dispatch.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemAndDistributeFees_LocalPathWithOnlyGovFeeSkipsMemecoinDispatch() external {
+        uint256 verseId = 15;
+        _setLockedVerse(verseId);
+
+        router.setClaimQuote(address(memecoin), address(upt), address(launcher), 9 ether, 0);
+        router.setClaimQuote(address(liquidProof), address(upt), address(launcher), 0, 0);
+
+        (uint256 govFee, uint256 memecoinFee,, uint256 executorReward) =
+            launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        assertGt(govFee, 0);
+        assertEq(memecoinFee, 0);
+        assertGt(executorReward, 0);
+        assertEq(dispatcher.composeCallCount(), 1);
+        assertEq(dispatcher.lastToken(), address(upt));
+    }
+
+    /// @notice Test redeem and distribute fees local path with only memecoin fee skips gov dispatch.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemAndDistributeFees_LocalPathWithOnlyMemecoinFeeSkipsGovDispatch() external {
+        uint256 verseId = 16;
+        _setLockedVerse(verseId);
+        launcher.setExecutorRewardRate(0);
+
+        router.setClaimQuote(address(memecoin), address(upt), address(launcher), 0, 5 ether);
+        router.setClaimQuote(address(liquidProof), address(upt), address(launcher), 0, 0);
+
+        (uint256 govFee, uint256 memecoinFee,, uint256 executorReward) =
+            launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        assertEq(govFee, 0);
+        assertEq(memecoinFee, 5 ether);
+        assertEq(executorReward, 0);
+        assertEq(dispatcher.composeCallCount(), 1);
+        assertEq(dispatcher.lastToken(), address(memecoin));
     }
 
     /// @notice Verifies same-chain fee redemption claims, burns, and dispatches the expected assets.
@@ -736,6 +1160,21 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         assertEq(memecoinLp.balanceOf(address(launcher)), 6 ether, "launcher memecoin lp");
     }
 
+    /// @notice Test redeem memecoin liquidity reverts when launcher lp balance insufficient.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemMemecoinLiquidity_RevertsWhenLauncherLpBalanceInsufficient() external {
+        uint256 verseId = 12;
+        _setUnlockedVerse(verseId);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        liquidProof.mint(ALICE, 10 ether);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.InsufficientLPBalance.selector);
+        launcher.redeemMemecoinLiquidity(verseId, 4 ether);
+    }
+
     /// @notice Verifies POL LP redemption rejects non-unlocked verses.
     /// @dev Confirms the restored stage guard is active for genesis-share redemption.
     function testRedeemPolLiquidity_RevertsWhenNotUnlocked() external {
@@ -783,6 +1222,23 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         assertFalse(isRefunded, "is refunded");
         assertFalse(isClaimed, "is claimed");
         assertTrue(isRedeemed, "is redeemed");
+    }
+
+    /// @notice Test redeem pol liquidity reverts when launcher lp balance insufficient.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRedeemPolLiquidity_RevertsWhenLauncherLpBalanceInsufficient() external {
+        uint256 verseId = 13;
+        _setUnlockedVerse(verseId);
+
+        MockERC20 polLp = new MockERC20("POL-LP", "POL-LP", 18);
+        router.setLpToken(address(liquidProof), address(upt), address(polLp));
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false, false);
+        launcher.setTotalPolLiquidityForTest(verseId, 60 ether);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.InsufficientLPBalance.selector);
+        launcher.redeemPolLiquidity(verseId);
     }
 
     /// @notice Verifies mintPOLToken rejects zero input budgets.
@@ -876,8 +1332,36 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         _approveMintInputs(ALICE);
 
         vm.prank(ALICE);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(IMemeverseSwapRouter.InputAmountExceedsMaximum.selector, 11 ether, 10 ether)
+        );
         launcher.mintPOLToken(verseId, 10 ether, 12 ether, 0, 0, 5 ether, block.timestamp);
+    }
+
+    /// @notice Test mint poltoken with exact liquidity no refund path.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testMintPOLToken_WithExactLiquidity_NoRefundPath() external {
+        uint256 verseId = 17;
+        _setLockedVerse(verseId);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        router.setQuoteAmountsForLiquidity(address(upt), address(memecoin), 5 ether, 10 ether, 12 ether);
+        router.setAddLiquidityResult(address(upt), address(memecoin), 5 ether, 10 ether, 12 ether);
+
+        upt.mint(ALICE, 10 ether);
+        memecoin.mint(ALICE, 12 ether);
+        _approveMintInputs(ALICE);
+
+        vm.prank(ALICE);
+        (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) =
+            launcher.mintPOLToken(verseId, 10 ether, 12 ether, 0, 0, 5 ether, block.timestamp);
+
+        assertEq(amountInUPT, 10 ether);
+        assertEq(amountInMemecoin, 12 ether);
+        assertEq(amountOut, 5 ether);
+        assertEq(upt.balanceOf(ALICE), 0);
+        assertEq(memecoin.balanceOf(ALICE), 0);
     }
 
     /// @notice Verifies only the owner can sweep native dust from the launcher.
@@ -886,7 +1370,7 @@ contract MemeverseLauncherPreviewFeesTest is Test {
         vm.deal(address(launcher), 1 ether);
 
         vm.prank(ALICE);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, ALICE));
         launcher.removeGasDust(ALICE);
     }
 }

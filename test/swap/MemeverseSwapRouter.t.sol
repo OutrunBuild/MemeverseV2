@@ -13,14 +13,14 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {LiquidityAmounts} from "../src/swap/libraries/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
-import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
-import {MemeverseSwapRouter} from "../src/swap/MemeverseSwapRouter.sol";
-import {IMemeverseUniswapHook} from "../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {IMemeverseSwapRouter} from "../src/swap/interfaces/IMemeverseSwapRouter.sol";
-import {UniswapLP} from "../src/swap/tokens/UniswapLP.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
+import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
+import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
+import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
 contract MockPoolManagerForRouterTest {
     using PoolIdLibrary for PoolKey;
@@ -436,6 +436,62 @@ contract MemeverseSwapRouterTest is Test {
     function testConstructor_RevertsWhenTreasuryIsZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
         new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), address(0), 10, 1);
+    }
+
+    /// @notice Verifies swaps reject pool keys wired to a different hook address.
+    /// @dev Covers router validation that only its configured hook may be used.
+    function testSwapReverts_WhenHookAddressDoesNotMatchRouterHook() external {
+        PoolKey memory invalidKey = PoolKey({
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
+            fee: 0x800000,
+            tickSpacing: 200,
+            hooks: IHooks(address(0x1234))
+        });
+
+        vm.expectRevert(IMemeverseSwapRouter.InvalidHook.selector);
+        router.swap(
+            invalidKey,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+    }
+
+    /// @notice Verifies swaps reject zero `amountSpecified`.
+    /// @dev Covers router validation for meaningless swap requests.
+    function testSwapReverts_WhenAmountSpecifiedIsZero() external {
+        vm.expectRevert(IMemeverseSwapRouter.SwapAmountCannotBeZero.selector);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: 0, sqrtPriceLimitX96: 0}),
+            address(this),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+    }
+
+    /// @notice Verifies exact-output swaps require a non-zero `amountInMaximum`.
+    /// @dev Prevents exact-output callers from omitting the user input budget.
+    function testSwapReverts_WhenExactOutputOmitsAmountInMaximum() external {
+        vm.expectRevert(IMemeverseSwapRouter.AmountInMaximumRequired.selector);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            address(this),
+            block.timestamp,
+            0,
+            0,
+            ""
+        );
     }
 
     /// @notice Verifies setting the treasury to the zero address reverts.
@@ -1031,7 +1087,9 @@ contract MemeverseSwapRouterTest is Test {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(IMemeverseSwapRouter.OutputAmountBelowMinimum.selector, 49.5 ether, 60 ether)
+        );
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
@@ -1362,6 +1420,97 @@ contract MemeverseSwapRouterTest is Test {
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(createdKey.toId());
         assertEq(sqrtPriceX96, startPrice, "provided sqrt price");
+    }
+
+    /// @notice Verifies addLiquidity rejects expired deadlines.
+    /// @dev Covers the router deadline guard before any liquidity side effects happen.
+    function testAddLiquidityReverts_WhenDeadlineExpired() external {
+        vm.expectRevert(IMemeverseSwapRouter.ExpiredPastDeadline.selector);
+        router.addLiquidity(
+            key.currency0,
+            key.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(this),
+            block.timestamp - 1
+        );
+    }
+
+    /// @notice Verifies native-input addLiquidity requires a refund recipient.
+    /// @dev Covers the invalid native refund recipient branch.
+    function testAddLiquidityReverts_WhenNativeRefundRecipientMissing() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        _dealAndInitializeNativePool(nativeKey, false);
+
+        vm.expectRevert(IMemeverseSwapRouter.InvalidNativeRefundRecipient.selector);
+        router.addLiquidity{value: 100 ether}(
+            nativeKey.currency0,
+            nativeKey.currency1,
+            100 ether,
+            100 ether,
+            90 ether,
+            90 ether,
+            address(this),
+            address(0),
+            block.timestamp
+        );
+    }
+
+    /// @notice Verifies removeLiquidity rejects expired deadlines.
+    /// @dev Covers the router deadline guard on liquidity removal.
+    function testRemoveLiquidityReverts_WhenDeadlineExpired() external {
+        vm.prank(alice);
+        router.addLiquidity(
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+        );
+        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseSwapRouter.ExpiredPastDeadline.selector);
+        router.removeLiquidity(key.currency0, key.currency1, liquidity, 0, 0, alice, block.timestamp - 1);
+    }
+
+    /// @notice Verifies pool bootstrap rejects identical token pairs.
+    /// @dev Covers router validation that a pool must contain two distinct assets.
+    function testCreatePoolAndAddLiquidityReverts_WhenTokenPairIsIdentical() external {
+        vm.expectRevert(IMemeverseSwapRouter.InvalidTokenPair.selector);
+        router.createPoolAndAddLiquidity(
+            address(token0),
+            address(token0),
+            100 ether,
+            100 ether,
+            SQRT_PRICE_1_1,
+            address(this),
+            address(this),
+            block.timestamp
+        );
+    }
+
+    /// @notice Verifies pool bootstrap rejects expired deadlines.
+    /// @dev Covers the router deadline guard on create-and-add flows.
+    function testCreatePoolAndAddLiquidityReverts_WhenDeadlineExpired() external {
+        MockERC20 tokenA = new MockERC20("A", "A", 18);
+        MockERC20 tokenB = new MockERC20("B", "B", 18);
+        tokenA.mint(address(this), 1_000 ether);
+        tokenB.mint(address(this), 1_000 ether);
+        tokenA.approve(address(router), type(uint256).max);
+        tokenB.approve(address(router), type(uint256).max);
+
+        vm.expectRevert(IMemeverseSwapRouter.ExpiredPastDeadline.selector);
+        router.createPoolAndAddLiquidity(
+            address(tokenA),
+            address(tokenB),
+            100 ether,
+            100 ether,
+            SQRT_PRICE_1_1,
+            address(this),
+            address(this),
+            block.timestamp - 1
+        );
     }
 
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {

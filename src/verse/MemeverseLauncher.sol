@@ -681,61 +681,21 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         address UPT = verse.UPT;
         address memecoin = verse.memecoin;
-        uint256 uptBefore = IERC20(UPT).balanceOf(address(this));
-        uint256 memecoinBefore = IERC20(memecoin).balanceOf(address(this));
+        _prepareMintPOLTokenInputs(UPT, memecoin, amountInUPTDesired, amountInMemecoinDesired);
+        (amountInUPT, amountInMemecoin, amountOut) = _executeMintPOLTokenLiquidity(
+            UPT,
+            memecoin,
+            amountInUPTDesired,
+            amountInMemecoinDesired,
+            amountInUPTMin,
+            amountInMemecoinMin,
+            amountOutDesired,
+            deadline
+        );
+        _refundMintPOLTokenInputs(
+            UPT, memecoin, amountInUPTDesired, amountInMemecoinDesired, amountInUPT, amountInMemecoin
+        );
 
-        _transferIn(UPT, msg.sender, amountInUPTDesired);
-        _transferIn(memecoin, msg.sender, amountInMemecoinDesired);
-        _safeApproveInf(UPT, memeverseSwapRouter);
-        _safeApproveInf(memecoin, memeverseSwapRouter);
-
-        if (amountOutDesired == 0) {
-            amountOut = IMemeverseSwapRouter(memeverseSwapRouter)
-                .addLiquidity(
-                    Currency.wrap(UPT),
-                    Currency.wrap(memecoin),
-                    amountInUPTDesired,
-                    amountInMemecoinDesired,
-                    amountInUPTMin,
-                    amountInMemecoinMin,
-                    address(this),
-                    address(this),
-                    deadline
-                );
-
-            uint256 uptAfter = IERC20(UPT).balanceOf(address(this));
-            uint256 memecoinAfter = IERC20(memecoin).balanceOf(address(this));
-            amountInUPT = uptBefore + amountInUPTDesired - uptAfter;
-            amountInMemecoin = memecoinBefore + amountInMemecoinDesired - memecoinAfter;
-        } else {
-            require(amountOutDesired <= type(uint128).max, InvalidLength());
-            (amountInUPT, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
-                .quoteAmountsForLiquidity(UPT, memecoin, uint128(amountOutDesired));
-            if (amountInUPT > amountInUPTDesired) {
-                revert IMemeverseSwapRouter.InputAmountExceedsMaximum(amountInUPT, amountInUPTDesired);
-            }
-            if (amountInMemecoin > amountInMemecoinDesired) {
-                revert IMemeverseSwapRouter.InputAmountExceedsMaximum(amountInMemecoin, amountInMemecoinDesired);
-            }
-
-            amountOut = IMemeverseSwapRouter(memeverseSwapRouter)
-                .addLiquidity(
-                    Currency.wrap(UPT),
-                    Currency.wrap(memecoin),
-                    amountInUPT,
-                    amountInMemecoin,
-                    amountInUPT,
-                    amountInMemecoin,
-                    address(this),
-                    address(this),
-                    deadline
-                );
-        }
-
-        uint256 UPTRefund = amountInUPTDesired - amountInUPT;
-        uint256 memecoinRefund = amountInMemecoinDesired - amountInMemecoin;
-        if (UPTRefund > 0) _transferOut(UPT, msg.sender, UPTRefund);
-        if (memecoinRefund > 0) _transferOut(memecoin, msg.sender, memecoinRefund);
         address liquidProof = verse.liquidProof;
         IMemeLiquidProof(liquidProof).mint(msg.sender, amountOut);
 
@@ -766,20 +726,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     ) external override whenNotPaused {
         require(msg.sender == memeverseRegistrar, PermissionDenied());
 
-        address memecoin = IMemeverseProxyDeployer(memeverseProxyDeployer).deployMemecoin(uniqueId);
-        address pol = IMemeverseProxyDeployer(memeverseProxyDeployer).deployPOL(uniqueId);
-        IMemecoin(memecoin).initialize(name, symbol, address(this), address(this));
-        IMemeLiquidProof(pol)
-            .initialize(
-                string(abi.encodePacked("POL-", name)),
-                string(abi.encodePacked("POL-", symbol)),
-                memecoin,
-                address(this),
-                address(this)
-            );
-
+        (address memecoin, address pol) = _deployAndInitializeVerseTokens(uniqueId, name, symbol);
         _lzConfigure(memecoin, pol, omnichainIds);
-
         Memeverse storage verse = memeverses[uniqueId];
         verse.name = name;
         verse.symbol = symbol;
@@ -795,6 +743,139 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         memecoinToIds[memecoin] = uniqueId;
 
         emit RegisterMemeverse(uniqueId, verse);
+    }
+
+    function _prepareMintPOLTokenInputs(
+        address UPT,
+        address memecoin,
+        uint256 amountInUPTDesired,
+        uint256 amountInMemecoinDesired
+    ) internal {
+        _transferIn(UPT, msg.sender, amountInUPTDesired);
+        _transferIn(memecoin, msg.sender, amountInMemecoinDesired);
+        _safeApproveInf(UPT, memeverseSwapRouter);
+        _safeApproveInf(memecoin, memeverseSwapRouter);
+    }
+
+    function _executeMintPOLTokenLiquidity(
+        address UPT,
+        address memecoin,
+        uint256 amountInUPTDesired,
+        uint256 amountInMemecoinDesired,
+        uint256 amountInUPTMin,
+        uint256 amountInMemecoinMin,
+        uint256 amountOutDesired,
+        uint256 deadline
+    ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
+        if (amountOutDesired == 0) {
+            return _mintPOLTokenWithAutoLiquidity(
+                UPT,
+                memecoin,
+                amountInUPTDesired,
+                amountInMemecoinDesired,
+                amountInUPTMin,
+                amountInMemecoinMin,
+                deadline
+            );
+        }
+
+        return _mintPOLTokenWithExactLiquidity(
+            UPT, memecoin, amountInUPTDesired, amountInMemecoinDesired, amountOutDesired, deadline
+        );
+    }
+
+    function _mintPOLTokenWithAutoLiquidity(
+        address UPT,
+        address memecoin,
+        uint256 amountInUPTDesired,
+        uint256 amountInMemecoinDesired,
+        uint256 amountInUPTMin,
+        uint256 amountInMemecoinMin,
+        uint256 deadline
+    ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
+        uint256 uptBefore = IERC20(UPT).balanceOf(address(this));
+        uint256 memecoinBefore = IERC20(memecoin).balanceOf(address(this));
+
+        amountOut = IMemeverseSwapRouter(memeverseSwapRouter)
+            .addLiquidity(
+                Currency.wrap(UPT),
+                Currency.wrap(memecoin),
+                amountInUPTDesired,
+                amountInMemecoinDesired,
+                amountInUPTMin,
+                amountInMemecoinMin,
+                address(this),
+                address(this),
+                deadline
+            );
+
+        uint256 uptAfter = IERC20(UPT).balanceOf(address(this));
+        uint256 memecoinAfter = IERC20(memecoin).balanceOf(address(this));
+        amountInUPT = uptBefore - uptAfter;
+        amountInMemecoin = memecoinBefore - memecoinAfter;
+    }
+
+    function _mintPOLTokenWithExactLiquidity(
+        address UPT,
+        address memecoin,
+        uint256 amountInUPTDesired,
+        uint256 amountInMemecoinDesired,
+        uint256 amountOutDesired,
+        uint256 deadline
+    ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
+        require(amountOutDesired <= type(uint128).max, InvalidLength());
+        (amountInUPT, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
+            .quoteAmountsForLiquidity(UPT, memecoin, uint128(amountOutDesired));
+        if (amountInUPT > amountInUPTDesired) {
+            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(amountInUPT, amountInUPTDesired);
+        }
+        if (amountInMemecoin > amountInMemecoinDesired) {
+            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(amountInMemecoin, amountInMemecoinDesired);
+        }
+
+        amountOut = IMemeverseSwapRouter(memeverseSwapRouter)
+            .addLiquidity(
+                Currency.wrap(UPT),
+                Currency.wrap(memecoin),
+                amountInUPT,
+                amountInMemecoin,
+                amountInUPT,
+                amountInMemecoin,
+                address(this),
+                address(this),
+                deadline
+            );
+    }
+
+    function _refundMintPOLTokenInputs(
+        address UPT,
+        address memecoin,
+        uint256 amountInUPTDesired,
+        uint256 amountInMemecoinDesired,
+        uint256 amountInUPT,
+        uint256 amountInMemecoin
+    ) internal {
+        uint256 UPTRefund = amountInUPTDesired - amountInUPT;
+        uint256 memecoinRefund = amountInMemecoinDesired - amountInMemecoin;
+        if (UPTRefund > 0) _transferOut(UPT, msg.sender, UPTRefund);
+        if (memecoinRefund > 0) _transferOut(memecoin, msg.sender, memecoinRefund);
+    }
+
+    function _deployAndInitializeVerseTokens(uint256 uniqueId, string calldata name, string calldata symbol)
+        internal
+        returns (address memecoin, address pol)
+    {
+        memecoin = IMemeverseProxyDeployer(memeverseProxyDeployer).deployMemecoin(uniqueId);
+        pol = IMemeverseProxyDeployer(memeverseProxyDeployer).deployPOL(uniqueId);
+        IMemecoin(memecoin).initialize(name, symbol, address(this), address(this));
+        IMemeLiquidProof(pol)
+            .initialize(
+                string(abi.encodePacked("POL-", name)),
+                string(abi.encodePacked("POL-", symbol)),
+                memecoin,
+                address(this),
+                address(this)
+            );
     }
 
     /**
