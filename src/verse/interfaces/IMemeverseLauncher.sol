@@ -49,6 +49,12 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
         bool isRedeemed; // Whether the user has redeemed the POL liquidity
     }
 
+    struct PreorderData {
+        uint256 funds; // The amount of UPT user has contributed to the preorder pool
+        uint256 claimedMemecoin; // The amount of preorder memecoin already claimed by the user
+        bool isRefunded; // Whether the user has refunded the preorder contribution
+    }
+
     /// @notice Returns the verse id registered for a memecoin.
     /// @dev Returns zero when the memecoin is not registered.
     /// @param memecoin The memecoin address.
@@ -117,6 +123,13 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @param user The account credited for the contribution.
     function genesis(uint256 verseId, uint128 amountInUPT, address user) external;
 
+    /// @notice Deposits UPT into a verse preorder pool during Genesis.
+    /// @dev The preorder pool is capped relative to the current memecoin-side genesis funds.
+    /// @param verseId The memeverse id.
+    /// @param amountInUPT The contributed UPT amount.
+    /// @param user The account credited for the contribution.
+    function preorder(uint256 verseId, uint128 amountInUPT, address user) external;
+
     /// @notice Advances a verse to its next lifecycle stage when conditions are met.
     /// @dev This may trigger pool deployment and liquidity lock flows.
     /// @param verseId The memeverse id.
@@ -129,11 +142,29 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @return userFunds The refunded UPT amount.
     function refund(uint256 verseId) external returns (uint256 userFunds);
 
+    /// @notice Refunds a caller's preorder contribution when the verse is in Refund stage.
+    /// @dev Returns the caller's refunded preorder UPT amount.
+    /// @param verseId The memeverse id.
+    /// @return preorderFund The refunded preorder UPT amount.
+    function refundPreorder(uint256 verseId) external returns (uint256 preorderFund);
+
     /// @notice Claims the caller's POL allocation after Genesis locks.
     /// @dev Uses the caller's stored genesis participation share for the verse.
     /// @param verseId The memeverse id.
     /// @return amount The claimed POL amount.
     function claimPOLToken(uint256 verseId) external returns (uint256 amount);
+
+    /// @notice Returns the caller's currently claimable preorder memecoin amount.
+    /// @dev Uses the caller's stored preorder settlement data for the specified verse.
+    /// @param verseId The memeverse id.
+    /// @return amount The claimable preorder memecoin amount.
+    function claimablePreorderMemecoin(uint256 verseId) external view returns (uint256 amount);
+
+    /// @notice Claims the caller's unlocked preorder memecoin allocation.
+    /// @dev Transfers the caller's currently unlocked preorder memecoin amount.
+    /// @param verseId The memeverse id.
+    /// @return amount The claimed preorder memecoin amount.
+    function claimUnlockedPreorderMemecoin(uint256 verseId) external returns (uint256 amount);
 
     /// @notice Redeems launcher-managed fees and distributes them to protocol recipients.
     /// @dev May perform same-chain transfers or cross-chain dispatches depending on verse configuration.
@@ -246,6 +277,12 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @param executorRewardRate The new reward rate in protocol ratio units.
     function setExecutorRewardRate(uint256 executorRewardRate) external;
 
+    /// @notice Updates preorder configuration parameters.
+    /// @dev Expected to be restricted by the implementation's access control.
+    /// @param preorderCapRatio The preorder capacity ratio in `RATIO` precision.
+    /// @param preorderVestingDuration The linear vesting duration for preorder memecoin.
+    function setPreorderConfig(uint256 preorderCapRatio, uint256 preorderVestingDuration) external;
+
     /// @notice Updates the gas limits used for cross-chain operations.
     /// @dev Expected to be restricted by the implementation's access control.
     /// @param oftReceiveGasLimit The gas limit used for OFT receives.
@@ -264,6 +301,12 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
         string calldata description,
         string[] calldata communities
     ) external;
+
+    /// @notice Returns the currently remaining preorder capacity for a verse.
+    /// @dev Capacity is derived from the current memecoin-side genesis funds and the configured cap ratio.
+    /// @param verseId The memeverse id.
+    /// @return remaining The remaining preorder UPT capacity.
+    function previewPreorderCapacity(uint256 verseId) external view returns (uint256 remaining);
 
     error ZeroInput();
 
@@ -343,6 +386,8 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     event SetFundMetaData(address indexed upt, uint256 minTotalFund, uint256 fundBasedAmount);
 
     event SetExecutorRewardRate(uint256 executorRewardRate);
+
+    event SetPreorderConfig(uint256 preorderCapRatio, uint256 preorderVestingDuration);
 
     event SetGasLimits(uint128 oftReceiveGasLimit, uint128 oftDispatcherGasLimit);
 

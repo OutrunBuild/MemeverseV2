@@ -186,13 +186,9 @@ contract MockPoolManagerForHookLiquidity {
 }
 
 contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
-    constructor(
-        IPoolManager _manager,
-        address _owner,
-        address _treasury,
-        uint256 _antiSnipeDurationBlocks,
-        uint256 _maxAntiSnipeProbabilityBase
-    ) MemeverseUniswapHook(_manager, _owner, _treasury, _antiSnipeDurationBlocks, _maxAntiSnipeProbabilityBase) {}
+    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
+        MemeverseUniswapHook(_manager, _owner, _treasury, _launchSettlementCaller)
+    {}
 
     function validateHookAddress(BaseHook) internal pure override {}
 }
@@ -217,10 +213,16 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         token0.mint(address(this), 1_000_000 ether);
         token1.mint(address(this), 1_000_000 ether);
 
-        hook = new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)), address(this), address(this), 0, 1);
-        router = new MemeverseSwapRouter(
-            IPoolManager(address(mockManager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+        hook = new TestableMemeverseUniswapHook(
+            IPoolManager(address(mockManager)), address(this), address(this), address(this)
         );
+        router = new MemeverseSwapRouter(
+            IPoolManager(address(mockManager)),
+            IMemeverseUniswapHook(address(hook)),
+            IPermit2(address(0xBEEF)),
+            address(this)
+        );
+        hook.setLaunchSettlementCaller(address(router));
 
         token0.approve(address(hook), type(uint256).max);
         token1.approve(address(hook), type(uint256).max);
@@ -237,7 +239,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev See the implementation for behavior details.
     function testAddLiquidity_UsesUnlockFlow() external {
         uint128 liquidity = _addLiquidity();
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
 
         assertGt(liquidity, 0, "liquidity");
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
@@ -248,7 +250,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev See the implementation for behavior details.
     function testRemoveLiquidity_UsesOriginalSenderForTake() external {
         uint128 liquidity = _addLiquidity();
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
 
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
@@ -290,7 +292,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             })
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(nativePoolId);
+        (address liquidityToken,,) = hook.poolInfo(nativePoolId);
         assertGt(liquidity, 0, "liquidity");
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
         assertEq(address(hook).balance, 0, "no stranded native");
@@ -430,7 +432,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Covers the `_forwardLiquidityOutputs` branch in the hook.
     function testRemoveLiquidityCore_ForwardsOutputsToDifferentRecipient() external {
         uint128 liquidity = _addLiquidity();
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         address recipient = address(0xCAFE);
 
         uint256 recipient0Before = token0.balanceOf(recipient);
@@ -464,7 +466,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             block.timestamp
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         assertGt(liquidity, 0, "liquidity");
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
     }
@@ -490,7 +492,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             block.timestamp
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(nativePoolId);
+        (address liquidityToken,,) = hook.poolInfo(nativePoolId);
         assertGt(liquidity, 0, "liquidity");
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
         assertEq(address(this).balance, nativeBefore - requiredNative, "only spent quoted native");
@@ -512,7 +514,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             address(this),
             block.timestamp
         );
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         UniswapLP(liquidityToken).approve(address(router), liquidity);
 
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -563,7 +565,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             block.timestamp
         );
 
-        (address lpToken,,,) = hook.poolInfo(poolId);
+        (address lpToken,,) = hook.poolInfo(poolId);
         uint256 lpBalance = UniswapLP(lpToken).balanceOf(address(this));
         assertTrue(UniswapLP(lpToken).transfer(address(0xCAFE), lpBalance));
 
@@ -571,7 +573,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         (uint256 fee0Offset, uint256 fee1Offset, uint256 pendingFee0, uint256 pendingFee1) =
             hook.userFeeState(poolId, address(this));
-        (,, uint256 fee0PerShare, uint256 fee1PerShare) = hook.poolInfo(poolId);
+        (, uint256 fee0PerShare, uint256 fee1PerShare) = hook.poolInfo(poolId);
         assertEq(fee0Offset, fee0PerShare, "fee0 offset");
         assertEq(fee1Offset, fee1PerShare, "fee1 offset");
         assertEq(pendingFee0, 0, "pending fee0");
@@ -639,22 +641,13 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Verifies owner config setters reject invalid inputs and update state.
-    /// @dev Covers treasury and anti-snipe configuration branches on the hook.
+    /// @dev Covers treasury and launch-fee configuration branches on the hook.
     function testOwnerSetters_UpdateStateAndRejectInvalidInputs() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
         hook.setTreasury(address(0));
 
         hook.setTreasury(address(0xBEEF));
         assertEq(hook.treasury(), address(0xBEEF), "treasury");
-
-        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
-        hook.setMaxAntiSnipeProbabilityBase(0);
-
-        hook.setMaxAntiSnipeProbabilityBase(2);
-        assertEq(hook.maxAntiSnipeProbabilityBase(), 2, "max base");
-
-        hook.setAntiSnipeDuration(25);
-        assertEq(hook.antiSnipeDurationBlocks(), 25, "duration");
     }
 
     /// @notice Verifies swap quoting reverts when neither side is enabled for protocol fees.
@@ -664,34 +657,59 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
     }
 
-    /// @notice Verifies anti-snipe request rejects overly loose price limits.
-    /// @dev Covers the `SlippageExceedsMaximum` failure branch.
-    function testRequestSwapAttempt_ReturnsSlippageExceedsMaximumWhenLimitTooLoose() external {
-        hook.setAntiSnipeDuration(10);
+    /// @notice Verifies launch fee floor dominates immediately after pool initialization and decays to the minimum fee.
+    /// @dev Covers the new launch fee scheduler on top of the existing dynamic fee engine.
+    function testQuoteSwap_UsesLaunchFeeFloorAndDecaysToMinFee() external {
         hook.setProtocolFeeCurrency(key.currency0);
-        MockERC20 tokenA = new MockERC20("A", "A", 18);
-        MockERC20 tokenB = new MockERC20("B", "B", 18);
-        tokenA.mint(address(this), 1_000_000 ether);
-        tokenB.mint(address(this), 1_000_000 ether);
-        tokenA.approve(address(hook), type(uint256).max);
-        tokenB.approve(address(hook), type(uint256).max);
-        tokenA.approve(address(router), type(uint256).max);
-        tokenB.approve(address(router), type(uint256).max);
-        PoolKey memory activeKey = _dynamicPoolKey(Currency.wrap(address(tokenA)), Currency.wrap(address(tokenB)));
-        hook.setProtocolFeeCurrency(activeKey.currency0);
-        mockManager.initialize(activeKey, SQRT_PRICE_1_1);
-        uint160 tooLoosePriceLimit = 1;
 
-        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason,) = hook.requestSwapAttemptWithQuote(
-            activeKey,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: tooLoosePriceLimit}),
-            address(this),
-            100 ether,
-            address(this)
+        IMemeverseUniswapHook.SwapQuote memory initialQuote =
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+        assertEq(initialQuote.feeBps, 5000, "initial launch fee");
+
+        vm.warp(block.timestamp + 900);
+
+        IMemeverseUniswapHook.SwapQuote memory maturedQuote =
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+        assertEq(maturedQuote.feeBps, 100, "matured fee");
+    }
+
+    /// @notice Verifies owner launch-fee setters update state and reject invalid inputs.
+    /// @dev Covers the new launch scheduler configuration surface.
+    function testOwnerSetters_UpdateLaunchFeeConfigAndSettlementOperator() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.setLaunchSettlementCaller(address(0));
+
+        hook.setLaunchSettlementCaller(address(0xCAFE));
+        assertEq(hook.launchSettlementCaller(), address(0xCAFE), "launch caller");
+
+        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 5000, minFeeBps: 100, decayDurationSeconds: 0})
         );
 
-        assertFalse(allowed, "allowed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.SlippageExceedsMaximum), "reason");
+        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 99, minFeeBps: 100, decayDurationSeconds: 900})
+        );
+
+        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 10_001, minFeeBps: 100, decayDurationSeconds: 900})
+        );
+
+        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 5_000, minFeeBps: 10_001, decayDurationSeconds: 900})
+        );
+
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 100, decayDurationSeconds: 900})
+        );
+
+        (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds) = hook.defaultLaunchFeeConfig();
+        assertEq(startFeeBps, 4000, "start fee");
+        assertEq(minFeeBps, 100, "min fee");
+        assertEq(decayDurationSeconds, 900, "duration");
     }
 
     function _addLiquidity() internal returns (uint128 liquidity) {

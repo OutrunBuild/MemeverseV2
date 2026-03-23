@@ -58,9 +58,20 @@ interface IMemeverseSwapRouter {
     /// @notice Reverts when a Permit2 batch entry does not match the expected token ordering.
     error InvalidPermit2Token(uint256 index, address expectedToken, address actualToken);
 
+    /// @notice Reverts when the caller is not the configured launch settlement operator.
+    error InvalidLaunchSettlementOperator();
+
+    /// @notice Reverts when the launch settlement operator is zero.
+    error ZeroAddress();
+
+    /// @notice Returns the configured launch settlement operator.
+    /// @dev This address is allowed to initiate the marker-gated fixed 1% launch settlement path through the router.
+    /// @return operator The configured launch settlement operator.
+    function launchSettlementOperator() external view returns (address operator);
+
     /// @notice Returns the configured Memeverse hook used by the router.
     /// @dev Useful for verifying the router is wired to the expected hook deployment.
-    /// @return memeverseHook The hook contract that owns anti-snipe and LP accounting logic.
+    /// @return memeverseHook The hook contract that owns launch-fee and LP accounting logic.
     function hook() external view returns (IMemeverseUniswapHook memeverseHook);
 
     /// @notice Returns the Permit2 contract used for signature-based ERC20 funding.
@@ -77,17 +88,6 @@ interface IMemeverseSwapRouter {
         external
         view
         returns (IMemeverseUniswapHook.SwapQuote memory quote);
-
-    /// @notice Returns the anti-snipe failure-fee quote from the underlying Memeverse hook.
-    /// @dev `inputBudget` is the total input budget reserved for either success or failure.
-    /// @param key The pool key being quoted.
-    /// @param params The swap parameters being quoted.
-    /// @param inputBudget The maximum total input budget reserved for the attempted swap.
-    /// @return quote The quoted failure-fee amount, side, and recipient class.
-    function quoteFailedAttempt(PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
-        external
-        view
-        returns (IMemeverseUniswapHook.FailedAttemptQuote memory quote);
 
     /// @notice Returns the hook-managed pool key for the given token pair.
     /// @dev Uses the Memeverse dynamic-fee pool settings and the router's configured hook.
@@ -127,8 +127,8 @@ interface IMemeverseSwapRouter {
         view
         returns (uint256 amountARequired, uint256 amountBRequired);
 
-    /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.
-    /// @dev On anti-snipe soft-fail, the router returns with `executed == false` and a failure reason.
+    /// @notice Executes a swap through the Memeverse hook in a single transaction.
+    /// @dev Swaps always execute or revert; there is no anti-snipe soft-fail path.
     /// @custom:security Callers should enforce slippage with `amountOutMinimum` or `amountInMaximum`, and must provide
     /// a payable `nativeRefundRecipient` whenever native input is supplied.
     /// @param key The pool key to swap against.
@@ -139,9 +139,7 @@ interface IMemeverseSwapRouter {
     /// @param amountOutMinimum The minimum net output the caller is willing to receive.
     /// @param amountInMaximum The maximum input the caller is willing to pay.
     /// @param hookData Opaque hook data forwarded to `poolManager.swap`.
-    /// @return delta The final swap delta when executed, otherwise zero.
-    /// @return executed Whether the swap actually reached `poolManager.swap`.
-    /// @return failureReason The anti-snipe failure reason when `executed` is false, otherwise `None`.
+    /// @return delta The final swap delta.
     function swap(
         PoolKey calldata key,
         SwapParams calldata params,
@@ -151,10 +149,7 @@ interface IMemeverseSwapRouter {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    )
-        external
-        payable
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason);
+    ) external payable returns (BalanceDelta delta);
 
     /// @notice Executes a swap after funding the router through Permit2 signature transfer.
     /// @dev Reuses the same routed swap semantics as `swap(...)` after the Permit2 pull succeeds.
@@ -168,9 +163,7 @@ interface IMemeverseSwapRouter {
     /// @param amountOutMinimum The minimum net output the caller is willing to receive.
     /// @param amountInMaximum The maximum input the caller is willing to pay.
     /// @param hookData Opaque hook data forwarded to `poolManager.swap`.
-    /// @return delta The final swap delta when executed, otherwise zero.
-    /// @return executed Whether the swap actually reached `poolManager.swap`.
-    /// @return failureReason The anti-snipe failure reason when `executed` is false, otherwise `None`.
+    /// @return delta The final swap delta.
     function swapWithPermit2(
         Permit2SingleParams calldata permitParams,
         PoolKey calldata key,
@@ -181,10 +174,7 @@ interface IMemeverseSwapRouter {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    )
-        external
-        payable
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason);
+    ) external payable returns (BalanceDelta delta);
 
     /// @notice Adds liquidity through the hook core entrypoint while applying router-level protections.
     /// @dev The router derives actual spend from the current pool price and refunds unused budget.

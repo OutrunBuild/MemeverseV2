@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {BalanceDelta, BalanceDeltaLibrary} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -23,14 +23,11 @@ import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 
 /// @title MemeverseSwapRouter
 /// @notice Recommended single public periphery entrypoint for Memeverse swap and LP flows.
-/// @dev On anti-snipe soft-fail, the router returns successfully without calling `poolManager.swap`, so attempts persist
-/// while the trade does not execute. During the protection window, failed attempts may still charge an input-side
-/// failure fee from the same single input budget used by the swap. Outside the anti-snipe window, the router skips attempt recording and routes directly to
-/// `poolManager.swap`. For exact-output swaps, callers are expected to source `amountInMaximum` from
-/// `MemeverseSwapRouter.quoteSwap()` or a stricter front-end slippage policy.
-/// The underlying hook remains callable as a Core API for custom routers and integrators, but this router is the
-/// intended canonical entrypoint for end-user and on-chain SDK integrations, covering quote, swap, LP, fee claim,
-/// and hook-backed pool bootstrap flows.
+/// @dev Swaps always execute or revert. For exact-output swaps, callers are expected to source `amountInMaximum`
+/// from `MemeverseSwapRouter.quoteSwap()` or a stricter front-end slippage policy. The underlying hook remains
+/// callable as a Core API for custom routers and integrators, but this router is the intended canonical entrypoint
+/// for end-user and on-chain SDK integrations, covering quote, swap, LP, fee claim, and hook-backed pool bootstrap
+/// flows.
 contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     using OutrunSafeERC20 for IERC20;
     using CurrencySettler for Currency;
@@ -48,6 +45,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
     IMemeverseUniswapHook public immutable override hook;
     IPermit2 public immutable override permit2;
+    address public immutable override launchSettlementOperator;
     bytes32 internal constant SWAP_WITNESS_TYPEHASH = keccak256(
         "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
     );
@@ -68,13 +66,22 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
         "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     /// @param _manager The Uniswap v4 pool manager.
-    /// @param _hook The Memeverse hook that owns anti-snipe attempt tracking for routed swaps.
+    /// @param _hook The Memeverse hook that owns launch-fee and LP accounting for routed swaps.
     /// @param _permit2 The Permit2 entrypoint used for signature-based ERC20 pulls.
-    constructor(IPoolManager _manager, IMemeverseUniswapHook _hook, IPermit2 _permit2) SafeCallback(_manager) {
+    /// @param _launchSettlementOperator Address allowed to initiate the marker-gated fixed 1% launch settlement path.
+    constructor(
+        IPoolManager _manager,
+        IMemeverseUniswapHook _hook,
+        IPermit2 _permit2,
+        address _launchSettlementOperator
+    ) SafeCallback(_manager) {
+        if (_launchSettlementOperator == address(0)) revert ZeroAddress();
         hook = _hook;
         permit2 = _permit2;
+        launchSettlementOperator = _launchSettlementOperator;
     }
 
     /// @notice Returns the current swap quote from the underlying Memeverse hook.
@@ -89,22 +96,6 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         returns (IMemeverseUniswapHook.SwapQuote memory quote)
     {
         return hook.quoteSwap(key, params);
-    }
-
-    /// @notice Returns the current anti-snipe failure-fee quote from the underlying Memeverse hook.
-    /// @dev This is a thin passthrough so integrators can estimate the protection-window failure fee via the router.
-    /// `inputBudget` is the single total input budget that will be used for either success or failure.
-    /// @param key The pool key being quoted.
-    /// @param params The swap parameters being quoted.
-    /// @param inputBudget The maximum total input budget reserved for the attempted swap.
-    /// @return quote The quoted failure-fee amount, side, and recipient class.
-    function quoteFailedAttempt(PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
-        external
-        view
-        override
-        returns (IMemeverseUniswapHook.FailedAttemptQuote memory quote)
-    {
-        return hook.quoteFailedAttempt(key, params, inputBudget);
     }
 
     /// @notice Returns the hook-managed pool key for the given token pair.
@@ -169,12 +160,8 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         return tokenA < tokenB ? (amount0Required, amount1Required) : (amount1Required, amount0Required);
     }
 
-    /// @notice Executes a swap through the Memeverse hook's anti-snipe gate in a single transaction.
-    /// @dev If anti-snipe soft-fails, this entrypoint returns `(ZERO_DELTA, false, reason)` and does not call
-    /// `poolManager.swap`. During the protection window the router prepares a single input budget for the trade:
-    /// on failure part of that budget is consumed as an input-side failure fee, while on success the same budget is
-    /// used to execute the swap and only any unused remainder is refunded. Any unused native input is refunded to `nativeRefundRecipient`, which allows
-    /// non-payable contract callers to preserve soft-fail attempt recording while routing refunds to a payable address.
+    /// @notice Executes a swap through the Memeverse hook in a single transaction.
+    /// @dev Swaps always execute or revert. Any unused native input is refunded to `nativeRefundRecipient`.
     /// @param key The pool key to swap against.
     /// @param params The swap parameters.
     /// @param recipient The address receiving any swap output.
@@ -183,9 +170,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     /// @param amountOutMinimum The minimum net output the caller is willing to receive. Required for exact-input protection.
     /// @param amountInMaximum The maximum input the caller is willing to pay. Required for exact-output swaps.
     /// @param hookData Opaque hook data forwarded to `poolManager.swap`.
-    /// @return delta The final swap delta when executed, otherwise zero.
-    /// @return executed Whether the swap actually reached `poolManager.swap`.
-    /// @return failureReason The anti-snipe failure reason when `executed` is false, otherwise `None`.
+    /// @return delta The final swap delta.
     function swap(
         PoolKey calldata key,
         SwapParams calldata params,
@@ -195,12 +180,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    )
-        external
-        payable
-        override
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason)
-    {
+    ) external payable override returns (BalanceDelta delta) {
         return _swap(
             key,
             params,
@@ -228,9 +208,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     /// @param amountOutMinimum The minimum net output the caller is willing to receive.
     /// @param amountInMaximum The maximum input the caller is willing to pay.
     /// @param hookData Opaque hook data forwarded to `poolManager.swap`.
-    /// @return delta The final swap delta when executed, otherwise zero.
-    /// @return executed Whether the swap actually reached `poolManager.swap`.
-    /// @return failureReason The anti-snipe failure reason when `executed` is false, otherwise `None`.
+    /// @return delta The final swap delta.
     function swapWithPermit2(
         IMemeverseSwapRouter.Permit2SingleParams calldata permitParams,
         PoolKey calldata key,
@@ -241,23 +219,18 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    )
-        external
-        payable
-        override
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason)
-    {
+    ) external payable override returns (BalanceDelta delta) {
         _prepareSwapPermit2Input(
-                permitParams,
-                key,
-                params,
-                recipient,
-                nativeRefundRecipient,
-                deadline,
-                amountOutMinimum,
-                amountInMaximum,
-                hookData
-            );
+            permitParams,
+            key,
+            params,
+            recipient,
+            nativeRefundRecipient,
+            deadline,
+            amountOutMinimum,
+            amountInMaximum,
+            hookData
+        );
 
         return _swap(
             key,
@@ -427,7 +400,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         uint256 deadline
     ) external override returns (BalanceDelta delta) {
         PoolKey memory key = _hookPoolKey(currency0, currency1);
-        (address liquidityToken,,,) = hook.poolInfo(key.toId());
+        (address liquidityToken,,) = hook.poolInfo(key.toId());
         (bytes32 witness, string memory witnessTypeString) =
             _removeLiquidityPermit2Witness(currency0, currency1, liquidity, amount0Min, amount1Min, to, deadline);
         _pullCurrencyWithPermit2(
@@ -579,54 +552,36 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         uint256 deadline,
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
-        bytes calldata hookData,
+        bytes memory hookData,
         address trader,
         address payer,
         bool inputBudgetPrepared
-    ) internal returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason) {
+    ) internal returns (BalanceDelta delta) {
         if (deadline < block.timestamp) revert ExpiredPastDeadline();
         if (address(key.hooks) != address(hook)) revert InvalidHook();
         if (params.amountSpecified == 0) revert SwapAmountCannotBeZero();
         if (params.amountSpecified > 0 && amountInMaximum == 0) revert AmountInMaximumRequired();
-
-        bool antiSnipeActive = hook.isAntiSnipeActive(key.toId());
+        bool launchSettlement = keccak256(hookData) == keccak256(abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH));
+        if (launchSettlement && msg.sender != launchSettlementOperator) {
+            revert InvalidLaunchSettlementOperator();
+        }
+        bool useRouterBalance = launchSettlement || inputBudgetPrepared;
         Currency inputCurrency = _inputCurrency(key, params.zeroForOne);
         uint256 inputBudget = _swapInputBudget(params, amountInMaximum);
         uint256 nativeSwapBudget = _nativeSwapBudget(key, params, amountInMaximum);
-        IMemeverseUniswapHook.FailedAttemptQuote memory failedAttemptQuote;
-
-        if (antiSnipeActive) {
-            if (!inputCurrency.isAddressZero() && inputBudget > 0) {
-                if (!inputBudgetPrepared) {
-                    _pullCurrency(inputCurrency, trader, inputBudget);
-                }
-                _ensureHookApproval(inputCurrency, inputBudget);
+        if (useRouterBalance && !inputCurrency.isAddressZero() && inputBudget > 0) {
+            if (!inputBudgetPrepared) {
+                _pullCurrency(inputCurrency, trader, inputBudget);
             }
         }
 
         address refundRecipient = _validateNativeFunding(nativeSwapBudget, nativeRefundRecipient);
 
-        if (antiSnipeActive) {
-            (executed, failureReason, failedAttemptQuote) = hook.requestSwapAttemptWithQuote{value: nativeSwapBudget}(
-                key, params, trader, inputBudget, address(this)
-            );
-            if (!executed) {
-                if (!inputCurrency.isAddressZero()) {
-                    _refundUnusedInput(inputCurrency, trader, inputBudget, failedAttemptQuote.feeAmount);
-                }
-                _refundUnusedNative(refundRecipient, nativeSwapBudget, failedAttemptQuote.feeAmount);
-                return (BalanceDeltaLibrary.ZERO_DELTA, false, failureReason);
-            }
-        } else {
-            executed = true;
-            failureReason = IMemeverseUniswapHook.AntiSnipeFailureReason.None;
-        }
-
         delta = abi.decode(
             poolManager.unlock(
                 abi.encode(
                     CallbackData({
-                        payer: antiSnipeActive ? address(this) : payer,
+                        payer: useRouterBalance ? address(this) : payer,
                         recipient: recipient,
                         key: key,
                         params: params,
@@ -649,12 +604,11 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
             }
         }
 
-        if (!inputCurrency.isAddressZero() && (antiSnipeActive || payer == address(this))) {
+        if (!inputCurrency.isAddressZero() && useRouterBalance) {
             _refundUnusedInput(inputCurrency, trader, inputBudget, actualInputAmount);
         }
         _refundUnusedNative(refundRecipient, msg.value, nativeInputSpent);
-
-        return (delta, true, IMemeverseUniswapHook.AntiSnipeFailureReason.None);
+        return delta;
     }
 
     function _pullCurrency(Currency currency, address from, uint256 amount) internal {
@@ -816,7 +770,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
         PoolKey memory key = _hookPoolKey(currency0, currency1);
         if (!liquidityPrepared) {
-            (address liquidityToken,,,) = hook.poolInfo(key.toId());
+            (address liquidityToken,,) = hook.poolInfo(key.toId());
             IERC20(liquidityToken).safeTransferFrom(payer, address(this), liquidity);
         }
 

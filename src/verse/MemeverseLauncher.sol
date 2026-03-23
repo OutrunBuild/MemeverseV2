@@ -9,6 +9,8 @@ import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/Option
 import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {TokenHelper} from "../common/token/TokenHelper.sol";
 import {InitialPriceCalculator} from "./libraries/InitialPriceCalculator.sol";
@@ -31,6 +33,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     uint256 public constant RATIO = 10000;
     uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     address public localLzEndpoint;
     address public lzEndpointRegistry;
@@ -40,16 +43,26 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     address public memeverseSwapRouter;
 
     uint256 public executorRewardRate;
+    uint256 public preorderCapRatio;
+    uint256 public preorderVestingDuration;
     uint128 public oftReceiveGasLimit;
     uint128 public oftDispatcherGasLimit;
+
+    struct PreorderState {
+        uint256 totalFunds;
+        uint256 settledMemecoin;
+        uint40 settlementTimestamp;
+    }
 
     mapping(address UPT => FundMetaData) public fundMetaDatas;
     mapping(address memecoin => uint256) public memecoinToIds;
     mapping(uint256 verseId => Memeverse) public memeverses;
     mapping(uint256 verseId => GenesisFund) public genesisFunds;
+    mapping(uint256 verseId => PreorderState) internal preorderStates;
     mapping(uint256 verseId => uint256) public totalClaimablePOL;
     mapping(uint256 verseId => uint256) public totalPolLiquidity;
     mapping(uint256 verseId => mapping(address account => GenesisData)) public userGenesisData;
+    mapping(uint256 verseId => mapping(address account => PreorderData)) public userPreorderData;
     mapping(uint256 verseId => mapping(uint256 provider => string)) public communitiesMap; // provider -> 0:Website, 1:X, 2:Discord, 3:Telegram, >4:Others
 
     constructor(
@@ -61,14 +74,21 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
-        uint128 _oftDispatcherGasLimit
+        uint128 _oftDispatcherGasLimit,
+        uint256 _preorderCapRatio,
+        uint256 _preorderVestingDuration
     ) Ownable(_owner) {
+        require(_preorderCapRatio != 0 && _preorderVestingDuration != 0, ZeroInput());
+        require(_preorderCapRatio <= RATIO, FeeRateOverFlow());
+
         localLzEndpoint = _localLzEndpoint;
         memeverseRegistrar = _memeverseRegistrar;
         memeverseProxyDeployer = _memeverseProxyDeployer;
         lzEndpointRegistry = _lzEndpointRegistry;
         oftDispatcher = _oftDispatcher;
         executorRewardRate = _executorRewardRate;
+        preorderCapRatio = _preorderCapRatio;
+        preorderVestingDuration = _preorderVestingDuration;
         oftReceiveGasLimit = _oftReceiveGasLimit;
         oftDispatcherGasLimit = _oftDispatcherGasLimit;
     }
@@ -181,6 +201,53 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
+     * @notice Preview claimable preorder memecoin of caller after preorder settlement.
+     * @dev Uses the caller's stored preorder purchase and claim data as the claim basis.
+     * @param verseId Memeverse id.
+     * @return amount The currently claimable preorder memecoin amount.
+     */
+    function claimablePreorderMemecoin(uint256 verseId) public view override returns (uint256 amount) {
+        require(verseId != 0, ZeroInput());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
+
+        PreorderState storage preorderState = preorderStates[verseId];
+        uint40 settlementTimestamp = preorderState.settlementTimestamp;
+        if (settlementTimestamp == 0) return 0;
+
+        PreorderData storage preorderData = userPreorderData[verseId][msg.sender];
+        uint256 userFunds = preorderData.funds;
+        uint256 totalFunds = preorderState.totalFunds;
+        if (userFunds == 0 || totalFunds == 0) return 0;
+
+        uint256 purchasedMemecoin = preorderState.settledMemecoin * userFunds / totalFunds;
+        if (purchasedMemecoin <= preorderData.claimedMemecoin) return 0;
+
+        uint256 elapsed = block.timestamp > settlementTimestamp ? block.timestamp - settlementTimestamp : 0;
+        if (elapsed >= preorderVestingDuration) {
+            return purchasedMemecoin - preorderData.claimedMemecoin;
+        }
+
+        uint256 vested = purchasedMemecoin * elapsed / preorderVestingDuration;
+        if (vested <= preorderData.claimedMemecoin) return 0;
+        return vested - preorderData.claimedMemecoin;
+    }
+
+    /**
+     * @notice Preview the currently remaining preorder capacity for a verse.
+     * @dev Capacity is computed from current memecoin-side genesis funds and the configured cap ratio.
+     * @param verseId Memeverse id.
+     * @return remaining The remaining preorder UPT capacity.
+     */
+    function previewPreorderCapacity(uint256 verseId) public view override returns (uint256 remaining) {
+        require(verseId != 0, ZeroInput());
+        uint256 maxCapacity = genesisFunds[verseId].totalMemecoinFunds * preorderCapRatio / RATIO;
+        uint256 usedCapacity = preorderStates[verseId].totalFunds;
+        if (usedCapacity >= maxCapacity) return 0;
+        return maxCapacity - usedCapacity;
+    }
+
+    /**
      * @notice Preview Genesis liquidity market maker fees for DAO Treasury (UPT) and Yield Vault (Memecoin).
      * @dev Aggregates the claimable LP fees from the memecoin/UPT and liquidProof/UPT pools.
      * @param verseId - Memeverse id
@@ -270,6 +337,35 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         }
 
         emit Genesis(verseId, user, increasedMemecoinFund, increasedLiquidProofFund);
+    }
+
+    /**
+     * @notice Deposit UPT into the preorder pool during Genesis.
+     * @dev The preorder pool is capped relative to the current memecoin-side genesis funds.
+     * @param verseId Memeverse id.
+     * @param amountInUPT Amount of UPT.
+     * @param user Address of user participating in preorder.
+     */
+    function preorder(uint256 verseId, uint128 amountInUPT, address user)
+        external
+        override
+        versIdValidate(verseId)
+        whenNotPaused
+    {
+        require(verseId != 0 && amountInUPT != 0 && user != address(0), ZeroInput());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage == Stage.Genesis, NotGenesisStage());
+
+        PreorderState storage preorderState = preorderStates[verseId];
+        uint256 nextTotalPreorderFunds = preorderState.totalFunds + amountInUPT;
+        require(
+            nextTotalPreorderFunds <= genesisFunds[verseId].totalMemecoinFunds * preorderCapRatio / RATIO,
+            InvalidLength()
+        );
+
+        _transferIn(verse.UPT, msg.sender, amountInUPT);
+        preorderState.totalFunds = nextTotalPreorderFunds;
+        userPreorderData[verseId][user].funds += amountInUPT;
     }
 
     /**
@@ -419,6 +515,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint128 totalMemecoinFunds,
         uint128 totalLiquidProofFunds
     ) internal {
+        _safeApproveInf(UPT, memeverseSwapRouter);
+        _safeApproveInf(memecoin, memeverseSwapRouter);
+        _safeApproveInf(pol, memeverseSwapRouter);
+
         // Deploy memecoin liquidity
         uint256 memecoinAmount = totalMemecoinFunds * fundMetaDatas[UPT].fundBasedAmount;
         uint160 memecoinStartPrice =
@@ -436,6 +536,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 address(this),
                 block.timestamp
             );
+
+        _settleLaunchPreorder(verseId, poolKey, UPT, memecoin);
 
         // Mint liquidity proof token
         IMemeLiquidProof(pol).mint(address(this), memecoinLiquidity);
@@ -461,6 +563,48 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         totalClaimablePOL[verseId] = memecoinLiquidity - deployedPOL;
     }
 
+    function _settleLaunchPreorder(uint256 verseId, PoolKey memory poolKey, address UPT, address memecoin) internal {
+        PreorderState storage preorderState = preorderStates[verseId];
+        uint256 totalFunds = preorderState.totalFunds;
+        if (totalFunds == 0) return;
+
+        bool zeroForOne = Currency.unwrap(poolKey.currency0) == UPT;
+        BalanceDelta delta = IMemeverseSwapRouter(memeverseSwapRouter)
+            .swap(
+                poolKey,
+                SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: 0}),
+                address(this),
+                address(this),
+                block.timestamp,
+                0,
+                totalFunds,
+                abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+            );
+
+        uint256 settledMemecoin = _deltaAmountForToken(delta, zeroForOne, memecoin, poolKey);
+        preorderState.settledMemecoin = settledMemecoin;
+        preorderState.settlementTimestamp = uint40(block.timestamp);
+    }
+
+    function _deltaAmountForToken(BalanceDelta delta, bool zeroForOne, address token, PoolKey memory poolKey)
+        internal
+        pure
+        returns (uint256 amount)
+    {
+        if (Currency.unwrap(poolKey.currency0) == token) {
+            int128 amount0 = delta.amount0();
+            return amount0 > 0 ? uint256(uint128(amount0)) : 0;
+        }
+
+        if (Currency.unwrap(poolKey.currency1) == token) {
+            int128 amount1 = delta.amount1();
+            return amount1 > 0 ? uint256(uint128(amount1)) : 0;
+        }
+
+        zeroForOne;
+        return 0;
+    }
+
     /**
      * @notice Refund UPT after genesis failed because the omnichain funds did not meet the minimum requirement.
      * @dev Marks the caller as refunded before transferring funds out.
@@ -484,6 +628,26 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
+     * @notice Refund UPT after preorder became invalid because Genesis failed.
+     * @dev Marks the caller as refunded before transferring funds out.
+     * @param verseId Memeverse id.
+     * @return preorderFund The refunded preorder contribution amount.
+     */
+    function refundPreorder(uint256 verseId) external override whenNotPaused returns (uint256 preorderFund) {
+        require(verseId != 0, ZeroInput());
+        Memeverse storage verse = memeverses[verseId];
+        require(verse.currentStage == Stage.Refund, NotRefundStage());
+
+        address msgSender = msg.sender;
+        PreorderData storage preorderData = userPreorderData[verseId][msgSender];
+        preorderFund = preorderData.funds;
+        require(preorderFund > 0 && !preorderData.isRefunded, InvalidRefund());
+
+        preorderData.isRefunded = true;
+        _transferOut(verse.UPT, msgSender, preorderFund);
+    }
+
+    /**
      * @notice Claim POL token in stage Locked.
      * @dev Transfers the caller's proportional claimable liquid proof balance.
      * @param verseId - Memeverse id
@@ -499,6 +663,22 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         _transferOut(memeverses[verseId].liquidProof, msgSender, amount);
 
         emit ClaimPOLToken(verseId, msgSender, amount);
+    }
+
+    /**
+     * @notice Claim unlocked preorder memecoin after preorder settlement.
+     * @dev Transfers the caller's currently vested preorder memecoin balance.
+     * @param verseId Memeverse id.
+     * @return amount The claimed preorder memecoin amount.
+     */
+    function claimUnlockedPreorderMemecoin(uint256 verseId) external override whenNotPaused returns (uint256 amount) {
+        require(verseId != 0, ZeroInput());
+        amount = claimablePreorderMemecoin(verseId);
+        require(amount != 0, NoPOLAvailable());
+
+        address msgSender = msg.sender;
+        userPreorderData[verseId][msgSender].claimedMemecoin += amount;
+        _transferOut(memeverses[verseId].memecoin, msgSender, amount);
     }
 
     /**
@@ -1027,6 +1207,26 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         executorRewardRate = _executorRewardRate;
 
         emit SetExecutorRewardRate(_executorRewardRate);
+    }
+
+    /**
+     * @notice Set preorder cap and vesting parameters.
+     * @dev Only callable by the owner.
+     * @param _preorderCapRatio Preorder capacity ratio in `RATIO` precision.
+     * @param _preorderVestingDuration Vesting duration for preorder memecoin.
+     */
+    function setPreorderConfig(uint256 _preorderCapRatio, uint256 _preorderVestingDuration)
+        external
+        override
+        onlyOwner
+    {
+        require(_preorderCapRatio != 0 && _preorderVestingDuration != 0, ZeroInput());
+        require(_preorderCapRatio <= RATIO, FeeRateOverFlow());
+
+        preorderCapRatio = _preorderCapRatio;
+        preorderVestingDuration = _preorderVestingDuration;
+
+        emit SetPreorderConfig(_preorderCapRatio, _preorderVestingDuration);
     }
 
     /**

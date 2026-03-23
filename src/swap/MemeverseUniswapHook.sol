@@ -22,6 +22,7 @@ import {
 } from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
+import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
 import {SafeCast} from "./libraries/SafeCast.sol";
 import {LiquidityQuote} from "./libraries/LiquidityQuote.sol";
@@ -38,7 +39,7 @@ import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
  * - A custom ERC20 LP token per pool
  * - Dynamic fees for adverse swaps (based on projected price impact, an EWMA volatility signal,
  *   and a linearly decayed short-term cumulative impact signal)
- * - Anti-sniping protection during the initial blocks after pool initialization
+ * - Launch-time fee scheduling during the initial trading window after pool initialization
  *
  * @dev High-level flow:
  * - This contract is the Core engine for the Memeverse v4 integration.
@@ -48,7 +49,7 @@ import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
  *   paid in native currency, the treasury must be able to receive ETH and must not use `receive` / `fallback` to
  *   trigger reentrant swap or liquidity actions.
  * - `beforeInitialize`: validates pool settings and deploys the pool-specific LP token.
- * - `beforeSwap`: enforces anti-snipe rules, computes a dynamic fee, and accrues fees.
+ * - `beforeSwap`: recognizes the launch settlement marker, computes a fee, and accrues fees.
  * - `afterSwap`: updates ewVWAP, reference-price volatility state, and short-term impact state, and optionally takes protocol fees.
  * - `addLiquidityCore` / `removeLiquidityCore`: mint/burn LP tokens while adding/removing full-range liquidity.
  * - `claimFeesCore`: allows LPs or routers with signatures to claim accrued fees (tracked via per-share accounting).
@@ -63,6 +64,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     using SafeCast for int256;
     using SafeCast for int128;
     bytes internal constant ZERO_BYTES = bytes("");
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     int24 internal constant MIN_TICK = -887200;
     int24 internal constant MAX_TICK = 887200;
@@ -73,11 +75,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint256 internal constant Q96_SQUARED = Q96 * Q96;
 
     uint256 public constant PROTOCOL_FEE_RATIO_BPS = 3000;
-    uint256 public constant ANTI_SNIPE_MAX_SLIPPAGE_BPS = 200;
     uint256 public constant BPS_BASE = 10000;
     uint256 public constant PPM_BASE = 1_000_000;
     uint24 internal constant FEE_ALPHA = 500_000; // ewVWAP EWMA weight, ppm domain.
     uint24 internal constant FEE_DFF_MAX_PPM = 800_000; // Upper bound of dynamic fee factor, ppm domain.
+    int256 internal constant LAUNCH_FEE_EXP_SHAPE_WAD = 4e18;
     uint24 internal constant FEE_BASE_BPS = 100; // Minimum fee in bps.
     uint24 internal constant FEE_MAX_BPS = 10_000; // Maximum fee in bps.
     uint24 internal constant PIF_CAP_PPM = 60_000; // PIF cap for fee growth, ppm domain.
@@ -95,15 +97,15 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         keccak256("ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)");
 
     address public treasury;
-    uint256 public antiSnipeDurationBlocks;
-    uint256 public maxAntiSnipeProbabilityBase;
+    address public launchSettlementCaller;
     mapping(address => bool) public supportedProtocolFeeCurrencies;
     mapping(PoolId => PoolInfo) public poolInfo;
-    mapping(PoolId => mapping(uint256 => AntiSnipeBlockData)) public antiSnipeBlockData;
+    mapping(PoolId => uint40) public poolLaunchTimestamp;
     mapping(PoolId => mapping(address => UserFeeState)) public userFeeState;
     uint256 internal immutable INITIAL_CHAIN_ID;
     bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
     mapping(address => uint256) public claimNonces;
+    LaunchFeeConfig public defaultLaunchFeeConfig;
 
     /// @notice Per-pool exponentially weighted state used by dynamic fee computation.
     struct EWVWAPParams {
@@ -151,20 +153,17 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @param _manager Uniswap v4 pool manager.
     /// @param _owner Contract owner.
     /// @param _treasury Treasury receiving protocol fees (if enabled).
-    /// @param _antiSnipeDurationBlocks Number of blocks after init where anti-snipe rules apply.
-    /// @param _maxAntiSnipeProbabilityBase Upper bound for probability base used by anti-snipe randomness.
-    constructor(
-        IPoolManager _manager,
-        address _owner,
-        address _treasury,
-        uint256 _antiSnipeDurationBlocks,
-        uint256 _maxAntiSnipeProbabilityBase
-    ) BaseHook(_manager) Ownable(_owner) {
-        if (_maxAntiSnipeProbabilityBase == 0) revert ZeroValue();
+    /// @param _launchSettlementCaller Address allowed to call `poolManager.swap` for the fixed 1% launch settlement path.
+    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
+        BaseHook(_manager)
+        Ownable(_owner)
+    {
         if (_treasury == address(0)) revert ZeroAddress();
+        if (_launchSettlementCaller == address(0)) revert ZeroAddress();
         treasury = _treasury;
-        antiSnipeDurationBlocks = _antiSnipeDurationBlocks;
-        maxAntiSnipeProbabilityBase = _maxAntiSnipeProbabilityBase;
+        launchSettlementCaller = _launchSettlementCaller;
+        defaultLaunchFeeConfig =
+            LaunchFeeConfig({startFeeBps: 5000, minFeeBps: FEE_BASE_BPS, decayDurationSeconds: 900});
         INITIAL_CHAIN_ID = block.chainid;
         INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
     }
@@ -191,107 +190,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         });
     }
 
-    /// @notice Records an anti-snipe attempt and also returns the computed failure-fee quote.
-    /// @dev Intended for routers that need the quote for post-attempt refunds without a second quote call.
-    /// @param key The pool key for the attempted swap.
-    /// @param params The attempted swap parameters.
-    /// @param trader The end user on whose behalf the router is acting.
-    /// @param inputBudget The single total input budget attached to this attempt.
-    /// @param refundRecipient The address receiving any refunded native failure-fee budget when the attempt succeeds.
-    /// @return allowed Whether the attempt passed anti-snipe checks.
-    /// @return failureReason The anti-snipe failure reason when `allowed` is false, otherwise `None`.
-    /// @return failedAttemptQuote The failure-fee quote computed for this attempt.
-    function requestSwapAttemptWithQuote(
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address trader,
-        uint256 inputBudget,
-        address refundRecipient
-    )
-        external
-        payable
-        override
-        returns (bool allowed, AntiSnipeFailureReason failureReason, FailedAttemptQuote memory failedAttemptQuote)
-    {
-        return _requestSwapAttempt(key, params, trader, inputBudget, refundRecipient);
-    }
-
-    function _requestSwapAttempt(
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address trader,
-        uint256 inputBudget,
-        address refundRecipient
-    )
-        internal
-        returns (bool allowed, AntiSnipeFailureReason failureReason, FailedAttemptQuote memory failedAttemptQuote)
-    {
-        PoolId poolId = key.toId();
-        if (poolInfo[poolId].liquidityToken == address(0)) revert PoolNotInitialized();
-
-        if (!_isAntiSnipeActive(poolId)) {
-            if (msg.value > 0) _transferCurrency(CurrencyLibrary.ADDRESS_ZERO, refundRecipient, msg.value);
-            return (true, AntiSnipeFailureReason.None, failedAttemptQuote);
-        }
-
-        if (!MemeverseTransientState.markAntiSnipeRequestForPool(poolId)) {
-            revert PoolAlreadyRequestedThisTransaction();
-        }
-
-        failedAttemptQuote = _quoteFailedAttempt(poolId, key, params, inputBudget);
-        _validateAttemptFeeFunding(failedAttemptQuote, inputBudget, refundRecipient);
-        (allowed, failureReason) = _checkAntiSnipe(poolId, params);
-
-        Currency currencyIn = params.zeroForOne ? key.currency0 : key.currency1;
-        uint256 absSpecified = uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified);
-        if (allowed) {
-            if (msg.value > 0) _transferCurrency(CurrencyLibrary.ADDRESS_ZERO, refundRecipient, msg.value);
-            MemeverseTransientState.armAntiSnipeTicket(poolId, msg.sender, params, inputBudget);
-
-            emit SwapAllowed(
-                poolId,
-                trader,
-                currencyIn,
-                absSpecified,
-                block.number,
-                antiSnipeBlockData[poolId][block.number].attempts
-            );
-        } else {
-            _collectFailedAttemptFee(poolId, key, failedAttemptQuote);
-            if (failedAttemptQuote.feeCurrency.isAddressZero() && inputBudget > failedAttemptQuote.feeAmount) {
-                _transferCurrency(
-                    CurrencyLibrary.ADDRESS_ZERO, refundRecipient, inputBudget - failedAttemptQuote.feeAmount
-                );
-            }
-            emit SwapBlocked(poolId, trader, currencyIn, absSpecified, block.number, uint8(failureReason));
-        }
-    }
-
-    /// @notice Returns whether a pool is still inside its anti-snipe protection window.
-    /// @dev Routers can use this to skip `requestSwapAttempt` entirely outside the launch window.
-    /// @param poolId The pool id to query.
-    /// @return active Whether anti-snipe checks are active for the pool at the current block.
-    function isAntiSnipeActive(PoolId poolId) external view override returns (bool active) {
-        return _isAntiSnipeActive(poolId);
-    }
-
-    /// @notice Returns the current anti-snipe failure-fee quote for an attempted swap.
-    /// @dev The failure fee is always charged on the input side during the protection window. Outside the protection
-    /// window this returns a zero fee amount. For exact-output swaps, `inputBudget` acts as an upper bound while the
-    /// fee itself is still based on the currently estimated actual input.
-    /// @param key The pool key for the attempted swap.
-    /// @param params The attempted swap parameters.
-    /// @param inputBudget The single total input budget attached to this attempt.
-    /// @return quote The quoted failure-fee amount, side, and recipient class.
-    function quoteFailedAttempt(PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
-        external
-        view
-        override
-        returns (FailedAttemptQuote memory quote)
-    {
-        return _quoteFailedAttempt(key.toId(), key, params, inputBudget);
-    }
-
     /// @notice Returns the current swap fee preview under the hook's latest state.
     /// @dev The preview separates LP-fee and protocol-fee amounts because they may settle in different currencies:
     /// LP fees always accrue in the input currency, while protocol fees settle in the supported fee currency selected
@@ -311,6 +209,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         DynamicFeeQuote memory feeQuote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        _applyLaunchFeeFloor(poolId, feeQuote);
         uint256 lpFeeBps = _lpFeeBps(feeQuote.feeBps);
         uint256 protocolFeeBps = _protocolFeeBps(feeQuote.feeBps);
 
@@ -396,25 +295,23 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         address liquidityToken = address(new UniswapLP(tokenSymbol, tokenSymbol, 18, poolId, address(this)));
 
         poolInfo[poolId].liquidityToken = liquidityToken;
-        poolInfo[poolId].antiSnipeEndBlock = uint96(block.number + antiSnipeDurationBlocks);
+        poolLaunchTimestamp[poolId] = uint40(block.timestamp);
 
-        emit PoolInitialized(poolId, liquidityToken, key.currency0, key.currency1, poolInfo[poolId].antiSnipeEndBlock);
+        emit PoolInitialized(poolId, liquidityToken, key.currency0, key.currency1);
 
         return IHooks.beforeInitialize.selector;
     }
 
-    /// @dev Enforces anti-snipe ticket checks, computes the dynamic fee, collects any exact-input input-side fees,
-    /// and stores swap context for `afterSwap`.
-    function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
+    /// @dev Computes the dynamic fee, enforces launch-settlement authorization, collects any exact-input input-side
+    /// fees, and stores swap context for `afterSwap`.
+    function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
         internal
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         PoolId poolId = key.toId();
-        bool antiSnipeActive = poolInfo[poolId].antiSnipeEndBlock > block.number;
-        if (antiSnipeActive) {
-            _consumeAntiSnipeTicket(poolId, sender, params);
-        }
+        bool launchSettlement = keccak256(hookData) == keccak256(abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH));
+        if (launchSettlement && sender != launchSettlementCaller) revert Unauthorized();
 
         uint256 absSpecified = uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified);
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
@@ -422,6 +319,14 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         _refreshVolatilityAnchorAndCarry(poolId, preSqrtPriceX96);
         DynamicFeeQuote memory quote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        if (launchSettlement) {
+            quote.feeBps = defaultLaunchFeeConfig.minFeeBps;
+            quote.dynamicPartBps = 0;
+            quote.volPartBps = 0;
+            quote.shortPartBps = 0;
+        } else {
+            _applyLaunchFeeFloor(poolId, quote);
+        }
         uint256 dynamicFeeBps = quote.feeBps;
 
         MemeverseTransientState.storeSwapContext(dynamicFeeBps, preSqrtPriceX96);
@@ -458,68 +363,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(specifiedDeltaInput, int128(0)), 0);
     }
 
-    function _checkAntiSnipe(PoolId poolId, SwapParams calldata params)
-        internal
-        returns (bool pass, AntiSnipeFailureReason failureReason)
-    {
-        PoolInfo storage pool = poolInfo[poolId];
-
-        if (pool.antiSnipeEndBlock <= block.number) return (true, AntiSnipeFailureReason.None);
-
-        uint256 currentBlockNum = block.number;
-        AntiSnipeBlockData storage currentBlockData = antiSnipeBlockData[poolId][currentBlockNum];
-
-        uint256 currentAttempts;
-        unchecked {
-            currentAttempts = ++currentBlockData.attempts;
-        }
-
-        if (currentBlockData.successful) return (false, AntiSnipeFailureReason.BlockAlreadyHasSuccessfulSwap);
-
-        if (params.sqrtPriceLimitX96 == 0) return (false, AntiSnipeFailureReason.NoPriceLimitSet);
-
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        uint160 hookPriceLimit = _getHookPriceLimit(sqrtPriceX96, params.zeroForOne);
-        if (params.zeroForOne ? params.sqrtPriceLimitX96 < hookPriceLimit : params.sqrtPriceLimitX96 > hookPriceLimit) {
-            return (false, AntiSnipeFailureReason.SlippageExceedsMaximum);
-        }
-
-        uint256 prevBlockAttemptsCount = antiSnipeBlockData[poolId][currentBlockNum - 1].attempts;
-        uint256 probabilityBase = prevBlockAttemptsCount == 0
-            ? 1
-            : prevBlockAttemptsCount > maxAntiSnipeProbabilityBase
-                ? maxAntiSnipeProbabilityBase
-                : prevBlockAttemptsCount;
-
-        uint256 randomNum = uint256(
-            keccak256(
-                abi.encodePacked(
-                    tx.origin,
-                    block.coinbase,
-                    block.basefee,
-                    block.prevrandao,
-                    blockhash(currentBlockNum - 1),
-                    gasleft(),
-                    currentAttempts
-                )
-            )
-        ) % probabilityBase;
-
-        if (randomNum == 0) {
-            return (true, AntiSnipeFailureReason.None);
-        } else {
-            return (false, AntiSnipeFailureReason.ProbabilityCheckFailed);
-        }
-    }
-
-    function _getHookPriceLimit(uint160 sqrtPriceX96, bool zeroForOne) internal pure returns (uint160) {
-        if (zeroForOne) {
-            return uint160(FullMath.mulDiv(sqrtPriceX96, BPS_BASE - ANTI_SNIPE_MAX_SLIPPAGE_BPS, BPS_BASE));
-        } else {
-            return uint160(FullMath.mulDiv(sqrtPriceX96, BPS_BASE + ANTI_SNIPE_MAX_SLIPPAGE_BPS, BPS_BASE));
-        }
-    }
-
     function _afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
         internal
         override
@@ -535,10 +378,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (params.amountSpecified > 0) {
             uint256 actualInputAbs = _actualInputAmount(delta, params.zeroForOne);
             if (actualInputAbs == 0) return (IHooks.afterSwap.selector, 0);
-            uint256 requestedInputBudget = MemeverseTransientState.loadRequestedInputBudget();
-            if (requestedInputBudget > 0 && actualInputAbs > requestedInputBudget) {
-                revert InputBudgetExceeded(actualInputAbs, requestedInputBudget);
-            }
 
             uint256 exactOutputLpFeeInputAmount = FullMath.mulDiv(actualInputAbs, lpFeeBps, BPS_BASE);
             if (exactOutputLpFeeInputAmount > 0) {
@@ -893,72 +732,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         _creditLpFee(poolId, feeCurrency, feeCurrencyIsCurrency0, lpFeeAmount, totalSupply);
     }
 
-    function _quoteFailedAttempt(PoolId poolId, PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
-        internal
-        view
-        returns (FailedAttemptQuote memory quote)
-    {
-        if (poolInfo[poolId].antiSnipeEndBlock <= block.number) return quote;
-
-        SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
-        quote.feeCurrency = ctx.currencyIn;
-        quote.feeToTreasury = ctx.protocolFeeOnInput;
-
-        (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        DynamicFeeQuote memory feeQuote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, true);
-        quote.feeBps = feeQuote.feeBps;
-        uint256 failureFeeBase =
-            params.amountSpecified < 0 ? uint256(-params.amountSpecified) : feeQuote.estimatedInputAmount;
-        if (failureFeeBase > inputBudget) failureFeeBase = inputBudget;
-        quote.feeAmount = FullMath.mulDiv(failureFeeBase, quote.feeBps, BPS_BASE);
-    }
-
-    function _validateAttemptFeeFunding(FailedAttemptQuote memory quote, uint256 inputBudget, address refundRecipient)
-        internal
-        view
-    {
-        if (quote.feeCurrency.isAddressZero()) {
-            if (msg.value != inputBudget) revert InvalidNativeValue(inputBudget, msg.value);
-            if (inputBudget > 0 && refundRecipient == address(0)) revert ZeroAddress();
-        } else if (msg.value != 0) {
-            revert InvalidNativeValue(0, msg.value);
-        }
-    }
-
-    function _collectFailedAttemptFee(PoolId poolId, PoolKey calldata key, FailedAttemptQuote memory quote) internal {
-        uint256 feeAmount = quote.feeAmount;
-        if (feeAmount == 0) return;
-
-        if (quote.feeToTreasury) {
-            _transferFromCallerToTreasury(quote.feeCurrency, feeAmount);
-        } else {
-            uint256 totalSupply = UniswapLP(poolInfo[poolId].liquidityToken).totalSupply();
-            if (totalSupply == 0) revert PoolNotInitialized();
-
-            if (!quote.feeCurrency.isAddressZero()) {
-                if (!IERC20Minimal(Currency.unwrap(quote.feeCurrency))
-                        .transferFrom(msg.sender, address(this), feeAmount)) {
-                    revert ERC20TransferFailed();
-                }
-            }
-            _creditLpFee(
-                poolId,
-                quote.feeCurrency,
-                Currency.unwrap(quote.feeCurrency) == Currency.unwrap(key.currency0),
-                feeAmount,
-                totalSupply
-            );
-        }
-
-        emit FailedAttemptFeeCollected(
-            poolId, msg.sender, quote.feeCurrency, quote.feeToTreasury, feeAmount, block.number
-        );
-    }
-
-    function _isAntiSnipeActive(PoolId poolId) internal view returns (bool) {
-        return poolInfo[poolId].antiSnipeEndBlock > block.number;
-    }
-
     function _takeToTreasury(Currency feeCurrency, uint256 amount) internal {
         if (treasury == address(0)) revert Unauthorized();
         if (feeCurrency.isAddressZero()) {
@@ -1026,16 +799,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return feeBps - _protocolFeeBps(feeBps);
     }
 
-    function _consumeAntiSnipeTicket(PoolId poolId, address caller, SwapParams calldata params) internal {
-        uint256 requestedInputBudget = MemeverseTransientState.consumeAntiSnipeTicket(poolId, caller, params);
-        if (requestedInputBudget == 0) revert MissingAntiSnipeTicket();
-        MemeverseTransientState.storeRequestedInputBudget(requestedInputBudget);
-
-        AntiSnipeBlockData storage currentBlockData = antiSnipeBlockData[poolId][block.number];
-        if (currentBlockData.successful) revert MissingAntiSnipeTicket();
-        currentBlockData.successful = true;
-    }
-
     /// @notice Updates the user fee accounting snapshot for a pool.
     /// @dev Requires the pool LP token to exist. Accrues newly earned fees into `pendingFee0/1`
     /// and updates per-share offsets for `user`.
@@ -1092,25 +855,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         _setProtocolFeeCurrencySupport(currency, supported);
     }
 
-    /// @notice Sets the default anti-snipe duration, in blocks, used for newly initialized pools.
-    /// @dev Existing pools keep their stored end blocks; only future initializations use the new default.
-    /// @param _durationBlocks The new anti-snipe duration in blocks.
-    function setAntiSnipeDuration(uint256 _durationBlocks) external onlyOwner {
-        uint256 old = antiSnipeDurationBlocks;
-        antiSnipeDurationBlocks = _durationBlocks;
-        emit AntiSnipeDurationUpdated(old, _durationBlocks);
-    }
-
-    /// @notice Sets the max probability base used by anti-snipe randomness.
-    /// @dev Zero is rejected because the probability denominator must stay non-zero.
-    /// @param _maxBase The new upper bound for anti-snipe probability scaling.
-    function setMaxAntiSnipeProbabilityBase(uint256 _maxBase) external onlyOwner {
-        if (_maxBase == 0) revert ZeroValue();
-        uint256 old = maxAntiSnipeProbabilityBase;
-        maxAntiSnipeProbabilityBase = _maxBase;
-        emit MaxAntiSnipeProbabilityBaseUpdated(old, _maxBase);
-    }
-
     /// @notice Emergency switch: if enabled, dynamic fee charging falls back to base fee only.
     /// @dev Intended as an owner-controlled safety valve for fee logic incidents.
     /// @param flag Whether emergency fixed-fee mode should be enabled.
@@ -1118,6 +862,36 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         bool old = emergencyFlag;
         emergencyFlag = flag;
         emit EmergencyFlagUpdated(old, flag);
+    }
+
+    /// @notice Sets the launch settlement caller.
+    /// @dev Only callable by the owner. Zero address is rejected.
+    /// @param caller The address allowed to call `poolManager.swap` for the launch settlement path.
+    function setLaunchSettlementCaller(address caller) external onlyOwner {
+        if (caller == address(0)) revert ZeroAddress();
+        address oldCaller = launchSettlementCaller;
+        launchSettlementCaller = caller;
+        emit LaunchSettlementCallerUpdated(oldCaller, caller);
+    }
+
+    /// @notice Sets the default launch fee configuration.
+    /// @dev Only callable by the owner. Zero values and out-of-range schedules are rejected.
+    /// @param config The new default launch fee configuration.
+    function setDefaultLaunchFeeConfig(LaunchFeeConfig calldata config) external onlyOwner {
+        if (config.startFeeBps == 0 || config.minFeeBps == 0 || config.decayDurationSeconds == 0) revert ZeroValue();
+        if (config.startFeeBps > BPS_BASE || config.minFeeBps > BPS_BASE || config.minFeeBps > config.startFeeBps) {
+            revert ZeroValue();
+        }
+        LaunchFeeConfig memory oldConfig = defaultLaunchFeeConfig;
+        defaultLaunchFeeConfig = config;
+        emit DefaultLaunchFeeConfigUpdated(
+            oldConfig.startFeeBps,
+            oldConfig.minFeeBps,
+            oldConfig.decayDurationSeconds,
+            config.startFeeBps,
+            config.minFeeBps,
+            config.decayDurationSeconds
+        );
     }
 
     // -----------------------------------------------------------------------------
@@ -1143,6 +917,29 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         quote = _estimateDynamicFeeQuote(
             state, liquidity, preSqrtPriceX96, params.zeroForOne, params.amountSpecified, feeOnInput
         );
+    }
+
+    function _applyLaunchFeeFloor(PoolId poolId, DynamicFeeQuote memory quote) internal view {
+        uint256 launchFeeBps = _quoteLaunchFeeBps(poolId);
+        if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
+    }
+
+    function _quoteLaunchFeeBps(PoolId poolId) internal view returns (uint256 feeBps) {
+        LaunchFeeConfig memory config = defaultLaunchFeeConfig;
+        uint40 launchTimestamp = poolLaunchTimestamp[poolId];
+        if (launchTimestamp == 0) return config.minFeeBps;
+
+        uint256 elapsed = block.timestamp > launchTimestamp ? block.timestamp - launchTimestamp : 0;
+        if (elapsed >= config.decayDurationSeconds) return config.minFeeBps;
+
+        uint256 decayWad = _normalizedLaunchDecayWad(elapsed, config.decayDurationSeconds);
+        feeBps = config.minFeeBps + FullMath.mulDiv(config.startFeeBps - config.minFeeBps, decayWad, 1e18);
+    }
+
+    function _normalizedLaunchDecayWad(uint256 elapsed, uint256 duration) internal pure returns (uint256 decayWad) {
+        int256 expAtElapsedWad = wadExp(-int256(FullMath.mulDiv(elapsed, uint256(LAUNCH_FEE_EXP_SHAPE_WAD), duration)));
+        int256 expAtEndWad = wadExp(-LAUNCH_FEE_EXP_SHAPE_WAD);
+        decayWad = uint256((expAtElapsedWad - expAtEndWad) * 1e18 / (1e18 - expAtEndWad));
     }
 
     function _estimateDynamicFeeQuote(

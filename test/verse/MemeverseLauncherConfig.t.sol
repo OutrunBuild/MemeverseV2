@@ -16,8 +16,25 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         launcher = new MemeverseLauncher(
-            address(this), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), 25, 115_000, 135_000
+            address(this),
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            25,
+            115_000,
+            135_000,
+            2_500,
+            7 days
         );
+    }
+
+    /// @notice Test constructor stores preorder config.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testConstructorStoresPreorderConfig() external view {
+        assertEq(launcher.preorderCapRatio(), 2_500);
+        assertEq(launcher.preorderVestingDuration(), 7 days);
     }
 
     /// @notice Test pause and unpause are owner only.
@@ -114,6 +131,23 @@ contract MemeverseLauncherConfigTest is Test {
 
         vm.expectRevert(IMemeverseLauncher.FeeRateOverFlow.selector);
         launcher.setExecutorRewardRate(10_000);
+    }
+
+    /// @notice Test set preorder config stores values and rejects zero.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testSetPreorderConfigStoresValuesAndRejectsZero() external {
+        launcher.setPreorderConfig(2_000, 14 days);
+        assertEq(launcher.preorderCapRatio(), 2_000);
+        assertEq(launcher.preorderVestingDuration(), 14 days);
+
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.setPreorderConfig(0, 14 days);
+
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.setPreorderConfig(2_000, 0);
+
+        vm.expectRevert(IMemeverseLauncher.FeeRateOverFlow.selector);
+        launcher.setPreorderConfig(10_001, 14 days);
     }
 
     /// @notice Test set gas limits stores values and rejects zero.

@@ -6,7 +6,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -241,13 +240,9 @@ interface IUnlockCallbackLike {
 }
 
 contract TestableMemeverseUniswapHookForRouter is MemeverseUniswapHook {
-    constructor(
-        IPoolManager _manager,
-        address _owner,
-        address _treasury,
-        uint256 _antiSnipeDurationBlocks,
-        uint256 _maxAntiSnipeProbabilityBase
-    ) MemeverseUniswapHook(_manager, _owner, _treasury, _antiSnipeDurationBlocks, _maxAntiSnipeProbabilityBase) {}
+    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
+        MemeverseUniswapHook(_manager, _owner, _treasury, _launchSettlementCaller)
+    {}
 
     function validateHookAddress(BaseHook) internal pure override {}
 }
@@ -270,8 +265,6 @@ contract NonPayableSwapCaller {
     /// @param amountInMaximum Maximum acceptable input amount.
     /// @param hookData Opaque hook data forwarded to the router.
     /// @return delta Final swap delta returned by the router.
-    /// @return executed Whether the router executed the swap.
-    /// @return failureReason Anti-snipe failure reason when the swap soft-fails.
     function attemptSwap(
         PoolKey calldata key,
         SwapParams calldata params,
@@ -281,11 +274,7 @@ contract NonPayableSwapCaller {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    )
-        external
-        payable
-        returns (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason failureReason)
-    {
+    ) external payable returns (BalanceDelta delta) {
         return router.swap{value: msg.value}(
             key, params, recipient, nativeRefundRecipient, deadline, amountOutMinimum, amountInMaximum, hookData
         );
@@ -293,6 +282,38 @@ contract NonPayableSwapCaller {
 }
 
 contract NonPayableTreasury {}
+
+contract DirectLaunchSettlementSpoofer {
+    MockPoolManagerForRouterTest internal immutable manager;
+
+    constructor(MockPoolManagerForRouterTest _manager) {
+        manager = _manager;
+    }
+
+    /// @notice Attempts to spoof the launch settlement marker through a direct pool-manager unlock flow.
+    /// @dev Used to verify the hook enforces settlement authorization even when the router is bypassed.
+    /// @param key Pool key to swap against.
+    /// @param params Swap parameters.
+    /// @param hookData Marker payload forwarded into the hook callbacks.
+    /// @return delta The swap delta returned by the mocked direct call path.
+    function spoof(PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
+        external
+        returns (BalanceDelta delta)
+    {
+        delta = abi.decode(manager.unlock(abi.encode(key, params, hookData)), (BalanceDelta));
+    }
+
+    /// @notice Executes the mocked swap during the manager unlock callback.
+    /// @dev The manager calls back into this contract during `unlock`.
+    /// @param data Encoded pool key, swap params, and hook data.
+    /// @return result ABI-encoded swap delta.
+    function unlockCallback(bytes calldata data) external returns (bytes memory result) {
+        (PoolKey memory key, SwapParams memory params, bytes memory hookData) =
+            abi.decode(data, (PoolKey, SwapParams, bytes));
+        BalanceDelta delta = manager.swap(key, params, hookData);
+        result = abi.encode(delta);
+    }
+}
 
 contract MemeverseSwapRouterTest is Test {
     using PoolIdLibrary for PoolKey;
@@ -304,6 +325,7 @@ contract MemeverseSwapRouterTest is Test {
     uint160 internal constant FULL_RANGE_MAX_SQRT_PRICE_X96 =
         1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
     uint256 internal constant ALICE_PK = 0xA11CE;
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     MockPoolManagerForRouterTest internal manager;
     TestableMemeverseUniswapHookForRouter internal hook;
@@ -312,6 +334,7 @@ contract MemeverseSwapRouterTest is Test {
     MockERC20 internal token1;
     address internal treasury;
     address internal alice;
+    DirectLaunchSettlementSpoofer internal spoofSettlementCaller;
     PoolKey internal key;
     PoolId internal poolId;
 
@@ -321,10 +344,17 @@ contract MemeverseSwapRouterTest is Test {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
-        hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, 10, 1);
-        router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+        hook = new TestableMemeverseUniswapHookForRouter(
+            IPoolManager(address(manager)), address(this), treasury, address(this)
         );
+        router = new MemeverseSwapRouter(
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IPermit2(address(0xBEEF)),
+            address(this)
+        );
+        hook.setLaunchSettlementCaller(address(router));
+        spoofSettlementCaller = new DirectLaunchSettlementSpoofer(manager);
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -351,91 +381,29 @@ contract MemeverseSwapRouterTest is Test {
         hook.setProtocolFeeCurrency(feeCurrency);
     }
 
-    /// @notice Verifies anyone can request a swap attempt from the hook.
-    /// @dev Confirms there is no caller restriction on attempt recording.
-    function testRequestSwapAttempt_IsPermissionless() external {
-        vm.roll(block.number + 11);
-        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason,) = hook.requestSwapAttemptWithQuote(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            100 ether,
-            address(this)
-        );
-
-        assertTrue(allowed, "allowed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
-        (uint248 attempts, bool successful) = hook.antiSnipeBlockData(poolId, block.number);
-        assertEq(attempts, 0, "attempts");
-        assertFalse(successful, "successful");
-    }
-
-    /// @notice Verifies the legacy anti-snipe request selector is no longer exposed.
-    /// @dev Routers should use `requestSwapAttemptWithQuote` as the single low-level attempt API.
-    function testRequestSwapAttempt_LegacySelectorIsUnavailable() external {
-        vm.roll(block.number + 11);
-
-        (bool success,) = address(hook)
-            .call(
-                abi.encodeWithSelector(
-                    bytes4(
-                        keccak256(
-                            "requestSwapAttempt((address,address,uint24,int24,address),(bool,int256,uint160),address,uint256,address)"
-                        )
-                    ),
-                    key,
-                    SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-                    address(this),
-                    100 ether,
-                    address(this)
-                )
-            );
-
-        assertFalse(success, "legacy selector exposed");
-    }
-
-    /// @notice Verifies duplicate same-tx swap attempts on the same pool revert.
-    /// @dev Protects the per-transaction anti-snipe attempt invariant.
-    function testRequestSwapAttempt_RevertsOnSecondSamePoolRequestInSameTx() external {
-        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        _dealAndInitializeNativePool(nativeKey, false);
-        _setProtocolFeeCurrency(nativeKey.currency0);
-
-        (bool allowed, IMemeverseUniswapHook.AntiSnipeFailureReason reason,) = hook.requestSwapAttemptWithQuote{
-            value: 100 ether
-        }(
-            nativeKey,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            100 ether,
-            address(this)
-        );
-
-        assertFalse(allowed, "first request should soft-fail");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
-
-        vm.expectRevert(IMemeverseUniswapHook.PoolAlreadyRequestedThisTransaction.selector);
-        hook.requestSwapAttemptWithQuote{value: 100 ether}(
-            nativeKey,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            100 ether,
-            address(this)
-        );
-    }
-
-    /// @notice Verifies hook deployment rejects a zero anti-snipe probability base.
-    /// @dev Covers constructor validation.
-    function testConstructor_RevertsWhenMaxAntiSnipeProbabilityBaseIsZero() external {
-        vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
-        new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, 10, 0);
+    function _matureLaunchWindow() internal {
+        vm.warp(block.timestamp + 900);
     }
 
     /// @notice Verifies hook deployment rejects a zero treasury address.
     /// @dev Covers constructor validation.
     function testConstructor_RevertsWhenTreasuryIsZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
-        new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), address(0), 10, 1);
+        new TestableMemeverseUniswapHookForRouter(
+            IPoolManager(address(manager)), address(this), address(0), address(this)
+        );
+    }
+
+    /// @notice Verifies hook deployment rejects a zero launch settlement operator.
+    /// @dev Covers constructor validation for the launch settlement permission boundary.
+    function testConstructor_RevertsWhenLaunchSettlementOperatorIsZeroAddress() external {
+        vm.expectRevert(IMemeverseSwapRouter.ZeroAddress.selector);
+        new MemeverseSwapRouter(
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF)), address(0)
+        );
+
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, address(0));
     }
 
     /// @notice Verifies swaps reject pool keys wired to a different hook address.
@@ -515,6 +483,7 @@ contract MemeverseSwapRouterTest is Test {
     /// @dev Covers quote behavior under the emergency flag.
     function testQuoteSwap_WhenEmergencyFlagEnabled_ReturnsBaseFee() external {
         _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
 
         IMemeverseUniswapHook.SwapQuote memory normalQuote =
             hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}));
@@ -566,156 +535,6 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(treasury.balance, treasuryNativeBefore, "native protocol fee collected");
     }
 
-    /// @notice Verifies failed-attempt quotes for exact-output swaps use the estimated input.
-    /// @dev Prevents the quote from overcharging against `amountInMaximum`.
-    function testQuoteFailedAttempt_ExactOutputUsesEstimatedInputNotAmountInMaximum() external {
-        _setProtocolFeeCurrency(key.currency1);
-        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0});
-
-        IMemeverseUniswapHook.SwapQuote memory swapQuote = hook.quoteSwap(key, params);
-        IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(key, params, 300 ether);
-
-        assertEq(failureQuote.feeBps, swapQuote.feeBps, "same fee bps");
-        assertLt(failureQuote.feeAmount, FullMath.mulDiv(300 ether, failureQuote.feeBps, 10_000), "not max-based");
-        assertGt(failureQuote.feeAmount, 0, "failure fee quoted");
-    }
-
-    /// @notice Verifies anti-snipe soft-fails charge the treasury when the input is the protocol currency.
-    /// @dev Covers the input-side failure-fee routing path.
-    function testSoftFail_ChargesTreasuryWhenInputIsProtocolCurrency() external {
-        _setProtocolFeeCurrency(key.currency0);
-        IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), 100 ether
-        );
-        uint256 balance0Before = token0.balanceOf(address(this));
-        uint256 balance1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(treasury);
-
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            100 ether,
-            ""
-        );
-
-        assertEq(BalanceDelta.unwrap(delta), 0, "delta");
-        assertFalse(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
-        assertEq(token0.balanceOf(address(this)), balance0Before - failureQuote.feeAmount, "token0 charged");
-        assertEq(token1.balanceOf(address(this)), balance1Before, "token1 unchanged");
-        assertEq(token0.balanceOf(treasury), treasury0Before + failureQuote.feeAmount, "treasury charged");
-
-        (uint248 attempts, bool successful) = hook.antiSnipeBlockData(poolId, block.number);
-        assertEq(attempts, 1, "attempts");
-        assertFalse(successful, "successful");
-
-        (
-            uint256 weightedVolume0,
-            uint256 weightedPriceVolume0,
-            uint256 ewVWAPX18,
-            uint160 volAnchorSqrtPriceX96,
-            uint40 volLastMoveTs,
-            uint24 volDeviationAccumulator,
-            uint24 volCarryAccumulator,
-            uint24 shortImpactPpm,
-            uint40 shortLastTs
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(weightedVolume0, 0, "weightedVolume0");
-        assertEq(weightedPriceVolume0, 0, "weightedPriceVolume0");
-        assertEq(ewVWAPX18, 0, "ewVWAPX18");
-        assertEq(volAnchorSqrtPriceX96, 0, "volAnchor");
-        assertEq(volLastMoveTs, 0, "volLastMoveTs");
-        assertEq(volDeviationAccumulator, 0, "volDeviationAccumulator");
-        assertEq(volCarryAccumulator, 0, "volCarryAccumulator");
-        assertEq(shortImpactPpm, 0, "shortImpactPpm");
-        assertEq(shortLastTs, 0, "shortLastTs");
-    }
-
-    /// @notice Verifies anti-snipe soft-fails charge LPs when the input is not the protocol currency.
-    /// @dev Covers the non-protocol-currency failure-fee routing path.
-    function testSoftFail_ChargesLpWhenInputIsNotProtocolCurrency() external {
-        _setProtocolFeeCurrency(key.currency1);
-        router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            address(this),
-            block.timestamp
-        );
-        IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
-            key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), 300 ether
-        );
-        uint256 balance0Before = token0.balanceOf(address(this));
-        uint256 balance1Before = token1.balanceOf(address(this));
-        uint256 hookBalance0Before = token0.balanceOf(address(hook));
-        (,, uint256 fee0PerShareBefore,) = hook.poolInfo(poolId);
-
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            300 ether,
-            ""
-        );
-
-        assertEq(BalanceDelta.unwrap(delta), 0, "delta");
-        assertFalse(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
-        assertEq(token0.balanceOf(address(this)), balance0Before - failureQuote.feeAmount, "token0 charged");
-        assertEq(token1.balanceOf(address(this)), balance1Before, "token1 unchanged");
-        assertEq(token0.balanceOf(address(hook)), hookBalance0Before + failureQuote.feeAmount, "lp fee held by hook");
-        (,, uint256 fee0PerShareAfter,) = hook.poolInfo(poolId);
-        assertGt(fee0PerShareAfter, fee0PerShareBefore, "lp fee accrued");
-        (uint248 attempts, bool successful) = hook.antiSnipeBlockData(poolId, block.number);
-        assertEq(attempts, 1, "attempts");
-        assertFalse(successful, "successful");
-    }
-
-    /// @notice Verifies soft-failed native-input swaps refund unused native value.
-    /// @dev Covers native refund behavior during anti-snipe failures.
-    function testSoftFail_NativeInputRefundsAttachedValue() external {
-        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        vm.deal(address(this), 1_000_000 ether);
-        manager.initialize(nativeKey, SQRT_PRICE_1_1);
-        _setProtocolFeeCurrency(nativeKey.currency0);
-        IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
-            nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), 100 ether
-        );
-
-        uint256 treasuryNativeBefore = treasury.balance;
-        uint256 nativeBefore = address(this).balance;
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap{
-            value: 100 ether
-        }(
-            nativeKey,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            0,
-            ""
-        );
-
-        assertEq(BalanceDelta.unwrap(delta), 0, "delta");
-        assertFalse(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
-        assertEq(address(this).balance, nativeBefore - failureQuote.feeAmount, "only failure fee retained");
-        assertEq(treasury.balance, treasuryNativeBefore + failureQuote.feeAmount, "treasury charged");
-        assertEq(address(router).balance, 0, "router keeps no native");
-    }
-
     /// @notice Verifies swaps revert when native protocol fees cannot be delivered to the treasury.
     /// @dev Covers the native protocol-fee settlement failure path.
     function testSwapReverts_WhenNativeProtocolFeeTreasuryCannotReceiveETH() external {
@@ -738,56 +557,17 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Verifies non-payable callers can specify a different native refund recipient.
-    /// @dev Covers router support for refunding custom payable addresses on soft-fail.
-    function testSoftFail_NonPayableCallerCanUseCustomNativeRefundRecipient() external {
-        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        PoolId nativePoolId = nativeKey.toId();
-        _dealAndInitializeNativePool(nativeKey, false);
-        _setProtocolFeeCurrency(nativeKey.currency0);
-        IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
-            nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), 100 ether
-        );
-
-        NonPayableSwapCaller caller = new NonPayableSwapCaller(router);
-        uint256 nativeBefore = address(this).balance;
-        uint256 treasuryNativeBefore = treasury.balance;
-
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = caller.attemptSwap{
-            value: 100 ether
-        }(
-            nativeKey,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(caller),
-            address(this),
-            block.timestamp,
-            0,
-            0,
-            ""
-        );
-
-        assertEq(BalanceDelta.unwrap(delta), 0, "delta");
-        assertFalse(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
-        assertEq(address(this).balance, nativeBefore - failureQuote.feeAmount, "only failure fee retained");
-        assertEq(treasury.balance, treasuryNativeBefore + failureQuote.feeAmount, "treasury charged");
-        assertEq(address(router).balance, 0, "router keeps no native");
-
-        (uint248 attempts, bool successful) = hook.antiSnipeBlockData(nativePoolId, block.number);
-        assertEq(attempts, 1, "attempts");
-        assertFalse(successful, "successful");
-    }
-
     /// @notice Verifies successful swaps record an anti-snipe attempt and execute.
     /// @dev Covers the standard exact-input happy path.
     function testSwapPass_RecordsAttemptAndExecutes() external {
         _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury0Before = token0.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -798,31 +578,26 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertLt(token0.balanceOf(address(this)), balance0Before, "token0 spent");
         assertGt(token1.balanceOf(address(this)), balance1Before, "token1 received");
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
-
-        (uint248 attempts, bool successful) = hook.antiSnipeBlockData(poolId, block.number);
-        assertEq(attempts, 1, "attempts");
-        assertTrue(successful, "successful");
     }
 
-    /// @notice Verifies routed anti-snipe swaps do not pay for an extra failure-fee quote round-trip.
-    /// @dev A successful protected swap should read the pool slot0 storage once for attempt pricing and once per swap stage.
+    /// @notice Verifies routed swaps do not pay for a redundant launch-fee quote round-trip.
+    /// @dev A successful swap should read the pool slot0 storage once for quote math and once for state update.
     function testSwapPass_AntiSnipePathAvoidsRedundantFailureQuoteRead() external {
         _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         bytes32 poolStateSlot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), bytes32(uint256(6))));
 
         vm.expectCall(
-            address(manager), abi.encodeCall(MockPoolManagerForRouterTest.extsload, (poolStateSlot)), uint64(4)
+            address(manager), abi.encodeCall(MockPoolManagerForRouterTest.extsload, (poolStateSlot)), uint64(2)
         );
 
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -833,22 +608,83 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
+    }
+
+    /// @notice Verifies only the configured launch settlement operator can execute the preorder settlement swap.
+    /// @dev Prevents ordinary users from accessing the fixed 1% settlement path.
+    function testExecuteLaunchPreorderSwap_RevertsWhenCallerIsNotSettlementOperator() external {
+        _setProtocolFeeCurrency(key.currency0);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseSwapRouter.InvalidLaunchSettlementOperator.selector);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            40 ether,
+            100 ether,
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        );
+    }
+
+    /// @notice Verifies launch settlement swaps bypass the launch fee floor and dynamic fee logic and settle at 1%.
+    /// @dev Confirms the treasury only receives the 30% protocol slice of a 1% total fee.
+    function testExecuteLaunchPreorderSwap_UsesFixedOnePercentFee() external {
+        _setProtocolFeeCurrency(key.currency0);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        uint256 treasury0Before = token0.balanceOf(treasury);
+
+        IMemeverseUniswapHook.SwapQuote memory quoteAtLaunch = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit})
+        );
+        assertEq(quoteAtLaunch.feeBps, 5000, "public launch fee");
+
+        BalanceDelta delta = router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            40 ether,
+            100 ether,
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        );
+
+        assertLt(delta.amount0(), 0, "delta0");
+        assertGt(delta.amount1(), 0, "delta1");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "fixed 1% protocol fee");
+    }
+
+    /// @notice Verifies spoofed launch-settlement markers also fail when callers bypass the router.
+    /// @dev Locks the authorization check into the hook instead of relying only on the router.
+    function testDirectPoolManagerSwap_RevertsWhenLaunchSettlementMarkerIsSpoofed() external {
+        _setProtocolFeeCurrency(key.currency0);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+
+        vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
+        spoofSettlementCaller.spoof(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        );
     }
 
     /// @notice Verifies one-for-zero exact-input swaps execute successfully.
     /// @dev Covers the basic exact-input routing path.
     function testSwapPass_OneForZeroExactInputExecutes() external {
         _setProtocolFeeCurrency(key.currency1);
+        _matureLaunchWindow();
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 101) / 100);
 
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -859,8 +695,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertGt(token0.balanceOf(address(this)), balance0Before, "token0 received");
         assertLt(token1.balanceOf(address(this)), balance1Before, "token1 spent");
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
@@ -876,7 +710,7 @@ contract MemeverseSwapRouterTest is Test {
         uint256 treasury1Before = token1.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        (BalanceDelta delta, bool executed,) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -887,7 +721,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
         assertGt(token1.balanceOf(address(this)), balance1Before, "token1 received");
         assertLt(delta.amount1(), int128(int256(50 ether)), "output reduced by output-side fee");
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
@@ -901,7 +734,7 @@ contract MemeverseSwapRouterTest is Test {
         uint256 treasury0Before = token0.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 101) / 100);
 
-        (BalanceDelta delta, bool executed,) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -912,7 +745,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
         assertGt(token0.balanceOf(address(this)), balance0Before, "token0 received");
         assertLt(delta.amount0(), int128(int256(50 ether)), "output reduced by output-side fee");
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
@@ -927,7 +759,7 @@ contract MemeverseSwapRouterTest is Test {
         uint256 treasury0Before = token0.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -938,8 +770,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertEq(token1.balanceOf(address(this)) - balance1Before, 100 ether, "exact output received");
         assertGt(balance0Before - token0.balanceOf(address(this)), 200 ether, "input includes fee");
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
@@ -956,7 +786,7 @@ contract MemeverseSwapRouterTest is Test {
         uint256 treasury1Before = token1.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 101) / 100);
 
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -967,8 +797,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertEq(token0.balanceOf(address(this)) - balance0Before, 100 ether, "exact output received");
         assertGt(balance1Before - token1.balanceOf(address(this)), 200 ether, "input includes fee");
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
@@ -985,7 +813,7 @@ contract MemeverseSwapRouterTest is Test {
         uint256 treasury1Before = token1.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        (BalanceDelta delta, bool executed,) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -996,7 +824,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
         assertEq(token1.balanceOf(address(this)) - balance1Before, 100 ether, "exact net output");
         assertGt(balance0Before - token0.balanceOf(address(this)), 200 ether, "gross-up raises input");
         assertEq(delta.amount1(), int128(int256(100 ether)), "delta1 net output");
@@ -1012,7 +839,7 @@ contract MemeverseSwapRouterTest is Test {
         uint256 treasury0Before = token0.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 101) / 100);
 
-        (BalanceDelta delta, bool executed,) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -1023,7 +850,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
         assertEq(token0.balanceOf(address(this)) - balance0Before, 100 ether, "exact net output");
         assertGt(balance1Before - token1.balanceOf(address(this)), 200 ether, "gross-up raises input");
         assertEq(delta.amount0(), int128(int256(100 ether)), "delta0 net output");
@@ -1034,12 +860,13 @@ contract MemeverseSwapRouterTest is Test {
     /// @dev Covers the post-window fast path.
     function testSwapPass_AfterAntiSnipeWindow_SkipsAttemptRecording() external {
         _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
         vm.roll(block.number + 11);
 
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
 
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swap(
+        BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             address(this),
@@ -1050,16 +877,10 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertLt(token0.balanceOf(address(this)), balance0Before, "token0 spent");
         assertGt(token1.balanceOf(address(this)), balance1Before, "token1 received");
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
-
-        (uint248 attempts, bool successful) = hook.antiSnipeBlockData(poolId, block.number);
-        assertEq(attempts, 0, "attempts");
-        assertFalse(successful, "successful");
     }
 
     /// @notice Verifies exact-output swaps revert when the required input exceeds the maximum.
@@ -1085,6 +906,7 @@ contract MemeverseSwapRouterTest is Test {
     /// @dev Covers router slippage protection.
     function testSwapReverts_WhenExactInputFallsBelowAmountOutMinimum() external {
         _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
         vm.expectRevert(
@@ -1147,7 +969,7 @@ contract MemeverseSwapRouterTest is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         uint256 token1Before = token1.balanceOf(address(this));
 
-        (BalanceDelta delta, bool executed,) = router.swap{value: 300 ether}(
+        BalanceDelta delta = router.swap{value: 300 ether}(
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
@@ -1158,7 +980,6 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        assertTrue(executed, "executed");
         assertEq(token1.balanceOf(address(this)) - token1Before, 100 ether, "native exact output received");
         assertEq(delta.amount1(), int128(int256(100 ether)), "delta1");
     }
@@ -1172,6 +993,7 @@ contract MemeverseSwapRouterTest is Test {
         router.addLiquidity(
             key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
         );
+        _matureLaunchWindow();
 
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         router.swap(
@@ -1224,6 +1046,7 @@ contract MemeverseSwapRouterTest is Test {
         router.addLiquidity(
             key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
         );
+        _matureLaunchWindow();
 
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         router.swap(
@@ -1297,6 +1120,7 @@ contract MemeverseSwapRouterTest is Test {
         router.addLiquidity(
             key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
         );
+        _matureLaunchWindow();
 
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         router.swap(
@@ -1320,16 +1144,22 @@ contract MemeverseSwapRouterTest is Test {
 
     /// @notice Verifies the router returns the hook LP token for a pair.
     /// @dev Covers the new pair-to-LP-token view helper.
-    function testRouterLpToken_ReturnsHookPoolLpTokenAddress() external view {
-        (address poolLpToken,,,) = hook.poolInfo(poolId);
+    function testRouterLpToken_ReturnsHookPoolLpTokenAddress() external {
+        PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
+        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+
+        (address poolLpToken,,) = hook.poolInfo(normalizedKey.toId());
         assertEq(router.lpToken(address(token0), address(token1)), poolLpToken, "lp token");
     }
 
     /// @notice Verifies the router quotes the required pair amounts for a target liquidity.
     /// @dev Covers the new exact-liquidity read helper.
-    function testRouterQuoteAmountsForLiquidity_ReturnsRequiredPairAmounts() external view {
+    function testRouterQuoteAmountsForLiquidity_ReturnsRequiredPairAmounts() external {
         uint128 liquidityDesired = 10 ether;
-        (uint160 sqrtPriceX96,,,) = manager.getSlot0(poolId);
+        PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
+        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+
+        (uint160 sqrtPriceX96,,,) = manager.getSlot0(normalizedKey.toId());
         (uint256 amount0Required, uint256 amount1Required) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPriceX96, FULL_RANGE_MIN_SQRT_PRICE_X96, FULL_RANGE_MAX_SQRT_PRICE_X96, liquidityDesired
         );
@@ -1389,7 +1219,7 @@ contract MemeverseSwapRouterTest is Test {
             block.timestamp
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(createdKey.toId());
+        (address liquidityToken,,) = hook.poolInfo(createdKey.toId());
         assertEq(address(createdKey.hooks), address(hook), "hook");
         assertEq(createdKey.fee, 0x800000, "dynamic fee");
         assertGt(liquidity, 0, "liquidity");
@@ -1466,7 +1296,7 @@ contract MemeverseSwapRouterTest is Test {
         router.addLiquidity(
             key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
         );
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
 
         vm.prank(alice);

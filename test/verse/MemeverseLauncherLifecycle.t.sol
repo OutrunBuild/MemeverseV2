@@ -16,8 +16,10 @@ import {
     OFTFeeDetail
 } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
@@ -25,6 +27,7 @@ import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRout
 
 contract MockSwapRouter {
     using SafeERC20 for IERC20;
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     struct Quote {
         uint256 fee0;
@@ -37,10 +40,16 @@ contract MockSwapRouter {
         uint256 amount1Used;
     }
 
+    struct LaunchSwapResult {
+        uint256 amountIn;
+        uint256 amountOut;
+    }
+
     mapping(bytes32 => Quote) internal previewQuotes;
     mapping(bytes32 => Quote) internal claimQuotes;
     mapping(bytes32 => address) internal lpTokens;
     mapping(bytes32 => AddLiquidityResult) internal addLiquidityResults;
+    mapping(bytes32 => LaunchSwapResult) internal launchSwapResults;
     mapping(bytes32 => uint256) internal liquidityQuoteAmountA;
     mapping(bytes32 => uint256) internal liquidityQuoteAmountB;
 
@@ -134,6 +143,17 @@ contract MockSwapRouter {
         bytes32 key = _liquidityKey(tokenA, tokenB, liquidityDesired);
         liquidityQuoteAmountA[key] = amountARequired;
         liquidityQuoteAmountB[key] = amountBRequired;
+    }
+
+    /// @notice Sets the mocked launch preorder swap result for a pair.
+    /// @dev Stores the input budget consumed and the memecoin amount returned to the recipient.
+    /// @param tokenIn Input token used by the launch settlement swap.
+    /// @param tokenOut Output token returned by the launch settlement swap.
+    /// @param amountIn Mock amount of `tokenIn` consumed.
+    /// @param amountOut Mock amount of `tokenOut` returned.
+    function setLaunchSwapResult(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut) external {
+        launchSwapResults[keccak256(abi.encode(_pairKey(tokenIn, tokenOut), tokenIn, tokenOut))] =
+            LaunchSwapResult({amountIn: amountIn, amountOut: amountOut});
     }
 
     /// @notice Returns the mocked preview fees for a token pair and owner.
@@ -300,6 +320,50 @@ contract MockSwapRouter {
             MockERC20(liquidityToken).mint(recipient, result.liquidity);
         }
         return (result.liquidity, poolKey);
+    }
+
+    /// @notice Executes the mocked swap path.
+    /// @dev When the launch settlement marker is provided, returns the configured preorder launch swap result.
+    /// @param key Mock pool key being swapped against.
+    /// @param params Mock swap params forwarded by the launcher.
+    /// @param recipient Recipient of the mocked output token.
+    /// @param nativeRefundRecipient Unused native refund recipient.
+    /// @param deadline Unused deadline.
+    /// @param amountOutMinimum Unused minimum output amount.
+    /// @param amountInMaximum Unused maximum input amount.
+    /// @param hookData Marker payload used to distinguish launch settlement.
+    /// @return delta Mock balance delta for the launch settlement swap.
+    function swap(
+        PoolKey calldata key,
+        SwapParams calldata params,
+        address recipient,
+        address nativeRefundRecipient,
+        uint256 deadline,
+        uint256 amountOutMinimum,
+        uint256 amountInMaximum,
+        bytes calldata hookData
+    ) external returns (BalanceDelta delta) {
+        nativeRefundRecipient;
+        deadline;
+        amountOutMinimum;
+        amountInMaximum;
+
+        if (keccak256(hookData) != keccak256(abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH))) {
+            revert("unexpected hookData");
+        }
+
+        address tokenIn = params.zeroForOne ? Currency.unwrap(key.currency0) : Currency.unwrap(key.currency1);
+        address tokenOut = params.zeroForOne ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
+        LaunchSwapResult memory result =
+            launchSwapResults[keccak256(abi.encode(_pairKey(tokenIn, tokenOut), tokenIn, tokenOut))];
+        if (result.amountOut != 0) {
+            MockERC20(tokenOut).mint(recipient, result.amountOut);
+        }
+
+        if (params.zeroForOne) {
+            return toBalanceDelta(-int128(int256(result.amountIn)), int128(int256(result.amountOut)));
+        }
+        return toBalanceDelta(int128(int256(result.amountOut)), -int128(int256(result.amountIn)));
     }
 }
 
@@ -504,7 +568,9 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
-        uint128 _oftDispatcherGasLimit
+        uint128 _oftDispatcherGasLimit,
+        uint256 _preorderCapRatio,
+        uint256 _preorderVestingDuration
     )
         MemeverseLauncher(
             _owner,
@@ -515,7 +581,9 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
             _lzEndpointRegistry,
             _executorRewardRate,
             _oftReceiveGasLimit,
-            _oftDispatcherGasLimit
+            _oftDispatcherGasLimit,
+            _preorderCapRatio,
+            _preorderVestingDuration
         )
     {}
 
@@ -560,6 +628,25 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         });
     }
 
+    /// @notice Stores mock user preorder data for a verse id.
+    /// @dev Lets tests control preorder eligibility flags directly.
+    /// @param verseId Verse id whose user state should be set.
+    /// @param account Account whose preorder data should be set.
+    /// @param funds Mock contributed preorder amount.
+    /// @param claimedMemecoin Mock claimed preorder memecoin amount.
+    /// @param isRefunded Mock refunded flag.
+    function setUserPreorderDataForTest(
+        uint256 verseId,
+        address account,
+        uint256 funds,
+        uint256 claimedMemecoin,
+        bool isRefunded
+    ) external {
+        userPreorderData[verseId][account] = PreorderData({
+            funds: funds, claimedMemecoin: claimedMemecoin, isRefunded: isRefunded
+        });
+    }
+
     /// @notice Stores mock total POL liquidity for a verse id.
     /// @dev Used to drive POL LP redemption share math in tests.
     /// @param verseId Verse id whose total POL liquidity should be set.
@@ -594,7 +681,17 @@ contract MemeverseLauncherLifecycleTest is Test {
     /// @dev Wires the launcher to the mock router and mock dispatcher.
     function setUp() external {
         launcher = new TestableMemeverseLauncher(
-            address(this), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), 25, 115_000, 135_000
+            address(this),
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            25,
+            115_000,
+            135_000,
+            2_500,
+            7 days
         );
         router = new MockSwapRouter();
         dispatcher = new MockOFTDispatcher();
@@ -829,6 +926,39 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Locked), "stored stage");
     }
 
+    /// @notice Verifies successful Genesis settlement executes the launch preorder swap and unlocks preorder memecoin linearly.
+    /// @dev Covers the new launcher-managed preorder settlement path.
+    function testChangeStage_WhenGenesisSucceedsWithPreorder_SettlesAndUnlocksLinearly() external {
+        uint256 verseId = 22;
+        _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
+        launcher.setFundMetaData(address(upt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        router.setAddLiquidityResult(address(memecoin), address(upt), 90 ether, 0, 0);
+        router.setAddLiquidityResult(address(liquidProof), address(upt), 30 ether, 0, 0);
+        router.setLaunchSwapResult(address(upt), address(memecoin), 10 ether, 60 ether);
+
+        upt.mint(address(this), 10 ether);
+        upt.approve(address(launcher), type(uint256).max);
+        launcher.preorder(verseId, 10 ether, ALICE);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked), "returned stage");
+
+        vm.prank(ALICE);
+        assertEq(launcher.claimablePreorderMemecoin(verseId), 0, "initial claimable");
+
+        vm.warp(block.timestamp + 3 days + 12 hours);
+        vm.prank(ALICE);
+        assertEq(launcher.claimablePreorderMemecoin(verseId), 30 ether, "half unlocked");
+
+        vm.warp(block.timestamp + 3 days + 12 hours + 1);
+        vm.prank(ALICE);
+        uint256 claimedAmount = launcher.claimUnlockedPreorderMemecoin(verseId);
+        assertEq(claimedAmount, 60 ether, "claimed amount");
+        assertEq(memecoin.balanceOf(ALICE), 60 ether, "alice memecoin");
+    }
+
     /// @notice Verifies non-flash Genesis cannot lock early even if the minimum funding target is met.
     /// @dev Preserves the requirement that non-flash launches wait for endTime expiry.
     function testChangeStage_WhenNotFlashGenesisBeforeEnd_Reverts() external {
@@ -901,6 +1031,46 @@ contract MemeverseLauncherLifecycleTest is Test {
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseLauncher.InvalidRefund.selector);
         launcher.refund(verseId);
+    }
+
+    /// @notice Test refund preorder reverts when stage or user state invalid.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testRefundPreorder_RevertsWhenStageOrUserStateInvalid() external {
+        uint256 verseId = 21;
+        _setLockedVerse(verseId);
+
+        vm.expectRevert(IMemeverseLauncher.NotRefundStage.selector);
+        launcher.refundPreorder(verseId);
+
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.currentStage = IMemeverseLauncher.Stage.Refund;
+        launcher.setMemeverseForTest(verseId, verse);
+
+        vm.prank(ALICE);
+        vm.expectRevert();
+        launcher.refundPreorder(verseId);
+    }
+
+    /// @notice Verifies refund preorder returns funds and marks the user as refunded.
+    /// @dev Covers the successful preorder refund path in Refund stage.
+    function testRefundPreorder_TransfersFundsAndMarksRefunded() external {
+        uint256 verseId = 23;
+        _setLockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.currentStage = IMemeverseLauncher.Stage.Refund;
+        launcher.setMemeverseForTest(verseId, verse);
+        launcher.setUserPreorderDataForTest(verseId, ALICE, 5 ether, 0, false);
+        upt.mint(address(launcher), 5 ether);
+
+        vm.prank(ALICE);
+        uint256 refunded = launcher.refundPreorder(verseId);
+
+        (uint256 funds, uint256 claimedMemecoin, bool isRefunded) = launcher.userPreorderData(verseId, ALICE);
+        assertEq(refunded, 5 ether, "refunded");
+        assertEq(funds, 5 ether, "funds");
+        assertEq(claimedMemecoin, 0, "claimed");
+        assertTrue(isRefunded, "isRefunded");
+        assertEq(upt.balanceOf(ALICE), 5 ether, "alice upt");
     }
 
     /// @notice Verifies POL cannot be claimed twice for the same genesis contribution.

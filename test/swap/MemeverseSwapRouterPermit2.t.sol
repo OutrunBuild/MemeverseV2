@@ -238,13 +238,9 @@ interface IUnlockCallbackLike {
 }
 
 contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
-    constructor(
-        IPoolManager _manager,
-        address _owner,
-        address _treasury,
-        uint256 _antiSnipeDurationBlocks,
-        uint256 _maxAntiSnipeProbabilityBase
-    ) MemeverseUniswapHook(_manager, _owner, _treasury, _antiSnipeDurationBlocks, _maxAntiSnipeProbabilityBase) {}
+    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
+        MemeverseUniswapHook(_manager, _owner, _treasury, _launchSettlementCaller)
+    {}
 
     function validateHookAddress(BaseHook) internal pure override {}
 }
@@ -472,6 +468,11 @@ contract MemeverseSwapRouterPermit2Test is Test {
         "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
         "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
+
+    function _matureLaunchWindow() internal {
+        vm.warp(block.timestamp + 900);
+    }
 
     MockPoolManagerForPermit2RouterTest internal manager;
     TestableMemeverseUniswapHookForPermit2Router internal hook;
@@ -493,16 +494,23 @@ contract MemeverseSwapRouterPermit2Test is Test {
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
         hook = new TestableMemeverseUniswapHookForPermit2Router(
-            IPoolManager(address(manager)), address(this), treasury, 10, 1
+            IPoolManager(address(manager)), address(this), treasury, address(this)
         );
         mockPermit2 = new MockPermit2ForRouterTest();
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(mockPermit2))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IPermit2(address(mockPermit2)),
+            address(this)
         );
         realPermit2 = new SignatureVerifyingPermit2ForRouterTest();
         realPermit2Router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(realPermit2))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IPermit2(address(realPermit2)),
+            address(this)
         );
+        hook.setLaunchSettlementCaller(address(router));
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -529,6 +537,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     /// @dev Confirms the router requests the expected Permit2 transfer and completes the swap path.
     function testSwapWithPermit2_TransfersInputAndExecutes() external {
         hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
 
         IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token0), 100 ether);
         uint256 balance0Before = token0.balanceOf(alice);
@@ -536,7 +545,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
         vm.prank(alice);
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swapWithPermit2(
+        BalanceDelta delta = router.swapWithPermit2(
             singlePermit,
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
@@ -553,45 +562,32 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(mockPermit2.lastRecipient(), address(router), "recipient");
         assertEq(mockPermit2.lastToken(), address(token0), "token");
         assertEq(mockPermit2.lastRequestedAmount(), 100 ether, "amount");
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertLt(int256(delta.amount0()), 0, "delta0");
         assertGt(int256(delta.amount1()), 0, "delta1");
         assertLt(token0.balanceOf(alice), balance0Before, "token0 spent");
         assertGt(token1.balanceOf(alice), balance1Before, "token1 received");
     }
 
-    /// @notice Verifies anti-snipe soft-fail paths refund unused Permit2 input.
-    /// @dev Failed attempts should retain only the quoted failure fee and refund the remainder.
-    function testSwapWithPermit2_SoftFailRefundsUnusedInput() external {
+    /// @notice Verifies Permit2 swaps cannot spoof the launch settlement marker without operator authorization.
+    /// @dev Covers the router permission check on the shared settlement marker path.
+    function testSwapWithPermit2_RevertsWhenSettlementMarkerIsSpoofedByNonOperator() external {
         hook.setProtocolFeeCurrency(key.currency0);
-
-        IMemeverseUniswapHook.FailedAttemptQuote memory failureQuote = hook.quoteFailedAttempt(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), 100 ether
-        );
         IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token0), 100 ether);
-        uint256 aliceBalanceBefore = token0.balanceOf(alice);
-        uint256 treasuryBalanceBefore = token0.balanceOf(treasury);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
         vm.prank(alice);
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = router.swapWithPermit2(
+        vm.expectRevert(IMemeverseSwapRouter.InvalidLaunchSettlementOperator.selector);
+        router.swapWithPermit2(
             singlePermit,
             key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             alice,
             alice,
             block.timestamp,
-            0,
+            40 ether,
             100 ether,
-            ""
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
         );
-
-        assertEq(BalanceDelta.unwrap(delta), 0, "delta");
-        assertFalse(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.NoPriceLimitSet), "reason");
-        assertEq(token0.balanceOf(alice), aliceBalanceBefore - failureQuote.feeAmount, "only failure fee retained");
-        assertEq(token0.balanceOf(treasury), treasuryBalanceBefore + failureQuote.feeAmount, "treasury charged");
-        assertEq(token0.balanceOf(address(router)), 0, "router refunded surplus");
     }
 
     /// @notice Verifies batch Permit2 funding supports two-ERC20 liquidity adds.
@@ -614,7 +610,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             block.timestamp
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         assertGt(liquidity, 0, "liquidity");
         assertEq(mockPermit2.lastBatchOwner(), alice, "owner");
         assertEq(mockPermit2.lastBatchLength(), 2, "batch length");
@@ -645,7 +641,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             block.timestamp
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(nativePoolId);
+        (address liquidityToken,,) = hook.poolInfo(nativePoolId);
         assertGt(liquidity, 0, "liquidity");
         assertEq(mockPermit2.lastBatchLength(), 1, "batch length");
         assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
@@ -685,7 +681,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     /// @dev Exercises the LP-token Permit2 flow used by liquidity removals.
     function testRemoveLiquidityWithPermit2() external {
         uint128 liquidity = _mintAliceLiquidity();
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
 
         vm.prank(alice);
         MockERC20(liquidityToken).approve(address(mockPermit2), type(uint256).max);
@@ -710,7 +706,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     /// @dev The Permit2 path already loads the LP token before entering the shared remove-liquidity flow.
     function testRemoveLiquidityWithPermit2_ReadsPoolInfoOnce() external {
         uint128 liquidity = _mintAliceLiquidity();
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
 
         vm.prank(alice);
         MockERC20(liquidityToken).approve(address(mockPermit2), type(uint256).max);
@@ -756,7 +752,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             block.timestamp
         );
 
-        (address liquidityToken,,,) = hook.poolInfo(createdKey.toId());
+        (address liquidityToken,,) = hook.poolInfo(createdKey.toId());
         assertGt(liquidity, 0, "liquidity");
         assertEq(address(createdKey.hooks), address(hook), "hook");
         assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
@@ -819,6 +815,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     /// @dev Uses the signature-verifying Permit2 mock to cover the canonical witness format.
     function testSwapWithPermit2_RealPermit2CanonicalWitnessExecutes() external {
         hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
 
         uint256 amountIn = 100 ether;
         uint256 amountOutMinimum = 40 ether;
@@ -844,12 +841,10 @@ contract MemeverseSwapRouterPermit2Test is Test {
         });
 
         vm.prank(alice);
-        (BalanceDelta delta, bool executed, IMemeverseUniswapHook.AntiSnipeFailureReason reason) = realPermit2Router.swapWithPermit2(
+        BalanceDelta delta = realPermit2Router.swapWithPermit2(
             permitParams, key, params, alice, alice, deadline, amountOutMinimum, amountIn, bytes("")
         );
 
-        assertTrue(executed, "executed");
-        assertEq(uint8(reason), uint8(IMemeverseUniswapHook.AntiSnipeFailureReason.None), "reason");
         assertLt(int256(delta.amount0()), 0, "delta0");
         assertGt(int256(delta.amount1()), 0, "delta1");
     }
@@ -907,7 +902,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     /// @dev Uses the signature-verifying Permit2 mock to cover LP-token witness removals.
     function testRemoveLiquidityWithPermit2_RealPermit2CanonicalWitnessExecutes() external {
         uint128 liquidity = _mintAliceLiquidity();
-        (address liquidityToken,,,) = hook.poolInfo(poolId);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         uint256 deadline = block.timestamp + 1 hours;
 
         vm.prank(alice);
