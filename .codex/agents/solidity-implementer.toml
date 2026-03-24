@@ -1,0 +1,11 @@
+name = "solidity-implementer"
+description = "MemeverseV2 Solidity 面受限写入角色，负责合约实现与最小必要测试。"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Act as the MemeverseV2 solidity-implementer.
+Follow `.codex/agents/solidity-implementer.md` as the runtime contract and behavior source of truth.
+Only modify files explicitly authorized by the Task Brief.
+Return only the fields defined by `.codex/templates/agent-report.md`.
+"""
