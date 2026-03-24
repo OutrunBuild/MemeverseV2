@@ -56,6 +56,7 @@ cat > "$policy_file" <<EOF
       "Docs updated",
       "Tests updated",
       "Existing tests exercised",
+      "Rule-map evidence source",
       "Commands run",
       "Results",
       "Ready to commit",
@@ -75,6 +76,12 @@ cat > "$policy_file" <<EOF
       "<path>|none",
       "<selectors or paths>",
       "yes/no"
+    ],
+    "field_owners": {
+      "Rule-map evidence source": "verifier"
+    },
+    "owner_prefixed_source_fields": [
+      "Rule-map evidence source"
     ]
   },
   "pull_request": {
@@ -90,12 +97,18 @@ cat > "$policy_file" <<EOF
       "## Gas"
     ]
   },
+  "rule_map": {
+    "path": "$rule_map_file",
+    "evidence_field": "Rule-map evidence source"
+  },
   "quality_gate": {
     "swap_src_sol_pattern": "^src/swap/.*\\\\.sol$",
     "src_sol_pattern": "^src/.*\\\\.sol$",
     "test_tsol_pattern": "^test/.*\\\\.t\\\\.sol$",
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
+    "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
+    "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
     "review_note_directory": "$review_dir",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits"
@@ -261,6 +274,7 @@ cat > "$review_file" <<'EOF'
 ## Tests
 - Tests updated: none
 - Existing tests exercised: test/QualityGateTemp.t.sol
+- Rule-map evidence source: verifier:test/QualityGateTemp.t.sol
 - No-test-change reason: none.
 
 ## Verification
@@ -275,12 +289,12 @@ EOF
 set +e
 git add "$src_file"
 
-missing_evidence_output="$(PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh 2>&1)"
+missing_evidence_output="$(PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh 2>&1)"
 missing_evidence_status=$?
 set -e
 
 if [ "$missing_evidence_status" -eq 0 ]; then
-    echo "Expected quality-gate to fail when rule-map evidence is missing from Existing tests exercised"
+    echo "Expected quality-gate to fail when rule-map evidence is missing from Rule-map evidence source"
     exit 1
 fi
 
@@ -330,6 +344,7 @@ cat > "$review_file" <<'EOF'
 ## Tests
 - Tests updated: none
 - Existing tests exercised: test/MappedEvidence.t.sol
+- Rule-map evidence source: verifier:test/MappedEvidence.t.sol
 - No-test-change reason: none.
 
 ## Verification
@@ -341,7 +356,7 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
-PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
 
 git reset -- "$src_file" >/dev/null
 
@@ -405,6 +420,7 @@ cat > "$review_file" <<'EOF'
 ## Tests
 - Tests updated: none
 - Existing tests exercised: test/QualityGateTemp.t.sol
+- Rule-map evidence source: verifier:test/QualityGateTemp.t.sol
 - No-test-change reason: none.
 
 ## Verification
@@ -417,12 +433,12 @@ cat > "$review_file" <<'EOF'
 EOF
 
 set +e
-missing_ci_evidence_output="$(PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh 2>&1)"
+missing_ci_evidence_output="$(PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh 2>&1)"
 missing_ci_evidence_status=$?
 set -e
 
 if [ "$missing_ci_evidence_status" -eq 0 ]; then
-    echo "Expected quality-gate in ci mode to fail when rule-map evidence is missing from Existing tests exercised"
+    echo "Expected quality-gate in ci mode to fail when rule-map evidence is missing from Rule-map evidence source"
     exit 1
 fi
 
@@ -472,6 +488,7 @@ cat > "$review_file" <<'EOF'
 ## Tests
 - Tests updated: none
 - Existing tests exercised: test/MappedEvidence.t.sol
+- Rule-map evidence source: verifier:test/MappedEvidence.t.sol
 - No-test-change reason: none.
 
 ## Verification
@@ -483,7 +500,7 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
-PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
 
 : > "$forge_log"
 : > "$npm_log"
@@ -501,5 +518,105 @@ fi
 if grep -q "^snapshot --snap " "$forge_log"; then
     echo "Expected gas report not to run for test-only changes"
     cat "$forge_log"
+    exit 1
+fi
+
+: > "$forge_log"
+: > "$npm_log"
+rm -f "$slither_log"
+printf '%s\n' "docs/reviews/README.md" > "$changed_files_path"
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$tmp_dir/missing-review.md" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+
+if ! grep -q "^run docs:check$" "$npm_log"; then
+    echo "Expected quality-gate to run docs:check for docs-contract changes"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for docs-contract-only changes"
+    cat "$forge_log"
+    exit 1
+fi
+
+if [ -f "$slither_log" ] && [ -s "$slither_log" ]; then
+    echo "Did not expect slither for docs-contract-only changes"
+    cat "$slither_log"
+    exit 1
+fi
+
+: > "$forge_log"
+: > "$npm_log"
+rm -f "$slither_log"
+printf '%s\n' ".codex/deleted-agent-contract.md" > "$changed_files_path"
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$tmp_dir/missing-review.md" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+
+if ! grep -q "^run docs:check$" "$npm_log"; then
+    echo "Expected quality-gate to run docs:check for docs-contract deletion paths"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for docs-contract deletion paths"
+    cat "$forge_log"
+    exit 1
+fi
+
+if [ -f "$slither_log" ] && [ -s "$slither_log" ]; then
+    echo "Did not expect slither for docs-contract deletion paths"
+    cat "$slither_log"
+    exit 1
+fi
+
+: > "$forge_log"
+: > "$npm_log"
+rm -f "$slither_log"
+printf '%s\n' "package-lock.json" > "$changed_files_path"
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$tmp_dir/missing-review.md" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+
+if ! grep -q "^run docs:check$" "$npm_log"; then
+    echo "Expected quality-gate to run docs:check for package deletion paths"
+    cat "$npm_log"
+    exit 1
+fi
+
+if ! grep -q "^ci$" "$npm_log"; then
+    echo "Expected quality-gate to run npm ci for package deletion paths"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for package deletion paths"
+    cat "$forge_log"
+    exit 1
+fi
+
+if [ -f "$slither_log" ] && [ -s "$slither_log" ]; then
+    echo "Did not expect slither for package deletion paths"
+    cat "$slither_log"
+    exit 1
+fi
+
+: > "$forge_log"
+: > "$npm_log"
+rm -f "$slither_log"
+printf '%s\n' "src/DeletedQualityGateTemp.sol" > "$changed_files_path"
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+
+if ! grep -q "^snapshot --snap " "$forge_log"; then
+    echo "Expected quality-gate to run gas report for src Solidity deletion paths"
+    cat "$forge_log"
+    exit 1
+fi
+
+if ! grep -q "^\\. --filter-paths lib|test|script|node_modules --exclude-dependencies --exclude naming-convention,too-many-digits$" "$slither_log"; then
+    echo "Expected quality-gate to run slither for src Solidity deletion paths"
+    cat "$slither_log"
     exit 1
 fi

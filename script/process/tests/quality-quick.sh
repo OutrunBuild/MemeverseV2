@@ -14,7 +14,9 @@ changed_files_path="$tmp_dir/changed-files.txt"
 
 src_file="src/QualityQuickTemp.sol"
 swap_file="src/swap/MemeverseSwapRouter.sol"
-test_file="test/MemeverseSwapRouterInterface.t.sol"
+test_file="test/swap/MemeverseSwapRouterInterface.t.sol"
+launcher_file="src/verse/MemeverseLauncher.sol"
+launcher_test_file="test/verse/MemeverseLauncherViews.t.sol"
 shell_file="script/process/quality-quick-temp.sh"
 
 cleanup() {
@@ -37,12 +39,18 @@ cat > "$policy_file" <<EOF
   "pull_request": {
     "required_sections": []
   },
+  "rule_map": {
+    "path": "$rule_map_file",
+    "evidence_field": "Existing tests exercised"
+  },
   "quality_gate": {
     "swap_src_sol_pattern": "^src/swap/.*\\\\.sol$",
     "src_sol_pattern": "^src/.*\\\\.sol$",
     "test_tsol_pattern": "^test/.*\\\\.t\\\\.sol$",
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
+    "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
+    "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits"
@@ -69,7 +77,7 @@ cat > "$rule_map_file" <<'EOF'
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseSwapRouterInterface.t.sol"
+          "test/swap/MemeverseSwapRouterInterface.t.sol"
         ]
       }
     }
@@ -126,7 +134,7 @@ EOF
 
 : > "$forge_log"
 : > "$npm_log"
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_RULE_MAP_FILE="$rule_map_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
 
 if ! grep -q '^fmt --check src/QualityQuickTemp.sol$' "$forge_log"; then
     echo "Expected quality-quick to run forge fmt --check for changed src Solidity files"
@@ -171,7 +179,7 @@ cat > "$rule_map_file" <<'EOF'
       "change_requirement": {
         "mode": "none",
         "tests": [
-          "test/MemeverseSwapRouterInterface.t.sol"
+          "test/swap/MemeverseSwapRouterInterface.t.sol"
         ]
       }
     }
@@ -185,10 +193,51 @@ $swap_file
 EOF
 
 : > "$forge_log"
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_RULE_MAP_FILE="$rule_map_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
 
-if ! grep -q '^test --match-path test/MemeverseSwapRouterInterface.t.sol$' "$forge_log"; then
+if ! grep -q '^test --match-path test/swap/MemeverseSwapRouterInterface.t.sol$' "$forge_log"; then
     echo "Expected quality-quick to run mapped forge test for swap source changes"
+    cat "$forge_log"
+    exit 1
+fi
+
+cat > "$rule_map_file" <<EOF
+{
+  "version": 2,
+  "defaults": {
+    "change_requirement_mode": "none",
+    "evidence_requirement_mode": "any"
+  },
+  "rules": [
+    {
+      "id": "launcher-core",
+      "description": "Non-swap formal rules should also drive quick targeted tests.",
+      "triggers": {
+        "any_of": [
+          "$launcher_file"
+        ]
+      },
+      "change_requirement": {
+        "mode": "none",
+        "tests": [
+          "$launcher_test_file"
+        ]
+      }
+    }
+  ],
+  "testing_gaps": []
+}
+EOF
+
+cat > "$changed_files_path" <<EOF
+$launcher_file
+EOF
+
+: > "$forge_log"
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+
+if ! grep -q "^test --match-path $launcher_test_file$" "$forge_log"; then
+    echo "Expected quality-quick to run mapped forge test for non-swap source changes"
     cat "$forge_log"
     exit 1
 fi
@@ -212,7 +261,7 @@ cat > "$rule_map_file" <<'EOF'
       "change_requirement": {
         "mode": "any",
         "tests": [
-          "test/MemeverseSwapRouterInterface.t.sol"
+          "test/swap/MemeverseSwapRouterInterface.t.sol"
         ]
       }
     }
@@ -227,9 +276,9 @@ $test_file
 EOF
 
 : > "$forge_log"
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_RULE_MAP_FILE="$rule_map_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
 
-if ! grep -q '^test --match-path test/MemeverseSwapRouterInterface.t.sol$' "$forge_log"; then
+if ! grep -q '^test --match-path test/swap/MemeverseSwapRouterInterface.t.sol$' "$forge_log"; then
     echo "Expected quality-quick to run targeted forge test for changed or mapped tests"
     cat "$forge_log"
     exit 1
@@ -242,12 +291,72 @@ if grep -q '^test -vvv$' "$forge_log"; then
 fi
 
 cat > "$changed_files_path" <<EOF
+docs/reviews/README.md
+EOF
+
+: > "$forge_log"
+: > "$npm_log"
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+
+if ! grep -q '^run docs:check$' "$npm_log"; then
+    echo "Expected quality-quick to run docs:check for docs-contract changes"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for docs-contract-only changes"
+    cat "$forge_log"
+    exit 1
+fi
+
+cat > "$changed_files_path" <<EOF
+.codex/deleted-agent-contract.md
+EOF
+
+: > "$forge_log"
+: > "$npm_log"
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+
+if ! grep -q '^run docs:check$' "$npm_log"; then
+    echo "Expected quality-quick to run docs:check for docs-contract deletion paths"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for docs-contract deletion paths"
+    cat "$forge_log"
+    exit 1
+fi
+
+cat > "$changed_files_path" <<EOF
+package-lock.json
+EOF
+
+: > "$forge_log"
+: > "$npm_log"
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+
+if ! grep -q '^run docs:check$' "$npm_log"; then
+    echo "Expected quality-quick to run docs:check for package deletion paths"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for package deletion paths"
+    cat "$forge_log"
+    exit 1
+fi
+
+cat > "$changed_files_path" <<EOF
 $shell_file
 EOF
 
 : > "$forge_log"
 set +e
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_RULE_MAP_FILE="$rule_map_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh >/dev/null 2>&1
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh >/dev/null 2>&1
 status=$?
 set -e
 

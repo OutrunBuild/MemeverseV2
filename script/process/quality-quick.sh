@@ -6,6 +6,19 @@ cd "$repo_root"
 
 mode="${QUALITY_GATE_MODE:-staged}"
 
+read_policy_value() {
+    local key="$1"
+    local default_value="$2"
+    local value
+
+    if value="$(node ./script/process/read-process-config.js policy "$key" 2>/dev/null)"; then
+        printf '%s' "$value"
+        return
+    fi
+
+    printf '%s' "$default_value"
+}
+
 load_file_list_from_ci() {
     if [ -n "${QUALITY_GATE_FILE_LIST:-}" ] && [ -f "${QUALITY_GATE_FILE_LIST}" ]; then
         cat "${QUALITY_GATE_FILE_LIST}"
@@ -32,7 +45,7 @@ load_file_list_from_ci() {
 if [ "$mode" = "ci" ]; then
     changed_files="$(load_file_list_from_ci)"
 else
-    changed_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+    changed_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
 fi
 
 if [ -z "$changed_files" ]; then
@@ -40,11 +53,14 @@ if [ -z "$changed_files" ]; then
     exit 0
 fi
 
-swap_src_sol_pattern="$(node ./script/process/read-process-config.js policy quality_gate.swap_src_sol_pattern)"
-src_sol_pattern="$(node ./script/process/read-process-config.js policy quality_gate.src_sol_pattern)"
-test_tsol_pattern="$(node ./script/process/read-process-config.js policy quality_gate.test_tsol_pattern)"
-test_sol_pattern="$(node ./script/process/read-process-config.js policy quality_gate.test_sol_pattern)"
-shell_pattern="$(node ./script/process/read-process-config.js policy quality_gate.shell_pattern)"
+swap_src_sol_pattern="$(read_policy_value quality_gate.swap_src_sol_pattern '^src/swap/.*\\.sol$')"
+src_sol_pattern="$(read_policy_value quality_gate.src_sol_pattern '^src/.*\\.sol$')"
+test_tsol_pattern="$(read_policy_value quality_gate.test_tsol_pattern '^test/.*\\.t\\.sol$')"
+test_sol_pattern="$(read_policy_value quality_gate.test_sol_pattern '^test/.*\\.sol$')"
+shell_pattern="$(read_policy_value quality_gate.shell_pattern '^(script/.*\\.sh|\\.githooks/.*)$')"
+package_pattern="$(read_policy_value quality_gate.package_pattern '^(package\\.json|package-lock\\.json)$')"
+docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
+rule_map_path="$(node ./script/process/read-process-config.js rule-map __file__)"
 
 has_src_sol=0
 has_swap_src_sol=0
@@ -56,6 +72,10 @@ src_solidity_files=()
 changed_test_files=()
 shell_candidates=()
 shell_files=()
+package_candidates=()
+package_files=()
+docs_contract_candidates=()
+docs_contract_files=()
 
 while IFS= read -r file; do
     [ -z "$file" ] && continue
@@ -78,6 +98,14 @@ while IFS= read -r file; do
     if [[ "$file" =~ $shell_pattern ]]; then
         shell_candidates+=("$file")
     fi
+
+    if [[ "$file" =~ $package_pattern ]]; then
+        package_candidates+=("$file")
+    fi
+
+    if [[ "$file" =~ $docs_contract_pattern ]]; then
+        docs_contract_candidates+=("$file")
+    fi
 done <<< "$changed_files"
 
 for file in "${src_solidity_candidates[@]}" "${test_solidity_candidates[@]}"; do
@@ -99,6 +127,16 @@ for file in "${shell_candidates[@]}"; do
     if [ -f "$file" ]; then
         shell_files+=("$file")
     fi
+done
+
+for file in "${package_candidates[@]}"; do
+    [ -z "$file" ] && continue
+    package_files+=("$file")
+done
+
+for file in "${docs_contract_candidates[@]}"; do
+    [ -z "$file" ] && continue
+    docs_contract_files+=("$file")
 done
 
 if [ "$has_src_sol" -eq 1 ]; then
@@ -130,57 +168,14 @@ for file in "${changed_test_files[@]}"; do
     fi
 done
 
-if [ "$has_swap_src_sol" -eq 1 ]; then
+if [ "$has_src_sol" -eq 1 ]; then
     while IFS= read -r mapped_test; do
         [ -z "$mapped_test" ] && continue
         if [ -f "$mapped_test" ]; then
             targeted_tests+=("$mapped_test")
         fi
     done < <(
-        CHANGED_FILES="$changed_files" node - <<'EOF'
-const fs = require('fs');
-const path = require('path');
-
-const changedFiles = (process.env.CHANGED_FILES || '').split(/\r?\n/).filter(Boolean);
-const ruleMapPath = process.env.PROCESS_RULE_MAP_FILE || 'docs/process/rule-map.json';
-const ruleMap = JSON.parse(fs.readFileSync(path.resolve(ruleMapPath), 'utf8'));
-const seen = new Set();
-const tests = [];
-
-const rules = Array.isArray(ruleMap.rules) ? ruleMap.rules : [];
-const version = ruleMap.version || 1;
-
-for (const rule of rules) {
-  let triggered = false;
-
-  if (version === 1) {
-    triggered = changedFiles.some((file) => file.startsWith(rule.path_prefix || ''));
-    if (!triggered) continue;
-    for (const test of rule.required_test_patterns || []) {
-      if (!seen.has(test)) {
-        seen.add(test);
-        tests.push(test);
-      }
-    }
-    continue;
-  }
-
-  const triggerPaths = rule.triggers?.any_of || [];
-  triggered = triggerPaths.some((candidate) => changedFiles.includes(candidate));
-  if (!triggered) continue;
-
-  for (const test of rule.change_requirement?.tests || []) {
-    if (!seen.has(test)) {
-      seen.add(test);
-      tests.push(test);
-    }
-  }
-}
-
-for (const test of tests) {
-  process.stdout.write(`${test}\n`);
-}
-EOF
+        PROCESS_CHANGED_FILES="$changed_files" PROCESS_RULE_MAP_FILE="$rule_map_path" node ./script/process/read-process-config.js rule-map triggered.change.tests --lines
     )
 fi
 
@@ -197,6 +192,11 @@ fi
 if [ "${#shell_files[@]}" -gt 0 ]; then
     echo "[quality-quick] bash -n (changed shell scripts)"
     bash -n "${shell_files[@]}"
+fi
+
+if [ "${#docs_contract_files[@]}" -gt 0 ] || [ "${#package_files[@]}" -gt 0 ]; then
+    echo "[quality-quick] npm run docs:check"
+    npm run docs:check
 fi
 
 echo "[quality-quick] PASS (quick only, final verification still requires npm run quality:gate)"

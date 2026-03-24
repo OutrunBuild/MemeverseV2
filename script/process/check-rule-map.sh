@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <changed-files-list>"
     exit 1
@@ -13,15 +16,25 @@ if [ ! -f "$changed_files_list" ]; then
     exit 1
 fi
 
-node - "$changed_files_list" <<'EOF'
-const fs = require('fs');
-const path = require('path');
+rule_map_path="$(node ./script/process/read-process-config.js rule-map __file__)"
 
-const [, , changedFilesPath] = process.argv;
-const ruleMapPath = process.env.PROCESS_RULE_MAP_FILE || 'docs/process/rule-map.json';
-const ruleMap = JSON.parse(fs.readFileSync(path.resolve(ruleMapPath), 'utf8'));
-const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
+PROCESS_CHANGED_FILES_FILE="$changed_files_list" PROCESS_RULE_MAP_FILE="$rule_map_path" node - <<'EOF'
+const fs = require('fs');
+const requirements = JSON.parse(
+  require('child_process').execFileSync(
+    'node',
+    ['./script/process/read-process-config.js', 'rule-map', 'triggered.change.requirements'],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: 'utf8'
+    }
+  )
+);
 const failures = [];
+const changedFiles = process.env.PROCESS_CHANGED_FILES_FILE
+  ? fs.readFileSync(process.env.PROCESS_CHANGED_FILES_FILE, 'utf8').split(/\r?\n/).filter(Boolean)
+  : [];
 
 function evaluateMode(mode, candidates, files) {
   if (mode === 'none') return true;
@@ -36,36 +49,16 @@ function pushFailure(ruleId, description, triggeredBy, mode, tests) {
   );
 }
 
-const version = ruleMap.version || 1;
-
-if (version === 1) {
-  for (const rule of ruleMap.rules || []) {
-    const applies = changedFiles.some((file) => file.startsWith(rule.path_prefix));
-    if (!applies) continue;
-
-    const matched = (rule.required_test_patterns || []).some((pattern) => changedFiles.includes(pattern));
-    if (!matched) {
-      failures.push(
-        `${rule.id}: ${rule.description} Expected one of: ${(rule.required_test_patterns || []).join(', ')}`
-      );
-    }
+for (const requirement of requirements) {
+  if (!evaluateMode(requirement.mode, requirement.tests, changedFiles)) {
+    pushFailure(
+      requirement.id,
+      requirement.description || 'Rule requirement failed.',
+      requirement.triggeredBy,
+      requirement.mode,
+      requirement.tests
+    );
   }
-} else if (version === 2) {
-  for (const rule of ruleMap.rules || []) {
-    const triggerPaths = rule.triggers?.any_of || [];
-    const triggeredBy = triggerPaths.filter((candidate) => changedFiles.includes(candidate));
-    if (triggeredBy.length === 0) continue;
-
-    const changeRequirement = rule.change_requirement || {};
-    const mode = changeRequirement.mode || ruleMap.defaults?.change_requirement_mode || 'none';
-    const tests = changeRequirement.tests || [];
-
-    if (!evaluateMode(mode, tests, changedFiles)) {
-      pushFailure(rule.id, rule.description || 'Rule requirement failed.', triggeredBy, mode, tests);
-    }
-  }
-} else {
-  throw new Error(`Unsupported rule-map version: ${version}`);
 }
 
 if (failures.length > 0) {

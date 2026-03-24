@@ -12,24 +12,75 @@ cleanup() {
 trap cleanup EXIT
 
 policy_file="$tmp_dir/policy.json"
+rule_map_file="$tmp_dir/rule-map.json"
 review_file="$tmp_dir/review.md"
 pr_file="$tmp_dir/pr.md"
 passing_review_file="$tmp_dir/review-pass.md"
 passing_pr_file="$tmp_dir/pr-pass.md"
 legacy_review_file="$tmp_dir/legacy-review.md"
+changed_files_list="$tmp_dir/changed-files.txt"
+check_docs_policy_file="$tmp_dir/check-docs-policy.json"
+malformed_roles_policy_file="$tmp_dir/malformed-roles-policy.json"
 
-cat > "$policy_file" <<'EOF'
+cat > "$policy_file" <<EOF
 {
   "review_note": {
     "required_headings": ["## Scope", "## Impact", "## Custom"],
     "required_fields": ["Change summary", "Files reviewed", "Behavior change", "Ready to commit"],
     "boolean_fields": ["Behavior change", "Ready to commit"],
-    "placeholder_values": ["", "yes/no"]
+    "placeholder_values": ["", "yes/no"],
+    "field_owners": {
+      "Rule-map evidence source": "verifier"
+    },
+    "owner_prefixed_source_fields": ["Rule-map evidence source"]
   },
   "pull_request": {
     "required_sections": ["## Summary", "## Custom"]
   },
-  "quality_gate": {}
+  "rule_map": {
+    "path": "$rule_map_file",
+    "evidence_field": "Existing tests exercised"
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": ["process-implementer", "verifier"],
+    "on_demand_roles": ["solidity-explorer"],
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
+  "quality_gate": {
+    "docs_contract_pattern": "^docs/process/.*",
+    "package_pattern": "^(package[.]json|package-lock[.]json)$"
+  }
+}
+EOF
+
+cat > "$rule_map_file" <<'EOF'
+{
+  "version": 2,
+  "defaults": {
+    "change_requirement_mode": "none",
+    "evidence_requirement_mode": "any"
+  },
+  "rules": [
+    {
+      "id": "policy-driven-rule",
+      "description": "ProcessPolicyTemp source changes require mapped tests in the change list.",
+      "triggers": {
+        "any_of": [
+          "src/ProcessPolicyTemp.sol"
+        ]
+      },
+      "change_requirement": {
+        "mode": "any",
+        "tests": [
+          "test/ProcessPolicyTemp.t.sol"
+        ]
+      }
+    }
+  ],
+  "testing_gaps": []
 }
 EOF
 
@@ -196,5 +247,136 @@ fi
 if ! printf '%s\n' "$legacy_output" | grep -q "## Gas"; then
     echo "Expected default review-note policy failure output to reference the missing Gas section"
     printf '%s\n' "$legacy_output"
+    exit 1
+fi
+
+resolved_rule_map_path="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js rule-map __file__)"
+if [ "$resolved_rule_map_path" != "$rule_map_file" ]; then
+    echo "Expected read-process-config to resolve rule-map path from policy.rule_map.path"
+    echo "Expected: $rule_map_file"
+    echo "Actual:   $resolved_rule_map_path"
+    exit 1
+fi
+
+cat > "$changed_files_list" <<'EOF'
+src/ProcessPolicyTemp.sol
+EOF
+
+set +e
+rule_map_output="$(PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-rule-map.sh "$changed_files_list" 2>&1)"
+rule_map_status=$?
+set -e
+
+if [ "$rule_map_status" -eq 0 ]; then
+    echo "Expected check-rule-map to enforce the policy-configured rule-map path"
+    exit 1
+fi
+
+if ! printf '%s\n' "$rule_map_output" | grep -q "policy-driven-rule"; then
+    echo "Expected check-rule-map failure output to reference the policy-driven rule id"
+    printf '%s\n' "$rule_map_output"
+    exit 1
+fi
+
+set +e
+non_root_rule_map_output="$(
+    cd "$repo_root/script/process"
+    PROCESS_POLICY_FILE="$policy_file" bash ./check-rule-map.sh "$changed_files_list" 2>&1
+)"
+non_root_rule_map_status=$?
+set -e
+
+if [ "$non_root_rule_map_status" -eq 0 ]; then
+    echo "Expected non-repo-root check-rule-map invocation to preserve policy-driven failure"
+    exit 1
+fi
+
+if ! printf '%s\n' "$non_root_rule_map_output" | grep -q "policy-driven-rule"; then
+    echo "Expected non-repo-root check-rule-map output to reference the policy-driven rule id"
+    printf '%s\n' "$non_root_rule_map_output"
+    exit 1
+fi
+
+bash ./script/process/check-docs.sh
+
+cat > "$malformed_roles_policy_file" <<'EOF'
+{
+  "review_note": {
+    "required_headings": [],
+    "required_fields": [],
+    "boolean_fields": [],
+    "placeholder_values": []
+  },
+  "pull_request": {
+    "required_sections": []
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": "process-implementer",
+    "on_demand_roles": ["verifier"],
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
+  "quality_gate": {
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+  }
+}
+EOF
+
+set +e
+malformed_roles_output="$(PROCESS_POLICY_FILE="$malformed_roles_policy_file" bash ./script/process/check-docs.sh 2>&1)"
+malformed_roles_status=$?
+set -e
+
+if [ "$malformed_roles_status" -eq 0 ]; then
+    echo "Expected check-docs to fail when agents.default_roles is malformed"
+    exit 1
+fi
+
+if ! printf '%s\n' "$malformed_roles_output" | grep -q "agents.default_roles"; then
+    echo "Expected malformed role-array failure output to reference agents.default_roles"
+    printf '%s\n' "$malformed_roles_output"
+    exit 1
+fi
+
+cat > "$check_docs_policy_file" <<'EOF'
+{
+  "review_note": {
+    "required_headings": [],
+    "required_fields": [],
+    "boolean_fields": [],
+    "placeholder_values": []
+  },
+  "pull_request": {
+    "required_sections": []
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": ["process-implementer", "verifier"],
+    "on_demand_roles": ["solidity-explorer"],
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
+  "quality_gate": {
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+  }
+}
+EOF
+
+set +e
+check_docs_output="$(PROCESS_POLICY_FILE="$check_docs_policy_file" bash ./script/process/check-docs.sh 2>&1)"
+check_docs_status=$?
+set -e
+
+if [ "$check_docs_status" -eq 0 ]; then
+    echo "Expected check-docs to fail when docs_contract_pattern excludes required harness files"
+    exit 1
+fi
+
+if ! printf '%s\n' "$check_docs_output" | grep -q "docs/reviews/TEMPLATE.md"; then
+    echo "Expected check-docs failure output to reference docs/reviews/TEMPLATE.md coverage"
+    printf '%s\n' "$check_docs_output"
     exit 1
 fi

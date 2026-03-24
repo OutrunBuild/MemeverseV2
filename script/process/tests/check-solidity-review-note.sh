@@ -10,6 +10,10 @@ policy_file="$tmp_dir/policy.json"
 rule_map_file="$tmp_dir/rule-map.json"
 changed_files_path="$tmp_dir/changed-files.txt"
 review_file="$review_dir/2026-03-12-example-review.md"
+staged_deleted_src="src/swap/MemeverseSwapRouter.sol"
+staged_deleted_mapped_test="test/swap/MemeverseSwapRouterInterface.t.sol"
+temp_index="$tmp_dir/staged-deletion.index"
+malformed_policy_file="$tmp_dir/malformed-owner-prefix-policy.json"
 
 cleanup() {
     rm -rf "$tmp_dir"
@@ -304,6 +308,236 @@ cat > "$review_file" <<'EOF'
 EOF
 
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
+
+cat > "$malformed_policy_file" <<EOF
+{
+  "review_note": {
+    "required_headings": [
+      "## Scope",
+      "## Impact",
+      "## Findings",
+      "## Simplification",
+      "## Gas",
+      "## Docs",
+      "## Tests",
+      "## Verification",
+      "## Decision"
+    ],
+    "required_fields": [
+      "Change summary",
+      "Files reviewed",
+      "Behavior change",
+      "ABI change",
+      "Storage layout change",
+      "Config change",
+      "Security review summary",
+      "Security residual risks",
+      "Gas-sensitive paths reviewed",
+      "Gas changes applied",
+      "Gas snapshot/result",
+      "Gas residual risks",
+      "Docs updated",
+      "Tests updated",
+      "Existing tests exercised",
+      "Commands run",
+      "Results",
+      "Ready to commit",
+      "Residual risks"
+    ],
+    "boolean_fields": [
+      "Behavior change",
+      "ABI change",
+      "Storage layout change",
+      "Config change",
+      "Ready to commit"
+    ],
+    "placeholder_values": [
+      "",
+      "TBD",
+      "<path>",
+      "<path>|none",
+      "<selectors or paths>",
+      "yes/no"
+    ],
+    "field_owners": [],
+    "owner_prefixed_source_fields": ["Rule-map evidence source"]
+  },
+  "pull_request": {
+    "required_sections": []
+  },
+  "quality_gate": {
+    "review_note_directory": "$review_dir"
+  }
+}
+EOF
+
+set +e
+malformed_owner_output="$(PROCESS_POLICY_FILE="$malformed_policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+malformed_owner_status=$?
+set -e
+
+if [ "$malformed_owner_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail on malformed review_note.field_owners config"
+    exit 1
+fi
+
+if ! printf '%s\n' "$malformed_owner_output" | grep -q "review_note.field_owners"; then
+    echo "Expected malformed owner-prefixed config output to reference review_note.field_owners"
+    printf '%s\n' "$malformed_owner_output"
+    exit 1
+fi
+
+cat > "$rule_map_file" <<EOF
+{
+  "version": 2,
+  "defaults": {
+    "change_requirement_mode": "none",
+    "evidence_requirement_mode": "any"
+  },
+  "rules": [
+    {
+      "id": "staged-delete-evidence",
+      "description": "Staged Solidity deletions must still satisfy review-note evidence mapping.",
+      "triggers": {
+        "any_of": [
+          "$staged_deleted_src"
+        ]
+      },
+      "evidence_requirement": {
+        "mode": "any",
+        "tests": [
+          "$staged_deleted_mapped_test"
+        ]
+      }
+    }
+  ],
+  "testing_gaps": []
+}
+EOF
+
+cat > "$review_file" <<EOF
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: $staged_deleted_src
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: no critical issues.
+- Security residual risks: none.
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: swap router
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/AnotherEvidence.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+EOF
+
+rm -f "$temp_index"
+GIT_INDEX_FILE="$temp_index" git read-tree HEAD
+GIT_INDEX_FILE="$temp_index" git update-index --force-remove "$staged_deleted_src"
+
+set +e
+staged_delete_output="$(GIT_INDEX_FILE="$temp_index" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+staged_delete_status=$?
+set -e
+
+if [ "$staged_delete_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail for staged Solidity deletions missing mapped evidence"
+    exit 1
+fi
+
+if ! printf '%s\n' "$staged_delete_output" | grep -q "staged-delete-evidence"; then
+    echo "Expected staged deletion failure output to reference the staged-delete-evidence rule id"
+    printf '%s\n' "$staged_delete_output"
+    exit 1
+fi
+
+cat > "$review_file" <<EOF
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: $staged_deleted_src
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: no critical issues.
+- Security residual risks: none.
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: swap router
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: $staged_deleted_mapped_test
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+EOF
+
+GIT_INDEX_FILE="$temp_index" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
 
 cat > "$rule_map_file" <<'EOF'
 {
