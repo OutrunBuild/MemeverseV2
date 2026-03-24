@@ -13,38 +13,14 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
  * @dev Defines shared types, events, and external entrypoints used by the hook implementation.
  */
 interface IMemeverseUniswapHook {
-    /// @notice Enumeration of anti-snipe check failure reasons.
-    enum AntiSnipeFailureReason {
-        /// @notice Check passed.
-        None, // 0
-        /// @notice This block already contains a successful swap (only one success allowed per block).
-        BlockAlreadyHasSuccessfulSwap, // 1
-        /// @notice The swap did not set a sqrtPriceLimitX96.
-        NoPriceLimitSet, // 2
-        /// @notice The user-provided price limit implies slippage above the hook’s maximum.
-        SlippageExceedsMaximum, // 3
-        /// @notice Randomized anti-snipe probability check failed.
-        ProbabilityCheckFailed // 4
-    }
-
     /// @notice Pool information tracked by the hook.
     struct PoolInfo {
         /// @notice Custom ERC20 LP token address for this pool.
         address liquidityToken;
-        /// @notice Block number when anti-snipe protection ends.
-        uint96 antiSnipeEndBlock;
         /// @notice Accumulated LP fees for currency0 (per share, scaled by PRECISION in the implementation).
         uint256 fee0PerShare;
         /// @notice Accumulated LP fees for currency1 (per share, scaled by PRECISION in the implementation).
         uint256 fee1PerShare;
-    }
-
-    /// @notice Anti-snipe state tracked per block per pool.
-    struct AntiSnipeBlockData {
-        /// @notice Total number of swap attempts observed in this block.
-        uint248 attempts;
-        /// @notice Whether this block already has a successful swap.
-        bool successful;
     }
 
     /// @notice Per-user fee accounting state for a pool.
@@ -96,58 +72,11 @@ interface IMemeverseUniswapHook {
         bool protocolFeeOnInput;
     }
 
-    struct FailedAttemptQuote {
-        uint256 feeBps;
-        uint256 feeAmount;
-        Currency feeCurrency;
-        bool feeToTreasury;
+    struct LaunchFeeConfig {
+        uint24 startFeeBps;
+        uint24 minFeeBps;
+        uint32 decayDurationSeconds;
     }
-
-    /**
-     * @notice Low-level anti-snipe primitive that also returns the computed failure-fee quote.
-     * @dev Routers can use the returned quote to settle refunds without paying for a separate quote round-trip.
-     * This is not a recommended end-user entrypoint.
-     * @param key The pool key for the attempted swap.
-     * @param params The swap parameters for the attempted swap.
-     * @param trader The end user on whose behalf the router is attempting the swap.
-     * @param inputBudget The single total input budget attached to this attempt.
-     * @param refundRecipient The address receiving any refunded native failure-fee budget when the attempt succeeds.
-     * @return allowed Whether the attempt passed anti-snipe checks.
-     * @return failureReason The anti-snipe failure reason when `allowed` is false, otherwise `None`.
-     * @return failedAttemptQuote The failure-fee quote used during the attempt flow.
-     */
-    function requestSwapAttemptWithQuote(
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address trader,
-        uint256 inputBudget,
-        address refundRecipient
-    )
-        external
-        payable
-        returns (bool allowed, AntiSnipeFailureReason failureReason, FailedAttemptQuote memory failedAttemptQuote);
-
-    /**
-     * @notice Returns the anti-snipe failure-fee quote for a swap attempt during the protection window.
-     * @dev The failure fee is always expressed on the input side. On failure, it routes entirely either to treasury or
-     * LPs depending on whether the input currency equals the configured protocol-fee currency.
-     * @param key The pool key for the attempted swap.
-     * @param params The swap parameters for the attempted swap.
-     * @param inputBudget The single total input budget attached to this attempt.
-     * @return quote The quoted failure-fee amount, side, and recipient class.
-     */
-    function quoteFailedAttempt(PoolKey calldata key, SwapParams calldata params, uint256 inputBudget)
-        external
-        view
-        returns (FailedAttemptQuote memory quote);
-
-    /**
-     * @notice Low-level anti-snipe view helper for routers and SDK orchestration.
-     * @dev Returns whether the pool is still inside the launch protection window.
-     * @param poolId The pool id to query.
-     * @return active Whether anti-snipe checks are still active for the pool.
-     */
-    function isAntiSnipeActive(PoolId poolId) external view returns (bool active);
 
     /**
      * @notice Core quote API for the hook's latest swap state.
@@ -159,19 +88,49 @@ interface IMemeverseUniswapHook {
      */
     function quoteSwap(PoolKey calldata key, SwapParams calldata params) external view returns (SwapQuote memory quote);
 
+    /// @notice Returns the configured launch settlement caller.
+    /// @dev This address is allowed to call `poolManager.swap` for the fixed 1% launch settlement path.
+    /// @return caller The configured launch settlement caller.
+    function launchSettlementCaller() external view returns (address caller);
+
+    /// @notice Returns the launch timestamp for a hook-managed pool.
+    /// @dev Used to derive the current launch fee floor for the pool.
+    /// @param poolId The pool id to query.
+    /// @return timestamp The recorded launch timestamp.
+    function poolLaunchTimestamp(PoolId poolId) external view returns (uint40 timestamp);
+
+    /// @notice Returns the default launch fee configuration.
+    /// @dev All pools use this config in the first implementation.
+    /// @return startFeeBps The launch fee at time zero.
+    /// @return minFeeBps The minimum fee after launch decay completes.
+    /// @return decayDurationSeconds The launch fee decay duration in seconds.
+    function defaultLaunchFeeConfig()
+        external
+        view
+        returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds);
+
+    /// @notice Sets the launch settlement caller.
+    /// @dev Expected to be restricted by the implementation's access control.
+    /// @param caller The address allowed to call `poolManager.swap` for the fixed 1% launch settlement path.
+    function setLaunchSettlementCaller(address caller) external;
+
+    /// @notice Sets the default launch fee configuration.
+    /// @dev Expected to be restricted by the implementation's access control.
+    /// @param config The new default launch fee configuration.
+    function setDefaultLaunchFeeConfig(LaunchFeeConfig calldata config) external;
+
     /**
      * @notice Returns stored pool information for a hook-managed pool.
-     * @dev Exposes the LP token address, anti-snipe window, and fee-per-share accumulators.
+     * @dev Exposes the LP token address and fee-per-share accumulators.
      * @param poolId The pool id to query.
      * @return liquidityToken The LP token contract for the pool.
-     * @return antiSnipeEndBlock The block at which anti-snipe protection ends.
      * @return fee0PerShare The accumulated fee-per-share for currency0.
      * @return fee1PerShare The accumulated fee-per-share for currency1.
      */
     function poolInfo(PoolId poolId)
         external
         view
-        returns (address liquidityToken, uint96 antiSnipeEndBlock, uint256 fee0PerShare, uint256 fee1PerShare);
+        returns (address liquidityToken, uint256 fee0PerShare, uint256 fee1PerShare);
 
     /**
      * @notice Returns the LP token address for a hook-managed pool key.
@@ -248,22 +207,25 @@ interface IMemeverseUniswapHook {
     /// @notice Emitted when a currency's protocol-fee support flag is updated.
     event ProtocolFeeCurrencySupportUpdated(Currency indexed currency, bool supported);
 
-    /// @notice Emitted when the anti-snipe duration (in blocks) is updated.
-    event AntiSnipeDurationUpdated(uint256 oldDuration, uint256 newDuration);
-
-    /// @notice Emitted when the maximum probability base for anti-snipe checks is updated.
-    event MaxAntiSnipeProbabilityBaseUpdated(uint256 oldBase, uint256 newBase);
-
     /// @notice Emitted when the emergency fixed-fee mode is toggled.
     event EmergencyFlagUpdated(bool oldFlag, bool newFlag);
 
+    /// @notice Emitted when the launch settlement caller is updated.
+    event LaunchSettlementCallerUpdated(address oldCaller, address newCaller);
+
+    /// @notice Emitted when the default launch fee configuration is updated.
+    event DefaultLaunchFeeConfigUpdated(
+        uint24 oldStartFeeBps,
+        uint24 oldMinFeeBps,
+        uint32 oldDecayDurationSeconds,
+        uint24 newStartFeeBps,
+        uint24 newMinFeeBps,
+        uint32 newDecayDurationSeconds
+    );
+
     /// @notice Emitted when a pool is initialized
     event PoolInitialized(
-        PoolId indexed poolId,
-        address indexed liquidityToken,
-        Currency indexed currency0,
-        Currency currency1,
-        uint96 antiSnipeEndBlock
+        PoolId indexed poolId, address indexed liquidityToken, Currency indexed currency0, Currency currency1
     );
 
     /// @notice Emitted when protocol fees are collected
@@ -301,42 +263,6 @@ interface IMemeverseUniswapHook {
         uint256 fee1Amount
     );
 
-    /// @notice Emitted when a swap is blocked by anti-snipe protection
-    /// @param reason Failure reason enum value (uint8):
-    ///   0=None (passed),
-    ///   1=BlockAlreadyHasSuccessfulSwap (block already has successful swap),
-    ///   2=NoPriceLimitSet (no price limit set),
-    ///   3=SlippageExceedsMaximum (slippage exceeds maximum limit),
-    ///   4=ProbabilityCheckFailed (probability check failed)
-    event SwapBlocked(
-        PoolId indexed poolId,
-        address indexed trader,
-        Currency indexed currencyIn,
-        uint256 amountSpecified,
-        uint256 blockNumber,
-        uint8 reason
-    );
-
-    /// @notice Emitted when a swap passes anti-snipe checks
-    event SwapAllowed(
-        PoolId indexed poolId,
-        address indexed trader,
-        Currency indexed currencyIn,
-        uint256 amountSpecified,
-        uint256 blockNumber,
-        uint256 attempts
-    );
-
-    /// @notice Emitted when a failed anti-snipe attempt is charged a protection-window failure fee.
-    event FailedAttemptFeeCollected(
-        PoolId indexed poolId,
-        address indexed caller,
-        Currency indexed feeCurrency,
-        bool feeToTreasury,
-        uint256 amount,
-        uint256 blockNumber
-    );
-
     /// @notice Reverts when a pool has not been initialized by the hook.
     error PoolNotInitialized();
 
@@ -358,6 +284,12 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when actual amounts are worse than user-provided minimums.
     error TooMuchSlippage();
 
+    /// @notice Reverts when the launch settlement caller is zero.
+    error ZeroAddress();
+
+    /// @notice Reverts when a launch fee configuration value is zero or invalid.
+    error ZeroValue();
+
     /// @notice Reverts when the attached native value does not exactly match the required native input.
     error InvalidNativeValue(uint256 expected, uint256 actual);
 
@@ -367,27 +299,12 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when the caller is not authorized.
     error Unauthorized();
 
-    /// @notice Reverts when a critical address parameter is unexpectedly zero.
-    error ZeroAddress();
-
-    /// @notice Reverts when a numeric configuration is unexpectedly zero.
-    error ZeroValue();
-
     /// @notice Reverts when an ERC20 transfer returns false.
     error ERC20TransferFailed();
 
     /// @notice Reverts when the configured treasury cannot receive native protocol fees.
     error NativeTreasuryMustAcceptETH();
 
-    /// @notice Reverts when a successful anti-snipe ticket is later used with more input than originally budgeted.
-    error InputBudgetExceeded(uint256 actualInputAmount, uint256 inputBudget);
-
     /// @notice Reverts when a delegated fee-claim signature is invalid.
     error InvalidClaimSignature();
-
-    /// @notice Reverts when the same transaction requests anti-snipe access for the same pool more than once.
-    error PoolAlreadyRequestedThisTransaction();
-
-    /// @notice Reverts when an anti-snipe-window swap reaches the hook without a valid same-tx ticket.
-    error MissingAntiSnipeTicket();
 }

@@ -69,7 +69,9 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
         address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
-        uint128 _oftDispatcherGasLimit
+        uint128 _oftDispatcherGasLimit,
+        uint256 _preorderCapRatio,
+        uint256 _preorderVestingDuration
     )
         MemeverseLauncher(
             _owner,
@@ -80,7 +82,9 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
             _lzEndpointRegistry,
             _executorRewardRate,
             _oftReceiveGasLimit,
-            _oftDispatcherGasLimit
+            _oftDispatcherGasLimit,
+            _preorderCapRatio,
+            _preorderVestingDuration
         )
     {}
 
@@ -153,7 +157,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         launcher = new TestableMemeverseLauncherRegistration(
-            OWNER, address(0x1), REGISTRAR, address(0), address(0x4), address(0), 25, 115_000, 135_000
+            OWNER, address(0x1), REGISTRAR, address(0), address(0x4), address(0), 25, 115_000, 135_000, 2_500, 7 days
         );
         proxyDeployer = new MockLauncherRegistrationProxyDeployer();
         registry = new MockLauncherRegistrationRegistry();

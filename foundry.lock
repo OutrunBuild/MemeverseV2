@@ -40,5 +40,11 @@
       "name": "v4.0.0",
       "rev": "e50237c43811bd9b526eff40f26772152a42daba"
     }
+  },
+  "lib/v4-hooks-public": {
+    "rev": "d4f01f4b9a7eacee56385ac41acc59033c81354f"
+  },
+  "lib/v4-periphery": {
+    "rev": "3c31961fb909a2b68d90f0094016cfb8edc68b50"
   }
 }

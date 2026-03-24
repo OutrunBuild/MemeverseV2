@@ -1,0 +1,334 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.28;
+
+import {Test} from "forge-std/Test.sol";
+import {StdInvariant} from "forge-std/StdInvariant.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+
+import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/ISignatureTransfer.sol";
+import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
+
+import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
+import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
+import {
+    MockPermit2ForRouterTest,
+    MockPoolManagerForPermit2RouterTest,
+    TestableMemeverseUniswapHookForPermit2Router
+} from "./MemeverseSwapRouterPermit2.t.sol";
+
+contract Permit2AccountingHandler is Test {
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
+    uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
+
+    MemeverseSwapRouter internal router;
+    TestableMemeverseUniswapHookForPermit2Router internal immutable hook;
+    MockPermit2ForRouterTest internal immutable permit2;
+    MockERC20 internal immutable token0;
+    address internal immutable treasury;
+    PoolKey internal key;
+
+    uint256 public expectedRegularTreasuryFee;
+    uint256 public expectedSettlementTreasuryFee;
+    uint256 public lastExpectedPermitAmount;
+
+    constructor(
+        TestableMemeverseUniswapHookForPermit2Router _hook,
+        MockPermit2ForRouterTest _permit2,
+        MockERC20 _token0,
+        address _treasury,
+        PoolKey memory _key
+    ) {
+        hook = _hook;
+        permit2 = _permit2;
+        token0 = _token0;
+        treasury = _treasury;
+        key = _key;
+        token0.approve(address(permit2), type(uint256).max);
+    }
+
+    /// @notice Test helper for setRouter.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param _router See implementation.
+    function setRouter(MemeverseSwapRouter _router) external {
+        require(address(router) == address(0), "router already set");
+        router = _router;
+    }
+
+    /// @notice Test helper for warp.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param deltaSeed See implementation.
+    function warp(uint256 deltaSeed) external {
+        vm.warp(block.timestamp + bound(deltaSeed, 0, 40 minutes));
+    }
+
+    /// @notice Test helper for regularSwap.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param amountSeed See implementation.
+    function regularSwap(uint256 amountSeed) external {
+        uint256 balance = token0.balanceOf(address(this));
+        if (balance < 1 ether) return;
+
+        uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        SwapParams memory params =
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        uint256 treasuryBefore = token0.balanceOf(treasury);
+
+        BalanceDelta delta = router.swapWithPermit2(
+            permitParams, key, params, address(this), address(this), block.timestamp, 0, amount, bytes("regular")
+        );
+
+        assertLt(delta.amount0(), 0, "regular delta0");
+        assertGt(delta.amount1(), 0, "regular delta1");
+
+        expectedRegularTreasuryFee += token0.balanceOf(treasury) - treasuryBefore;
+        lastExpectedPermitAmount = amount;
+        _assertLastPermitPull(amount);
+        assertEq(token0.balanceOf(treasury) - treasuryBefore, quote.estimatedProtocolFeeAmount, "regular fee");
+    }
+
+    /// @notice Test helper for settlementSwap.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param amountSeed See implementation.
+    function settlementSwap(uint256 amountSeed) external {
+        uint256 balance = token0.balanceOf(address(this));
+        if (balance < 1 ether) return;
+
+        uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
+        uint256 treasuryBefore = token0.balanceOf(treasury);
+
+        BalanceDelta delta = router.swapWithPermit2(
+            permitParams,
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            0,
+            amount,
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        );
+
+        assertLt(delta.amount0(), 0, "settlement delta0");
+        assertGt(delta.amount1(), 0, "settlement delta1");
+
+        expectedSettlementTreasuryFee += token0.balanceOf(treasury) - treasuryBefore;
+        lastExpectedPermitAmount = amount;
+        _assertLastPermitPull(amount);
+        assertEq(token0.balanceOf(treasury) - treasuryBefore, amount * 30 / 10_000, "settlement fee");
+    }
+
+    function _assertLastPermitPull(uint256 amount) internal view {
+        assertEq(permit2.lastOwner(), address(this), "permit owner");
+        assertEq(permit2.lastRecipient(), address(router), "permit recipient");
+        assertEq(permit2.lastToken(), address(token0), "permit token");
+        assertEq(permit2.lastRequestedAmount(), amount, "permit amount");
+    }
+
+    function _singlePermit(uint256 amount)
+        internal
+        view
+        returns (IMemeverseSwapRouter.Permit2SingleParams memory permitParams)
+    {
+        permitParams = IMemeverseSwapRouter.Permit2SingleParams({
+            permit: ISignatureTransfer.PermitTransferFrom({
+                permitted: ISignatureTransfer.TokenPermissions({token: address(token0), amount: amount}),
+                nonce: 0,
+                deadline: block.timestamp
+            }),
+            transferDetails: ISignatureTransfer.SignatureTransferDetails({
+                to: address(router), requestedAmount: amount
+            }),
+            signature: hex"01"
+        });
+    }
+
+    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+}
+
+contract Permit2SpoofHandler is Test {
+    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
+    uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
+
+    MemeverseSwapRouter internal immutable router;
+    MockPermit2ForRouterTest internal immutable permit2;
+    MockERC20 internal immutable token0;
+    PoolKey internal key;
+
+    bool public unexpectedSuccess;
+
+    constructor(
+        MemeverseSwapRouter _router,
+        MockPermit2ForRouterTest _permit2,
+        MockERC20 _token0,
+        PoolKey memory _key
+    ) {
+        router = _router;
+        permit2 = _permit2;
+        token0 = _token0;
+        key = _key;
+        token0.approve(address(permit2), type(uint256).max);
+    }
+
+    /// @notice Test helper for warp.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param deltaSeed See implementation.
+    function warp(uint256 deltaSeed) external {
+        vm.warp(block.timestamp + bound(deltaSeed, 0, 40 minutes));
+    }
+
+    /// @notice Test helper for spoofSettlement.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param amountSeed See implementation.
+    function spoofSettlement(uint256 amountSeed) external {
+        uint256 balance = token0.balanceOf(address(this));
+        if (balance < 1 ether) return;
+
+        uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
+
+        try router.swapWithPermit2(
+            permitParams,
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            0,
+            amount,
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        ) returns (
+            BalanceDelta delta
+        ) {
+            delta;
+            unexpectedSuccess = true;
+        } catch {}
+    }
+
+    function _singlePermit(uint256 amount)
+        internal
+        view
+        returns (IMemeverseSwapRouter.Permit2SingleParams memory permitParams)
+    {
+        permitParams = IMemeverseSwapRouter.Permit2SingleParams({
+            permit: ISignatureTransfer.PermitTransferFrom({
+                permitted: ISignatureTransfer.TokenPermissions({token: address(token0), amount: amount}),
+                nonce: 0,
+                deadline: block.timestamp
+            }),
+            transferDetails: ISignatureTransfer.SignatureTransferDetails({
+                to: address(router), requestedAmount: amount
+            }),
+            signature: hex"01"
+        });
+    }
+
+    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+}
+
+contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
+    uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
+
+    MockPoolManagerForPermit2RouterTest internal manager;
+    TestableMemeverseUniswapHookForPermit2Router internal hook;
+    MockPermit2ForRouterTest internal permit2;
+    MemeverseSwapRouter internal router;
+    MockERC20 internal token0;
+    MockERC20 internal token1;
+    address internal treasury;
+    PoolKey internal key;
+
+    Permit2AccountingHandler internal accountingHandler;
+    Permit2SpoofHandler internal spoofHandler;
+
+    /// @notice Test helper for setUp.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function setUp() external {
+        manager = new MockPoolManagerForPermit2RouterTest();
+        treasury = makeAddr("treasury");
+        hook = new TestableMemeverseUniswapHookForPermit2Router(
+            IPoolManager(address(manager)), address(this), treasury, address(this)
+        );
+        permit2 = new MockPermit2ForRouterTest();
+
+        token0 = new MockERC20("Token0", "TK0", 18);
+        token1 = new MockERC20("Token1", "TK1", 18);
+        token0.mint(address(manager), 1_000_000 ether);
+        token1.mint(address(manager), 1_000_000 ether);
+
+        key = PoolKey({
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
+            fee: 0x800000,
+            tickSpacing: 200,
+            hooks: IHooks(address(hook))
+        });
+
+        manager.initialize(key, SQRT_PRICE_1_1);
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        accountingHandler = new Permit2AccountingHandler(hook, permit2, token0, treasury, key);
+        router = new MemeverseSwapRouter(
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IPermit2(address(permit2)),
+            address(accountingHandler)
+        );
+        accountingHandler.setRouter(router);
+        spoofHandler = new Permit2SpoofHandler(router, permit2, token0, key);
+
+        hook.setLaunchSettlementCaller(address(router));
+        token0.mint(address(accountingHandler), 1_000_000 ether);
+        token0.mint(address(spoofHandler), 1_000_000 ether);
+
+        targetContract(address(accountingHandler));
+        targetContract(address(spoofHandler));
+    }
+
+    /// @notice Test helper for invariant_permit2TreasuryAccountingMatchesRegularPlusSettlementPaths.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function invariant_permit2TreasuryAccountingMatchesRegularPlusSettlementPaths() external view {
+        assertEq(
+            token0.balanceOf(treasury),
+            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee(),
+            "treasury accounting"
+        );
+    }
+
+    /// @notice Test helper for invariant_permit2LastPullMatchesExpectedBudget.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function invariant_permit2LastPullMatchesExpectedBudget() external view {
+        if (accountingHandler.lastExpectedPermitAmount() == 0) return;
+        assertEq(permit2.lastOwner(), address(accountingHandler), "last owner");
+        assertEq(permit2.lastRecipient(), address(router), "last recipient");
+        assertEq(permit2.lastToken(), address(token0), "last token");
+        assertEq(permit2.lastRequestedAmount(), accountingHandler.lastExpectedPermitAmount(), "last amount");
+    }
+
+    /// @notice Test helper for invariant_permit2SpoofedSettlementNeverSucceeds.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function invariant_permit2SpoofedSettlementNeverSucceeds() external view {
+        assertFalse(spoofHandler.unexpectedSuccess(), "spoofed settlement succeeded");
+    }
+
+    /// @notice Test helper for invariant_permit2RouterHoldsNoResidualInputBudget.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function invariant_permit2RouterHoldsNoResidualInputBudget() external view {
+        assertEq(token0.balanceOf(address(router)), 0, "router token0 balance");
+    }
+}

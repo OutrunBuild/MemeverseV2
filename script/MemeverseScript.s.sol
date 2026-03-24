@@ -402,16 +402,15 @@ contract MemeverseScript is BaseScript {
         address localEndpoint = endpoints[uint32(block.chainid)];
         bytes memory encodedArgs = abi.encode(
             owner,
-            factory,
-            router,
             localEndpoint,
             MEMEVERSE_REGISTRAR,
             MEMEVERSE_PROXY_DEPLOYER,
             MEMEVERSE_OFT_DISPATCHER,
-            MEMEVERSE_COMMON_INFO,
             25,
             115000,
-            135000
+            135000,
+            2500,
+            7 days
         );
         bytes memory creationCode = abi.encodePacked(type(MemeverseLauncher).creationCode, encodedArgs);
         bytes32 salt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));

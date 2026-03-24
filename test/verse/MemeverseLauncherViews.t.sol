@@ -18,7 +18,9 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
         address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
-        uint128 _oftDispatcherGasLimit
+        uint128 _oftDispatcherGasLimit,
+        uint256 _preorderCapRatio,
+        uint256 _preorderVestingDuration
     )
         MemeverseLauncher(
             _owner,
@@ -29,7 +31,9 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
             _lzEndpointRegistry,
             _executorRewardRate,
             _oftReceiveGasLimit,
-            _oftDispatcherGasLimit
+            _oftDispatcherGasLimit,
+            _preorderCapRatio,
+            _preorderVestingDuration
         )
     {}
 
@@ -89,11 +93,44 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     function setTotalClaimablePOLForTest(uint256 verseId, uint256 amount) external {
         totalClaimablePOL[verseId] = amount;
     }
+
+    /// @notice Set user preorder data for test.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param verseId See implementation.
+    /// @param account See implementation.
+    /// @param funds See implementation.
+    /// @param claimedMemecoin See implementation.
+    /// @param isRefunded See implementation.
+    function setUserPreorderDataForTest(
+        uint256 verseId,
+        address account,
+        uint256 funds,
+        uint256 claimedMemecoin,
+        bool isRefunded
+    ) external {
+        userPreorderData[verseId][account] = PreorderData({
+            funds: funds, claimedMemecoin: claimedMemecoin, isRefunded: isRefunded
+        });
+    }
+
+    /// @notice Set preorder settlement state for test.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param verseId See implementation.
+    /// @param totalFunds See implementation.
+    /// @param settledMemecoin See implementation.
+    /// @param timestamp See implementation.
+    function setPreorderStateForTest(uint256 verseId, uint256 totalFunds, uint256 settledMemecoin, uint40 timestamp)
+        external
+    {
+        preorderStates[verseId] =
+            PreorderState({totalFunds: totalFunds, settledMemecoin: settledMemecoin, settlementTimestamp: timestamp});
+    }
 }
 
 contract MemeverseLauncherViewsTest is Test {
     address internal constant REGISTRAR = address(0xBEEF);
     address internal constant ALICE = address(0xA11CE);
+    address internal constant BOB = address(0xB0B);
     address internal constant MEMECOIN = address(0x1111);
     address internal constant GOVERNOR = address(0x3333);
     address internal constant YIELD_VAULT = address(0x4444);
@@ -106,7 +143,17 @@ contract MemeverseLauncherViewsTest is Test {
     /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         launcher = new TestableMemeverseLauncherViews(
-            address(this), address(0x1), REGISTRAR, address(0x3), address(0x4), address(0x5), 25, 115_000, 135_000
+            address(this),
+            address(0x1),
+            REGISTRAR,
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            25,
+            115_000,
+            135_000,
+            2_500,
+            7 days
         );
         uptToken = new MockERC20("UPT", "UPT", 18);
     }
@@ -237,6 +284,90 @@ contract MemeverseLauncherViewsTest is Test {
         launcher.refund(1);
         vm.expectRevert(Pausable.EnforcedPause.selector);
         launcher.changeStage(1);
+    }
+
+    /// @notice Test preorder reverts when stage or capacity invalid.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testPreorderRevertsWhenNotGenesisOrCapacityExceeded() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
+        launcher.setMemeverseForTest(1, verse);
+
+        vm.expectRevert(IMemeverseLauncher.NotGenesisStage.selector);
+        launcher.preorder(1, 1 ether, ALICE);
+
+        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setGenesisFundForTest(1, 4 ether, 0);
+
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.preorder(1, 0, ALICE);
+
+        uptToken.mint(address(this), 2 ether);
+        uptToken.approve(address(launcher), type(uint256).max);
+
+        vm.expectRevert();
+        launcher.preorder(1, 2 ether, ALICE);
+    }
+
+    /// @notice Test claimable preorder memecoin linearly vests over seven days.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    function testClaimablePreorderMemecoin_LinearVestingOverSevenDays() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setUserPreorderDataForTest(1, ALICE, 1 ether, 10 ether, false);
+        launcher.setPreorderStateForTest(1, 1 ether, 70 ether, uint40(block.timestamp));
+        uptToken.mint(address(launcher), 70 ether);
+
+        vm.prank(ALICE);
+        assertEq(launcher.claimablePreorderMemecoin(1), 0, "initial claimable");
+
+        vm.warp(block.timestamp + 3 days + 12 hours);
+        vm.prank(ALICE);
+        assertEq(launcher.claimablePreorderMemecoin(1), 25 ether, "midway claimable");
+
+        vm.warp(block.timestamp + 3 days + 12 hours + 1);
+        vm.prank(ALICE);
+        assertEq(launcher.claimablePreorderMemecoin(1), 60 ether, "final claimable");
+    }
+
+    /// @notice Test claimable preorder memecoin remains pro-rata and bounded for multiple users under fuzzed inputs.
+    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param fundsA See implementation.
+    /// @param fundsB See implementation.
+    /// @param settledMemecoin See implementation.
+    /// @param elapsed See implementation.
+    function testFuzzClaimablePreorderMemecoin_MultiUserProRataAndBounded(
+        uint96 fundsA,
+        uint96 fundsB,
+        uint96 settledMemecoin,
+        uint32 elapsed
+    ) external {
+        fundsA = uint96(bound(uint256(fundsA), 1, 1_000_000 ether));
+        fundsB = uint96(bound(uint256(fundsB), 1, 1_000_000 ether));
+        settledMemecoin = uint96(bound(uint256(settledMemecoin), 1, 1_000_000 ether));
+        elapsed = uint32(bound(uint256(elapsed), 0, 7 days));
+
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setUserPreorderDataForTest(1, ALICE, fundsA, 0, false);
+        launcher.setUserPreorderDataForTest(1, BOB, fundsB, 0, false);
+        launcher.setPreorderStateForTest(1, uint256(fundsA) + uint256(fundsB), settledMemecoin, uint40(block.timestamp));
+
+        vm.warp(block.timestamp + elapsed);
+
+        vm.prank(ALICE);
+        uint256 claimableA = launcher.claimablePreorderMemecoin(1);
+
+        vm.prank(BOB);
+        uint256 claimableB = launcher.claimablePreorderMemecoin(1);
+
+        uint256 entitledA = uint256(settledMemecoin) * uint256(fundsA) / (uint256(fundsA) + uint256(fundsB));
+        uint256 entitledB = uint256(settledMemecoin) * uint256(fundsB) / (uint256(fundsA) + uint256(fundsB));
+        uint256 vestedTotal = uint256(settledMemecoin) * elapsed / 7 days;
+
+        assertLe(claimableA, entitledA, "alice bounded by entitlement");
+        assertLe(claimableB, entitledB, "bob bounded by entitlement");
+        assertLe(claimableA + claimableB, vestedTotal, "total bounded by vested");
     }
 
     /// @notice Test get memeverse by memecoin and stage by memecoin return stored state.
