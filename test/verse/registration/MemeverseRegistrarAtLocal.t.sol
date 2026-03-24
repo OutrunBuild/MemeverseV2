@@ -16,14 +16,12 @@ contract MockAtLocalRegistrationCenter {
     uint256 public lastRegistrationValue;
 
     /// @notice Set quoted fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param fee See implementation.
     function setQuotedFee(uint256 fee) external {
         quotedFee = fee;
     }
 
     /// @notice Quote send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param omnichainIds See implementation.
     /// @return totalFee See implementation.
     /// @return fees See implementation.
@@ -39,7 +37,6 @@ contract MockAtLocalRegistrationCenter {
     }
 
     /// @notice Registration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param param See implementation.
     function registration(IMemeverseRegistrationCenter.RegistrationParam calldata param) external payable {
         lastRegistrationUPT = param.UPT;
@@ -58,7 +55,6 @@ contract MockAtLocalLauncher {
     string[] public lastCommunities;
 
     /// @notice Register memeverse.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param name See implementation.
     /// @param symbol See implementation.
     /// @param uniqueId See implementation.
@@ -88,7 +84,6 @@ contract MockAtLocalLauncher {
     }
 
     /// @notice Set external info.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param uniqueId See implementation.
     /// @param uri See implementation.
     /// @param desc See implementation.
@@ -103,7 +98,6 @@ contract MockAtLocalLauncher {
     }
 
     /// @notice Community.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param index See implementation.
     /// @return See implementation.
     function community(uint256 index) external view returns (string memory) {
@@ -120,7 +114,6 @@ contract MemeverseRegistrarAtLocalTest is Test {
     MemeverseRegistrarAtLocal internal registrar;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         registrationCenter = new MockAtLocalRegistrationCenter();
         launcher = new MockAtLocalLauncher();
@@ -129,7 +122,6 @@ contract MemeverseRegistrarAtLocalTest is Test {
     }
 
     /// @notice Test quote register builds memeverse param and returns center quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteRegisterBuildsMemeverseParamAndReturnsCenterQuote() external {
         registrationCenter.setQuotedFee(99 ether);
 
@@ -140,7 +132,6 @@ contract MemeverseRegistrarAtLocalTest is Test {
     }
 
     /// @notice Test local registration only center and forwards to launcher.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLocalRegistrationOnlyCenterAndForwardsToLauncher() external {
         IMemeverseRegistrar.MemeverseParam memory param = _memeverseParam();
 
@@ -160,7 +151,6 @@ contract MemeverseRegistrarAtLocalTest is Test {
     }
 
     /// @notice Test register at center forwards value and set registration center is owner only.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegisterAtCenterForwardsValueAndSetRegistrationCenterIsOwnerOnly() external {
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
 
@@ -168,6 +158,12 @@ contract MemeverseRegistrarAtLocalTest is Test {
         assertEq(registrationCenter.lastRegistrationValue(), 1 ether);
         assertEq(registrationCenter.lastRegistrationUPT(), param.UPT);
         assertEq(registrationCenter.lastRegistrationFlashGenesis(), param.flashGenesis);
+
+        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
+        registrar.registerAtCenter{value: 0.9 ether}(param, uint128(1 ether));
+
+        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
+        registrar.registerAtCenter{value: 1.1 ether}(param, uint128(1 ether));
 
         vm.prank(OTHER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));

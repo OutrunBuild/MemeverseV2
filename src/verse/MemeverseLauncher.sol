@@ -23,6 +23,7 @@ import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
 import {IMemeverseOFTDispatcher} from "./interfaces/IMemeverseOFTDispatcher.sol";
 import {IMemeverseProxyDeployer} from "./interfaces/IMemeverseProxyDeployer.sol";
 import {IMemeverseSwapRouter} from "../swap/interfaces/IMemeverseSwapRouter.sol";
+import {IMemeverseUniswapHook} from "../swap/interfaces/IMemeverseUniswapHook.sol";
 
 /**
  * @title Trapping into the memeverse
@@ -102,6 +103,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         require(memeverses[verseId].memecoin != address(0), InvalidVerseId());
     }
 
+    function _verseIdOfRegisteredMemecoin(address memecoin) internal view returns (uint256 verseId) {
+        require(memecoin != address(0), ZeroInput());
+        verseId = memecoinToIds[memecoin];
+        _versIdValidate(verseId);
+    }
+
     /**
      * @notice Get the verse id by memecoin.
      * @dev Returns 0 when the memecoin has not been registered.
@@ -115,34 +122,33 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     /**
      * @notice Get the memeverse by verse id.
-     * @dev Reverts when `verseId` is zero.
+     * @dev Reverts when `verseId` is not registered.
      * @param verseId - The verse id.
      * @return verse - The memeverse.
      */
     function getMemeverseByVerseId(uint256 verseId) external view override returns (Memeverse memory verse) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         verse = memeverses[verseId];
     }
 
     /**
      * @notice Get the memeverse by memecoin.
-     * @dev Returns an empty struct when the memecoin is not registered.
+     * @dev Reverts when the memecoin is zero or not registered.
      * @param memecoin - The address of the memecoin.
      * @return verse - The memeverse.
      */
     function getMemeverseByMemecoin(address memecoin) external view override returns (Memeverse memory verse) {
-        require(memecoin != address(0), ZeroInput());
-        verse = memeverses[memecoinToIds[memecoin]];
+        verse = memeverses[_verseIdOfRegisteredMemecoin(memecoin)];
     }
 
     /**
      * @notice Get the Stage by verse id.
-     * @dev Reverts when `verseId` is zero.
+     * @dev Reverts when `verseId` is not registered.
      * @param verseId - The verse id.
      * @return stage - The memeverse current stage.
      */
     function getStageByVerseId(uint256 verseId) external view override returns (Stage stage) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         stage = memeverses[verseId].currentStage;
     }
 
@@ -153,8 +159,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return stage - The memeverse current stage.
      */
     function getStageByMemecoin(address memecoin) external view override returns (Stage stage) {
-        require(memecoin != address(0), ZeroInput());
-        stage = memeverses[memecoinToIds[memecoin]].currentStage;
+        stage = memeverses[_verseIdOfRegisteredMemecoin(memecoin)].currentStage;
     }
 
     /**
@@ -164,7 +169,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return yieldVault - The yield vault.
      */
     function getYieldVaultByVerseId(uint256 verseId) external view override returns (address yieldVault) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         yieldVault = memeverses[verseId].yieldVault;
     }
 
@@ -175,7 +180,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return governor - The governor.
      */
     function getGovernorByVerseId(uint256 verseId) external view override returns (address governor) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         governor = memeverses[verseId].governor;
     }
 
@@ -186,7 +191,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return claimableAmount - The claimable amount.
      */
     function claimablePOLToken(uint256 verseId) public view override returns (uint256 claimableAmount) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
@@ -207,7 +212,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return amount The currently claimable preorder memecoin amount.
      */
     function claimablePreorderMemecoin(uint256 verseId) public view override returns (uint256 amount) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
@@ -260,7 +265,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         override
         returns (uint256 UPTFee, uint256 memecoinFee)
     {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
@@ -278,7 +283,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      *         and msg.value needs to be greater than the quoted lzFee for the redeemAndDistributeFees transaction.
      */
     function quoteDistributionLzFee(uint256 verseId) external view override returns (uint256 lzFee) {
-        require(verseId != 0, ZeroInput());
+        _versIdValidate(verseId);
         Memeverse storage verse = memeverses[verseId];
         uint32 govChainId = verse.omnichainIds[0];
         if (govChainId == block.chainid) return 0;
@@ -611,8 +616,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param verseId - Memeverse id
      * @return genesisFund - The refunded genesis contribution amount.
      */
-    function refund(uint256 verseId) external override whenNotPaused returns (uint256 genesisFund) {
-        require(verseId != 0, ZeroInput());
+    function refund(uint256 verseId)
+        external
+        override
+        versIdValidate(verseId)
+        whenNotPaused
+        returns (uint256 genesisFund)
+    {
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage == Stage.Refund, NotRefundStage());
 
@@ -633,8 +643,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param verseId Memeverse id.
      * @return preorderFund The refunded preorder contribution amount.
      */
-    function refundPreorder(uint256 verseId) external override whenNotPaused returns (uint256 preorderFund) {
-        require(verseId != 0, ZeroInput());
+    function refundPreorder(uint256 verseId)
+        external
+        override
+        versIdValidate(verseId)
+        whenNotPaused
+        returns (uint256 preorderFund)
+    {
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage == Stage.Refund, NotRefundStage());
 
@@ -653,8 +668,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param verseId - Memeverse id
      * @return amount - The claimed POL amount.
      */
-    function claimPOLToken(uint256 verseId) external override whenNotPaused returns (uint256 amount) {
-        require(verseId != 0, ZeroInput());
+    function claimPOLToken(uint256 verseId)
+        external
+        override
+        versIdValidate(verseId)
+        whenNotPaused
+        returns (uint256 amount)
+    {
         amount = claimablePOLToken(verseId);
         require(amount != 0, NoPOLAvailable());
 
@@ -671,8 +691,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param verseId Memeverse id.
      * @return amount The claimed preorder memecoin amount.
      */
-    function claimUnlockedPreorderMemecoin(uint256 verseId) external override whenNotPaused returns (uint256 amount) {
-        require(verseId != 0, ZeroInput());
+    function claimUnlockedPreorderMemecoin(uint256 verseId)
+        external
+        override
+        versIdValidate(verseId)
+        whenNotPaused
+        returns (uint256 amount)
+    {
         amount = claimablePreorderMemecoin(verseId);
         require(amount != 0, NoPOLAvailable());
 
@@ -695,10 +720,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         external
         payable
         override
+        versIdValidate(verseId)
         whenNotPaused
         returns (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward)
     {
-        require(verseId != 0 && rewardReceiver != address(0), ZeroInput());
+        require(rewardReceiver != address(0), ZeroInput());
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
@@ -726,6 +752,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address yieldVault = verse.yieldVault;
 
         if (govChainId == block.chainid) {
+            if (msg.value != 0) revert InvalidLzFee(0, msg.value);
             if (govFee != 0) {
                 _transferOut(UPT, oftDispatcher, govFee);
                 IMemeverseOFTDispatcher(oftDispatcher)
@@ -760,7 +787,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 );
             }
 
-            require(msg.value >= govMessagingFee.nativeFee + memecoinMessagingFee.nativeFee, InsufficientLzFee());
+            uint256 requiredLzFee = govMessagingFee.nativeFee + memecoinMessagingFee.nativeFee;
+            if (msg.value != requiredLzFee) revert InvalidLzFee(requiredLzFee, msg.value);
             if (govFee != 0) {
                 IOFT(UPT).send{value: govMessagingFee.nativeFee}(sendUPTParam, govMessagingFee, msg.sender);
             }
@@ -785,6 +813,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     function redeemMemecoinLiquidity(uint256 verseId, uint256 amountInPOL)
         external
         override
+        versIdValidate(verseId)
         whenNotPaused
         returns (uint256 amountInLP)
     {
@@ -809,7 +838,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param verseId - Memeverse id
      * @return amountInLP - The redeemed LP amount.
      */
-    function redeemPolLiquidity(uint256 verseId) external override whenNotPaused returns (uint256 amountInLP) {
+    function redeemPolLiquidity(uint256 verseId)
+        external
+        override
+        versIdValidate(verseId)
+        whenNotPaused
+        returns (uint256 amountInLP)
+    {
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
 
@@ -854,8 +889,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 amountInMemecoinMin,
         uint256 amountOutDesired,
         uint256 deadline
-    ) external override returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
-        require(verseId != 0 && amountInUPTDesired != 0 && amountInMemecoinDesired != 0, ZeroInput());
+    )
+        external
+        override
+        versIdValidate(verseId)
+        returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut)
+    {
+        require(amountInUPTDesired != 0 && amountInMemecoinDesired != 0, ZeroInput());
         Memeverse storage verse = memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
@@ -872,12 +912,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             amountOutDesired,
             deadline
         );
+        address liquidProof = verse.liquidProof;
+        IMemeLiquidProof(liquidProof).mint(msg.sender, amountOut);
         _refundMintPOLTokenInputs(
             UPT, memecoin, amountInUPTDesired, amountInMemecoinDesired, amountInUPT, amountInMemecoin
         );
-
-        address liquidProof = verse.liquidProof;
-        IMemeLiquidProof(liquidProof).mint(msg.sender, amountOut);
 
         emit MintPOLToken(verseId, memecoin, liquidProof, msg.sender, amountOut);
     }
@@ -1115,10 +1154,23 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function setMemeverseSwapRouter(address _memeverseSwapRouter) external override onlyOwner {
         require(_memeverseSwapRouter != address(0), ZeroInput());
+        _validateLaunchSettlementRouter(_memeverseSwapRouter);
 
         memeverseSwapRouter = _memeverseSwapRouter;
 
         emit SetMemeverseSwapRouter(_memeverseSwapRouter);
+    }
+
+    function _validateLaunchSettlementRouter(address routerAddress) internal view {
+        IMemeverseSwapRouter router = IMemeverseSwapRouter(routerAddress);
+        address settlementOperator = router.launchSettlementOperator();
+        IMemeverseUniswapHook settlementHook = router.hook();
+        address settlementCaller = settlementHook.launchSettlementCaller();
+        require(
+            settlementOperator == address(this) && address(settlementHook) != address(0)
+                && settlementCaller == routerAddress,
+            InvalidLaunchSettlementConfig()
+        );
     }
 
     /**

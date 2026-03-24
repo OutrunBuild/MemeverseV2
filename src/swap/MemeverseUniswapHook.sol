@@ -81,6 +81,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint24 internal constant FEE_DFF_MAX_PPM = 800_000; // Upper bound of dynamic fee factor, ppm domain.
     int256 internal constant LAUNCH_FEE_EXP_SHAPE_WAD = 4e18;
     uint24 internal constant FEE_BASE_BPS = 100; // Minimum fee in bps.
+    uint24 internal constant LAUNCH_SETTLEMENT_FEE_BPS = 100; // Fixed fee for preorder settlement swaps.
     uint24 internal constant FEE_MAX_BPS = 10_000; // Maximum fee in bps.
     uint24 internal constant PIF_CAP_PPM = 60_000; // PIF cap for fee growth, ppm domain.
     uint24 internal constant VOL_DEVIATION_STEP_BPS = 1; // Reference-price deviation step in bps.
@@ -190,11 +191,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         });
     }
 
-    /// @notice Returns the current swap fee preview under the hook's latest state.
+    /// @notice Quote the hook's current swap fee preview, including LP and protocol slices plus user-facing amounts.
     /// @dev The preview separates LP-fee and protocol-fee amounts because they may settle in different currencies:
     /// LP fees always accrue in the input currency, while protocol fees settle in the supported fee currency selected
-    /// for this swap path (input side preferred, otherwise output side). For exact-output swaps, `estimatedUserInputAmount` is the intended router-side
-    /// guardrail candidate for `amountInMaximum`.
+    /// for this swap path (input side preferred, otherwise output side). For exact-output swaps, `estimatedUserInputAmount`
+    /// is the intended router-side guardrail candidate for `amountInMaximum`.
     /// @param key The pool key being quoted.
     /// @param params The swap parameters being quoted.
     /// @return quote The projected fee side, user flows, and fee split.
@@ -244,7 +245,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         }
     }
 
-    /// @notice Returns the LP token address for a hook-managed pool key.
+    /// @notice Return the LP token address for a hook-managed pool key, or `address(0)` when the pool is not initialized.
     /// @dev Convenience helper for integrators that already operate with `PoolKey`.
     /// @param key The pool key to query.
     /// @return liquidityToken The deployed LP token, or `address(0)` when the pool is not initialized.
@@ -252,7 +253,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return poolInfo[key.toId()].liquidityToken;
     }
 
-    /// @notice Returns the current claimable LP fees for an owner without mutating accounting state.
+    /// @notice Preview the current claimable LP fees for an owner without mutating accounting state.
     /// @dev Mirrors the same fee accrual math used by `updateUserSnapshot` and `claimFeesCore`, but keeps storage
     /// unchanged so routers and frontends can safely preview claim results.
     /// @param key The pool key whose fee accounting is queried.
@@ -320,7 +321,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         _refreshVolatilityAnchorAndCarry(poolId, preSqrtPriceX96);
         DynamicFeeQuote memory quote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
         if (launchSettlement) {
-            quote.feeBps = defaultLaunchFeeConfig.minFeeBps;
+            quote.feeBps = LAUNCH_SETTLEMENT_FEE_BPS;
             quote.dynamicPartBps = 0;
             quote.volPartBps = 0;
             quote.shortPartBps = 0;
@@ -428,7 +429,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return IHooks.beforeAddLiquidity.selector;
     }
 
-    /// @notice Adds full-range liquidity using the caller as payer and mints LP shares to `params.to`.
+    /// @notice Add full-range liquidity while the caller funds the assets and receives LP shares at `params.to`.
     /// @dev This is the low-level liquidity entrypoint intended for routers and other on-chain integrators.
     /// It omits deadline and min-amount checks, requires exact native funding when one side is native, and returns the
     /// settled delta to the caller. Callers are expected to pre-compute the required native amount from the same
@@ -669,7 +670,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (recovered == address(0) || recovered != params.owner) revert InvalidClaimSignature();
     }
 
-    /// @notice Returns the EIP-712 domain separator used for fee-claim signatures.
+    /// @notice Exposes the EIP-712 domain separator used for fee-claim signatures.
     /// @dev Recomputes the separator when the chain id changes to preserve replay protection across forks.
     /// @return separator The active domain separator for this deployment and chain id.
     function DOMAIN_SEPARATOR() public view returns (bytes32) {

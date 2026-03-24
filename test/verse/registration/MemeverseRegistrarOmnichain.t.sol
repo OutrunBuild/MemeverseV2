@@ -24,7 +24,6 @@ contract MockOmnichainLauncher {
     string public lastUri;
 
     /// @notice Register memeverse.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param name See implementation.
     /// @param symbol See implementation.
     /// @param uniqueId See implementation.
@@ -54,7 +53,6 @@ contract MockOmnichainLauncher {
     }
 
     /// @notice Set external info.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param uniqueId See implementation.
     /// @param uri See implementation.
     function setExternalInfo(uint256 uniqueId, string memory uri, string memory, string[] memory) external {
@@ -77,28 +75,24 @@ contract MockRegistrarOmnichainEndpoint {
     uint64 public sendNonce = 7;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
     }
 
     /// @notice Lz token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function lzToken() external pure returns (address) {
         return address(0);
     }
 
     /// @notice Set quoted native fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param fee See implementation.
     function setQuotedNativeFee(uint256 fee) external {
         quotedNativeFee = fee;
     }
 
     /// @notice Quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param sender See implementation.
     /// @return fee See implementation.
@@ -109,7 +103,6 @@ contract MockRegistrarOmnichainEndpoint {
     }
 
     /// @notice Send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param refundAddress See implementation.
     /// @return receipt See implementation.
@@ -144,7 +137,6 @@ contract MemeverseRegistrarOmnichainTest is Test {
     MemeverseRegistrarOmnichain internal registrar;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockRegistrarOmnichainEndpoint();
         launcher = new MockOmnichainLauncher();
@@ -157,7 +149,6 @@ contract MemeverseRegistrarOmnichainTest is Test {
     }
 
     /// @notice Test quote register builds center message and uses endpoint quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteRegisterBuildsCenterMessageAndUsesEndpointQuote() external {
         endpoint.setQuotedNativeFee(0.75 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -170,7 +161,7 @@ contract MemeverseRegistrarOmnichainTest is Test {
                 MessagingParams({
                     dstEid: CENTER_EID,
                     receiver: bytes32(uint256(uint160(address(0xBEEF)))),
-                    message: abi.encode(uint256(0), param),
+                    message: abi.encode(param),
                     options: expectedOptions,
                     payInLzToken: false
                 }),
@@ -184,7 +175,6 @@ contract MemeverseRegistrarOmnichainTest is Test {
     }
 
     /// @notice Test register at center requires enough fee and sends message through endpoint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegisterAtCenterRequiresEnoughFeeAndSendsMessageThroughEndpoint() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -204,7 +194,6 @@ contract MemeverseRegistrarOmnichainTest is Test {
     }
 
     /// @notice Test set registration gas limit only owner.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetRegistrationGasLimitOnlyOwner() external {
         IMemeverseRegistrarOmnichain.RegistrationGasLimit memory gasLimit =
             IMemeverseRegistrarOmnichain.RegistrationGasLimit({
@@ -225,7 +214,6 @@ contract MemeverseRegistrarOmnichainTest is Test {
     }
 
     /// @notice Test lz receive from endpoint and peer forwards registration to launcher.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzReceiveFromEndpointAndPeerForwardsRegistrationToLauncher() external {
         IMemeverseRegistrar.MemeverseParam memory param = _memeverseParam();
         Origin memory origin =

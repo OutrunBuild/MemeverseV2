@@ -48,12 +48,13 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         omnichainStakingGasLimit = _omnichainStakingGasLimit;
     }
 
-    /// @notice Returns quote memecoin staking.
-    /// @dev See the implementation for behavior details.
-    /// @param memecoin The memecoin value.
-    /// @param receiver The receiver value.
-    /// @param amount The amount value.
-    /// @return lzFee The lzFee value.
+    /// @notice Quotes the native fee for staking a memecoin on the governance chain.
+    /// @dev Returns zero for same-chain governance routes and otherwise quotes the exact LayerZero fee for the
+    /// omnichain staking path.
+    /// @param memecoin memecoin address.
+    /// @param receiver receiver address.
+    /// @param amount token amount.
+    /// @return lzFee LayerZero fee.
     function quoteMemecoinStaking(address memecoin, address receiver, uint256 amount)
         external
         view
@@ -83,11 +84,12 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         lzFee = IOFT(memecoin).quoteSend(sendParam, false).nativeFee;
     }
 
-    /// @notice Executes memecoin staking.
-    /// @dev See the implementation for behavior details.
-    /// @param memecoin The memecoin value.
-    /// @param receiver The receiver value.
-    /// @param amount The amount value.
+    /// @notice Stakes memecoin either locally or through the omnichain staker.
+    /// @dev Pulls the memecoin from the caller and either deposits it directly into the local yield vault or forwards
+    /// it through OFT to the governance chain. Remote paths require the exact quoted native fee.
+    /// @param memecoin memecoin address.
+    /// @param receiver receiver address.
+    /// @param amount token amount.
     function memecoinStaking(address memecoin, address receiver, uint256 amount) external payable override {
         require(memecoin != address(0) && receiver != address(0) && amount != 0, ZeroInput());
 
@@ -98,6 +100,7 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
 
         _transferIn(memecoin, msg.sender, amount);
         if (govChainId == block.chainid) {
+            if (msg.value != 0) revert InvalidLzFee(0, msg.value);
             require(yieldVault.code.length != 0, EmptyYieldVault());
             _safeApproveInf(memecoin, yieldVault);
             IMemecoinYieldVault(yieldVault).deposit(amount, receiver);
@@ -117,7 +120,7 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
             oftCmd: abi.encode()
         });
         MessagingFee memory messagingFee = IOFT(memecoin).quoteSend(sendParam, false);
-        require(msg.value >= messagingFee.nativeFee, InsufficientLzFee());
+        if (msg.value != messagingFee.nativeFee) revert InvalidLzFee(messagingFee.nativeFee, msg.value);
 
         (MessagingReceipt memory rec,) =
             IOFT(memecoin).send{value: messagingFee.nativeFee}(sendParam, messagingFee, msg.sender);
@@ -125,10 +128,10 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         emit OmnichainMemecoinStaking(rec.guid, msg.sender, receiver, memecoin, amount);
     }
 
-    /// @notice Executes set gas limits.
-    /// @dev See the implementation for behavior details.
-    /// @param _oftReceiveGasLimit The _oftReceiveGasLimit value.
-    /// @param _omnichainStakingGasLimit The _omnichainStakingGasLimit value.
+    /// @notice Updates the gas limits used by remote staking sends.
+    /// @dev Only callable by the owner.
+    /// @param _oftReceiveGasLimit OFT receive gas limit.
+    /// @param _omnichainStakingGasLimit omnichain staking gas limit.
     function setGasLimits(uint128 _oftReceiveGasLimit, uint128 _omnichainStakingGasLimit) external override onlyOwner {
         require(_oftReceiveGasLimit > 0 && _omnichainStakingGasLimit > 0, ZeroInput());
 

@@ -377,10 +377,14 @@ contract MemeverseSwapRouterTest is Test {
         manager.initialize(key, SQRT_PRICE_1_1);
     }
 
+    /// @notice Configures which currency the hook should collect protocol fees in.
+    /// @dev Helper invoked by tests before swaps to keep protocol-fee context consistent.
     function _setProtocolFeeCurrency(Currency feeCurrency) internal {
         hook.setProtocolFeeCurrency(feeCurrency);
     }
 
+    /// @notice Progresses the block timestamp past the launch window.
+    /// @dev Ensures tests can trigger post-launch behavior without waiting in real time.
     function _matureLaunchWindow() internal {
         vm.warp(block.timestamp + 900);
     }
@@ -658,6 +662,33 @@ contract MemeverseSwapRouterTest is Test {
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "fixed 1% protocol fee");
+    }
+
+    /// @notice Verifies changing the launch fee floor does not change the fixed-fee preorder settlement path.
+    /// @dev Guards against coupling settlement pricing to the owner-configurable launch decay minimum.
+    function testExecuteLaunchPreorderSwap_IgnoresConfigurableLaunchFeeFloor() external {
+        _setProtocolFeeCurrency(key.currency0);
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 300, decayDurationSeconds: 900})
+        );
+
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        uint256 treasury0Before = token0.balanceOf(treasury);
+
+        BalanceDelta delta = router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            address(this),
+            block.timestamp,
+            40 ether,
+            100 ether,
+            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        );
+
+        assertLt(delta.amount0(), 0, "delta0");
+        assertGt(delta.amount1(), 0, "delta1");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "settlement remains fixed 1%");
     }
 
     /// @notice Verifies spoofed launch-settlement markers also fail when callers bypass the router.
@@ -1343,17 +1374,23 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Builds a normalized pool key wired to the test hook.
+    /// @dev Encapsulates the pair ordering and hook wiring shared by the router tests.
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {
         return PoolKey({
             currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(address(hook))
         });
     }
 
+    /// @notice Funds and initializes a native-input pool fixture.
+    /// @dev Controls both caller and manager balances before seeding liquidity.
     function _dealAndInitializeNativePool(PoolKey memory nativeKey, bool fundManager) internal {
         vm.deal(address(this), 1_000_000 ether);
         if (fundManager) vm.deal(address(manager), 1_000_000 ether);
         manager.initialize(nativeKey, SQRT_PRICE_1_1);
     }
 
+    /// @notice Accepts native refunds delivered during router tests.
+    /// @dev Lets the test contract receive ETH when the router funnels leftover native funds.
     receive() external payable {}
 }

@@ -51,18 +51,19 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
         });
     }
 
-    /// @notice Returns quote register.
-    /// @dev See the implementation for behavior details.
-    /// @param param The param value.
-    /// @param value The value value.
-    /// @return lzFee The lzFee value.
+    /// @notice Quotes the LayerZero fee for sending a registration request to the center chain.
+    /// @dev `value` is encoded into the executor receive option so the center-chain receive path can forward native
+    /// value when it fans the registration back out to other chains.
+    /// @param param Registration request to send to the center chain.
+    /// @param value Native-drop value encoded into the center-chain receive options.
+    /// @return lzFee Native LayerZero fee for the registrar-to-center send.
     function quoteRegister(IMemeverseRegistrationCenter.RegistrationParam calldata param, uint128 value)
         external
         view
         override
         returns (uint256 lzFee)
     {
-        bytes memory message = abi.encode(0, param);
+        bytes memory message = abi.encode(param);
         uint256 length = param.omnichainIds.length;
         RegistrationGasLimit memory _registrationGasLimit = registrationGasLimit;
         uint80 gasLimit = _registrationGasLimit.baseRegistrationGasLimit;
@@ -81,10 +82,11 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
         lzFee = _quote(REGISTRATION_CENTER_EID, message, options, false).nativeFee;
     }
 
-    /// @notice Executes register at center.
-    /// @dev See the implementation for behavior details.
-    /// @param param The param value.
-    /// @param value The value value.
+    /// @notice Sends a registration request from a remote chain to the center chain.
+    /// @dev The supplied `value` must match the value used during quoting because it is part of the LayerZero receive
+    /// options for the center-chain execution.
+    /// @param param Registration request to send.
+    /// @param value Native-drop value encoded into the center-chain receive options.
     function registerAtCenter(IMemeverseRegistrationCenter.RegistrationParam calldata param, uint128 value)
         external
         payable
@@ -114,9 +116,9 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
         );
     }
 
-    /// @notice Executes set registration gas limit.
-    /// @dev See the implementation for behavior details.
-    /// @param _registrationGasLimit The _registrationGasLimit value.
+    /// @notice Updates the gas schedule used to quote and send registration messages.
+    /// @dev Only callable by the owner.
+    /// @param _registrationGasLimit New per-hop gas schedule for registrar-to-center registration sends.
     function setRegistrationGasLimit(RegistrationGasLimit calldata _registrationGasLimit) external override onlyOwner {
         registrationGasLimit = _registrationGasLimit;
 

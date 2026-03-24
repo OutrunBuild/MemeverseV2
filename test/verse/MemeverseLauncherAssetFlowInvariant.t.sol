@@ -40,7 +40,6 @@ contract AssetFlowHandler is Test {
     }
 
     /// @notice Test helper for claimPOL.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     function claimPOL(uint256 actorSeed) external {
         address actor = actors[actorSeed % actors.length];
@@ -49,7 +48,6 @@ contract AssetFlowHandler is Test {
     }
 
     /// @notice Test helper for redeemPolLiquidity.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     function redeemPolLiquidity(uint256 actorSeed) external {
         address actor = actors[actorSeed % actors.length];
@@ -58,7 +56,6 @@ contract AssetFlowHandler is Test {
     }
 
     /// @notice Test helper for redeemMemecoinLiquidity.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param amountSeed See implementation.
     function redeemMemecoinLiquidity(uint256 actorSeed, uint256 amountSeed) external {
@@ -72,7 +69,6 @@ contract AssetFlowHandler is Test {
     }
 
     /// @notice Test helper for touchBalances.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function touchBalances() external view {
         for (uint256 i; i < actors.length; ++i) {
             liquidProof.balanceOf(actors[i]);
@@ -93,7 +89,6 @@ contract FeeDistributionHandler is Test {
     }
 
     /// @notice Test helper for redeem.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function redeem() external {
         try launcher.redeemAndDistributeFees(VERSE_ID, address(0xBEEF)) returns (
             uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward
@@ -131,7 +126,6 @@ contract MintPOLHandler is Test {
     }
 
     /// @notice Test helper for mintAuto.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param uptDesiredSeed See implementation.
     /// @param memecoinDesiredSeed See implementation.
@@ -163,7 +157,6 @@ contract MintPOLHandler is Test {
     }
 
     /// @notice Test helper for mintExact.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param uptDesiredSeed See implementation.
     /// @param memecoinDesiredSeed See implementation.
@@ -234,7 +227,6 @@ contract RemoteFeeDistributionHandler is Test {
     }
 
     /// @notice Test helper for redeem.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param scenarioSeed See implementation.
     function redeem(uint256 scenarioSeed) external {
         uint256 scenario = scenarioSeed % 3;
@@ -287,7 +279,6 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     AssetFlowHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         actors.push(ALICE);
         actors.push(BOB);
@@ -306,7 +297,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
             2_500,
             7 days
         );
-        router = new MockSwapRouter();
+        router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         upt = new MockERC20("UPT", "UPT", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
@@ -351,7 +342,6 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_polTokenClaimAndBurnConserveSupply.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_polTokenClaimAndBurnConserveSupply() external view {
         uint256 userPolBalance;
         for (uint256 i; i < actors.length; ++i) {
@@ -366,7 +356,6 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_memecoinLpAndPolLpConserved.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_memecoinLpAndPolLpConserved() external view {
         uint256 userMemecoinLp;
         uint256 userPolLp;
@@ -380,7 +369,6 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_usersNeverExceedGenesisEntitlements.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_usersNeverExceedGenesisEntitlements() external view {
         for (uint256 i; i < actors.length; ++i) {
             (uint256 genesisFund,,, bool isRedeemed) = launcher.userGenesisData(VERSE_ID, actors[i]);
@@ -417,7 +405,6 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     FeeDistributionHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         launcher = new TestableMemeverseLauncher(
             address(this),
@@ -432,7 +419,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
             2_500,
             7 days
         );
-        router = new MockSwapRouter();
+        router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         upt = new MockERC20("UPT", "UPT", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
@@ -464,7 +451,6 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_feeDistributionLeavesNoResidualLauncherBalances.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_feeDistributionLeavesNoResidualLauncherBalances() external view {
         assertEq(upt.balanceOf(address(launcher)), 0, "launcher upt");
         assertEq(memecoin.balanceOf(address(launcher)), 0, "launcher memecoin");
@@ -472,7 +458,6 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_feeDistributionMatchesPerCallAccounting.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_feeDistributionMatchesPerCallAccounting() external view {
         uint256 count = handler.redeemCount();
 
@@ -505,7 +490,6 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
     MintPOLHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         actors.push(ALICE);
         actors.push(BOB);
@@ -524,7 +508,7 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
             2_500,
             7 days
         );
-        router = new MockSwapRouter();
+        router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         upt = new MockERC20("UPT", "UPT", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
@@ -572,7 +556,6 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_mintPOL_ConservesUPTAndMemecoinAcrossUsersLauncherAndRouter.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_mintPOL_ConservesUPTAndMemecoinAcrossUsersLauncherAndRouter() external view {
         uint256 totalUpt = upt.balanceOf(address(launcher)) + upt.balanceOf(address(router));
         uint256 totalMemecoin = memecoin.balanceOf(address(launcher)) + memecoin.balanceOf(address(router));
@@ -587,14 +570,12 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_mintPOL_LeavesNoResidualLauncherInputBalances.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_mintPOL_LeavesNoResidualLauncherInputBalances() external view {
         assertEq(upt.balanceOf(address(launcher)), 0, "launcher upt");
         assertEq(memecoin.balanceOf(address(launcher)), 0, "launcher memecoin");
     }
 
     /// @notice Test helper for invariant_mintPOL_POLSupplyMatchesLauncherBackingLP.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_mintPOL_POLSupplyMatchesLauncherBackingLP() external view {
         uint256 userPolSupply;
         for (uint256 i; i < actors.length; ++i) {
@@ -619,7 +600,6 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
     RemoteFeeDistributionHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         launcher = new TestableMemeverseLauncher(
             address(this),
@@ -634,7 +614,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
             2_500,
             7 days
         );
-        router = new MockSwapRouter();
+        router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         remoteUpt = new MockOFTToken("UPT", "UPT");
         remoteMemecoin = new MockOFTToken("MEME", "MEME");
@@ -669,14 +649,12 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_remoteFeeSendCountsMatchRedeemOutcomes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_remoteFeeSendCountsMatchRedeemOutcomes() external view {
         assertEq(remoteUpt.sendCallCount(), handler.expectedUptSendCount(), "upt send count");
         assertEq(remoteMemecoin.sendCallCount(), handler.expectedMemecoinSendCount(), "memecoin send count");
     }
 
     /// @notice Test helper for invariant_remoteFeeSendMetadataRemainsCorrect.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_remoteFeeSendMetadataRemainsCorrect() external view {
         if (remoteUpt.sendCallCount() > 0) {
             assertEq(remoteUpt.lastSendDstEid(), 302, "upt dst eid");
@@ -691,7 +669,6 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_remoteFeePathNeverUsesLocalDispatcher.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_remoteFeePathNeverUsesLocalDispatcher() external view {
         assertEq(dispatcher.composeCallCount(), 0, "dispatcher should be unused");
     }

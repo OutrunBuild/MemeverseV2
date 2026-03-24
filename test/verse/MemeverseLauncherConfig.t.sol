@@ -7,13 +7,59 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
+contract MockLaunchSettlementHookConfig {
+    address internal settlementCaller;
+
+    constructor(address settlementCaller_) {
+        settlementCaller = settlementCaller_;
+    }
+
+    /// @notice Returns the configured settlement caller.
+    /// @dev Mirrors the real hook accessor for config validation.
+    /// @return caller Configured settlement caller.
+    function launchSettlementCaller() external view returns (address) {
+        return settlementCaller;
+    }
+
+    /// @notice Updates the settlement caller used by the mock hook.
+    /// @dev Allows tests to switch callers when validating router config.
+    /// @param settlementCaller_ New settlement caller stored by the mock.
+    function setLaunchSettlementCaller(address settlementCaller_) external {
+        settlementCaller = settlementCaller_;
+    }
+}
+
+contract MockLaunchSettlementRouterConfig {
+    address internal settlementOperator;
+    address internal hookAddress;
+
+    constructor(address settlementOperator_, address hookAddress_) {
+        settlementOperator = settlementOperator_;
+        hookAddress = hookAddress_;
+    }
+
+    /// @notice Returns the configured settlement operator.
+    /// @dev Matches the router accessor used in config validation tests.
+    /// @return operator Configured settlement operator.
+    function launchSettlementOperator() external view returns (address) {
+        return settlementOperator;
+    }
+
+    /// @notice Returns the configured hook address.
+    /// @dev Lets tests simulate the hook pointer the router expects.
+    /// @return hookAddress_ Configured hook address.
+    function hook() external view returns (address) {
+        return hookAddress;
+    }
+}
+
 contract MemeverseLauncherConfigTest is Test {
     address internal constant OTHER = address(0xBEEF);
 
     MemeverseLauncher internal launcher;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Deploys the launcher with dummy dependencies for the configuration tests.
     function setUp() external {
         launcher = new MemeverseLauncher(
             address(this),
@@ -31,14 +77,14 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test constructor stores preorder config.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the given cap ratio and vesting duration survive in storage.
     function testConstructorStoresPreorderConfig() external view {
         assertEq(launcher.preorderCapRatio(), 2_500);
         assertEq(launcher.preorderVestingDuration(), 7 days);
     }
 
     /// @notice Test pause and unpause are owner only.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies only the owner can toggle the paused state.
     function testPauseAndUnpauseAreOwnerOnly() external {
         vm.prank(OTHER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
@@ -56,17 +102,33 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set memeverse swap router stores address and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms the setter validates both the operator and hook before storing.
     function testSetMemeverseSwapRouterStoresAddressAndRejectsZero() external {
-        launcher.setMemeverseSwapRouter(address(0xBEEF));
-        assertEq(launcher.memeverseSwapRouter(), address(0xBEEF));
+        MockLaunchSettlementHookConfig hook = new MockLaunchSettlementHookConfig(address(0xCAFE));
+        MockLaunchSettlementRouterConfig invalidOperatorRouter =
+            new MockLaunchSettlementRouterConfig(OTHER, address(hook));
+        MockLaunchSettlementRouterConfig invalidCallerRouter =
+            new MockLaunchSettlementRouterConfig(address(launcher), address(hook));
+
+        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
+        launcher.setMemeverseSwapRouter(address(invalidOperatorRouter));
+
+        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
+        launcher.setMemeverseSwapRouter(address(invalidCallerRouter));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setMemeverseSwapRouter(address(0));
+
+        MockLaunchSettlementHookConfig settledHook = new MockLaunchSettlementHookConfig(address(0xD00D));
+        MockLaunchSettlementRouterConfig settledRouter =
+            new MockLaunchSettlementRouterConfig(address(launcher), address(settledHook));
+        settledHook.setLaunchSettlementCaller(address(settledRouter));
+        launcher.setMemeverseSwapRouter(address(settledRouter));
+        assertEq(launcher.memeverseSwapRouter(), address(settledRouter));
     }
 
     /// @notice Test set lz endpoint registry stores address and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Asserts the registry setter complains about zero addresses.
     function testSetLzEndpointRegistryStoresAddressAndRejectsZero() external {
         launcher.setLzEndpointRegistry(address(0xBEEF));
         assertEq(launcher.lzEndpointRegistry(), address(0xBEEF));
@@ -76,7 +138,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set memeverse registrar stores address and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the registrar setter rejects zero and persists valid values.
     function testSetMemeverseRegistrarStoresAddressAndRejectsZero() external {
         launcher.setMemeverseRegistrar(address(0xBEEF));
         assertEq(launcher.memeverseRegistrar(), address(0xBEEF));
@@ -86,7 +148,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set memeverse proxy deployer stores address and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Checks the proxy deployer setter enforces non-zero input.
     function testSetMemeverseProxyDeployerStoresAddressAndRejectsZero() external {
         launcher.setMemeverseProxyDeployer(address(0xBEEF));
         assertEq(launcher.memeverseProxyDeployer(), address(0xBEEF));
@@ -96,7 +158,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set oftdispatcher stores address and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Guards the OFT dispatcher setter against zero inputs.
     function testSetOFTDispatcherStoresAddressAndRejectsZero() external {
         launcher.setOFTDispatcher(address(0xBEEF));
         assertEq(launcher.oftDispatcher(), address(0xBEEF));
@@ -106,7 +168,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set fund meta data stores values and guards inputs.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies the metadata setter stores limits and rejects invalid caps.
     function testSetFundMetaDataStoresValuesAndGuardsInputs() external {
         launcher.setFundMetaData(address(0xBEEF), 1 ether, 2 ether);
         (uint256 minTotalFund, uint256 fundBasedAmount) = launcher.fundMetaDatas(address(0xBEEF));
@@ -124,7 +186,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set executor reward rate stores value and rejects overflow.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Asserts the fee rate setter guards against overflow values.
     function testSetExecutorRewardRateStoresValueAndRejectsOverflow() external {
         launcher.setExecutorRewardRate(9999);
         assertEq(launcher.executorRewardRate(), 9999);
@@ -134,7 +196,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set preorder config stores values and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms the preorder setter enforces non-zero caps and valid ranges.
     function testSetPreorderConfigStoresValuesAndRejectsZero() external {
         launcher.setPreorderConfig(2_000, 14 days);
         assertEq(launcher.preorderCapRatio(), 2_000);
@@ -151,7 +213,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test set gas limits stores values and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Makes sure each gas-limit setter requires a non-zero throttle.
     function testSetGasLimitsStoresValuesAndRejectsZero() external {
         launcher.setGasLimits(1, 2);
         assertEq(launcher.oftReceiveGasLimit(), 1);
@@ -162,7 +224,7 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     /// @notice Test remove gas dust transfers balance to receiver.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies the owner-only dust sweep actually sends the native balance.
     function testRemoveGasDustTransfersBalanceToReceiver() external {
         vm.deal(address(launcher), 1 ether);
         uint256 before = address(this).balance;
@@ -173,5 +235,7 @@ contract MemeverseLauncherConfigTest is Test {
         assertEq(address(launcher).balance, 0);
     }
 
+    /// @notice Accepts native value when config tests inadvertently send ETH.
+    /// @dev Provides a payable fallback so the test contract can hold refunds.
     receive() external payable {}
 }

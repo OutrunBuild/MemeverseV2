@@ -23,20 +23,23 @@ import {MemeverseOmnichainInteroperation} from "../../src/interoperation/Memever
 
 contract MockInteroperationLauncher {
     IMemeverseLauncher.Memeverse internal verse;
+    address internal registeredMemecoin;
 
     /// @notice Set memeverse.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @param memecoin See implementation.
     /// @param verse_ See implementation.
-    function setMemeverse(IMemeverseLauncher.Memeverse memory verse_) external {
+    function setMemeverse(address memecoin, IMemeverseLauncher.Memeverse memory verse_) external {
+        registeredMemecoin = memecoin;
         verse = verse_;
     }
 
     /// @notice Get memeverse by memecoin.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param memecoin See implementation.
     /// @return See implementation.
     function getMemeverseByMemecoin(address memecoin) external view returns (IMemeverseLauncher.Memeverse memory) {
-        memecoin;
+        if (memecoin != registeredMemecoin) {
+            revert IMemeverseLauncher.InvalidVerseId();
+        }
         return verse;
     }
 }
@@ -45,7 +48,6 @@ contract MockInteroperationRegistry {
     mapping(uint32 chainId => uint32 endpointId) public lzEndpointIdOfChain;
 
     /// @notice Set endpoint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param chainId See implementation.
     /// @param endpointId See implementation.
     function setEndpoint(uint32 chainId, uint32 endpointId) external {
@@ -58,7 +60,6 @@ contract MockInteroperationYieldVault {
     address public lastDepositReceiver;
 
     /// @notice Deposit.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amount See implementation.
     /// @param receiver See implementation.
     /// @return shares See implementation.
@@ -84,14 +85,12 @@ contract MockInteroperationOFT is MockERC20, IOFT {
     constructor() MockERC20("Memecoin", "MEME", 18) {}
 
     /// @notice Set quote fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param nativeFee See implementation.
     function setQuoteFee(uint256 nativeFee) external {
         quoteFee = MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
     }
 
     /// @notice Oft version.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return interfaceId See implementation.
     /// @return version See implementation.
     function oftVersion() external pure returns (bytes4 interfaceId, uint64 version) {
@@ -99,28 +98,24 @@ contract MockInteroperationOFT is MockERC20, IOFT {
     }
 
     /// @notice Token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function token() external view returns (address) {
         return address(this);
     }
 
     /// @notice Approval required.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function approvalRequired() external pure returns (bool) {
         return false;
     }
 
     /// @notice Shared decimals.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function sharedDecimals() external pure returns (uint8) {
         return 6;
     }
 
     /// @notice Quote oft.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function quoteOFT(SendParam calldata)
         external
@@ -131,7 +126,6 @@ contract MockInteroperationOFT is MockERC20, IOFT {
     }
 
     /// @notice Quote send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param sendParam See implementation.
     /// @param payInLzToken See implementation.
     /// @return fee See implementation.
@@ -146,7 +140,6 @@ contract MockInteroperationOFT is MockERC20, IOFT {
     }
 
     /// @notice Send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param sendParam See implementation.
     /// @param fee See implementation.
     /// @param refundAddress See implementation.
@@ -186,7 +179,6 @@ contract MemeverseOmnichainInteroperationTest is Test {
     MemeverseOmnichainInteroperation internal interoperation;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         launcher = new MockInteroperationLauncher();
         registry = new MockInteroperationRegistry();
@@ -198,14 +190,20 @@ contract MemeverseOmnichainInteroperationTest is Test {
     }
 
     /// @notice Test quote memecoin staking rejects zero input.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteMemecoinStakingRejectsZeroInput() external {
         vm.expectRevert(IMemeverseOmnichainInteroperation.ZeroInput.selector);
         interoperation.quoteMemecoinStaking(address(0), RECEIVER, 1 ether);
     }
 
+    /// @notice Test quote memecoin staking rejects unregistered memecoin.
+    function testQuoteMemecoinStakingRejectsUnregisteredMemecoin() external {
+        _setLocalVerse(address(yieldVault));
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        interoperation.quoteMemecoinStaking(address(0x9999), RECEIVER, 1 ether);
+    }
+
     /// @notice Test quote memecoin staking returns zero for local governance chain.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteMemecoinStakingReturnsZeroForLocalGovernanceChain() external {
         _setLocalVerse(address(yieldVault));
 
@@ -214,7 +212,6 @@ contract MemeverseOmnichainInteroperationTest is Test {
     }
 
     /// @notice Test quote memecoin staking builds remote send param.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteMemecoinStakingBuildsRemoteSendParam() external {
         _setRemoteVerse(address(yieldVault));
         memecoin.setQuoteFee(0.25 ether);
@@ -244,7 +241,6 @@ contract MemeverseOmnichainInteroperationTest is Test {
     }
 
     /// @notice Test memecoin staking local path rejects empty vault and deposits to yield vault.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testMemecoinStakingLocalPathRejectsEmptyVaultAndDepositsToYieldVault() external {
         _setLocalVerse(address(0));
         memecoin.mint(address(this), 3 ether);
@@ -261,14 +257,13 @@ contract MemeverseOmnichainInteroperationTest is Test {
     }
 
     /// @notice Test memecoin staking remote path checks fee and sends oft.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testMemecoinStakingRemotePathChecksFeeAndSendsOFT() external {
         _setRemoteVerse(address(yieldVault));
         memecoin.setQuoteFee(0.4 ether);
         memecoin.mint(address(this), 5 ether);
         memecoin.approve(address(interoperation), type(uint256).max);
 
-        vm.expectRevert(IMemeverseOmnichainInteroperation.InsufficientLzFee.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseOmnichainInteroperation.InvalidLzFee.selector, 0.4 ether, 0));
         interoperation.memecoinStaking(address(memecoin), RECEIVER, 5 ether);
 
         interoperation.memecoinStaking{value: 0.4 ether}(address(memecoin), RECEIVER, 5 ether);
@@ -281,8 +276,40 @@ contract MemeverseOmnichainInteroperationTest is Test {
         assertEq(memecoin.lastSendComposeMsg(), abi.encode(RECEIVER, address(yieldVault)));
     }
 
+    /// @notice Verifies remote staking rejects overpayment instead of trapping extra ETH in the interoperation contract.
+    /// @dev Requires callers to provide the exact quoted LayerZero fee.
+    function testMemecoinStakingRemotePathRevertsWhenLzFeeIsNotExact() external {
+        _setRemoteVerse(address(yieldVault));
+        memecoin.setQuoteFee(0.4 ether);
+        memecoin.mint(address(this), 5 ether);
+        memecoin.approve(address(interoperation), type(uint256).max);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IMemeverseOmnichainInteroperation.InvalidLzFee.selector, 0.4 ether, 0.41 ether)
+        );
+        interoperation.memecoinStaking{value: 0.41 ether}(address(memecoin), RECEIVER, 5 ether);
+    }
+
+    /// @notice Verifies local staking rejects accidental native value.
+    /// @dev Prevents same-chain staking calls from trapping ETH in the interoperation contract.
+    function testMemecoinStakingLocalPathRevertsWhenMsgValueProvided() external {
+        _setLocalVerse(address(yieldVault));
+        memecoin.mint(address(this), 3 ether);
+        memecoin.approve(address(interoperation), type(uint256).max);
+
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseOmnichainInteroperation.InvalidLzFee.selector, 0, 1));
+        interoperation.memecoinStaking{value: 1}(address(memecoin), RECEIVER, 3 ether);
+    }
+
+    /// @notice Test memecoin staking rejects unregistered memecoin.
+    function testMemecoinStakingRejectsUnregisteredMemecoin() external {
+        _setLocalVerse(address(yieldVault));
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        interoperation.memecoinStaking(address(0x9999), RECEIVER, 1 ether);
+    }
+
     /// @notice Test set gas limits only owner and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetGasLimitsOnlyOwnerAndRejectsZero() external {
         vm.prank(address(0x1234));
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(0x1234)));
@@ -299,12 +326,12 @@ contract MemeverseOmnichainInteroperationTest is Test {
     }
 
     function _setLocalVerse(address yieldVaultAddress) internal {
-        launcher.setMemeverse(_verse(uint32(block.chainid), yieldVaultAddress));
+        launcher.setMemeverse(address(memecoin), _verse(uint32(block.chainid), yieldVaultAddress));
     }
 
     function _setRemoteVerse(address yieldVaultAddress) internal {
         registry.setEndpoint(REMOTE_CHAIN_ID, REMOTE_EID);
-        launcher.setMemeverse(_verse(REMOTE_CHAIN_ID, yieldVaultAddress));
+        launcher.setMemeverse(address(memecoin), _verse(REMOTE_CHAIN_ID, yieldVaultAddress));
     }
 
     function _verse(uint32 govChainId, address yieldVaultAddress)

@@ -51,31 +51,34 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         MEMEVERSE_COMMON_INFO = _memeverseCommonInfo;
     }
 
-    /// @notice Returns preview registration.
-    /// @dev See the implementation for behavior details.
-    /// @param symbol The symbol value.
-    /// @return bool The bool value.
+    receive() external payable {}
+
+    /// @notice Checks whether a symbol can be registered right now.
+    /// @dev A symbol becomes available again only after its latest registration window has fully expired.
+    /// @param symbol Symbol to check.
+    /// @return available True when the symbol is unlocked and can be registered again.
     function previewRegistration(string calldata symbol) external view override returns (bool) {
         if (bytes(symbol).length >= 32) return false;
         SymbolRegistration storage currentRegistration = symbolRegistry[symbol];
         return block.timestamp > currentRegistration.endTime;
     }
 
-    /// @notice Returns quote send.
-    /// @dev See the implementation for behavior details.
-    /// @param omnichainIds The omnichainIds value.
-    /// @param message The message value.
-    /// @return uint256 The uint256 value.
+    /// @notice Quotes the center's outbound registration fan-out cost.
+    /// @dev Local targets contribute zero fee; each remote target contributes one LayerZero quote.
+    /// @param omnichainIds Target chain ids included in the registration.
+    /// @param message Encoded memeverse registration payload sent to remote registrars.
+    /// @return totalFee Sum of all remote native fees.
+    /// @return fees Per-target native fee aligned with `omnichainIds`.
+    /// @return eids Per-target endpoint ids aligned with `omnichainIds`, with zero for local targets.
     function quoteSend(uint32[] memory omnichainIds, bytes memory message)
         public
         view
         override
-        returns (uint256, uint256[] memory, uint32[] memory)
+        returns (uint256 totalFee, uint256[] memory fees, uint32[] memory eids)
     {
-        uint256 totalFee;
         uint256 length = omnichainIds.length;
-        uint256[] memory fees = new uint256[](length);
-        uint32[] memory eids = new uint32[](length);
+        fees = new uint256[](length);
+        eids = new uint32[](length);
         uint32 currentChainId = uint32(block.chainid);
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(uint128(registerGasLimit), 0);
 
@@ -105,9 +108,10 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         return (totalFee, fees, eids);
     }
 
-    /// @notice Executes registration.
-    /// @dev See the implementation for behavior details.
-    /// @param param The param value.
+    /// @notice Registers a symbol at the center and fans the registration out to all target chains.
+    /// @dev Stores the current registration record, archives the previous one if needed, and dispatches local or
+    /// remote registration hooks for every target chain.
+    /// @param param Registration request submitted by a local or omnichain registrar.
     function registration(RegistrationParam memory param) public payable override {
         _registrationParamValidation(param);
 
@@ -148,9 +152,9 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit Registration(uniqueId, param);
     }
 
-    /// @notice Executes remove gas dust.
-    /// @dev See the implementation for behavior details.
-    /// @param receiver The receiver value.
+    /// @notice Sweeps any native-token dust sitting on the center.
+    /// @dev Intended for owner-side cleanup of refunds or residual gas balances.
+    /// @param receiver Address that receives the withdrawn dust.
     function removeGasDust(address receiver) external override onlyOwner {
         uint256 dust = address(this).balance;
         _transferOut(NATIVE, receiver, dust);
@@ -158,13 +162,14 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit RemoveGasDust(receiver, dust);
     }
 
-    /// @notice Executes lz send.
-    /// @dev See the implementation for behavior details.
-    /// @param dstEid The dstEid value.
-    /// @param message The message value.
-    /// @param options The options value.
-    /// @param fee The fee value.
-    /// @param refundAddress The refundAddress value.
+    /// @notice Forwards a LayerZero send through the center contract itself.
+    /// @dev Only the center itself may reach this wrapper; it exists so `_omnichainSend` can reuse the OApp send path
+    /// through a normal external call with value.
+    /// @param dstEid Destination LayerZero endpoint id.
+    /// @param message Encoded registration payload.
+    /// @param options LayerZero options.
+    /// @param fee Native and lzToken fee bundle supplied to the endpoint.
+    /// @param refundAddress Address that should receive any unused LayerZero native refund.
     function lzSend(
         uint32 dstEid,
         bytes memory message,
@@ -205,7 +210,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
                 message,
                 options,
                 MessagingFee({nativeFee: fee, lzTokenFee: 0}),
-                msg.sender
+                address(this)
             );
             address(this).functionCallWithValue(functionSignature, fee);
         }
@@ -296,10 +301,10 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
                 Memeverse Registration Config
     /////////////////////////////////////////////////////*/
 
-    /// @notice Executes set supported upt.
-    /// @dev See the implementation for behavior details.
-    /// @param UPT The UPT value.
-    /// @param isSupported The isSupported value.
+    /// @notice Updates whether a fundraising token is accepted for new registrations.
+    /// @dev Only callable by the owner.
+    /// @param UPT Fundraising token address to update.
+    /// @param isSupported Whether the token should be accepted for future registrations.
     function setSupportedUPT(address UPT, bool isSupported) external override onlyOwner {
         require(UPT != address(0), ZeroInput());
         supportedUPTs[UPT] = isSupported;
@@ -307,10 +312,10 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit SetSupportedUPT(UPT, isSupported);
     }
 
-    /// @notice Executes set duration days range.
-    /// @dev See the implementation for behavior details.
-    /// @param _minDurationDays The _minDurationDays value.
-    /// @param _maxDurationDays The _maxDurationDays value.
+    /// @notice Updates the allowed registration duration range.
+    /// @dev Only callable by the owner.
+    /// @param _minDurationDays New minimum registration duration, measured in `DAY` units.
+    /// @param _maxDurationDays New maximum registration duration, measured in `DAY` units.
     function setDurationDaysRange(uint128 _minDurationDays, uint128 _maxDurationDays) external override onlyOwner {
         require(_minDurationDays != 0 && _maxDurationDays != 0 && _minDurationDays < _maxDurationDays, InvalidInput());
 
@@ -320,10 +325,10 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit SetDurationDaysRange(_minDurationDays, _maxDurationDays);
     }
 
-    /// @notice Executes set lockup days range.
-    /// @dev See the implementation for behavior details.
-    /// @param _minLockupDays The _minLockupDays value.
-    /// @param _maxLockupDays The _maxLockupDays value.
+    /// @notice Updates the allowed liquidity lockup range for new registrations.
+    /// @dev Only callable by the owner.
+    /// @param _minLockupDays New minimum lockup duration, measured in `DAY` units.
+    /// @param _maxLockupDays New maximum lockup duration, measured in `DAY` units.
     function setLockupDaysRange(uint128 _minLockupDays, uint128 _maxLockupDays) external override onlyOwner {
         require(_minLockupDays != 0 && _maxLockupDays != 0 && _minLockupDays < _maxLockupDays, InvalidInput());
 
@@ -333,9 +338,9 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         emit SetLockupDaysRange(_minLockupDays, _maxLockupDays);
     }
 
-    /// @notice Executes set register gas limit.
-    /// @dev See the implementation for behavior details.
-    /// @param _registerGasLimit The _registerGasLimit value.
+    /// @notice Updates the remote receive gas used for outbound registration sends.
+    /// @dev Only callable by the owner.
+    /// @param _registerGasLimit New gas limit forwarded into remote registration receive options.
     function setRegisterGasLimit(uint256 _registerGasLimit) external override onlyOwner {
         require(_registerGasLimit > 0, ZeroInput());
 

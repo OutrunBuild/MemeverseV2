@@ -25,6 +25,27 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 
+interface IRefundCallbackObserver {
+    /// @notice Handles the token refund callback emitted by the test refund token.
+    /// @dev Used to assert CEI ordering during refund-sensitive launcher flows.
+    function onRefundCallback() external;
+}
+
+contract MockLaunchSettlementHookForLauncherTest {
+    address internal settlementCaller;
+
+    constructor(address settlementCaller_) {
+        settlementCaller = settlementCaller_;
+    }
+
+    /// @notice Exposes the mock launch-settlement caller.
+    /// @dev Mirrors the hook accessor consumed by launcher-side config validation.
+    /// @return caller Mock settlement caller address.
+    function launchSettlementCaller() external view returns (address) {
+        return settlementCaller;
+    }
+}
+
 contract MockSwapRouter {
     using SafeERC20 for IERC20;
     bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
@@ -52,6 +73,27 @@ contract MockSwapRouter {
     mapping(bytes32 => LaunchSwapResult) internal launchSwapResults;
     mapping(bytes32 => uint256) internal liquidityQuoteAmountA;
     mapping(bytes32 => uint256) internal liquidityQuoteAmountB;
+    address internal immutable settlementOperator;
+    MockLaunchSettlementHookForLauncherTest internal immutable settlementHook;
+
+    constructor(address settlementOperator_) {
+        settlementOperator = settlementOperator_;
+        settlementHook = new MockLaunchSettlementHookForLauncherTest(address(this));
+    }
+
+    /// @notice Exposes the mock router settlement operator.
+    /// @dev Lets launcher tests validate the router-side settlement operator wiring.
+    /// @return operator Mock settlement operator address.
+    function launchSettlementOperator() external view returns (address) {
+        return settlementOperator;
+    }
+
+    /// @notice Exposes the mock hook used by the router.
+    /// @dev Returns the helper hook that reports this router as the settlement caller.
+    /// @return hookAddress Mock hook address.
+    function hook() external view returns (address) {
+        return address(settlementHook);
+    }
 
     function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
@@ -390,6 +432,94 @@ contract MockLiquidProof is MockERC20 {
     }
 }
 
+contract RefundCallbackToken is MockERC20 {
+    address public callbackTarget;
+
+    constructor(string memory name_, string memory symbol_) MockERC20(name_, symbol_, 18) {}
+
+    /// @notice Sets the address that should receive the refund callback.
+    /// @dev Tests point this at an observer contract to detect transfer ordering.
+    /// @param target Callback recipient triggered after successful transfers.
+    function setCallbackTarget(address target) external {
+        callbackTarget = target;
+    }
+
+    /// @notice Transfers tokens and triggers the test refund callback when needed.
+    /// @dev Calls `onRefundCallback()` only when the recipient matches `callbackTarget`.
+    /// @param to Transfer recipient.
+    /// @param amount Token amount to transfer.
+    /// @return success True when the ERC20 transfer succeeded.
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        bool success = super.transfer(to, amount);
+        if (success && to == callbackTarget) {
+            IRefundCallbackObserver(to).onRefundCallback();
+        }
+        return success;
+    }
+}
+
+contract MintPolRefundObserver is IRefundCallbackObserver {
+    MemeverseLauncher public immutable launcher;
+    IERC20 public immutable upt;
+    IERC20 public immutable memecoin;
+    IERC20 public immutable liquidProof;
+    uint256 public immutable verseId;
+    bool public sawPolDuringRefund;
+
+    constructor(MemeverseLauncher launcher_, IERC20 upt_, IERC20 memecoin_, IERC20 liquidProof_, uint256 verseId_) {
+        launcher = launcher_;
+        upt = upt_;
+        memecoin = memecoin_;
+        liquidProof = liquidProof_;
+        verseId = verseId_;
+    }
+
+    /// @notice Grants the launcher unlimited approval over the observer's test assets.
+    /// @dev Used before invoking mint flows that pull UPT and memecoin from this helper.
+    function approveLauncher() external {
+        upt.approve(address(launcher), type(uint256).max);
+        memecoin.approve(address(launcher), type(uint256).max);
+    }
+
+    /// @notice Forwards a `mintPOLToken` call through the observer contract.
+    /// @dev Lets the test observe whether POL exists before refund callbacks fire.
+    /// @param amountInUPTDesired Desired UPT spend.
+    /// @param amountInMemecoinDesired Desired memecoin spend.
+    /// @param amountInUPTMin Minimum accepted UPT spend.
+    /// @param amountInMemecoinMin Minimum accepted memecoin spend.
+    /// @param amountOutDesired Desired POL output.
+    /// @param deadline Latest valid execution timestamp.
+    /// @return amountInUPT Actual UPT spent.
+    /// @return amountInMemecoin Actual memecoin spent.
+    /// @return amountOut Actual POL minted.
+    function executeMintPOLToken(
+        uint256 amountInUPTDesired,
+        uint256 amountInMemecoinDesired,
+        uint256 amountInUPTMin,
+        uint256 amountInMemecoinMin,
+        uint256 amountOutDesired,
+        uint256 deadline
+    ) external returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
+        return launcher.mintPOLToken(
+            verseId,
+            amountInUPTDesired,
+            amountInMemecoinDesired,
+            amountInUPTMin,
+            amountInMemecoinMin,
+            amountOutDesired,
+            deadline
+        );
+    }
+
+    /// @notice Observes the refund callback and records whether POL had already been minted.
+    /// @dev Reverts unless the callback came from the memecoin refund token and POL is already present.
+    function onRefundCallback() external override {
+        require(msg.sender == address(memecoin), "unexpected callback token");
+        sawPolDuringRefund = liquidProof.balanceOf(address(this)) != 0;
+        require(sawPolDuringRefund, "POL not minted before refund");
+    }
+}
+
 contract MockPredictOnlyProxyDeployer {
     address public immutable predictedYieldVault;
     address public immutable predictedGovernor;
@@ -457,7 +587,7 @@ contract MockLzEndpointRegistry {
     mapping(uint32 chainId => uint32 endpointId) public lzEndpointIdOfChain;
 
     /// @notice Set endpoint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Mirrors the registry setter so tests can control chain/endpoint mapping.
     /// @param chainId See implementation.
     /// @param endpointId See implementation.
     function setEndpoint(uint32 chainId, uint32 endpointId) external {
@@ -475,14 +605,14 @@ contract MockOFTToken is MockERC20, IOFT {
     constructor(string memory name_, string memory symbol_) MockERC20(name_, symbol_, 18) {}
 
     /// @notice Set quote fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Stores the per-chain fee used by remote quote tests.
     /// @param nativeFee See implementation.
     function setQuoteFee(uint256 nativeFee) external {
         nextQuoteFee = MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
     }
 
     /// @notice Oft version.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Returns the IOFT interface id and mock version used by the dispatcher.
     /// @return interfaceId See implementation.
     /// @return version See implementation.
     function oftVersion() external pure returns (bytes4 interfaceId, uint64 version) {
@@ -490,28 +620,28 @@ contract MockOFTToken is MockERC20, IOFT {
     }
 
     /// @notice Token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Always returns `address(this)` because this mock represents that token.
     /// @return See implementation.
     function token() external view returns (address) {
         return address(this);
     }
 
     /// @notice Approval required.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Matches the IOFT interface by allowing immediate approval.
     /// @return See implementation.
     function approvalRequired() external pure returns (bool) {
         return false;
     }
 
     /// @notice Shared decimals.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Signals the decimals that accompany messaging fees.
     /// @return See implementation.
     function sharedDecimals() external pure returns (uint8) {
         return 6;
     }
 
     /// @notice Quote oft.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Present to satisfy the IOFT interface but left unused in these tests.
     /// @return See implementation.
     function quoteOFT(SendParam calldata)
         external
@@ -522,7 +652,7 @@ contract MockOFTToken is MockERC20, IOFT {
     }
 
     /// @notice Quote send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Returns the previously stored messaging fee for the requested payload.
     /// @param sendParam See implementation.
     /// @param payInLzToken See implementation.
     /// @return fee See implementation.
@@ -537,7 +667,7 @@ contract MockOFTToken is MockERC20, IOFT {
     }
 
     /// @notice Send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Records the last dispatch payload and returns deterministic receipts.
     /// @param sendParam See implementation.
     /// @param fee See implementation.
     /// @param refundAddress See implementation.
@@ -693,7 +823,7 @@ contract MemeverseLauncherLifecycleTest is Test {
             2_500,
             7 days
         );
-        router = new MockSwapRouter();
+        router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         upt = new MockERC20("UPT", "UPT", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
@@ -707,6 +837,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.setLzEndpointRegistry(address(registry));
     }
 
+    /// @notice Seeds the launcher state with a verse locked for staking.
+    /// @dev Populates the necessary UPT/memecoin/liquid-proof pointers for locking tests.
     function _setLockedVerse(uint256 verseId) internal {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
@@ -720,6 +852,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.setMemeverseForTest(verseId, verse);
     }
 
+    /// @notice Transitions a seeded verse from Locked to Unlocked.
+    /// @dev Reuses the locked verse fixture and flips the stage flag.
     function _setUnlockedVerse(uint256 verseId) internal {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
@@ -727,6 +861,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.setMemeverseForTest(verseId, verse);
     }
 
+    /// @notice Seeds a verse that is currently in the Genesis stage.
+    /// @dev Controls flashGenesis, endTime, and omnichain ids for change-stage tests.
     function _setGenesisVerse(uint256 verseId, bool flashGenesis, uint128 endTime) internal {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
@@ -740,6 +876,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.setMemeverseForTest(verseId, verse);
     }
 
+    /// @notice Approves the launcher to pull mint inputs for a user.
+    /// @dev Centralizes the approval pattern used by mintPOLToken scenarios.
     function _approveMintInputs(address user) internal {
         vm.startPrank(user);
         upt.approve(address(launcher), type(uint256).max);
@@ -748,6 +886,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies preview fee mapping preserves token ordering for both pools.
+    /// @dev Ensures the fee preview rearranges router outputs into semantic memecoin/UPT names.
     /// @dev Ensures the launcher maps router fee0/fee1 outputs back to semantic token names.
     function testPreviewGenesisMakerFees_MapsFeesCorrectly() external {
         uint256 verseId = 1;
@@ -763,10 +902,14 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies previewing fees reverts before the locked stage.
+    /// @dev Guards the launcher from previewing fees until after the locked-stage entry.
     /// @dev The launcher must not preview LP fees during genesis.
     function testPreviewGenesisMakerFees_RevertsWhenNotLocked() external {
         uint256 verseId = 1;
         IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(upt);
+        verse.memecoin = address(memecoin);
+        verse.liquidProof = address(liquidProof);
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         launcher.setMemeverseForTest(verseId, verse);
 
@@ -775,7 +918,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test claimable poltoken returns zero when already claimed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms the claimable view respects the `isClaimed` flag and returns zero.
     function testClaimablePOLToken_ReturnsZeroWhenAlreadyClaimed() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -790,7 +933,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test quote distribution lz fee returns zero for local governance chain.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies same-chain verses do not quote any LayerZero fee.
     function testQuoteDistributionLzFee_ReturnsZeroForLocalGovernanceChain() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -801,7 +944,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test quote distribution lz fee quotes remote gov and memecoin fees.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures remote verses aggregate the quote fees plus LayerZero bridging costs.
     function testQuoteDistributionLzFee_QuotesRemoteGovAndMemecoinFees() external {
         uint256 verseId = 1;
         MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
@@ -829,7 +972,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test quote distribution lz fee quotes only gov fee when memecoin fee is zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms remote LZ quoting still works when the memecoin fee is zero.
     function testQuoteDistributionLzFee_QuotesOnlyGovFeeWhenMemecoinFeeIsZero() external {
         uint256 verseId = 18;
         MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
@@ -856,7 +999,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test quote distribution lz fee quotes only memecoin fee when gov fee is zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Covers the remote path where the governance fee is absent but the memecoin fee remains.
     function testQuoteDistributionLzFee_QuotesOnlyMemecoinFeeWhenGovFeeIsZero() external {
         uint256 verseId = 19;
         MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
@@ -883,19 +1026,18 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies fee redemption reverts before the locked stage.
+    /// @dev Guarantees redeemAndDistributeFees cannot run until the locked stage is reached.
     /// @dev The launcher must not claim or distribute fees during genesis.
     function testRedeemAndDistributeFees_RevertsWhenNotLocked() external {
         uint256 verseId = 1;
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
-        launcher.setMemeverseForTest(verseId, verse);
+        _setGenesisVerse(verseId, false, uint128(block.timestamp + 1 days));
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
         launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
     }
 
     /// @notice Verifies expired Genesis moves to Refund when minimum funding was never met.
-    /// @dev Captures the stage-transition bug where the refund branch was unreachable.
+    /// @dev Captures the stage-transition behavior that reroutes undersubscribed Genesis to Refund.
     function testChangeStage_WhenGenesisEndedWithoutMinimumFund_MovesToRefund() external {
         uint256 verseId = 7;
         uint128 endTime = uint128(block.timestamp + 1);
@@ -911,7 +1053,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies flashGenesis can lock early once the minimum funding target is met.
-    /// @dev Confirms endTime no longer blocks the early-lock path.
+    /// @dev Confirms the flash Genesis branch bypasses endTime when the funding target is satisfied.
     function testChangeStage_WhenFlashGenesisAndMinimumFundMet_MovesToLocked() external {
         uint256 verseId = 8;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
@@ -927,7 +1069,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies successful Genesis settlement executes the launch preorder swap and unlocks preorder memecoin linearly.
-    /// @dev Covers the new launcher-managed preorder settlement path.
+    /// @dev Covers the new launcher-managed preorder settlement path and linear unlock math.
     function testChangeStage_WhenGenesisSucceedsWithPreorder_SettlesAndUnlocksLinearly() external {
         uint256 verseId = 22;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
@@ -960,7 +1102,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies non-flash Genesis cannot lock early even if the minimum funding target is met.
-    /// @dev Preserves the requirement that non-flash launches wait for endTime expiry.
+    /// @dev Preserves the requirement that non-flash launches wait for endTime expiry before locking.
     function testChangeStage_WhenNotFlashGenesisBeforeEnd_Reverts() external {
         uint256 verseId = 9;
         uint128 endTime = uint128(block.timestamp + 1 days);
@@ -973,7 +1115,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test change stage reverts at final stages.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the launcher rejects stage transitions once a verse reaches a final stage.
     function testChangeStage_RevertsAtFinalStages() external {
         uint256 verseId = 10;
         IMemeverseLauncher.Memeverse memory verse;
@@ -986,7 +1128,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test change stage locked before unlock time keeps stage locked.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Keeps the locked state until the unlockTime timestamp elapses.
     function testChangeStage_LockedBeforeUnlockTimeKeepsStageLocked() external {
         uint256 verseId = 14;
         _setLockedVerse(verseId);
@@ -1001,7 +1143,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test change stage locked after unlock time moves to unlocked.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Releases the lock once unlockTime has passed.
     function testChangeStage_LockedAfterUnlockTimeMovesToUnlocked() external {
         uint256 verseId = 20;
         _setLockedVerse(verseId);
@@ -1016,7 +1158,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test refund reverts when stage or user state invalid.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Guards refund access when the verse stage or user flags forbid it.
     function testRefund_RevertsWhenStageOrUserStateInvalid() external {
         uint256 verseId = 11;
         _setLockedVerse(verseId);
@@ -1034,7 +1176,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test refund preorder reverts when stage or user state invalid.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures preorder refunds only run during the refund stage with valid user state.
     function testRefundPreorder_RevertsWhenStageOrUserStateInvalid() external {
         uint256 verseId = 21;
         _setLockedVerse(verseId);
@@ -1052,7 +1194,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies refund preorder returns funds and marks the user as refunded.
-    /// @dev Covers the successful preorder refund path in Refund stage.
+    /// @dev Covers the successful preorder refund path, asserting balances and flags.
     function testRefundPreorder_TransfersFundsAndMarksRefunded() external {
         uint256 verseId = 23;
         _setLockedVerse(verseId);
@@ -1074,7 +1216,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies POL cannot be claimed twice for the same genesis contribution.
-    /// @dev Exposes the regression where claimed users remained fully claimable.
+    /// @dev Guards double-claim attempts by checking `isClaimed`.
     function testClaimPOLToken_RevertsWhenAlreadyClaimed() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -1093,7 +1235,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies fee redemption returns zero values when no fees are claimable.
-    /// @dev Confirms the early-return path does not mutate balances.
+    /// @dev Confirms the early-return path short-circuits without dispatching or mutating balances.
     function testRedeemAndDistributeFees_ReturnsZeroWhenNoFees() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -1108,7 +1250,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test redeem and distribute fees remote path checks lz fee and sends oft.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Validates the remote dispatch branch requires the exact LayerZero fee and calls `send`.
     function testRedeemAndDistributeFees_RemotePathChecksLzFeeAndSendsOFT() external {
         uint256 verseId = 2;
         MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
@@ -1133,7 +1275,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         remoteUpt.mint(address(launcher), 100 ether);
         remoteMemecoin.mint(address(launcher), 100 ether);
 
-        vm.expectRevert(IMemeverseLauncher.InsufficientLzFee.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseLauncher.InvalidLzFee.selector, 0.4 ether, 0));
         launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
 
         launcher.redeemAndDistributeFees{value: 0.4 ether}(verseId, REWARD_RECEIVER);
@@ -1146,8 +1288,37 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(remoteMemecoin.lastNativeFeePaid(), 0.25 ether);
     }
 
+    /// @notice Verifies remote fee redemption rejects overpayment instead of trapping extra ETH in the launcher.
+    /// @dev Requires the caller to provide the exact quoted LayerZero fee and reject overpayments.
+    function testRedeemAndDistributeFees_RemotePathRevertsWhenLzFeeIsNotExact() external {
+        uint256 verseId = 24;
+        MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
+        MockOFTToken remoteMemecoin = new MockOFTToken("MEME", "MEME");
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.UPT = address(remoteUpt);
+        verse.memecoin = address(remoteMemecoin);
+        verse.liquidProof = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = 202;
+        launcher.setMemeverseForTest(verseId, verse);
+        registry.setEndpoint(202, 302);
+
+        router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 4 ether);
+        router.setClaimQuote(address(liquidProof), address(remoteUpt), address(launcher), 0, 6 ether);
+        remoteUpt.setQuoteFee(0.15 ether);
+        remoteMemecoin.setQuoteFee(0.25 ether);
+        remoteUpt.mint(address(launcher), 100 ether);
+        remoteMemecoin.mint(address(launcher), 100 ether);
+
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseLauncher.InvalidLzFee.selector, 0.4 ether, 0.41 ether));
+        launcher.redeemAndDistributeFees{value: 0.41 ether}(verseId, REWARD_RECEIVER);
+    }
+
     /// @notice Test redeem and distribute fees remote path only gov fee skips memecoin send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures memecoin dispatch is skipped when its quote is zero in the remote path.
     function testRedeemAndDistributeFees_RemotePathOnlyGovFeeSkipsMemecoinSend() external {
         uint256 verseId = 21;
         MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
@@ -1176,7 +1347,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test redeem and distribute fees remote path only memecoin fee skips gov send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures governance dispatch is skipped when its quote is zero in the remote path.
     function testRedeemAndDistributeFees_RemotePathOnlyMemecoinFeeSkipsGovSend() external {
         uint256 verseId = 22;
         MockOFTToken remoteUpt = new MockOFTToken("UPT", "UPT");
@@ -1205,7 +1376,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test redeem and distribute fees local path with only gov fee skips memecoin dispatch.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms the local path keeps dispatcher fees aligned with the available memecoin/governance splits.
     function testRedeemAndDistributeFees_LocalPathWithOnlyGovFeeSkipsMemecoinDispatch() external {
         uint256 verseId = 15;
         _setLockedVerse(verseId);
@@ -1223,8 +1394,21 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(dispatcher.lastToken(), address(upt));
     }
 
+    /// @notice Verifies local fee redemption rejects accidental native value.
+    /// @dev Prevents stray ETH from being trapped in the launcher on same-chain paths.
+    function testRedeemAndDistributeFees_LocalPathRevertsWhenMsgValueProvided() external {
+        uint256 verseId = 25;
+        _setLockedVerse(verseId);
+
+        router.setClaimQuote(address(memecoin), address(upt), address(launcher), 9 ether, 0);
+        router.setClaimQuote(address(liquidProof), address(upt), address(launcher), 0, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseLauncher.InvalidLzFee.selector, 0, 1));
+        launcher.redeemAndDistributeFees{value: 1}(verseId, REWARD_RECEIVER);
+    }
+
     /// @notice Test redeem and distribute fees local path with only memecoin fee skips gov dispatch.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies executor rewards and gov dispatch are zero when only memecoin fees exist locally.
     function testRedeemAndDistributeFees_LocalPathWithOnlyMemecoinFeeSkipsGovDispatch() external {
         uint256 verseId = 16;
         _setLockedVerse(verseId);
@@ -1244,7 +1428,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies same-chain fee redemption claims, burns, and dispatches the expected assets.
-    /// @dev Covers the restored fee distribution flow through the mock dispatcher.
+    /// @dev Covers the restored fee distribution flow through the mock dispatcher and validates all transfers.
     function testRedeemAndDistributeFees_SameChainClaimsAndDistributesFees() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -1300,7 +1484,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies memecoin LP redemption rejects non-unlocked verses.
-    /// @dev Confirms the restored stage guard is active.
+    /// @dev Confirms the restored stage guard is active for memecoin LP claims.
     function testRedeemMemecoinLiquidity_RevertsWhenNotUnlocked() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -1331,7 +1515,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test redeem memecoin liquidity reverts when launcher lp balance insufficient.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the contract only transfers LP when it holds enough balance.
     function testRedeemMemecoinLiquidity_RevertsWhenLauncherLpBalanceInsufficient() external {
         uint256 verseId = 12;
         _setUnlockedVerse(verseId);
@@ -1358,7 +1542,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies POL LP redemption rejects accounts that already redeemed.
-    /// @dev Confirms the single-claim protection is preserved.
+    /// @dev Confirms the single-claim protection is preserved for each genesis share.
     function testRedeemPolLiquidity_RevertsWhenAlreadyRedeemed() external {
         uint256 verseId = 1;
         _setUnlockedVerse(verseId);
@@ -1395,7 +1579,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test redeem pol liquidity reverts when launcher lp balance insufficient.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the PoL LP redemption guard fires when the contract lacks enough LP tokens.
     function testRedeemPolLiquidity_RevertsWhenLauncherLpBalanceInsufficient() external {
         uint256 verseId = 13;
         _setUnlockedVerse(verseId);
@@ -1412,6 +1596,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies mintPOLToken rejects zero input budgets.
+    /// @dev Confirms zero-input guard prevents meaningless mint transactions.
     /// @dev Confirms the restored zero-input guard is active.
     function testMintPOLToken_RevertsOnZeroInput() external {
         uint256 verseId = 1;
@@ -1422,6 +1607,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Verifies mintPOLToken rejects verses before the locked stage.
+    /// @dev Confirms the stage guard blocks minting during Genesis or Refund.
     /// @dev Confirms the restored stage guard is active.
     function testMintPOLToken_RevertsWhenBeforeLocked() external {
         uint256 verseId = 1;
@@ -1435,8 +1621,38 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.mintPOLToken(verseId, 1 ether, 1 ether, 0, 0, 0, block.timestamp);
     }
 
+    /// @notice Verifies lifecycle entrypoints reject non-existent non-zero verse ids.
+    /// @dev Prevents default-slot stage errors from leaking through state-changing APIs.
+    function testLifecycleEntryPoints_RevertWhenVerseIdNotRegistered() external {
+        uint256 invalidVerseId = 999;
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.refund(invalidVerseId);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.refundPreorder(invalidVerseId);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.claimPOLToken(invalidVerseId);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.claimUnlockedPreorderMemecoin(invalidVerseId);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.redeemAndDistributeFees(invalidVerseId, REWARD_RECEIVER);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.redeemMemecoinLiquidity(invalidVerseId, 1 ether);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.redeemPolLiquidity(invalidVerseId);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.mintPOLToken(invalidVerseId, 1 ether, 1 ether, 0, 0, 0, block.timestamp);
+    }
+
     /// @notice Verifies automatic liquidity minting refunds unused inputs and mints matching POL.
-    /// @dev Covers the `amountOutDesired == 0` router path.
+    /// @dev Covers the `amountOutDesired == 0` router path to ensure refunds happen before LP minting.
     function testMintPOLToken_WithAutoLiquidity_RefundsUnusedInputsAndMintsPol() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -1462,8 +1678,42 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(memecoinLp.balanceOf(address(launcher)), 8 ether, "launcher lp");
     }
 
+    /// @notice Verifies POL is minted before refund callbacks during auto-liquidity minting.
+    /// @dev Uses a callback token to assert CEI ordering at refund time.
+    function testMintPOLToken_WithAutoLiquidity_MintsPolBeforeRefundCallback() external {
+        uint256 verseId = 1;
+        RefundCallbackToken callbackMemecoin = new RefundCallbackToken("MEME", "MEME");
+        memecoin = callbackMemecoin;
+        _setLockedVerse(verseId);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        (uint256 uptUsedParam, uint256 memecoinUsedParam) = address(upt) < address(memecoin)
+            ? (uint256(6 ether), uint256(10 ether))
+            : (uint256(10 ether), uint256(6 ether));
+        router.setAddLiquidityResult(address(upt), address(memecoin), 8 ether, uptUsedParam, memecoinUsedParam);
+
+        MintPolRefundObserver observer = new MintPolRefundObserver(
+            launcher, IERC20(address(upt)), IERC20(address(memecoin)), IERC20(address(liquidProof)), verseId
+        );
+        callbackMemecoin.setCallbackTarget(address(observer));
+
+        upt.mint(address(observer), 9 ether);
+        memecoin.mint(address(observer), 13 ether);
+        observer.approveLauncher();
+
+        (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) =
+            observer.executeMintPOLToken(9 ether, 13 ether, 5 ether, 8 ether, 0, block.timestamp);
+
+        assertEq(amountInUPT, 6 ether, "upt used");
+        assertEq(amountInMemecoin, 10 ether, "memecoin used");
+        assertEq(amountOut, 8 ether, "pol out");
+        assertTrue(observer.sawPolDuringRefund(), "refund callback should observe minted POL");
+        assertEq(liquidProof.balanceOf(address(observer)), 8 ether, "observer pol");
+    }
+
     /// @notice Verifies exact-liquidity minting uses the router quote and mints the requested POL.
-    /// @dev Covers the `amountOutDesired != 0` router path.
+    /// @dev Covers the `amountOutDesired != 0` router path and ensures quoted inputs control the mint.
     function testMintPOLToken_WithExactLiquidity_UsesRouterQuoteAndMintsRequestedPol() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
@@ -1509,7 +1759,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     }
 
     /// @notice Test mint poltoken with exact liquidity no refund path.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures no refund is issued when exact liquidity formulas match the requested output.
     function testMintPOLToken_WithExactLiquidity_NoRefundPath() external {
         uint256 verseId = 17;
         _setLockedVerse(verseId);

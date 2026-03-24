@@ -38,7 +38,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     {}
 
     /// @notice Set memeverse for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Writes directly to `memeverses` so the view tests can observe specific state.
     /// @param verseId See implementation.
     /// @param verse See implementation.
     function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
@@ -46,7 +46,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set verse id by memecoin for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Writes the inverse mapping used by the accessors under test.
     /// @param memecoin See implementation.
     /// @param verseId See implementation.
     function setVerseIdByMemecoinForTest(address memecoin, uint256 verseId) external {
@@ -54,7 +54,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set genesis fund for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Populates `genesisFunds` so view helpers can report specific totals.
     /// @param verseId See implementation.
     /// @param totalMemecoinFunds See implementation.
     /// @param totalLiquidProofFunds See implementation.
@@ -66,7 +66,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set user genesis data for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Adjusts the genesis data fields so view helpers return the expected flags.
     /// @param verseId See implementation.
     /// @param account See implementation.
     /// @param genesisFund See implementation.
@@ -87,7 +87,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set total claimable polfor test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Controls the claimable POL total observed by views.
     /// @param verseId See implementation.
     /// @param amount See implementation.
     function setTotalClaimablePOLForTest(uint256 verseId, uint256 amount) external {
@@ -95,7 +95,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set user preorder data for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Tunes the preorder ledger so clams/vesting views can read specific values.
     /// @param verseId See implementation.
     /// @param account See implementation.
     /// @param funds See implementation.
@@ -114,7 +114,7 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set preorder settlement state for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Drives the state observed by preorder claim previews.
     /// @param verseId See implementation.
     /// @param totalFunds See implementation.
     /// @param settledMemecoin See implementation.
@@ -140,7 +140,7 @@ contract MemeverseLauncherViewsTest is Test {
     MockERC20 internal uptToken;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Deploys the views-only launcher and a helper token to exercise getters.
     function setUp() external {
         launcher = new TestableMemeverseLauncherViews(
             address(this),
@@ -158,6 +158,8 @@ contract MemeverseLauncherViewsTest is Test {
         uptToken = new MockERC20("UPT", "UPT", 18);
     }
 
+    /// @notice Builds a base verse for the requested stage.
+    /// @dev Supplies consistent memecoin and UPT addresses for view tests.
     function _baseVerse(IMemeverseLauncher.Stage stage)
         internal
         view
@@ -169,7 +171,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test getter views revert on zero input and return stored state.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Exercises all public view helpers for zero-input guarding and correct state returns.
     function testGetterViewsRevertOnZeroInputAndReturnStoredState() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         verse.governor = GOVERNOR;
@@ -182,24 +184,31 @@ contract MemeverseLauncherViewsTest is Test {
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.getVerseIdByMemecoin(address(0));
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getMemeverseByVerseId(0);
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.getMemeverseByMemecoin(address(0));
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getStageByVerseId(0);
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.getStageByMemecoin(address(0));
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getYieldVaultByVerseId(0);
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getGovernorByVerseId(0);
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.claimablePOLToken(0);
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.previewGenesisMakerFees(0);
-        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.quoteDistributionLzFee(0);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.getMemeverseByVerseId(999);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.getMemeverseByMemecoin(address(0x9999));
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.quoteDistributionLzFee(999);
 
         vm.startPrank(ALICE);
         assertEq(launcher.getVerseIdByMemecoin(MEMECOIN), 1);
@@ -212,7 +221,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test genesis reverts when verse missing or paused or wrong stage and accumulates funds.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms genesis enforces id, stage, zero-input, and pause guards while still accounting for funds.
     function testGenesisRevertsWhenVerseMissingOrPausedOrWrongStageAndAccumulatesFunds() external {
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.genesis(1, 1 ether, ALICE);
@@ -246,7 +255,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test refund success marks user and transfers native fund.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Checks that refunds set the flag and return ETH when the verse is in Refund stage.
     function testRefundSuccessMarksUserAndTransfersNativeFund() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Refund);
         launcher.setMemeverseForTest(1, verse);
@@ -264,7 +273,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test claim poltoken reverts when no claimable and pause blocks lifecycle actions.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures claimPOLToken enforces pause and zero-output guards, relying on Pausable semantics.
     function testClaimPOLTokenRevertsWhenNoClaimableAndPauseBlocksLifecycleActions() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         verse.liquidProof = POL;
@@ -287,7 +296,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test preorder reverts when stage or capacity invalid.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies preorder enforces stage, non-zero input, and cap constraints.
     function testPreorderRevertsWhenNotGenesisOrCapacityExceeded() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         launcher.setMemeverseForTest(1, verse);
@@ -310,7 +319,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test claimable preorder memecoin linearly vests over seven days.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Checks that linear vesting unfolds over 7 days by warping time.
     function testClaimablePreorderMemecoin_LinearVestingOverSevenDays() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         launcher.setMemeverseForTest(1, verse);
@@ -331,7 +340,7 @@ contract MemeverseLauncherViewsTest is Test {
     }
 
     /// @notice Test claimable preorder memecoin remains pro-rata and bounded for multiple users under fuzzed inputs.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Exercises the pro-rata and total vesting bounds with bounded fuzzed inputs.
     /// @param fundsA See implementation.
     /// @param fundsB See implementation.
     /// @param settledMemecoin See implementation.
@@ -370,8 +379,16 @@ contract MemeverseLauncherViewsTest is Test {
         assertLe(claimableA + claimableB, vestedTotal, "total bounded by vested");
     }
 
+    /// @notice Verifies preorder claim previews reject non-existent non-zero verse ids.
+    /// @dev Prevents unknown verse ids from falling through to stage-based errors.
+    function testClaimablePreorderMemecoin_RevertsWhenVerseIdNotRegistered() external {
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.claimablePreorderMemecoin(999);
+    }
+
     /// @notice Test get memeverse by memecoin and stage by memecoin return stored state.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the memecoin-indexed getters match the pre-seeded verse metadata.
     function testGetMemeverseByMemecoinAndStageByMemecoinReturnStoredState() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Unlocked);
         verse.governor = GOVERNOR;

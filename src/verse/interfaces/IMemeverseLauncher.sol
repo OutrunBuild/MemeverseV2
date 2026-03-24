@@ -55,59 +55,59 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
         bool isRefunded; // Whether the user has refunded the preorder contribution
     }
 
-    /// @notice Returns the verse id registered for a memecoin.
-    /// @dev Returns zero when the memecoin is not registered.
-    /// @param memecoin The memecoin address.
-    /// @return verseId The registered verse id.
+    /// @notice Resolves a memecoin back to its registered verse id.
+    /// @dev Returns zero when the memecoin has never been registered through the launcher.
+    /// @param memecoin Memecoin address to resolve.
+    /// @return verseId Registered verse id, or zero when the memecoin is unknown.
     function getVerseIdByMemecoin(address memecoin) external view returns (uint256 verseId);
 
-    /// @notice Returns the memeverse metadata for a verse id.
-    /// @dev Callers are expected to pass a non-zero registered verse id.
-    /// @param verseId The memeverse id.
-    /// @return verse The stored memeverse metadata.
+    /// @notice Loads the full launcher metadata for a verse id.
+    /// @dev Reverts when the verse id does not map to a registered memeverse.
+    /// @param verseId Verse id to inspect.
+    /// @return verse Stored memeverse metadata.
     function getMemeverseByVerseId(uint256 verseId) external view returns (Memeverse memory verse);
 
-    /// @notice Returns the memeverse metadata for a memecoin.
-    /// @dev Returns the verse mapped from the memecoin address.
-    /// @param memecoin The memecoin address.
-    /// @return verse The stored memeverse metadata.
+    /// @notice Loads launcher metadata by memecoin address.
+    /// @dev Reverts when `memecoin` is zero or does not belong to a registered verse.
+    /// @param memecoin Memecoin address to inspect.
+    /// @return verse Stored memeverse metadata.
     function getMemeverseByMemecoin(address memecoin) external view returns (Memeverse memory verse);
 
-    /// @notice Returns the current lifecycle stage for a verse id.
-    /// @dev Callers are expected to pass a non-zero registered verse id.
-    /// @param verseId The memeverse id.
-    /// @return stage The current stage.
+    /// @notice Reads the current lifecycle stage for a verse id.
+    /// @dev Reverts when the verse id is unknown.
+    /// @param verseId Verse id to inspect.
+    /// @return stage Current launcher stage.
     function getStageByVerseId(uint256 verseId) external view returns (Stage stage);
 
-    /// @notice Returns the current lifecycle stage for a memecoin.
-    /// @dev Resolves the memecoin to its registered verse before reading the stage.
-    /// @param memecoin The memecoin address.
-    /// @return stage The current stage.
+    /// @notice Reads the current lifecycle stage for a memecoin.
+    /// @dev Resolves the memecoin into its verse id before reading launcher state.
+    /// @param memecoin Memecoin address to inspect.
+    /// @return stage Current launcher stage.
     function getStageByMemecoin(address memecoin) external view returns (Stage stage);
 
-    /// @notice Returns the yield vault configured for a verse id.
-    /// @dev Callers are expected to pass a non-zero registered verse id.
-    /// @param verseId The memeverse id.
-    /// @return yieldVault The configured yield vault.
+    /// @notice Resolves the yield vault configured for a verse id.
+    /// @dev Reverts when the verse id is unknown.
+    /// @param verseId Verse id to inspect.
+    /// @return yieldVault Configured yield-vault address.
     function getYieldVaultByVerseId(uint256 verseId) external view returns (address yieldVault);
 
-    /// @notice Returns the governor configured for a verse id.
-    /// @dev Callers are expected to pass a non-zero registered verse id.
-    /// @param verseId The memeverse id.
-    /// @return governor The configured governor.
+    /// @notice Resolves the governor configured for a verse id.
+    /// @dev Reverts when the verse id is unknown.
+    /// @param verseId Verse id to inspect.
+    /// @return governor Configured governor address.
     function getGovernorByVerseId(uint256 verseId) external view returns (address governor);
 
-    /// @notice Returns the caller's currently claimable POL amount.
-    /// @dev Uses the caller's stored genesis participation for the specified verse.
-    /// @param verseId The memeverse id.
-    /// @return claimableAmount The claimable POL amount.
+    /// @notice Quotes the caller's currently claimable POL amount.
+    /// @dev Derived from the caller's genesis participation share and any prior claim status.
+    /// @param verseId Verse id to inspect.
+    /// @return claimableAmount Claimable POL amount for the caller.
     function claimablePOLToken(uint256 verseId) external view returns (uint256 claimableAmount);
 
-    /// @notice Returns the previewed Genesis LP fee distribution.
-    /// @dev Aggregates the claimable UPT and memecoin fees across launcher-managed pools.
-    /// @param verseId The memeverse id.
-    /// @return UPTFee The previewed UPT fee amount.
-    /// @return memecoinFee The previewed memecoin fee amount.
+    /// @notice Previews the launcher-owned maker fees currently available for distribution.
+    /// @dev Aggregates fee claims across the verse's memecoin/UPT and POL/UPT pools.
+    /// @param verseId Verse id to inspect.
+    /// @return UPTFee Claimable UPT-side fee amount.
+    /// @return memecoinFee Claimable memecoin-side fee amount.
     function previewGenesisMakerFees(uint256 verseId) external view returns (uint256 UPTFee, uint256 memecoinFee);
 
     /// @notice Quotes the LayerZero fee required to distribute accrued fees.
@@ -116,48 +116,48 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @return lzFee The quoted LayerZero native fee.
     function quoteDistributionLzFee(uint256 verseId) external view returns (uint256 lzFee);
 
-    /// @notice Deposits UPT into a verse during Genesis.
-    /// @dev Splits the deposit between memecoin and liquid-proof genesis buckets.
-    /// @param verseId The memeverse id.
-    /// @param amountInUPT The contributed UPT amount.
-    /// @param user The account credited for the contribution.
+    /// @notice Contributes UPT into a verse during Genesis.
+    /// @dev The launcher splits the contribution between the memecoin and liquid-proof bootstrap buckets.
+    /// @param verseId Target verse id.
+    /// @param amountInUPT UPT amount being contributed.
+    /// @param user Account credited for the contribution.
     function genesis(uint256 verseId, uint128 amountInUPT, address user) external;
 
-    /// @notice Deposits UPT into a verse preorder pool during Genesis.
-    /// @dev The preorder pool is capped relative to the current memecoin-side genesis funds.
-    /// @param verseId The memeverse id.
-    /// @param amountInUPT The contributed UPT amount.
-    /// @param user The account credited for the contribution.
+    /// @notice Contributes UPT into the preorder pool during Genesis.
+    /// @dev Preorder capacity scales with the current memecoin-side genesis funding.
+    /// @param verseId Target verse id.
+    /// @param amountInUPT UPT amount being contributed.
+    /// @param user Account credited for the preorder participation.
     function preorder(uint256 verseId, uint128 amountInUPT, address user) external;
 
-    /// @notice Advances a verse to its next lifecycle stage when conditions are met.
-    /// @dev This may trigger pool deployment and liquidity lock flows.
-    /// @param verseId The memeverse id.
-    /// @return currentStage The stage after the transition attempt.
+    /// @notice Advances a verse to the next valid launcher stage.
+    /// @dev Depending on timing and funding, this may settle Genesis, deploy liquidity, or move into Refund/Unlocked.
+    /// @param verseId Target verse id.
+    /// @return currentStage Stage after the transition attempt.
     function changeStage(uint256 verseId) external returns (Stage currentStage);
 
-    /// @notice Refunds a caller's genesis contribution when the verse is in Refund stage.
-    /// @dev Returns the caller's refunded UPT amount.
-    /// @param verseId The memeverse id.
-    /// @return userFunds The refunded UPT amount.
+    /// @notice Refunds the caller's Genesis contribution in Refund stage.
+    /// @dev Returns the exact UPT amount previously recorded for the caller.
+    /// @param verseId Verse id being refunded.
+    /// @return userFunds Refunded UPT amount.
     function refund(uint256 verseId) external returns (uint256 userFunds);
 
-    /// @notice Refunds a caller's preorder contribution when the verse is in Refund stage.
-    /// @dev Returns the caller's refunded preorder UPT amount.
-    /// @param verseId The memeverse id.
-    /// @return preorderFund The refunded preorder UPT amount.
+    /// @notice Refunds the caller's preorder contribution in Refund stage.
+    /// @dev Returns the exact preorder UPT amount previously recorded for the caller.
+    /// @param verseId Verse id being refunded.
+    /// @return preorderFund Refunded preorder UPT amount.
     function refundPreorder(uint256 verseId) external returns (uint256 preorderFund);
 
-    /// @notice Claims the caller's POL allocation after Genesis locks.
-    /// @dev Uses the caller's stored genesis participation share for the verse.
-    /// @param verseId The memeverse id.
-    /// @return amount The claimed POL amount.
+    /// @notice Claims the caller's POL allocation once Genesis has settled.
+    /// @dev Amount is derived from the caller's recorded Genesis participation share.
+    /// @param verseId Verse id being claimed.
+    /// @return amount POL amount transferred to the caller.
     function claimPOLToken(uint256 verseId) external returns (uint256 amount);
 
-    /// @notice Returns the caller's currently claimable preorder memecoin amount.
-    /// @dev Uses the caller's stored preorder settlement data for the specified verse.
-    /// @param verseId The memeverse id.
-    /// @return amount The claimable preorder memecoin amount.
+    /// @notice Quotes how much preorder memecoin the caller can unlock right now.
+    /// @dev Uses the caller's settled preorder share and the linear vesting schedule.
+    /// @param verseId Verse id to inspect.
+    /// @return amount Currently claimable preorder memecoin amount.
     function claimablePreorderMemecoin(uint256 verseId) external view returns (uint256 amount);
 
     /// @notice Claims the caller's unlocked preorder memecoin allocation.
@@ -240,28 +240,28 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @param receiver The recipient of the dust amount.
     function removeGasDust(address receiver) external;
 
-    /// @notice Updates the swap router used by the launcher.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Repoints the launcher to a new swap router.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param memeverseSwapRouter The new router address.
     function setMemeverseSwapRouter(address memeverseSwapRouter) external;
 
-    /// @notice Updates the LayerZero endpoint registry contract.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Repoints the launcher to a new LayerZero endpoint registry.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param lzEndpointRegistry The new endpoint registry contract address.
     function setLzEndpointRegistry(address lzEndpointRegistry) external;
 
-    /// @notice Updates the registrar contract reference.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Replaces the registrar contract reference used by the launcher.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param memeverseRegistrar The new registrar address.
     function setMemeverseRegistrar(address memeverseRegistrar) external;
 
-    /// @notice Updates the proxy deployer contract reference.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Replaces the proxy deployer used for verse module deployment.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param memeverseProxyDeployer The new proxy deployer address.
     function setMemeverseProxyDeployer(address memeverseProxyDeployer) external;
 
-    /// @notice Updates the OFT dispatcher contract reference.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Replaces the OFT dispatcher contract reference.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param oftDispatcher The new OFT dispatcher address.
     function setOFTDispatcher(address oftDispatcher) external;
 
@@ -272,19 +272,19 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @param fundBasedAmount The memecoin amount minted per unit of fundraising token.
     function setFundMetaData(address upt, uint256 minTotalFund, uint256 fundBasedAmount) external;
 
-    /// @notice Updates the executor reward rate.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Updates the executor reward rate used by fee distribution.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param executorRewardRate The new reward rate in protocol ratio units.
     function setExecutorRewardRate(uint256 executorRewardRate) external;
 
-    /// @notice Updates preorder configuration parameters.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Updates the launcher-wide preorder cap and vesting configuration.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param preorderCapRatio The preorder capacity ratio in `RATIO` precision.
     /// @param preorderVestingDuration The linear vesting duration for preorder memecoin.
     function setPreorderConfig(uint256 preorderCapRatio, uint256 preorderVestingDuration) external;
 
-    /// @notice Updates the gas limits used for cross-chain operations.
-    /// @dev Expected to be restricted by the implementation's access control.
+    /// @notice Updates the gas budgets used for launcher cross-chain calls.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param oftReceiveGasLimit The gas limit used for OFT receives.
     /// @param oftDispatcherGasLimit The gas limit used for OFT compose dispatches.
     function setGasLimits(uint128 oftReceiveGasLimit, uint128 oftDispatcherGasLimit) external;
@@ -302,7 +302,7 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
         string[] calldata communities
     ) external;
 
-    /// @notice Returns the currently remaining preorder capacity for a verse.
+    /// @notice Quotes the preorder capacity still open for a verse.
     /// @dev Capacity is derived from the current memecoin-side genesis funds and the configured cap ratio.
     /// @param verseId The memeverse id.
     /// @return remaining The remaining preorder UPT capacity.
@@ -318,6 +318,8 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     error NoPOLAvailable();
 
+    error InvalidLaunchSettlementConfig();
+
     error NotRefundStage();
 
     error InvalidVerseId();
@@ -331,6 +333,8 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     error NotUnlockedStage();
 
     error InsufficientLzFee();
+
+    error InvalidLzFee(uint256 expected, uint256 actual);
 
     error ReachedFinalStage();
 

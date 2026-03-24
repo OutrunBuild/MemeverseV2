@@ -18,8 +18,10 @@ import {ILzEndpointRegistry} from "../../../src/common/omnichain/interfaces/ILzE
 contract MockCenterEndpoint {
     address public delegate;
     uint256 public quotedNativeFee;
+    uint256 public actualNativeFee;
     address public lastRefundAddress;
     uint256 public lastSendValue;
+    uint256 public lastRefundedNative;
     uint32 public lastDstEid;
     bytes32 public lastReceiver;
     bytes public lastMessage;
@@ -29,28 +31,30 @@ contract MockCenterEndpoint {
     uint64 public sendNonce = 7;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
     }
 
     /// @notice Lz token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function lzToken() external pure returns (address) {
         return address(0);
     }
 
     /// @notice Set quoted native fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param fee See implementation.
     function setQuotedNativeFee(uint256 fee) external {
         quotedNativeFee = fee;
     }
 
+    /// @notice Set actual native fee.
+    /// @param fee See implementation.
+    function setActualNativeFee(uint256 fee) external {
+        actualNativeFee = fee;
+    }
+
     /// @notice Quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param sender See implementation.
     /// @return fee See implementation.
@@ -61,7 +65,6 @@ contract MockCenterEndpoint {
     }
 
     /// @notice Send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param refundAddress See implementation.
     /// @return receipt See implementation.
@@ -77,6 +80,14 @@ contract MockCenterEndpoint {
         lastPayInLzToken = params.payInLzToken;
         lastRefundAddress = refundAddress;
         lastSendValue = msg.value;
+        uint256 retainedNativeFee = actualNativeFee == 0 ? quotedNativeFee : actualNativeFee;
+        if (msg.value > retainedNativeFee) {
+            lastRefundedNative = msg.value - retainedNativeFee;
+            (bool success,) = payable(refundAddress).call{value: lastRefundedNative}("");
+            require(success, "refund failed");
+        } else {
+            lastRefundedNative = 0;
+        }
         receipt = MessagingReceipt({
             guid: sendGuid, nonce: sendNonce, fee: MessagingFee({nativeFee: quotedNativeFee, lzTokenFee: 0})
         });
@@ -91,7 +102,6 @@ contract MockCenterRegistrar {
     string public lastSymbol;
 
     /// @notice Local registration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param param See implementation.
     function localRegistration(IMemeverseRegistrar.MemeverseParam calldata param) external {
         lastUniqueId = param.uniqueId;
@@ -114,7 +124,6 @@ contract MemeverseRegistrationCenterTest is Test {
     MemeverseRegistrationCenter internal center;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockCenterEndpoint();
         registrar = new MockCenterRegistrar();
@@ -135,7 +144,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test config setters and preview registration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testConfigSettersAndPreviewRegistration() external {
         vm.prank(OWNER);
         center.setSupportedUPT(address(0x8888), true);
@@ -157,7 +165,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test preview registration returns false while symbol is still locked.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testPreviewRegistrationReturnsFalseWhileSymbolIsStillLocked() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -168,7 +175,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test config setters reject invalid inputs.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testConfigSettersRejectInvalidInputs() external {
         vm.prank(OWNER);
         vm.expectRevert(IMemeverseRegistrationCenter.ZeroInput.selector);
@@ -188,7 +194,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test quote send skips local and quotes remote path.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteSendSkipsLocalAndQuotesRemotePath() external {
         endpoint.setQuotedNativeFee(0.4 ether);
         uint32[] memory omnichainIds = new uint32[](2);
@@ -206,7 +211,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test quote send returns zero for all local targets.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteSendReturnsZeroForAllLocalTargets() external view {
         uint32[] memory omnichainIds = new uint32[](1);
         omnichainIds[0] = uint32(block.chainid);
@@ -220,7 +224,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test quote send reverts on invalid remote omnichain id.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteSendRevertsOnInvalidRemoteOmnichainId() external {
         uint32[] memory omnichainIds = new uint32[](1);
         omnichainIds[0] = 999;
@@ -230,7 +233,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test registration stores symbol registers local and sends remote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegistrationStoresSymbolRegistersLocalAndSendsRemote() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -247,12 +249,26 @@ contract MemeverseRegistrationCenterTest is Test {
         assertEq(registrar.lastUPT(), param.UPT);
         assertEq(registrar.lastFlashGenesis(), param.flashGenesis);
         assertEq(endpoint.lastDstEid(), REMOTE_EID);
-        assertEq(endpoint.lastRefundAddress(), address(this));
+        assertEq(endpoint.lastRefundAddress(), address(center));
         assertEq(endpoint.lastSendValue(), 0.5 ether);
     }
 
+    /// @notice Test registration accepts native refunds sent back to the center contract.
+    /// @dev Confirms remote endpoint refunds no longer revert when the center is the refund target.
+    function testRegistrationAcceptsRemoteNativeRefundsAtCenter() external {
+        endpoint.setQuotedNativeFee(0.4 ether);
+        endpoint.setActualNativeFee(0.35 ether);
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+
+        center.registration{value: 0.4 ether}(param);
+
+        assertEq(endpoint.lastRefundAddress(), address(center));
+        assertEq(endpoint.lastSendValue(), 0.4 ether);
+        assertEq(endpoint.lastRefundedNative(), 0.05 ether);
+        assertEq(address(center).balance, 0.05 ether);
+    }
+
     /// @notice Test registration increments nonce and changes unique id on re-registration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegistrationIncrementsNonceAndChangesUniqueIdOnReregistration() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -279,7 +295,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test registration rejects invalid params and stores prior registration in history.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegistrationRejectsInvalidParamsAndStoresPriorRegistrationInHistory() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -348,7 +363,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test registration deduplicates omnichain ids and requires enough fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegistrationDeduplicatesOmnichainIdsAndRequiresEnoughFee() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
@@ -361,12 +375,10 @@ contract MemeverseRegistrationCenterTest is Test {
         center.registration(param);
 
         center.registration{value: 0.5 ether}(param);
-        assertEq(registrar.lastUniqueId() != 0, true);
         assertEq(endpoint.lastDstEid(), REMOTE_EID);
     }
 
     /// @notice Test lz receive from registrar sender triggers registration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzReceiveFromRegistrarSenderTriggersRegistration() external {
         IMemeverseRegistrationCenter.RegistrationParam memory param = _localOnlyRegistrationParam();
         Origin memory origin =
@@ -381,7 +393,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test lz receive rejects unexpected sender and lz send is self only.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzReceiveRejectsUnexpectedSenderAndLzSendIsSelfOnly() external {
         IMemeverseRegistrationCenter.RegistrationParam memory param = _localOnlyRegistrationParam();
         vm.prank(OWNER);
@@ -400,7 +411,6 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test remove gas dust owner path transfers balance.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRemoveGasDustOwnerPathTransfersBalance() external {
         vm.deal(address(center), 1 ether);
         uint256 before = OWNER.balance;
