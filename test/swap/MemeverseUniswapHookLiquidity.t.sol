@@ -48,10 +48,10 @@ contract MockPoolManagerForHookLiquidity {
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
 
-    /// @notice Executes initialize.
-    /// @dev See the implementation for behavior details.
-    /// @param key The key value.
-    /// @param sqrtPriceX96 The sqrtPriceX96 value.
+    /// @notice Initializes a mock pool and notifies the hook.
+    /// @dev Seeds slot0 and liquidity-related storage so the hook sees the pool as configured.
+    /// @param key Pool key being initialized.
+    /// @param sqrtPriceX96 Initial sqrt price for the pool.
     function initialize(PoolKey memory key, uint160 sqrtPriceX96) external {
         PoolId poolId = key.toId();
         slot0State[poolId] = Slot0State({sqrtPriceX96: sqrtPriceX96, tick: 0, protocolFee: 0, lpFee: 0});
@@ -60,23 +60,23 @@ contract MockPoolManagerForHookLiquidity {
         key.hooks.beforeInitialize(msg.sender, key, sqrtPriceX96);
     }
 
-    /// @notice Executes unlock.
-    /// @dev See the implementation for behavior details.
-    /// @param data The data value.
-    /// @return result The result value.
+    /// @notice Opens a temporary unlock window and forwards the callback payload.
+    /// @dev Mimics the pool-manager unlock pattern expected by router and hook tests.
+    /// @param data Encoded callback payload.
+    /// @return result Callback return data.
     function unlock(bytes calldata data) external returns (bytes memory result) {
         unlocked = true;
         result = IUnlockCallback(msg.sender).unlockCallback(data);
         unlocked = false;
     }
 
-    /// @notice Executes modify liquidity.
-    /// @dev See the implementation for behavior details.
-    /// @param key The key value.
-    /// @param params The params value.
-    /// @param hookData The hookData value.
-    /// @return delta The delta value.
-    /// @return feesAccrued The feesAccrued value.
+    /// @notice Applies a mocked liquidity modification for the pool.
+    /// @dev Returns deterministic deltas while enforcing the unlock-window guard used by the hook.
+    /// @param key Pool key being modified.
+    /// @param params Liquidity change parameters.
+    /// @param hookData Hook payload forwarded by the caller.
+    /// @return delta Principal token delta for the modification.
+    /// @return feesAccrued Fee delta, left empty in this mock.
     function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata hookData)
         external
         returns (BalanceDelta delta, BalanceDelta feesAccrued)
@@ -112,11 +112,11 @@ contract MockPoolManagerForHookLiquidity {
         delta = toBalanceDelta(int128(int256(amount0Used)), int128(int256(amount1Used)));
     }
 
-    /// @notice Executes take.
-    /// @dev See the implementation for behavior details.
-    /// @param currency The currency value.
-    /// @param to The to value.
-    /// @param amount The amount value.
+    /// @notice Pays tokens or native currency out of the mock manager.
+    /// @dev Records the recipient so tests can assert router settlement targets.
+    /// @param currency Currency being paid out.
+    /// @param to Recipient address.
+    /// @param amount Amount to transfer.
     function take(Currency currency, address to, uint256 amount) external {
         lastTakeRecipient = to;
         if (currency.isAddressZero()) {
@@ -127,51 +127,51 @@ contract MockPoolManagerForHookLiquidity {
         }
     }
 
-    /// @notice Executes sync.
-    /// @dev See the implementation for behavior details.
-    /// @param currency The currency value.
+    /// @notice Accepts a sync call from the hook test harness.
+    /// @dev This mock treats sync as a no-op while preserving interface compatibility.
+    /// @param currency Currency being synced.
     function sync(Currency currency) external pure {
         currency;
     }
 
-    /// @notice Executes settle.
-    /// @dev See the implementation for behavior details.
-    /// @return uint256 The uint256 value.
+    /// @notice Accepts settlement value from the router or hook.
+    /// @dev Mirrors the real pool-manager settle entry so ETH bookkeeping can be validated.
+    /// @return paidAmount Amount considered settled by the mock.
     function settle() external payable returns (uint256) {
         return msg.value;
     }
 
     /// @notice Returns extsload.
-    /// @dev See the implementation for behavior details.
-    /// @param slot The slot value.
-    /// @return bytes32 The bytes32 value.
+    /// @dev Exposes the mock storage slot values used by the hook.
+    /// @param slot slot.
+    /// @return Returned value.
     function extsload(bytes32 slot) external view returns (bytes32) {
         return extStorage[slot];
     }
 
     /// @notice Returns get slot0.
-    /// @dev See the implementation for behavior details.
-    /// @param poolId The poolId value.
-    /// @return uint160 The uint160 value.
-    /// @return int24 The int24 value.
-    /// @return uint24 The uint24 value.
-    /// @return uint24 The uint24 value.
+    /// @dev Lets tests observe price and fee state returned by the mock manager.
+    /// @param poolId pool id.
+    /// @return Returned value.
+    /// @return Returned value.
+    /// @return Returned value.
+    /// @return Returned value.
     function getSlot0(PoolId poolId) external view returns (uint160, int24, uint24, uint24) {
         Slot0State memory state = slot0State[poolId];
         return (state.sqrtPriceX96, state.tick, state.protocolFee, state.lpFee);
     }
 
     /// @notice Returns get liquidity.
-    /// @dev See the implementation for behavior details.
-    /// @param poolId The poolId value.
-    /// @return uint128 The uint128 value.
+    /// @dev Allows tests to assert pool liquidity matches the hook view.
+    /// @param poolId pool id.
+    /// @return Returned value.
     function getLiquidity(PoolId poolId) external view returns (uint128) {
         return liquidityState[poolId];
     }
 
     /// @notice Returns last take recipient address.
-    /// @dev See the implementation for behavior details.
-    /// @return address The address value.
+    /// @dev Observes which recipient the hook forwarded liquidity outputs to.
+    /// @return Returned value.
     function lastTakeRecipientAddress() external view returns (address) {
         return lastTakeRecipient;
     }
@@ -205,7 +205,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     PoolId internal poolId;
 
     /// @notice Executes set up.
-    /// @dev See the implementation for behavior details.
+    /// @dev Deploys the hook, router, tokens, and approvals shared by the liquidity tests.
     function setUp() public {
         mockManager = new MockPoolManagerForHookLiquidity();
         token0 = new MockERC20("Token0", "TK0", 18);
@@ -236,7 +236,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test add liquidity uses unlock flow.
-    /// @dev See the implementation for behavior details.
+    /// @dev Confirms the hook uses the unlock flow before minting liquidity.
     function testAddLiquidity_UsesUnlockFlow() external {
         uint128 liquidity = _addLiquidity();
         (address liquidityToken,,) = hook.poolInfo(poolId);
@@ -247,7 +247,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test remove liquidity uses original sender for take.
-    /// @dev See the implementation for behavior details.
+    /// @dev Ensures liquidity outputs still go back to the txn sender when no custom recipient is provided.
     function testRemoveLiquidity_UsesOriginalSenderForTake() external {
         uint128 liquidity = _addLiquidity();
         (address liquidityToken,,) = hook.poolInfo(poolId);
@@ -273,7 +273,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test add liquidity supports native input.
-    /// @dev See the implementation for behavior details.
+    /// @dev Covers the native-input branching path in the hook's addLiquidityCore helper.
     function testAddLiquidity_SupportsNativeInput() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -299,7 +299,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test add liquidity reverts on excess native value.
-    /// @dev See the implementation for behavior details.
+    /// @dev Validates the hook rejects users that send more native ETH than quoted.
     function testAddLiquidity_RevertsOnExcessNativeValue() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey);
@@ -350,7 +350,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test remove liquidity supports native output.
-    /// @dev See the implementation for behavior details.
+    /// @dev Ensures native output is forwarded through the take helper and recorded on the mock manager.
     function testRemoveLiquidity_SupportsNativeOutput() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -452,7 +452,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test router add liquidity uses hook core.
-    /// @dev See the implementation for behavior details.
+    /// @dev Confirms the router add-liquidity helper goes through the hook's liquidity plumbing.
     function testRouterAddLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
             key.currency0,
@@ -472,7 +472,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test router add liquidity refunds unused native budget.
-    /// @dev See the implementation for behavior details.
+    /// @dev Verifies the router refund path returns quoted native ETH back to the caller.
     function testRouterAddLiquidity_RefundsUnusedNativeBudget() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         PoolId nativePoolId = nativeKey.toId();
@@ -501,7 +501,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Executes test router remove liquidity uses hook core.
-    /// @dev See the implementation for behavior details.
+    /// @dev Ensures the router remove path reuses the hook core logic for exits.
     function testRouterRemoveLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
             key.currency0,
@@ -712,6 +712,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(decayDurationSeconds, 900, "duration");
     }
 
+    /// @notice Adds liquidity via the hook core to seed tests.
+    /// @dev Wraps `addLiquidityCore` to centralize the single-step liquidity setup.
     function _addLiquidity() internal returns (uint128 liquidity) {
         (liquidity,) = hook.addLiquidityCore(
             IMemeverseUniswapHook.AddLiquidityCoreParams({
@@ -724,16 +726,22 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
+    /// @notice Constructs the normalized pool key used throughout the tests.
+    /// @dev Mirrors the hook's expected pair ordering and hook wiring.
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {
         return PoolKey({
             currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(address(hook))
         });
     }
 
+    /// @notice Funds the test account and initializes a native-input pool.
+    /// @dev Ensures the hook can consume native quotes without hitting balance issues.
     function _dealAndInitializeNativePool(PoolKey memory nativeKey) internal {
         vm.deal(address(this), 1_000_000 ether);
         mockManager.initialize(nativeKey, SQRT_PRICE_1_1);
     }
 
+    /// @notice Allows the test contract to receive native refunds for hook operations.
+    /// @dev Mirrors the payable fallback path the hook might call during tests.
     receive() external payable {}
 }

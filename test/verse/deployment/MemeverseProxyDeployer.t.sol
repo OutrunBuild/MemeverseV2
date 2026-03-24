@@ -12,7 +12,6 @@ contract MockDeployerCloneable {
     uint256 public marker;
 
     /// @notice Set marker.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param marker_ See implementation.
     function setMarker(uint256 marker_) external {
         marker = marker_;
@@ -29,7 +28,6 @@ contract MockDeployerGovernor {
     address public incentivizer;
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param name_ See implementation.
     /// @param token_ See implementation.
     /// @param votingDelay_ See implementation.
@@ -61,7 +59,6 @@ contract MockDeployerIncentivizer {
     address[] public initFundTokens;
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param governor_ See implementation.
     /// @param initFundTokens_ See implementation.
     function initialize(address governor_, address[] memory initFundTokens_) external {
@@ -70,7 +67,6 @@ contract MockDeployerIncentivizer {
     }
 
     /// @notice Init fund token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param index See implementation.
     /// @return See implementation.
     function initFundToken(uint256 index) external view returns (address) {
@@ -93,7 +89,6 @@ contract MemeverseProxyDeployerTest is Test {
     MemeverseProxyDeployer internal deployer;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         memecoinImplementation = new MockDeployerCloneable();
         polImplementation = new MockDeployerCloneable();
@@ -114,7 +109,6 @@ contract MemeverseProxyDeployerTest is Test {
     }
 
     /// @notice Test clone deployments only launcher and use deterministic addresses.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testCloneDeploymentsOnlyLauncherAndUseDeterministicAddresses() external {
         uint256 uniqueId = 7;
 
@@ -140,7 +134,6 @@ contract MemeverseProxyDeployerTest is Test {
     }
 
     /// @notice Test compute governor and incentivizer matches deployed proxies and initializes them.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testComputeGovernorAndIncentivizerMatchesDeployedProxiesAndInitializesThem() external {
         uint256 uniqueId = 42;
         address UPT = address(0x1111);
@@ -176,7 +169,6 @@ contract MemeverseProxyDeployerTest is Test {
     }
 
     /// @notice Test set quorum numerator only owner and rejects zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetQuorumNumeratorOnlyOwnerAndRejectsZero() external {
         vm.prank(OTHER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));

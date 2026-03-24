@@ -27,13 +27,13 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
 
     mapping(address account => RedeemRequest[]) public redeemRequestQueues;
 
-    /// @notice Executes initialize.
-    /// @dev See the implementation for behavior details.
-    /// @param _name The _name value.
-    /// @param _symbol The _symbol value.
-    /// @param _yieldDispatcher The _yieldDispatcher value.
-    /// @param _asset The _asset value.
-    /// @param _verseId The _verseId value.
+    /// @notice Initializes the yield vault proxy.
+    /// @dev Sets ERC20 share metadata and binds the vault to one verse and one underlying memecoin.
+    /// @param _name Share token name.
+    /// @param _symbol Share token symbol.
+    /// @param _yieldDispatcher Address treated as the canonical remote-yield source.
+    /// @param _asset Underlying memecoin address.
+    /// @param _verseId Verse id associated with this vault.
     function initialize(
         string memory _name,
         string memory _symbol,
@@ -49,40 +49,40 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         verseId = _verseId;
     }
 
-    /// @notice Returns clock.
-    /// @dev See the implementation for behavior details.
-    /// @return uint48 The uint48 value.
+    /// @notice Exposes the timepoint source used by the votes extension.
+    /// @dev The vault uses block timestamps rather than block numbers.
+    /// @return Current timestamp cast into the ERC-6372 clock domain.
     function clock() public view override returns (uint48) {
         return uint48(block.timestamp);
     }
 
     // solhint-disable-next-line func-name-mixedcase
-    /// @notice Returns clock mode.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
+    /// @notice Exposes the ERC-6372 clock mode string.
+    /// @dev Advertises timestamp-based governance checkpoints.
+    /// @return Clock mode descriptor.
     function CLOCK_MODE() public pure override returns (string memory) {
         return "mode=timestamp";
     }
 
-    /// @notice Returns preview deposit.
-    /// @dev See the implementation for behavior details.
-    /// @param assets The assets value.
-    /// @return uint256 The uint256 value.
+    /// @notice Preview how many vault shares a deposit would mint at the current rate.
+    /// @dev Does not transfer assets or mutate share supply.
+    /// @param assets Amount of underlying asset to deposit.
+    /// @return Shares that would be minted.
     function previewDeposit(uint256 assets) external view override returns (uint256) {
         return _convertToShares(assets, totalAssets);
     }
 
-    /// @notice Returns preview redeem.
-    /// @dev See the implementation for behavior details.
-    /// @param shares The shares value.
-    /// @return uint256 The uint256 value.
+    /// @notice Preview how many underlying assets redeeming `shares` would release at today's rate.
+    /// @dev Uses the current exchange rate without mutating any redemption queue state.
+    /// @param shares Amount of vault shares to redeem.
+    /// @return Underlying asset amount represented by `shares`.
     function previewRedeem(uint256 shares) external view override returns (uint256) {
         return _convertToAssets(shares, totalAssets);
     }
 
-    /// @notice Executes accumulate yields.
-    /// @dev See the implementation for behavior details.
-    /// @param yield The yield value.
+    /// @notice Pulls new yield into the vault and updates share pricing.
+    /// @dev Burns the supplied yield if no shares exist yet, preventing the first depositor from capturing it.
+    /// @param yield Amount of underlying asset contributed as yield.
     function accumulateYields(uint256 yield) external override {
         address msgSender = msg.sender;
         IERC20(asset).safeTransferFrom(msgSender, address(this), yield);
@@ -92,7 +92,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     /// @notice Retries yield accumulation after a LayerZero compose call to `accumulateYields` failed.
     /// @dev Uses `lzGuid` to withdraw the unexecuted cross-chain yield transfer and then applies the normal local
     ///      accumulation path.
-    /// @param lzGuid The lzGuid value.
+    /// @param lzGuid LayerZero guid.
     function reAccumulateYields(bytes32 lzGuid) external override {
         uint256 yield = IOFTCompose(asset).withdrawIfNotExecuted(lzGuid, address(this));
         _accumulateYield(yieldDispatcher, yield);
@@ -112,11 +112,11 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         }
     }
 
-    /// @notice Executes deposit.
-    /// @dev See the implementation for behavior details.
-    /// @param assets The assets value.
-    /// @param receiver The receiver value.
-    /// @return uint256 The uint256 value.
+    /// @notice Deposits underlying asset and mints vault shares to `receiver`.
+    /// @dev Share minting uses the current `totalAssets` exchange rate before the new deposit is added.
+    /// @param assets Amount of underlying asset to deposit.
+    /// @param receiver Recipient of the minted shares.
+    /// @return shares Shares minted for the deposit.
     function deposit(uint256 assets, address receiver) external override returns (uint256) {
         uint256 shares = _convertToShares(assets, totalAssets);
         _deposit(msg.sender, receiver, assets, shares);
@@ -124,11 +124,11 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         return shares;
     }
 
-    /// @notice Executes request redeem.
-    /// @dev See the implementation for behavior details.
-    /// @param shares The shares value.
-    /// @param receiver The receiver value.
-    /// @return uint256 The uint256 value.
+    /// @notice Burns shares and queues a delayed redemption for `receiver`.
+    /// @dev The queued asset amount is fixed at request time and later unlocked by `executeRedeem`.
+    /// @param shares Amount of shares to burn into the redemption queue.
+    /// @param receiver Account that will later receive the underlying asset.
+    /// @return assets Underlying asset amount locked into the redemption request.
     function requestRedeem(uint256 shares, address receiver) external override returns (uint256) {
         require(receiver != address(0), ZeroAddress());
 
@@ -140,9 +140,9 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         return assets;
     }
 
-    /// @notice Executes execute redeem.
-    /// @dev See the implementation for behavior details.
-    /// @return redeemedAmount The redeemedAmount value.
+    /// @notice Redeems every matured request owned by the caller.
+    /// @dev Requests that have not yet passed `REDEEM_DELAY` remain queued for future calls.
+    /// @return redeemedAmount Total underlying asset amount transferred to the caller.
     function executeRedeem() external override returns (uint256 redeemedAmount) {
         RedeemRequest[] storage requestQueue = redeemRequestQueues[msg.sender];
 
@@ -202,10 +202,10 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         super._update(from, to, value);
     }
 
-    /// @notice Returns nonces.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @return uint256 The uint256 value.
+    /// @notice Exposes the permit nonce for `owner`.
+    /// @dev Exposes the shared nonce source used by ERC20 Permit and voting signatures.
+    /// @param owner Account whose nonce is being queried.
+    /// @return Current nonce value.
     function nonces(address owner) public view override(OutrunERC20PermitInit, OutrunNoncesInit) returns (uint256) {
         return super.nonces(owner);
     }

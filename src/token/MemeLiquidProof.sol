@@ -27,13 +27,13 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunOFTInit {
      */
     constructor(address _lzEndpoint) OutrunOFTInit(_lzEndpoint) {}
 
-    /// @notice Executes initialize.
-    /// @dev See the implementation for behavior details.
-    /// @param name_ The name_ value.
-    /// @param symbol_ The symbol_ value.
-    /// @param memecoin_ The memecoin_ value.
-    /// @param memeverseLauncher_ The memeverseLauncher_ value.
-    /// @param delegate_ The delegate_ value.
+    /// @notice Initializes the liquid-proof token proxy.
+    /// @dev Sets OFT metadata, links the paired memecoin, and records the launcher that governs minting and pool setup.
+    /// @param name_ Human-readable token name.
+    /// @param symbol_ Token ticker symbol.
+    /// @param memecoin_ Paired memecoin address for this POL token.
+    /// @param memeverseLauncher_ Launcher allowed to mint and configure this token.
+    /// @param delegate_ Delegate that receives initial ownership and LayerZero admin rights.
     function initialize(
         string memory name_,
         string memory symbol_,
@@ -48,40 +48,36 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunOFTInit {
         memeverseLauncher = memeverseLauncher_;
     }
 
-    /// @notice Executes set pool id.
-    /// @dev See the implementation for behavior details.
-    /// @param _poolId The _poolId value.
+    /// @notice Records the Uniswap pool managed by this POL token.
+    /// @dev Only the launcher may set the pool id after liquidity deployment.
+    /// @param _poolId Pool identifier associated with POL liquidity.
     function setPoolId(PoolId _poolId) external override onlyMemeverseLauncher {
         poolId = _poolId;
     }
 
-    /**
-     * @dev Mint the memeverse proof.
-     * @param account - The address of the account.
-     * @param amount - The amount of the memeverse proof.
-     * @notice Only the memeverse launcher can mint the memeverse proof.
-     */
+    /// @notice Mints POL to `account`.
+    /// @dev Only the launcher may mint.
+    /// @param account Recipient of the newly minted POL.
+    /// @param amount Amount of POL to mint.
     function mint(address account, uint256 amount) external override onlyMemeverseLauncher {
         require(amount != 0, ZeroInput());
 
         _mint(account, amount);
     }
 
-    /**
-     * @dev Burn the memecoin liquid proof.
-     * @param account - The address of the account.
-     * @param amount - The amount of the memecoin liquid proof.
-     * @notice User must have approved msg.sender to spend UPT
-     */
+    /// @notice Burns POL from `account`, spending allowance when called by a third party.
+    /// @dev Used by launcher and redemption flows that may burn on behalf of a holder.
+    /// @param account Account whose POL is being burned.
+    /// @param amount Amount of POL to burn.
     function burn(address account, uint256 amount) external {
         require(amount != 0, ZeroInput());
         if (msg.sender != account) _spendAllowance(account, msg.sender, amount);
         _burn(account, amount);
     }
 
-    /// @notice Executes burn.
-    /// @dev See the implementation for behavior details.
-    /// @param amount The amount value.
+    /// @notice Burns POL from the caller.
+    /// @dev Convenience overload for self-burn flows.
+    /// @param amount Amount of POL to burn.
     function burn(uint256 amount) external {
         require(amount != 0, ZeroInput());
         _burn(msg.sender, amount);

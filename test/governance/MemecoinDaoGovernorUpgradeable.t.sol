@@ -15,7 +15,6 @@ contract MockGovernorVotesToken is IVotes {
     uint256 internal totalSupplyVotes = 1_000 ether;
 
     /// @notice Set votes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @param amount See implementation.
     function setVotes(address account, uint256 amount) external {
@@ -23,7 +22,6 @@ contract MockGovernorVotesToken is IVotes {
     }
 
     /// @notice Get votes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @return See implementation.
     function getVotes(address account) external view returns (uint256) {
@@ -31,7 +29,6 @@ contract MockGovernorVotesToken is IVotes {
     }
 
     /// @notice Get past votes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @param timepoint See implementation.
     /// @return See implementation.
@@ -41,7 +38,6 @@ contract MockGovernorVotesToken is IVotes {
     }
 
     /// @notice Get past total supply.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param timepoint See implementation.
     /// @return See implementation.
     function getPastTotalSupply(uint256 timepoint) external view returns (uint256) {
@@ -50,7 +46,6 @@ contract MockGovernorVotesToken is IVotes {
     }
 
     /// @notice Delegates.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @return See implementation.
     function delegates(address account) external pure returns (address) {
@@ -58,14 +53,12 @@ contract MockGovernorVotesToken is IVotes {
     }
 
     /// @notice Delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegatee See implementation.
     function delegate(address delegatee) external pure {
         delegatee;
     }
 
     /// @notice Delegate by sig.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegatee See implementation.
     /// @param nonce See implementation.
     /// @param expiry See implementation.
@@ -85,14 +78,12 @@ contract MockGovernorVotesToken is IVotes {
     }
 
     /// @notice Clock.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function clock() external view returns (uint48) {
         return uint48(block.number);
     }
 
     /// @notice Clock mode.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return See implementation.
     function CLOCK_MODE() external pure returns (string memory) {
         return "mode=blocknumber&from=default";
@@ -109,7 +100,6 @@ contract MockGovernorIncentivizer {
     uint256 public lastVoteAmount;
 
     /// @notice Receive treasury income.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param token See implementation.
     /// @param amount See implementation.
     function receiveTreasuryIncome(address token, uint256 amount) external {
@@ -118,7 +108,6 @@ contract MockGovernorIncentivizer {
     }
 
     /// @notice Send treasury assets.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param token See implementation.
     /// @param to See implementation.
     /// @param amount See implementation.
@@ -129,7 +118,6 @@ contract MockGovernorIncentivizer {
     }
 
     /// @notice Accum cycle votes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @param votes See implementation.
     function accumCycleVotes(address account, uint256 votes) external {
@@ -149,7 +137,6 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
     MockERC20 internal treasuryToken;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new MemecoinDaoGovernorUpgradeable();
         votesToken = new MockGovernorVotesToken();
@@ -170,7 +157,6 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
     }
 
     /// @notice Test initialize exposes incentivizer and governor metadata.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeExposesIncentivizerAndGovernorMetadata() external view {
         assertEq(governor.governanceCycleIncentivizer(), address(incentivizer));
         assertEq(governor.name(), "Memecoin DAO");
@@ -180,7 +166,6 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
     }
 
     /// @notice Test receive treasury income notifies incentivizer and pulls tokens.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testReceiveTreasuryIncomeNotifiesIncentivizerAndPullsTokens() external {
         treasuryToken.mint(address(this), 10 ether);
         treasuryToken.approve(address(governor), type(uint256).max);
@@ -193,7 +178,6 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
     }
 
     /// @notice Test propose blocks second unfinalized proposal and allows after defeat.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testProposeBlocksSecondUnfinalizedProposalAndAllowsAfterDefeat() external {
         (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _proposalPayload();
 
@@ -213,7 +197,6 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
     }
 
     /// @notice Test cast vote accumulates cycle votes on incentivizer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testCastVoteAccumulatesCycleVotesOnIncentivizer() external {
         (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _proposalPayload();
 
@@ -229,7 +212,6 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
     }
 
     /// @notice Test send treasury assets requires governance executor and transfers tokens.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSendTreasuryAssetsRequiresGovernanceExecutorAndTransfersTokens() external {
         treasuryToken.mint(address(governor), 10 ether);
 

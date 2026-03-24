@@ -13,13 +13,11 @@ contract LzEndpointRegistryTest is Test {
     LzEndpointRegistry internal registry;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         registry = new LzEndpointRegistry(OWNER);
     }
 
     /// @notice Test set lz endpoint ids stores valid pairs and ignores zero values.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetLzEndpointIdsStoresValidPairsAndIgnoresZeroValues() external {
         ILzEndpointRegistry.LzEndpointIdPair[] memory pairs = new ILzEndpointRegistry.LzEndpointIdPair[](4);
         pairs[0] = ILzEndpointRegistry.LzEndpointIdPair({chainId: 1, endpointId: 101});
@@ -36,7 +34,6 @@ contract LzEndpointRegistryTest is Test {
     }
 
     /// @notice Test set lz endpoint ids only owner.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetLzEndpointIdsOnlyOwner() external {
         ILzEndpointRegistry.LzEndpointIdPair[] memory pairs = new ILzEndpointRegistry.LzEndpointIdPair[](1);
         pairs[0] = ILzEndpointRegistry.LzEndpointIdPair({chainId: 1, endpointId: 101});

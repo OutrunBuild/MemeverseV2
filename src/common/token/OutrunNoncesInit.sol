@@ -31,10 +31,10 @@ abstract contract OutrunNoncesInit is Initializable {
 
     function __OutrunNonces_init_unchained() internal onlyInitializing {}
 
-    /// @notice Returns nonces.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads the next nonce that `owner` can spend.
+    /// @dev The nonce increases monotonically after each successful signed action.
+    /// @param owner Account to query.
+    /// @return nonce Current nonce value for `owner`.
     function nonces(address owner) public view virtual returns (uint256) {
         NoncesStorage storage $ = _getNoncesStorage();
         return $._nonces[owner];

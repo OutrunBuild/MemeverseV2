@@ -13,7 +13,6 @@ contract MockOAppReceiverEndpoint {
     address public delegate;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
@@ -30,7 +29,6 @@ contract OAppReceiverHarness is OutrunOAppReceiverInit {
     constructor(address endpoint_) OutrunOAppCoreInit(endpoint_) {}
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner_ See implementation.
     /// @param delegate_ See implementation.
     function initialize(address owner_, address delegate_) external initializer {
@@ -63,7 +61,6 @@ contract OutrunOAppReceiverInitTest is Test {
     OAppReceiverHarness internal harness;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockOAppReceiverEndpoint();
         implementation = new OAppReceiverHarness(address(endpoint));
@@ -72,7 +69,6 @@ contract OutrunOAppReceiverInitTest is Test {
     }
 
     /// @notice Test allow initialize path and compose sender checks.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testAllowInitializePathAndComposeSenderChecks() external view {
         Origin memory origin = Origin({srcEid: SRC_EID, sender: PEER, nonce: 1});
 
@@ -83,7 +79,6 @@ contract OutrunOAppReceiverInitTest is Test {
     }
 
     /// @notice Test lz receive requires endpoint and matching peer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzReceiveRequiresEndpointAndMatchingPeer() external {
         Origin memory origin = Origin({srcEid: SRC_EID, sender: PEER, nonce: 1});
 
@@ -103,7 +98,6 @@ contract OutrunOAppReceiverInitTest is Test {
     }
 
     /// @notice Test lz receive dispatches message when endpoint and peer match.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzReceiveDispatchesMessageWhenEndpointAndPeerMatch() external {
         Origin memory origin = Origin({srcEid: SRC_EID, sender: PEER, nonce: 1});
 

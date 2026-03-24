@@ -17,7 +17,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     MockERC20 internal tokenB;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new GovernanceCycleIncentivizerUpgradeable();
         tokenA = new MockERC20("TokenA", "TKA", 18);
@@ -40,7 +39,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test initialize seeds cycle and treasury metadata.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeSeedsCycleAndTreasuryMetadata() external view {
         (
             uint128 currentCycleId,
@@ -59,7 +57,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test view helpers return false or zero when cycle has no matching data.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testViewHelpersReturnFalseOrZeroWhenCycleHasNoMatchingData() external view {
         assertFalse(incentivizer.isTreasuryToken(1, address(tokenB)));
         assertFalse(incentivizer.isRewardToken(1, address(tokenB)));
@@ -77,7 +74,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test historical view helpers read frozen lists after finalize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testHistoricalViewHelpersReadFrozenListsAfterFinalize() external {
         tokenA.mint(address(incentivizer), 100 ether);
         tokenB.mint(address(incentivizer), 40 ether);
@@ -114,7 +110,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test governance registration guards and token lists.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testGovernanceRegistrationGuardsAndTokenLists() external {
         vm.prank(OTHER);
         vm.expectRevert(IGovernanceCycleIncentivizer.PermissionDenied.selector);
@@ -143,7 +138,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test register treasury token respects max list size.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegisterTreasuryTokenRespectsMaxListSize() external {
         for (uint256 i = 0; i < incentivizer.MAX_TOKENS_LIMIT() - 1; i++) {
             MockERC20 extra = new MockERC20("Extra", "EXT", 18);
@@ -156,7 +150,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test register reward token rejects zero input and duplicate token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testRegisterRewardTokenRejectsZeroInputAndDuplicateToken() external {
         vm.expectRevert(IGovernanceCycleIncentivizer.ZeroInput.selector);
         incentivizer.registerRewardToken(address(0));
@@ -168,7 +161,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test unregister functions reject non registered tokens.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testUnregisterFunctionsRejectNonRegisteredTokens() external {
         vm.expectRevert(IGovernanceCycleIncentivizer.NonRegisteredToken.selector);
         incentivizer.unregisterRewardToken(address(tokenB));
@@ -178,7 +170,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test unregister treasury token also removes reward registration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testUnregisterTreasuryTokenAlsoRemovesRewardRegistration() external {
         incentivizer.registerTreasuryToken(address(tokenB));
         incentivizer.registerRewardToken(address(tokenB));
@@ -190,7 +181,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test unregister treasury token without reward registration keeps other reward list untouched.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testUnregisterTreasuryTokenWithoutRewardRegistrationKeepsOtherRewardListUntouched() external {
         incentivizer.registerTreasuryToken(address(tokenB));
 
@@ -201,7 +191,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test receive and send treasury assets track balances.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testReceiveAndSendTreasuryAssetsTrackBalances() external {
         tokenA.mint(address(this), 100 ether);
 
@@ -226,7 +215,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test send treasury assets rejects zero input and non treasury token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSendTreasuryAssetsRejectsZeroInputAndNonTreasuryToken() external {
         vm.expectRevert(IGovernanceCycleIncentivizer.ZeroInput.selector);
         incentivizer.sendTreasuryAssets(address(0), OTHER, 1 ether);
@@ -236,7 +224,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test send treasury assets reverts when recorded balance exceeds actual holdings.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSendTreasuryAssetsRevertsWhenRecordedBalanceExceedsActualHoldings() external {
         incentivizer.receiveTreasuryIncome(address(tokenA), 10 ether);
 
@@ -245,7 +232,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test finalize current cycle distributes rewards and starts next cycle.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testFinalizeCurrentCycleDistributesRewardsAndStartsNextCycle() external {
         tokenA.mint(address(incentivizer), 100 ether);
 
@@ -264,7 +250,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test finalize current cycle reverts before end and carries undistributed rewards forward.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testFinalizeCurrentCycleRevertsBeforeEndAndCarriesUndistributedRewardsForward() external {
         tokenA.mint(address(incentivizer), 100 ether);
         incentivizer.registerRewardToken(address(tokenA));
@@ -282,7 +267,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test finalize next cycle carries forward unclaimed rewards into treasury.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testFinalizeNextCycleCarriesForwardUnclaimedRewardsIntoTreasury() external {
         tokenA.mint(address(incentivizer), 100 ether);
         incentivizer.registerRewardToken(address(tokenA));
@@ -302,7 +286,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test finalize with reward token but no votes keeps treasury balance undistributed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testFinalizeWithRewardTokenButNoVotesKeepsTreasuryBalanceUndistributed() external {
         tokenA.mint(address(incentivizer), 100 ether);
         incentivizer.registerRewardToken(address(tokenA));
@@ -317,7 +300,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test claim reward transfers previous cycle rewards.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testClaimRewardTransfersPreviousCycleRewards() external {
         tokenA.mint(address(incentivizer), 100 ether);
 
@@ -337,7 +319,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test claim reward reverts without votes and supports partial rewards across users.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testClaimRewardRevertsWithoutVotesAndSupportsPartialRewardsAcrossUsers() external {
         vm.prank(OTHER);
         vm.expectRevert(IGovernanceCycleIncentivizer.PermissionDenied.selector);
@@ -364,7 +345,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test claim reward clears votes even when rounded reward is zero.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testClaimRewardClearsVotesEvenWhenRoundedRewardIsZero() external {
         tokenA.mint(address(incentivizer), 1 ether);
         incentivizer.registerRewardToken(address(tokenA));
@@ -381,7 +361,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test accum cycle votes requires governance.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testAccumCycleVotesRequiresGovernance() external {
         vm.prank(OTHER);
         vm.expectRevert(IGovernanceCycleIncentivizer.PermissionDenied.selector);
@@ -389,7 +368,6 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 
     /// @notice Test update reward ratio checks bounds.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testUpdateRewardRatioChecksBounds() external {
         vm.prank(OTHER);
         vm.expectRevert(IGovernanceCycleIncentivizer.PermissionDenied.selector);

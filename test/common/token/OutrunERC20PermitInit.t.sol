@@ -11,7 +11,6 @@ contract PermitHarness is OutrunERC20PermitInit {
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param name_ See implementation.
     /// @param symbol_ See implementation.
     function initialize(string memory name_, string memory symbol_) external initializer {
@@ -20,7 +19,6 @@ contract PermitHarness is OutrunERC20PermitInit {
     }
 
     /// @notice Mint test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param to See implementation.
     /// @param amount See implementation.
     function mintTest(address to, uint256 amount) external {
@@ -28,7 +26,6 @@ contract PermitHarness is OutrunERC20PermitInit {
     }
 
     /// @notice Permit digest.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner See implementation.
     /// @param spender See implementation.
     /// @param value See implementation.
@@ -55,7 +52,6 @@ contract OutrunERC20PermitInitTest is Test {
     PermitHarness internal token;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new PermitHarness();
         token = PermitHarness(address(implementation).clone());
@@ -63,7 +59,6 @@ contract OutrunERC20PermitInitTest is Test {
     }
 
     /// @notice Test initialize sets metadata and domain separator.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeSetsMetadataAndDomainSeparator() external view {
         assertEq(token.name(), "Permit Token");
         assertEq(token.symbol(), "PRM");
@@ -77,7 +72,6 @@ contract OutrunERC20PermitInitTest is Test {
     }
 
     /// @notice Test permit sets allowance and consumes nonce.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testPermitSetsAllowanceAndConsumesNonce() external {
         uint256 deadline = block.timestamp + 1 days;
         bytes32 digest = token.permitDigest(OWNER, SPENDER, 7 ether, deadline);
@@ -90,7 +84,6 @@ contract OutrunERC20PermitInitTest is Test {
     }
 
     /// @notice Test permit rejects expired or invalid signer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testPermitRejectsExpiredOrInvalidSigner() external {
         bytes32 digest = token.permitDigest(OWNER, SPENDER, 7 ether, block.timestamp + 1 days);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(OWNER_PK, digest);

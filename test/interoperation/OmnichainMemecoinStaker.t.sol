@@ -17,7 +17,6 @@ contract MockStakerComposeToken is MockERC20, IOFTCompose, IBurnable {
     constructor() MockERC20("Memecoin", "MEME", 18) {}
 
     /// @notice Get compose tx executed status.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @return See implementation.
     function getComposeTxExecutedStatus(bytes32 guid) external view returns (bool) {
@@ -25,7 +24,6 @@ contract MockStakerComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Notify compose executed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     function notifyComposeExecuted(bytes32 guid) external {
         executedStatus[guid] = true;
@@ -33,7 +31,6 @@ contract MockStakerComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Withdraw if not executed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @param account See implementation.
     /// @return See implementation.
@@ -44,14 +41,12 @@ contract MockStakerComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Burn.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amount See implementation.
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
 
     /// @notice Set executed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @param executed See implementation.
     function setExecuted(bytes32 guid, bool executed) external {
@@ -64,7 +59,6 @@ contract MockStakerYieldVault {
     address public lastDepositReceiver;
 
     /// @notice Deposit.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amount See implementation.
     /// @param receiver See implementation.
     /// @return shares See implementation.
@@ -84,7 +78,6 @@ contract OmnichainMemecoinStakerTest is Test {
     MockStakerYieldVault internal yieldVault;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         staker = new OmnichainMemecoinStaker(LOCAL_ENDPOINT);
         memecoin = new MockStakerComposeToken();
@@ -92,7 +85,6 @@ contract OmnichainMemecoinStakerTest is Test {
     }
 
     /// @notice Test lz compose rejects unauthorized caller and already executed guid.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzComposeRejectsUnauthorizedCallerAndAlreadyExecutedGuid() external {
         vm.expectRevert(IOmnichainMemecoinStaker.PermissionDenied.selector);
         staker.lzCompose(address(memecoin), bytes32(0), "", address(0), "");
@@ -112,7 +104,6 @@ contract OmnichainMemecoinStakerTest is Test {
     }
 
     /// @notice Test lz compose deposits into yield vault when vault exists.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzComposeDepositsIntoYieldVaultWhenVaultExists() external {
         bytes32 guid = bytes32("stake");
         memecoin.mint(address(staker), 3 ether);
@@ -133,7 +124,6 @@ contract OmnichainMemecoinStakerTest is Test {
     }
 
     /// @notice Test lz compose refunds receiver when vault is eoa.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzComposeRefundsReceiverWhenVaultIsEoa() external {
         bytes32 guid = bytes32("refund");
         memecoin.mint(address(staker), 2 ether);

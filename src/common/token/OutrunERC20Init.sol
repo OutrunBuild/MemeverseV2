@@ -49,84 +49,84 @@ abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC
         $._symbol = symbol_;
     }
 
-    /// @notice Returns name.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
+    /// @notice Reads the token's display name.
+    /// @dev This metadata is fixed during initialization.
+    /// @return tokenName Human-readable token name.
     function name() public view virtual returns (string memory) {
         ERC20Storage storage $ = _getERC20Storage();
         return $._name;
     }
 
-    /// @notice Returns symbol.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
+    /// @notice Reads the token's ticker symbol.
+    /// @dev This metadata is fixed during initialization.
+    /// @return tokenSymbol Short ticker-style token symbol.
     function symbol() public view virtual returns (string memory) {
         ERC20Storage storage $ = _getERC20Storage();
         return $._symbol;
     }
 
-    /// @notice Returns decimals.
-    /// @dev See the implementation for behavior details.
-    /// @return uint8 The uint8 value.
+    /// @notice Exposes the decimal precision used for display and accounting.
+    /// @dev The default implementation always returns `18`.
+    /// @return tokenDecimals Number of decimals for UI/display conversions.
     function decimals() public view virtual returns (uint8) {
         return 18;
     }
 
-    /// @notice Returns total supply.
-    /// @dev See the implementation for behavior details.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads the current total token supply.
+    /// @dev Includes all minted tokens minus burned tokens.
+    /// @return supply Total outstanding supply.
     function totalSupply() public view virtual returns (uint256) {
         ERC20Storage storage $ = _getERC20Storage();
         return $._totalSupply;
     }
 
-    /// @notice Returns balance of.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads an account's token balance.
+    /// @dev Balance is returned directly from ERC20 storage.
+    /// @param account Account to query.
+    /// @return balance Current token balance of `account`.
     function balanceOf(address account) public view virtual returns (uint256) {
         ERC20Storage storage $ = _getERC20Storage();
         return $._balances[account];
     }
 
-    /// @notice Executes transfer.
-    /// @dev See the implementation for behavior details.
-    /// @param to The to value.
-    /// @param value The value value.
-    /// @return bool The bool value.
+    /// @notice Transfers `value` tokens from the caller to `to`.
+    /// @dev Reverts when sender balance is insufficient or `to` is zero address.
+    /// @param to Recipient address.
+    /// @param value Amount of tokens to transfer.
+    /// @return success Always returns `true` on success.
     function transfer(address to, uint256 value) public virtual returns (bool) {
         address owner = msg.sender;
         _transfer(owner, to, value);
         return true;
     }
 
-    /// @notice Returns allowance.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @param spender The spender value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads how much allowance `spender` still has from `owner`.
+    /// @dev Value is reduced by `transferFrom` unless it is `type(uint256).max`.
+    /// @param owner Token owner granting allowance.
+    /// @param spender Spender allowed to use owner's tokens.
+    /// @return remaining Current approved allowance.
     function allowance(address owner, address spender) public view virtual returns (uint256) {
         ERC20Storage storage $ = _getERC20Storage();
         return $._allowances[owner][spender];
     }
 
-    /// @notice Executes approve.
-    /// @dev See the implementation for behavior details.
-    /// @param spender The spender value.
-    /// @param value The value value.
-    /// @return bool The bool value.
+    /// @notice Approves `spender` to spend up to `value` from caller's balance.
+    /// @dev Emits an `Approval` event through `_approve`.
+    /// @param spender Address allowed to spend tokens.
+    /// @param value New allowance amount.
+    /// @return success Always returns `true` on success.
     function approve(address spender, uint256 value) public virtual returns (bool) {
         address owner = msg.sender;
         _approve(owner, spender, value);
         return true;
     }
 
-    /// @notice Executes transfer from.
-    /// @dev See the implementation for behavior details.
-    /// @param from The from value.
-    /// @param to The to value.
-    /// @param value The value value.
-    /// @return bool The bool value.
+    /// @notice Transfers `value` tokens from `from` to `to` using caller allowance.
+    /// @dev Spends allowance first, then performs the token transfer.
+    /// @param from Address tokens are taken from.
+    /// @param to Recipient address.
+    /// @param value Amount of tokens to transfer.
+    /// @return success Always returns `true` on success.
     function transferFrom(address from, address to, uint256 value) public virtual returns (bool) {
         address spender = msg.sender;
         _spendAllowance(from, spender, value);

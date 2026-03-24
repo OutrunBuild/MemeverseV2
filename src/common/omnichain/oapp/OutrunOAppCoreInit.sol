@@ -52,19 +52,19 @@ abstract contract OutrunOAppCoreInit is IOAppCore, OutrunOwnableInit {
         endpoint.setDelegate(_delegate);
     }
 
-    /// @notice Returns peers.
-    /// @dev See the implementation for behavior details.
-    /// @param _eid The _eid value.
-    /// @return bytes32 The bytes32 value.
+    /// @notice Exposes the trusted peer configured for endpoint `_eid`.
+    /// @dev Returns `bytes32(0)` when no peer has been configured.
+    /// @param _eid LayerZero endpoint ID.
+    /// @return peer Encoded peer address for `_eid`.
     function peers(uint32 _eid) public view override returns (bytes32) {
         OAppCoreStorage storage $ = _getOAppCoreStorage();
         return $.peers[_eid];
     }
 
-    /// @notice Executes set peer.
-    /// @dev See the implementation for behavior details.
-    /// @param _eid The _eid value.
-    /// @param _peer The _peer value.
+    /// @notice Sets the trusted peer for endpoint `_eid`.
+    /// @dev Callable only by owner; updates source validation used by `lzReceive`.
+    /// @param _eid LayerZero endpoint ID.
+    /// @param _peer Encoded peer address on that endpoint.
     function setPeer(uint32 _eid, bytes32 _peer) public virtual onlyOwner {
         OAppCoreStorage storage $ = _getOAppCoreStorage();
         $.peers[_eid] = _peer;
@@ -84,9 +84,9 @@ abstract contract OutrunOAppCoreInit is IOAppCore, OutrunOwnableInit {
         return peer;
     }
 
-    /// @notice Executes set delegate.
-    /// @dev See the implementation for behavior details.
-    /// @param _delegate The _delegate value.
+    /// @notice Updates the delegate configured in the LayerZero endpoint.
+    /// @dev Callable only by owner; delegate can manage endpoint-side OApp config.
+    /// @param _delegate Delegate address to set on endpoint.
     function setDelegate(address _delegate) public onlyOwner {
         endpoint.setDelegate(_delegate);
     }

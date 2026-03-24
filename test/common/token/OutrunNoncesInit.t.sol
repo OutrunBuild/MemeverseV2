@@ -8,13 +8,11 @@ import {OutrunNoncesInit} from "../../../src/common/token/OutrunNoncesInit.sol";
 
 contract NoncesHarness is OutrunNoncesInit {
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function initialize() external initializer {
         __OutrunNonces_init();
     }
 
     /// @notice Use nonce.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner See implementation.
     /// @return See implementation.
     function useNonce(address owner) external returns (uint256) {
@@ -22,7 +20,6 @@ contract NoncesHarness is OutrunNoncesInit {
     }
 
     /// @notice Use checked nonce.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner See implementation.
     /// @param nonce See implementation.
     function useCheckedNonce(address owner, uint256 nonce) external {
@@ -39,7 +36,6 @@ contract OutrunNoncesInitTest is Test {
     NoncesHarness internal harness;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new NoncesHarness();
         harness = NoncesHarness(address(implementation).clone());
@@ -47,7 +43,6 @@ contract OutrunNoncesInitTest is Test {
     }
 
     /// @notice Test use nonce returns current value and increments.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testUseNonceReturnsCurrentValueAndIncrements() external {
         assertEq(harness.nonces(ALICE), 0);
         assertEq(harness.useNonce(ALICE), 0);
@@ -57,7 +52,6 @@ contract OutrunNoncesInitTest is Test {
     }
 
     /// @notice Test use checked nonce rejects unexpected nonce.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testUseCheckedNonceRejectsUnexpectedNonce() external {
         harness.useCheckedNonce(ALICE, 0);
         assertEq(harness.nonces(ALICE), 1);

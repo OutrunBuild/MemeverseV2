@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title IOFTCompose
- * @dev Handle the logic related to OFT Compose
+ * @dev Interface for tracking and resolving OFT compose execution status.
  */
 interface IOFTCompose {
     struct ComposeTxStatus {
@@ -14,22 +14,22 @@ interface IOFTCompose {
         bool isExecuted; // Has Been Executed?
     }
 
-    /// @notice Returns get compose tx executed status.
-    /// @dev See the implementation for behavior details.
-    /// @param guid The guid value.
-    /// @return bool The bool value.
+    /// @notice Checks whether a compose transaction has already been finalized.
+    /// @dev Used to guard duplicate settlement paths.
+    /// @param guid LayerZero message GUID.
+    /// @return executed True when compose execution is finalized.
     function getComposeTxExecutedStatus(bytes32 guid) external view returns (bool);
 
-    /// @notice Executes notify compose executed.
-    /// @dev See the implementation for behavior details.
-    /// @param guid The guid value.
+    /// @notice Marks a compose transaction as executed.
+    /// @dev Intended for the authorized compose executor once downstream settlement completes.
+    /// @param guid LayerZero message GUID.
     function notifyComposeExecuted(bytes32 guid) external;
 
-    /// @notice Executes withdraw if not executed.
-    /// @dev See the implementation for behavior details.
-    /// @param guid The guid value.
-    /// @param receiver The receiver value.
-    /// @return amount The amount value.
+    /// @notice Recovers bridged tokens from a compose flow that never executed.
+    /// @dev Reverts if already executed or caller is unauthorized.
+    /// @param guid LayerZero message GUID.
+    /// @param receiver Address receiving the withdrawn tokens.
+    /// @return amount Amount transferred to `receiver`.
     function withdrawIfNotExecuted(bytes32 guid, address receiver) external returns (uint256 amount);
 
     event NotifyComposeExecuted(bytes32 indexed guid);

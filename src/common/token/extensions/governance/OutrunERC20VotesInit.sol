@@ -71,19 +71,19 @@ abstract contract OutrunERC20VotesInit is OutrunERC20Init, OutrunVotesInit {
         return balanceOf(account);
     }
 
-    /// @notice Returns num checkpoints.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @return uint32 The uint32 value.
+    /// @notice Reads how many vote checkpoints are stored for `account`.
+    /// @dev Each checkpoint records delegated voting power at a block.
+    /// @param account Account to query.
+    /// @return count Number of checkpoints stored for `account`.
     function numCheckpoints(address account) public view virtual returns (uint32) {
         return _numCheckpoints(account);
     }
 
-    /// @notice Returns checkpoints.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @param pos The pos value.
-    /// @return The return value.
+    /// @notice Reads one checkpoint entry from `account`'s vote history.
+    /// @dev Use together with `numCheckpoints` to iterate vote history.
+    /// @param account Account to query.
+    /// @param pos Zero-based checkpoint index.
+    /// @return checkpoint Checkpoint entry containing timepoint and votes.
     function checkpoints(address account, uint32 pos) public view virtual returns (Checkpoints.Checkpoint208 memory) {
         return _checkpoints(account, pos);
     }

@@ -23,7 +23,6 @@ contract MockIntegrationMemecoin is MockERC20 {
     constructor() MockERC20("Mock Meme", "MMEME", 18) {}
 
     /// @notice Test helper for initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _name See implementation.
     /// @param _symbol See implementation.
     /// @param launcher_ See implementation.
@@ -36,7 +35,6 @@ contract MockIntegrationMemecoin is MockERC20 {
     }
 
     /// @notice Test helper for setPeer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param eid See implementation.
     /// @param peer See implementation.
     function setPeer(uint32 eid, bytes32 peer) external {
@@ -44,7 +42,6 @@ contract MockIntegrationMemecoin is MockERC20 {
     }
 
     /// @notice Test helper for mint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @param amount See implementation.
     function mint(address account, uint256 amount) public override {
@@ -54,7 +51,6 @@ contract MockIntegrationMemecoin is MockERC20 {
     }
 
     /// @notice Test helper for burn.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amount See implementation.
     function burn(uint256 amount) external {
         require(amount != 0, "zero");
@@ -71,7 +67,6 @@ contract MockIntegrationLiquidProof is MockERC20 {
     constructor() MockERC20("Mock POL", "MPOL", 18) {}
 
     /// @notice Test helper for initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _name See implementation.
     /// @param _symbol See implementation.
     /// @param memecoin_ See implementation.
@@ -92,7 +87,6 @@ contract MockIntegrationLiquidProof is MockERC20 {
     }
 
     /// @notice Test helper for setPeer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param eid See implementation.
     /// @param peer See implementation.
     function setPeer(uint32 eid, bytes32 peer) external {
@@ -100,7 +94,6 @@ contract MockIntegrationLiquidProof is MockERC20 {
     }
 
     /// @notice Test helper for setPoolId.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param poolId_ See implementation.
     function setPoolId(bytes32 poolId_) external {
         require(msg.sender == memeverseLauncher, "not launcher");
@@ -108,7 +101,6 @@ contract MockIntegrationLiquidProof is MockERC20 {
     }
 
     /// @notice Test helper for mint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @param amount See implementation.
     function mint(address account, uint256 amount) public override {
@@ -118,7 +110,6 @@ contract MockIntegrationLiquidProof is MockERC20 {
     }
 
     /// @notice Test helper for burn.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param account See implementation.
     /// @param amount See implementation.
     function burn(address account, uint256 amount) public override {
@@ -148,7 +139,6 @@ contract MockLauncherIntegrationProxyDeployer {
     }
 
     /// @notice Test helper for deployMemecoin.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _verseId See implementation.
     /// @return memecoin See implementation.
     function deployMemecoin(uint256 _verseId) external returns (address memecoin) {
@@ -157,7 +147,6 @@ contract MockLauncherIntegrationProxyDeployer {
     }
 
     /// @notice Test helper for deployPOL.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _verseId See implementation.
     /// @return pol See implementation.
     function deployPOL(uint256 _verseId) external returns (address pol) {
@@ -166,7 +155,6 @@ contract MockLauncherIntegrationProxyDeployer {
     }
 
     /// @notice Test helper for predictYieldVaultAddress.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _verseId See implementation.
     /// @return yieldVault See implementation.
     function predictYieldVaultAddress(uint256 _verseId) external view returns (address yieldVault) {
@@ -175,7 +163,6 @@ contract MockLauncherIntegrationProxyDeployer {
     }
 
     /// @notice Test helper for computeGovernorAndIncentivizerAddress.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _verseId See implementation.
     /// @return governor See implementation.
     /// @return incentivizer See implementation.
@@ -193,7 +180,6 @@ contract MockLauncherIntegrationLzEndpointRegistry {
     mapping(uint32 chainId => uint32 endpointId) public lzEndpointIdOfChain;
 
     /// @notice Test helper for setEndpoint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param chainId See implementation.
     /// @param endpointId See implementation.
     function setEndpoint(uint32 chainId, uint32 endpointId) external {
@@ -217,7 +203,6 @@ contract MemeverseLauncherPreorderIntegrationTest is Test {
     MockERC20 internal upt;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         manager = new MockPoolManagerForRouterTest();
         launcher = new MemeverseLauncher(

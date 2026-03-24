@@ -39,11 +39,11 @@ contract UniswapLP is Owned {
         INITIAL_DOMAIN_SEPARATOR = computeDomainSeparator();
     }
 
-    /// @notice Executes approve.
-    /// @dev See the implementation for behavior details.
-    /// @param spender The spender value.
-    /// @param amount The amount value.
-    /// @return bool The bool value.
+    /// @notice Approves `spender` to spend LP tokens on behalf of the caller.
+    /// @dev Replaces any existing allowance value.
+    /// @param spender Address allowed to spend the caller's LP balance.
+    /// @param amount New allowance amount.
+    /// @return success Always returns `true` on success.
     function approve(address spender, uint256 amount) public returns (bool) {
         allowance[msg.sender][spender] = amount;
 
@@ -52,11 +52,11 @@ contract UniswapLP is Owned {
         return true;
     }
 
-    /// @notice Executes transfer.
-    /// @dev See the implementation for behavior details.
-    /// @param to The to value.
-    /// @param amount The amount value.
-    /// @return bool The bool value.
+    /// @notice Transfers LP tokens from the caller to `to`.
+    /// @dev Synchronizes fee snapshots for both accounts before moving balances.
+    /// @param to Recipient of the LP tokens.
+    /// @param amount Amount of LP tokens to transfer.
+    /// @return success Always returns `true` on success.
     function transfer(address to, uint256 amount) public returns (bool) {
         _beforeTokenTransfer(msg.sender, to);
 
@@ -71,12 +71,12 @@ contract UniswapLP is Owned {
         return true;
     }
 
-    /// @notice Executes transfer from.
-    /// @dev See the implementation for behavior details.
-    /// @param from The from value.
-    /// @param to The to value.
-    /// @param amount The amount value.
-    /// @return bool The bool value.
+    /// @notice Transfers LP tokens from `from` to `to` using caller allowance.
+    /// @dev Synchronizes fee snapshots before moving balances and spends finite allowances.
+    /// @param from Account whose LP balance is debited.
+    /// @param to Recipient of the LP tokens.
+    /// @param amount Amount of LP tokens to transfer.
+    /// @return success Always returns `true` on success.
     function transferFrom(address from, address to, uint256 amount) public returns (bool) {
         _beforeTokenTransfer(from, to);
 
@@ -95,31 +95,31 @@ contract UniswapLP is Owned {
         return true;
     }
 
-    /// @notice Executes mint.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @param amount The amount value.
+    /// @notice Mints LP tokens to `account`.
+    /// @dev Restricted to the hook owner, which is the hook contract that manages the pool.
+    /// @param account Recipient of the LP tokens.
+    /// @param amount Amount of LP tokens to mint.
     function mint(address account, uint256 amount) external onlyOwner {
         _mint(account, amount);
     }
 
-    /// @notice Executes burn.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @param amount The amount value.
+    /// @notice Burns LP tokens from `account`.
+    /// @dev Restricted to the hook owner, which is the hook contract that manages the pool.
+    /// @param account Account whose LP tokens are burned.
+    /// @param amount Amount of LP tokens to burn.
     function burn(address account, uint256 amount) external onlyOwner {
         _burn(account, amount);
     }
 
-    /// @notice Executes permit.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @param spender The spender value.
-    /// @param value The value value.
-    /// @param deadline The deadline value.
-    /// @param v The v value.
-    /// @param r The r value.
-    /// @param s The s value.
+    /// @notice Sets allowance through an EIP-2612 signature.
+    /// @dev Consumes and increments `owner`'s nonce when the signature is valid and not expired.
+    /// @param owner Token owner signing the permit.
+    /// @param spender Account being approved.
+    /// @param value Allowance granted to `spender`.
+    /// @param deadline Signature expiry timestamp.
+    /// @param v Signature recovery id.
+    /// @param r Signature `r` value.
+    /// @param s Signature `s` value.
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         public
     {
@@ -158,9 +158,9 @@ contract UniswapLP is Owned {
         emit Approval(owner, spender, value);
     }
 
-    /// @notice Returns domain separator.
-    /// @dev See the implementation for behavior details.
-    /// @return bytes32 The bytes32 value.
+    /// @notice Exposes the EIP-712 domain separator used by `permit`.
+    /// @dev Recomputes the separator if the chain id changes after deployment.
+    /// @return Active EIP-712 domain separator.
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : computeDomainSeparator();
     }

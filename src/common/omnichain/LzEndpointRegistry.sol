@@ -13,9 +13,9 @@ contract LzEndpointRegistry is ILzEndpointRegistry, Ownable {
 
     constructor(address _owner) Ownable(_owner) {}
 
-    /// @notice Executes set lz endpoint ids.
-    /// @dev See the implementation for behavior details.
-    /// @param pairs The pairs value.
+    /// @notice Batch-updates chain-to-endpoint mappings.
+    /// @dev Entries with `chainId == 0` or `endpointId == 0` are ignored.
+    /// @param pairs List of `(chainId, endpointId)` pairs to store.
     function setLzEndpointIds(LzEndpointIdPair[] calldata pairs) external override onlyOwner {
         for (uint256 i = 0; i < pairs.length;) {
             LzEndpointIdPair calldata pair = pairs[i];

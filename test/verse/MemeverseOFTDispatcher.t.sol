@@ -19,7 +19,6 @@ contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
     constructor(string memory name_, string memory symbol_) MockERC20(name_, symbol_, 18) {}
 
     /// @notice Get compose tx executed status.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @return See implementation.
     function getComposeTxExecutedStatus(bytes32 guid) external view returns (bool) {
@@ -27,7 +26,6 @@ contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Notify compose executed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     function notifyComposeExecuted(bytes32 guid) external {
         executedStatus[guid] = true;
@@ -35,7 +33,6 @@ contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Withdraw if not executed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @param account See implementation.
     /// @return See implementation.
@@ -46,7 +43,6 @@ contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Burn.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amount See implementation.
     function burn(uint256 amount) external {
         lastBurnAmount = amount;
@@ -54,7 +50,6 @@ contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
     }
 
     /// @notice Set executed.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @param executed See implementation.
     function setExecuted(bytes32 guid, bool executed) external {
@@ -66,7 +61,6 @@ contract MockDispatcherYieldVault {
     uint256 public lastAccumulatedAmount;
 
     /// @notice Accumulate yields.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amount See implementation.
     function accumulateYields(uint256 amount) external {
         lastAccumulatedAmount = amount;
@@ -78,7 +72,6 @@ contract MockDispatcherGovernor {
     uint256 public lastAmount;
 
     /// @notice Receive treasury income.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param token See implementation.
     /// @param amount See implementation.
     function receiveTreasuryIncome(address token, uint256 amount) external {
@@ -101,7 +94,6 @@ contract MemeverseOFTDispatcherTest is Test {
     MockDispatcherGovernor internal governor;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         dispatcher = new MemeverseOFTDispatcher(OWNER, LOCAL_ENDPOINT, LAUNCHER);
         token = new MockDispatcherComposeToken("Compose Token", "CMP");
@@ -110,14 +102,12 @@ contract MemeverseOFTDispatcherTest is Test {
     }
 
     /// @notice Test lz compose rejects unauthorized caller.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzComposeRejectsUnauthorizedCaller() external {
         vm.expectRevert(IMemeverseOFTDispatcher.PermissionDenied.selector);
         dispatcher.lzCompose(address(token), bytes32(0), "", address(0), "");
     }
 
     /// @notice Test launcher path burns memecoin for eoa receiver.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLauncherPathBurnsMemecoinForEoaReceiver() external {
         uint256 amount = 5 ether;
         token.mint(address(dispatcher), amount);
@@ -132,7 +122,6 @@ contract MemeverseOFTDispatcherTest is Test {
     }
 
     /// @notice Test launcher path approves and calls receivers.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLauncherPathApprovesAndCallsReceivers() external {
         uint256 memeAmount = 7 ether;
         uint256 uptAmount = 11 ether;
@@ -163,7 +152,6 @@ contract MemeverseOFTDispatcherTest is Test {
     }
 
     /// @notice Test local endpoint path rejects already executed compose.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLocalEndpointPathRejectsAlreadyExecutedCompose() external {
         bytes32 guid = bytes32("done");
         token.setExecuted(guid, true);
@@ -178,7 +166,6 @@ contract MemeverseOFTDispatcherTest is Test {
     }
 
     /// @notice Test local endpoint path marks compose executed and routes funds.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLocalEndpointPathMarksComposeExecutedAndRoutesFunds() external {
         bytes32 guid = bytes32("new");
         uint256 amount = 9 ether;

@@ -12,7 +12,6 @@ import {OutrunOAppOptionsType3Init} from "../../../../src/common/omnichain/oapp/
 
 contract OptionsType3Harness is OutrunOAppOptionsType3Init {
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner_ See implementation.
     function initialize(address owner_) external initializer {
         __OutrunOwnable_init(owner_);
@@ -30,7 +29,6 @@ contract OutrunOAppOptionsType3InitTest is Test {
     OptionsType3Harness internal harness;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new OptionsType3Harness();
         harness = OptionsType3Harness(address(implementation).clone());
@@ -38,7 +36,6 @@ contract OutrunOAppOptionsType3InitTest is Test {
     }
 
     /// @notice Test set enforced options requires owner and type3 prefix.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetEnforcedOptionsRequiresOwnerAndType3Prefix() external {
         EnforcedOptionParam[] memory params = new EnforcedOptionParam[](1);
         params[0] = EnforcedOptionParam({eid: 101, msgType: 1, options: hex"00030011"});
@@ -54,7 +51,6 @@ contract OutrunOAppOptionsType3InitTest is Test {
     }
 
     /// @notice Test combine options handles no enforced no extra and merging.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testCombineOptionsHandlesNoEnforcedNoExtraAndMerging() external {
         assertEq(harness.combineOptions(101, 1, hex"1234"), hex"1234");
 
@@ -69,7 +65,6 @@ contract OutrunOAppOptionsType3InitTest is Test {
     }
 
     /// @notice Test combine options rejects invalid extra options when enforced exists.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testCombineOptionsRejectsInvalidExtraOptionsWhenEnforcedExists() external {
         EnforcedOptionParam[] memory params = new EnforcedOptionParam[](1);
         params[0] = EnforcedOptionParam({eid: 101, msgType: 1, options: hex"0003aabb"});

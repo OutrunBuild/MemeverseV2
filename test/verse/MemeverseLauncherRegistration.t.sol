@@ -15,7 +15,7 @@ contract MockLauncherRegistrationToken {
     mapping(uint32 eid => bytes32 peer) public peers;
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Records the provided launcher and delegate addresses for registration assertions.
     /// @param name_ See implementation.
     /// @param symbol_ See implementation.
     /// @param launcher_ See implementation.
@@ -28,7 +28,7 @@ contract MockLauncherRegistrationToken {
     }
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Records memecoin references needed when registration creates linked tokens.
     /// @param name_ See implementation.
     /// @param symbol_ See implementation.
     /// @param memecoin_ See implementation.
@@ -49,7 +49,7 @@ contract MockLauncherRegistrationToken {
     }
 
     /// @notice Set peer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Stores the remote peer reference that the launcher should read back later.
     /// @param eid See implementation.
     /// @param peer See implementation.
     function setPeer(uint32 eid, bytes32 peer) external {
@@ -89,7 +89,7 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
     {}
 
     /// @notice Set memeverse for test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Writes directly to `memeverses` so tests can simulate registrar outputs.
     /// @param verseId See implementation.
     /// @param verse See implementation.
     function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
@@ -102,7 +102,7 @@ contract MockLauncherRegistrationProxyDeployer {
     address public nextPol;
 
     /// @notice Set next deployments.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Configures the mock deployer to return predetermined addresses.
     /// @param memecoin_ See implementation.
     /// @param pol_ See implementation.
     function setNextDeployments(address memecoin_, address pol_) external {
@@ -111,7 +111,7 @@ contract MockLauncherRegistrationProxyDeployer {
     }
 
     /// @notice Deploy memecoin.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Always returns the configured mock memecoin address to keep tests deterministic.
     /// @param uniqueId See implementation.
     /// @return memecoin See implementation.
     function deployMemecoin(uint256 uniqueId) external view returns (address memecoin) {
@@ -120,7 +120,7 @@ contract MockLauncherRegistrationProxyDeployer {
     }
 
     /// @notice Deploy pol.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Mirrors deployment without actually creating new contracts.
     /// @param uniqueId See implementation.
     /// @return pol See implementation.
     function deployPOL(uint256 uniqueId) external view returns (address pol) {
@@ -133,7 +133,7 @@ contract MockLauncherRegistrationRegistry {
     mapping(uint32 chainId => uint32 endpointId) public lzEndpointIdOfChain;
 
     /// @notice Set endpoint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Mimics the registry setter so tests can map chain ids to endpoint ids.
     /// @param chainId See implementation.
     /// @param endpointId See implementation.
     function setEndpoint(uint32 chainId, uint32 endpointId) external {
@@ -154,7 +154,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     MockLauncherRegistrationToken internal pol;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Deploys the registration launcher test harness and wires necessary mocks.
     function setUp() external {
         launcher = new TestableMemeverseLauncherRegistration(
             OWNER, address(0x1), REGISTRAR, address(0), address(0x4), address(0), 25, 115_000, 135_000, 2_500, 7 days
@@ -173,7 +173,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     }
 
     /// @notice Test register memeverse only registrar.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures only the registrar role can call `registerMemeverse`.
     function testRegisterMemeverseOnlyRegistrar() external {
         vm.expectRevert(IMemeverseLauncher.PermissionDenied.selector);
         launcher.registerMemeverse(
@@ -189,7 +189,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     }
 
     /// @notice Test register memeverse reverts on invalid remote omnichain id.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Guards against registering remote peers that are not mapped in the registry.
     function testRegisterMemeverseRevertsOnInvalidRemoteOmnichainId() external {
         uint32[] memory omnichainIds = _omnichainIds();
 
@@ -208,7 +208,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     }
 
     /// @notice Test register memeverse stores verse and configures remote peers.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Verifies the registrar populates verse metadata and sets up peer references.
     function testRegisterMemeverseStoresVerseAndConfiguresRemotePeers() external {
         registry.setEndpoint(REMOTE_CHAIN_ID, REMOTE_EID);
         uint256 uniqueId = 7;
@@ -242,7 +242,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     }
 
     /// @notice Test register memeverse local only omnichain ids skip peer configuration.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Checks that local-only chains do not trigger remote peer writes.
     function testRegisterMemeverse_LocalOnlyOmnichainIdsSkipPeerConfiguration() external {
         uint256 uniqueId = 8;
         uint32[] memory omnichainIds = new uint32[](1);
@@ -265,7 +265,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     }
 
     /// @notice Test set external info requires registrar or governor and rejects oversized description.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Confirms the external info setter admits both registrar and governor and enforces length limits.
     function testSetExternalInfoRequiresRegistrarOrGovernorAndRejectsOversizedDescription() external {
         registry.setEndpoint(REMOTE_CHAIN_ID, REMOTE_EID);
         uint256 uniqueId = 9;
@@ -299,7 +299,7 @@ contract MemeverseLauncherRegistrationTest is Test {
     }
 
     /// @notice Test set external info governor path supports selective updates.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
+    /// @dev Ensures the governor can update the info fields incrementally without overwriting unchanged content.
     function testSetExternalInfoGovernorPathSupportsSelectiveUpdates() external {
         registry.setEndpoint(REMOTE_CHAIN_ID, REMOTE_EID);
         uint256 uniqueId = 10;
@@ -332,12 +332,16 @@ contract MemeverseLauncherRegistrationTest is Test {
         assertEq(launcher.communitiesMap(uniqueId, 0), "https://site-1");
     }
 
+    /// @notice Returns the standard omnichain id array used by tests.
+    /// @dev Includes both the local chain and a remote chain id fixture.
     function _omnichainIds() internal view returns (uint32[] memory ids) {
         ids = new uint32[](2);
         ids[0] = uint32(block.chainid);
         ids[1] = REMOTE_CHAIN_ID;
     }
 
+    /// @notice Builds a single-entry communities array for tests.
+    /// @dev Simplifies storing community links during registration scenarios.
     function _communities(string memory website) internal pure returns (string[] memory communities) {
         communities = new string[](1);
         communities[0] = website;

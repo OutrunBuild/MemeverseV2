@@ -51,7 +51,6 @@ contract InspectableMemeverseLauncher is MemeverseLauncher {
     {}
 
     /// @notice Test helper for getPreorderStateForTest.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param verseId See implementation.
     /// @return totalFunds See implementation.
     /// @return settledMemecoin See implementation.
@@ -66,7 +65,6 @@ contract InspectableMemeverseLauncher is MemeverseLauncher {
     }
 
     /// @notice Test helper for claimablePreorderMemecoinForTest.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param verseId See implementation.
     /// @param account See implementation.
     /// @return amount See implementation.
@@ -142,7 +140,6 @@ contract PreorderSuccessHandler is Test {
     }
 
     /// @notice Test helper for genesis.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param amountSeed See implementation.
     function genesis(uint256 actorSeed, uint256 amountSeed) external {
@@ -158,7 +155,6 @@ contract PreorderSuccessHandler is Test {
     }
 
     /// @notice Test helper for preorder.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param amountSeed See implementation.
     function preorder(uint256 actorSeed, uint256 amountSeed) external {
@@ -178,14 +174,12 @@ contract PreorderSuccessHandler is Test {
     }
 
     /// @notice Test helper for warp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param deltaSeed See implementation.
     function warp(uint256 deltaSeed) external {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 5 days));
     }
 
     /// @notice Test helper for changeStage.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function changeStage() external {
         try launcher.changeStage(VERSE_ID) {
             if (!memecoinDustRecorded) {
@@ -203,7 +197,6 @@ contract PreorderSuccessHandler is Test {
     }
 
     /// @notice Test helper for claim.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     function claim(uint256 actorSeed) external {
         address actor = actors[actorSeed % actors.length];
@@ -230,7 +223,6 @@ contract PreorderRefundHandler is Test {
     }
 
     /// @notice Test helper for genesis.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param amountSeed See implementation.
     function genesis(uint256 actorSeed, uint256 amountSeed) external {
@@ -246,7 +238,6 @@ contract PreorderRefundHandler is Test {
     }
 
     /// @notice Test helper for preorder.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     /// @param amountSeed See implementation.
     function preorder(uint256 actorSeed, uint256 amountSeed) external {
@@ -266,20 +257,17 @@ contract PreorderRefundHandler is Test {
     }
 
     /// @notice Test helper for warp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param deltaSeed See implementation.
     function warp(uint256 deltaSeed) external {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 3 days));
     }
 
     /// @notice Test helper for changeStage.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function changeStage() external {
         try launcher.changeStage(VERSE_ID) {} catch {}
     }
 
     /// @notice Test helper for refundGenesis.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     function refundGenesis(uint256 actorSeed) external {
         address actor = actors[actorSeed % actors.length];
@@ -288,7 +276,6 @@ contract PreorderRefundHandler is Test {
     }
 
     /// @notice Test helper for refundPreorder.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param actorSeed See implementation.
     function refundPreorder(uint256 actorSeed) external {
         address actor = actors[actorSeed % actors.length];
@@ -316,7 +303,6 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
     PreorderSuccessHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         _setActors(ALICE, BOB, CHARLIE);
 
@@ -379,7 +365,6 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
     }
 
     /// @notice Test helper for invariant_genesisAccountingMatchesUserBalances.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_genesisAccountingMatchesUserBalances() external view {
         (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(VERSE_ID);
         uint256 totalUserGenesisFunds;
@@ -391,7 +376,6 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
     }
 
     /// @notice Test helper for invariant_preorderCapacityNeverExceeded.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_preorderCapacityNeverExceeded() external view {
         (uint128 totalMemecoinFunds,) = launcher.genesisFunds(VERSE_ID);
         (uint256 totalFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);
@@ -402,7 +386,6 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
     }
 
     /// @notice Test helper for invariant_claimsNeverExceedEntitlement.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_claimsNeverExceedEntitlement() external view {
         (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp) =
             launcher.getPreorderStateForTest(VERSE_ID);
@@ -446,7 +429,6 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
     PreorderRefundHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         _setActors(ALICE, BOB, CHARLIE);
 
@@ -490,7 +472,6 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
     }
 
     /// @notice Test helper for invariant_refundPathKeepsGenesisAccountingExact.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_refundPathKeepsGenesisAccountingExact() external view {
         (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(VERSE_ID);
         uint256 outstandingGenesis;
@@ -515,7 +496,6 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
     }
 
     /// @notice Test helper for invariant_refundPathNeverSettlesPreorder.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_refundPathNeverSettlesPreorder() external view {
         IMemeverseLauncher.Stage stage = launcher.getStageByVerseId(VERSE_ID);
         assertTrue(
@@ -528,7 +508,6 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
     }
 
     /// @notice Test helper for invariant_refundPathStillRespectsPreorderCap.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_refundPathStillRespectsPreorderCap() external view {
         (uint128 totalMemecoinFunds,) = launcher.genesisFunds(VERSE_ID);
         (uint256 totalFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);

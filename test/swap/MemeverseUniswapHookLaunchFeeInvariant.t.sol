@@ -33,7 +33,6 @@ contract LaunchFeeQuoteHandler is Test {
     }
 
     /// @notice Test helper for warp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param deltaSeed See implementation.
     function warp(uint256 deltaSeed) external {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 30 minutes));
@@ -44,7 +43,6 @@ contract LaunchFeeQuoteHandler is Test {
     }
 
     /// @notice Test helper for quoteVariants.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amountSeed See implementation.
     function quoteVariants(uint256 amountSeed) external view {
         uint256 amount = bound(amountSeed, 1 ether, 10_000 ether);
@@ -93,7 +91,6 @@ contract LaunchSettlementHandler is Test {
     }
 
     /// @notice Test helper for setRouter.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _router See implementation.
     function setRouter(MemeverseSwapRouter _router) external {
         require(address(router) == address(0), "router already set");
@@ -102,14 +99,12 @@ contract LaunchSettlementHandler is Test {
     }
 
     /// @notice Test helper for warp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param deltaSeed See implementation.
     function warp(uint256 deltaSeed) external {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 30 minutes));
     }
 
     /// @notice Test helper for settlementSwap.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amountSeed See implementation.
     function settlementSwap(uint256 amountSeed) external {
         uint256 balance = token0.balanceOf(address(this));
@@ -156,7 +151,6 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
     LaunchFeeQuoteHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         manager = new MockPoolManagerForHookLiquidity();
         token0 = new MockERC20("Token0", "TK0", 18);
@@ -182,7 +176,6 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_quoteFeeMatchesLaunchDecayFormula.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_quoteFeeMatchesLaunchDecayFormula() external view {
         uint256 expectedFee = _expectedLaunchFee();
 
@@ -195,7 +188,6 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_poolLaunchTimestampRemainsStable.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_poolLaunchTimestampRemainsStable() external view {
         assertEq(hook.poolLaunchTimestamp(poolId), 1, "pool launch timestamp");
     }
@@ -228,7 +220,6 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
     LaunchSettlementHandler internal handler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
@@ -266,19 +257,16 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
     }
 
     /// @notice Test helper for invariant_launchSettlementAlwaysUsesFixedProtocolShare.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_launchSettlementAlwaysUsesFixedProtocolShare() external view {
         assertEq(token0.balanceOf(treasury), handler.expectedTreasuryFee(), "treasury accounting");
     }
 
     /// @notice Test helper for invariant_launchSettlementOperatorRemainsHandler.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_launchSettlementOperatorRemainsHandler() external view {
         assertEq(router.launchSettlementOperator(), address(handler), "settlement operator");
     }
 
     /// @notice Test helper for invariant_publicQuoteNeverDropsBelowSettlementFeeFloor.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_publicQuoteNeverDropsBelowSettlementFeeFloor() external view {
         IMemeverseUniswapHook.SwapQuote memory quote =
             hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));

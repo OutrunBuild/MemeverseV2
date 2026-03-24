@@ -43,15 +43,15 @@ abstract contract OutrunERC20PermitInit is OutrunERC20Init, IERC20Permit, Outrun
 
     function __ERC20Permit_init_unchained(string memory) internal onlyInitializing {}
 
-    /// @notice Executes permit.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @param spender The spender value.
-    /// @param value The value value.
-    /// @param deadline The deadline value.
-    /// @param v The v value.
-    /// @param r The r value.
-    /// @param s The s value.
+    /// @notice Sets allowance via an EIP-2612 signature.
+    /// @dev Consumes `owner` nonce and reverts on expired or invalid signature.
+    /// @param owner Token holder that signed the permit.
+    /// @param spender Address receiving allowance.
+    /// @param value Allowance amount to set.
+    /// @param deadline Expiration timestamp for the signature.
+    /// @param v Signature recovery parameter.
+    /// @param r Signature field `r`.
+    /// @param s Signature field `s`.
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         public
         virtual
@@ -67,10 +67,10 @@ abstract contract OutrunERC20PermitInit is OutrunERC20Init, IERC20Permit, Outrun
         _approve(owner, spender, value);
     }
 
-    /// @notice Returns nonces.
-    /// @dev See the implementation for behavior details.
-    /// @param owner The owner value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads the current permit nonce for `owner`.
+    /// @dev Nonce increments after each successful `permit` call.
+    /// @param owner Account to query.
+    /// @return nonce Current nonce value.
     function nonces(address owner) public view virtual override(IERC20Permit, OutrunNoncesInit) returns (uint256) {
         return super.nonces(owner);
     }
@@ -79,9 +79,9 @@ abstract contract OutrunERC20PermitInit is OutrunERC20Init, IERC20Permit, Outrun
      * @inheritdoc IERC20Permit
      */
     // solhint-disable-next-line func-name-mixedcase
-    /// @notice Returns domain separator.
-    /// @dev See the implementation for behavior details.
-    /// @return bytes32 The bytes32 value.
+    /// @notice Exposes the EIP-712 domain separator used by `permit`.
+    /// @dev Domain is derived from token name, version, chain ID, and contract address.
+    /// @return separator Domain separator hash.
     function DOMAIN_SEPARATOR() external view virtual returns (bytes32) {
         return _domainSeparatorV4();
     }

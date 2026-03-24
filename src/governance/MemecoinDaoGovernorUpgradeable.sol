@@ -63,15 +63,15 @@ contract MemecoinDaoGovernorUpgradeable is
     }
 
     /**
-     * @notice Initialize the governor.
+     * @notice Initialize the governor with voting settings and the incentivizer reference.
      * @dev Wires the OpenZeppelin governor mixins and stores the incentivizer address.
-     * @param _name - The name of the governor.
-     * @param _token - The vote token of the governor.
-     * @param _votingDelay - The voting delay.
-     * @param _votingPeriod - The voting period.
-     * @param _proposalThreshold - The proposal threshold.
-     * @param _quorumNumerator - The quorum numerator.
-     * @param _governanceCycleIncentivizer - The governanceCycleIncentivizer.
+     * @param _name The governor's name exposed to off-chain tooling.
+     * @param _token The vote token used for proposals and voting.
+     * @param _votingDelay Blocks between proposal creation and the start of voting.
+     * @param _votingPeriod Blocks for which voting remains open.
+     * @param _proposalThreshold Minimum voting power required to propose.
+     * @param _quorumNumerator Fractional quorum numerator for governance decisions.
+     * @param _governanceCycleIncentivizer Address of the incentivizer that tracks cycle rewards.
      */
     function initialize(
         string memory _name,
@@ -91,24 +91,24 @@ contract MemecoinDaoGovernorUpgradeable is
         __MemecoinDaoGovernor_init(_governanceCycleIncentivizer);
     }
 
-    /// @notice Returns the configured voting delay.
-    /// @dev Delegates to the OpenZeppelin governor settings implementation.
-    /// @return The voting delay in clock units.
+    /// @notice Exposes how long a proposal waits before voting opens.
+    /// @dev Delegates to the OpenZeppelin governor-settings module.
+    /// @return Voting delay in governor clock units.
     function votingDelay() public view override(GovernorUpgradeable, GovernorSettingsUpgradeable) returns (uint256) {
         return super.votingDelay();
     }
 
-    /// @notice Returns the configured voting period.
-    /// @dev Delegates to the OpenZeppelin governor settings implementation.
-    /// @return The voting period in clock units.
+    /// @notice Exposes how long voting remains open for each proposal.
+    /// @dev Delegates to the OpenZeppelin governor-settings module.
+    /// @return Voting period in governor clock units.
     function votingPeriod() public view override(GovernorUpgradeable, GovernorSettingsUpgradeable) returns (uint256) {
         return super.votingPeriod();
     }
 
-    /// @notice Returns the quorum required at a given block number.
-    /// @dev Delegates to the quorum-fraction governor extension.
-    /// @param blockNumber The block number used for the quorum snapshot.
-    /// @return The required quorum amount.
+    /// @notice Exposes the quorum required for a proposal snapshot at `blockNumber`.
+    /// @dev Delegates to the quorum-fraction extension configured during initialization.
+    /// @param blockNumber Snapshot block used for the quorum calculation.
+    /// @return Required quorum amount.
     function quorum(uint256 blockNumber)
         public
         view
@@ -118,9 +118,9 @@ contract MemecoinDaoGovernorUpgradeable is
         return super.quorum(blockNumber);
     }
 
-    /// @notice Returns the configured proposal threshold.
-    /// @dev Delegates to the OpenZeppelin governor settings implementation.
-    /// @return The minimum voting power required to propose.
+    /// @notice Exposes the minimum voting power required to create a proposal.
+    /// @dev Delegates to the OpenZeppelin governor-settings module.
+    /// @return Proposal threshold in vote units.
     function proposalThreshold()
         public
         view
@@ -130,9 +130,9 @@ contract MemecoinDaoGovernorUpgradeable is
         return super.proposalThreshold();
     }
 
-    /// @notice Returns the configured governance cycle incentivizer.
-    /// @dev Exposes the incentivizer address stored in governor-specific storage.
-    /// @return The incentivizer contract address.
+    /// @notice Exposes the incentivizer contract paired with this governor.
+    /// @dev The incentivizer tracks cycle votes and reward distribution for this DAO.
+    /// @return Incentivizer contract address.
     function governanceCycleIncentivizer() external view override returns (address) {
         return address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer);
     }
@@ -164,8 +164,8 @@ contract MemecoinDaoGovernorUpgradeable is
         return proposalId;
     }
 
-    /// @notice Executes a queued proposal and clears the proposer's outstanding proposal marker.
-    /// @dev Delegates execution to OpenZeppelin governor core before updating local bookkeeping.
+    /// @notice Runs a successful proposal and clears the proposer's outstanding-proposal marker.
+    /// @dev Delegates the actual call execution to OpenZeppelin governor core, then updates local proposer bookkeeping.
     /// @param targets The proposal action targets.
     /// @param values The ETH values for the proposal actions.
     /// @param calldatas The calldata payloads for the proposal actions.
@@ -198,10 +198,10 @@ contract MemecoinDaoGovernorUpgradeable is
     }
 
     /**
-     * @notice Receives treasury income for the DAO treasury.
+     * @notice Receive treasury income on behalf of the DAO treasury.
      * @dev Notifies the incentivizer before pulling the tokens into the governor treasury.
-     * @param _token - The token address
-     * @param _amount - The amount
+     * @param _token The token being supplied.
+     * @param _amount The amount received.
      */
     function receiveTreasuryIncome(address _token, uint256 _amount) external override {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
@@ -212,12 +212,11 @@ contract MemecoinDaoGovernorUpgradeable is
     }
 
     /**
-     * @notice Transfers treasury assets to another address through governance.
-     * @dev Notifies the incentivizer before sending the tokens from the governor treasury. All actions to transfer
-     * treasury assets from the DAO treasury must use this entrypoint.
-     * @param _token - The token address
-     * @param _to - The receiver address
-     * @param _amount - The amount to transfer
+     * @notice Transfer treasury assets to another address through governance.
+     * @dev Notifies the incentivizer before sending the tokens from the governor treasury. All treasury transfers must use this entrypoint.
+     * @param _token Token being transferred.
+     * @param _to Receiver address.
+     * @param _amount Amount transferred.
      */
     function sendTreasuryAssets(address _token, address _to, uint256 _amount) external override onlyGovernance {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =

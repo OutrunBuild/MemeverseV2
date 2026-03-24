@@ -80,24 +80,24 @@ abstract contract OutrunOAppReceiverInit is IOAppReceiver, OutrunOAppCoreInit {
         return peers(origin.srcEid) == origin.sender;
     }
 
-    /// @notice Returns next nonce.
-    /// @dev See the implementation for behavior details.
-    /// @param _srcEid The _srcEid value.
-    /// @param _sender The _sender value.
-    /// @return nonce The nonce value.
+    /// @notice Exposes the next expected inbound nonce for a source path.
+    /// @dev Default implementation is unordered and always returns `0`.
+    /// @param _srcEid Source endpoint ID.
+    /// @param _sender Encoded sender address on source chain.
+    /// @return nonce Next expected inbound nonce for this path.
     function nextNonce(uint32 _srcEid, bytes32 _sender) public view virtual returns (uint64 nonce) {
         _srcEid;
         _sender;
         return 0;
     }
 
-    /// @notice Executes lz receive.
-    /// @dev See the implementation for behavior details.
-    /// @param _origin The _origin value.
-    /// @param _guid The _guid value.
-    /// @param _message The _message value.
-    /// @param _executor The _executor value.
-    /// @param _extraData The _extraData value.
+    /// @notice Receives a LayerZero message and dispatches it to `_lzReceive`.
+    /// @dev Validates endpoint caller and trusted peer before entering app logic.
+    /// @param _origin Message origin metadata.
+    /// @param _guid Unique message identifier.
+    /// @param _message Encoded application payload.
+    /// @param _executor LayerZero executor address.
+    /// @param _extraData Extra executor data.
     function lzReceive(
         Origin calldata _origin,
         bytes32 _guid,

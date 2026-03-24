@@ -194,7 +194,7 @@ contract MockPoolManagerForPermit2RouterTest {
     /// @notice Returns the mock extsload value for a storage slot.
     /// @dev Allows the hook to read mocked pool-manager storage slots.
     /// @param slot The storage slot to read.
-    /// @return value The mocked storage value.
+    /// @return value The mocked word stored at `slot`.
     function extsload(bytes32 slot) external view returns (bytes32) {
         return extStorage[slot];
     }
@@ -214,7 +214,7 @@ contract MockPoolManagerForPermit2RouterTest {
     /// @notice Returns the mocked liquidity value for a pool.
     /// @dev Exposes pool liquidity to the router and hook tests.
     /// @param poolId The pool identifier.
-    /// @return liquidity The mocked liquidity value.
+    /// @return liquidity The mocked active liquidity for the pool.
     function getLiquidity(PoolId poolId) external view returns (uint128) {
         return liquidityState[poolId];
     }
@@ -226,6 +226,8 @@ contract MockPoolManagerForPermit2RouterTest {
         extStorage[bytes32(uint256(stateSlot) + LIQUIDITY_OFFSET)] = bytes32(uint256(liquidityState[poolId]));
     }
 
+    /// @notice Accepts native refunds that the router routes back through the manager.
+    /// @dev Gives the mock manager a payable fallback to mirror real routing settlement behavior.
     receive() external payable {}
 }
 
@@ -419,6 +421,8 @@ contract SignatureVerifyingPermit2ForRouterTest {
         }
     }
 
+    /// @notice Claims a nonce inside the unordered Permit2 nonce bitmap.
+    /// @dev Reproduces Permit2's unordered nonce validation so tests can reject duplicates.
     function _useUnorderedNonce(address from, uint256 nonce) private {
         uint256 wordPos = uint248(nonce >> 8);
         uint256 bitPos = uint8(nonce);
@@ -428,6 +432,8 @@ contract SignatureVerifyingPermit2ForRouterTest {
         if (flipped & bit == 0) revert InvalidNonce();
     }
 
+    /// @notice Checks that the caller-supplied signature recovers the expected owner.
+    /// @dev Detects invalid lengths or recovery values just like the production Permit2 reference.
     function _verifySignature(bytes calldata signature, address owner, bytes32 dataHash) private view {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), dataHash));
         if (signature.length != 65) revert InvalidSigner();
@@ -470,6 +476,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
+    /// @notice Moves the block timestamp beyond the launch window threshold.
+    /// @dev Ensures the Permit2 tests can exercise post-launch paths without real wait.
     function _matureLaunchWindow() internal {
         vm.warp(block.timestamp + 900);
     }
@@ -978,12 +986,16 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(address(createdKey.hooks), address(hook), "hook");
     }
 
+    /// @notice Builds the normalized pool key wired to the test hook.
+    /// @dev Reuses the same hook address and fee configuration for all Permit2 cases.
     function _dynamicPoolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory) {
         return PoolKey({
             currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(address(hook))
         });
     }
 
+    /// @notice Mints liquidity on Alice's behalf through the router.
+    /// @dev Covers the shared liquidity creation path used by Permit2 removal tests.
     function _mintAliceLiquidity() internal returns (uint128 liquidity) {
         vm.prank(alice);
         token0.approve(address(router), type(uint256).max);
@@ -996,6 +1008,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    /// @notice Fabricates a minimal single-token Permit2 payload for router tests.
+    /// @dev Keeps the signature bytes constant because the router test harness skips verification.
     function _singlePermit(address token, uint256 amount)
         internal
         view
@@ -1014,6 +1028,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         });
     }
 
+    /// @notice Fabricates a Permit2 batch payload containing two token legs.
+    /// @dev Populates the minimal fields the router expects when bulk funding liquidity.
     function _batchPermit(address token0_, uint256 amount0_, address token1_, uint256 amount1_)
         internal
         view
@@ -1032,6 +1048,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         permitParams.signature = hex"1234";
     }
 
+    /// @notice Fabricates a Permit2 batch payload with a single token leg.
+    /// @dev Mirrors the native-plus-ERC20 funding branch that uses only one batch entry.
     function _batchPermitSingle(address token, uint256 amount)
         internal
         view
@@ -1047,6 +1065,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         permitParams.signature = hex"1234";
     }
 
+    /// @notice Computes the canonical witness hash for swap operations.
+    /// @dev Matches the Property-based witness format used by the real Permit2 router.
     function _swapWitnessHash(
         PoolKey memory poolKey,
         SwapParams memory params,
@@ -1074,6 +1094,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    /// @notice Computes the witness hash used for liquidity adds.
+    /// @dev Includes the ordered liquidity parameters that the router signs.
     function _addLiquidityWitnessHash(
         Currency currency0,
         Currency currency1,
@@ -1101,6 +1123,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    /// @notice Computes the witness hash used for liquidity removals.
+    /// @dev Covers the signed view that authorizes Permit2 LP withdrawals.
     function _removeLiquidityWitnessHash(
         Currency currency0,
         Currency currency1,
@@ -1124,6 +1148,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    /// @notice Computes the witness hash for pool creation.
+    /// @dev Ensures the signature matches the router's create-pool witness semantics.
     function _createPoolWitnessHash(
         address tokenA,
         address tokenB,
@@ -1149,6 +1175,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
+    /// @notice Signs a swap or LP permit witness with the mock Permit2 key.
+    /// @dev Uses the canonical signer key to keep signature-dependent flows deterministic.
     function _signSingleWitnessPermit(
         ISignatureTransfer.PermitTransferFrom memory permit,
         address spender,
@@ -1165,6 +1193,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         return bytes.concat(r, s, bytes1(v));
     }
 
+    /// @notice Signs a batch witness permit using the canonical mock signer.
+    /// @dev Reuses the same signer so multi-token witnesses remain consistent across tests.
     function _signBatchWitnessPermit(
         ISignatureTransfer.PermitBatchTransferFrom memory permit,
         address spender,

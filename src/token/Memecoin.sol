@@ -15,12 +15,12 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
      */
     constructor(address _lzEndpoint) OutrunOFTInit(_lzEndpoint) {}
 
-    /// @notice Executes initialize.
-    /// @dev See the implementation for behavior details.
-    /// @param name_ The name_ value.
-    /// @param symbol_ The symbol_ value.
-    /// @param _memeverseLauncher The _memeverseLauncher value.
-    /// @param _delegate The _delegate value.
+    /// @notice Initializes the memecoin proxy instance.
+    /// @dev Wires OFT metadata and records the launcher that controls future minting.
+    /// @param name_ Human-readable token name.
+    /// @param symbol_ Token ticker symbol.
+    /// @param _memeverseLauncher Launcher allowed to mint new supply.
+    /// @param _delegate Delegate that receives initial ownership and LayerZero admin rights.
     function initialize(string memory name_, string memory symbol_, address _memeverseLauncher, address _delegate)
         external
         override
@@ -32,19 +32,19 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
         memeverseLauncher = _memeverseLauncher;
     }
 
-    /// @notice Executes mint.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @param amount The amount value.
+    /// @notice Mints new memecoin supply to `account`.
+    /// @dev Only the configured launcher may mint.
+    /// @param account Recipient of the newly minted tokens.
+    /// @param amount Amount of tokens to mint.
     function mint(address account, uint256 amount) external override {
         require(amount != 0, ZeroInput());
         require(msg.sender == memeverseLauncher, PermissionDenied());
         _mint(account, amount);
     }
 
-    /// @notice Executes burn.
-    /// @dev See the implementation for behavior details.
-    /// @param amount The amount value.
+    /// @notice Burns memecoin from the caller.
+    /// @dev Used by holders or downstream protocol flows that first move tokens into the caller.
+    /// @param amount Amount of tokens to burn.
     function burn(uint256 amount) external override {
         require(amount != 0, ZeroInput());
         _burn(msg.sender, amount);

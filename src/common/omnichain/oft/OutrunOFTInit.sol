@@ -32,9 +32,9 @@ abstract contract OutrunOFTInit is OutrunOFTCoreInit, OutrunERC20Init {
 
     function __OFT_init_unchained() internal onlyInitializing {}
 
-    /// @notice Returns token.
-    /// @dev See the implementation for behavior details.
-    /// @return address The address value.
+    /// @notice Exposes the underlying ERC20 token address for this OFT.
+    /// @dev In default OFT, the bridge contract itself is the token.
+    /// @return tokenAddress Token contract address used by the OFT.
     function token() public view returns (address) {
         return address(this);
     }
@@ -49,11 +49,11 @@ abstract contract OutrunOFTInit is OutrunOFTCoreInit, OutrunERC20Init {
         return false;
     }
 
-    /// @notice Executes withdraw if not executed.
-    /// @dev See the implementation for behavior details.
-    /// @param guid The guid value.
-    /// @param receiver The receiver value.
-    /// @return amount The amount value.
+    /// @notice Releases compose funds when the compose step did not execute.
+    /// @dev Callable only by the recorded UBO and only once per `guid`.
+    /// @param guid LayerZero message GUID.
+    /// @param receiver Address receiving the refunded tokens.
+    /// @return amount Token amount transferred to `receiver`.
     function withdrawIfNotExecuted(bytes32 guid, address receiver) external override returns (uint256 amount) {
         ComposeTxStatus storage txStatus = _getOFTCoreStorage().composeTxs[guid];
         require(!txStatus.isExecuted, AlreadyExecuted());

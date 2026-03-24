@@ -88,35 +88,35 @@ interface IMemeverseUniswapHook {
      */
     function quoteSwap(PoolKey calldata key, SwapParams calldata params) external view returns (SwapQuote memory quote);
 
-    /// @notice Returns the configured launch settlement caller.
-    /// @dev This address is allowed to call `poolManager.swap` for the fixed 1% launch settlement path.
-    /// @return caller The configured launch settlement caller.
+    /// @notice Exposes the account allowed to invoke the hook's launch-settlement swap path.
+    /// @dev This is usually the router, not an end-user address.
+    /// @return caller Authorized pool-manager swap caller for launch settlement.
     function launchSettlementCaller() external view returns (address caller);
 
-    /// @notice Returns the launch timestamp for a hook-managed pool.
-    /// @dev Used to derive the current launch fee floor for the pool.
-    /// @param poolId The pool id to query.
-    /// @return timestamp The recorded launch timestamp.
+    /// @notice Exposes when a hook-managed pool was initialized.
+    /// @dev The launch timestamp anchors the launch-fee decay schedule.
+    /// @param poolId Pool being queried.
+    /// @return timestamp Recorded launch timestamp.
     function poolLaunchTimestamp(PoolId poolId) external view returns (uint40 timestamp);
 
-    /// @notice Returns the default launch fee configuration.
-    /// @dev All pools use this config in the first implementation.
-    /// @return startFeeBps The launch fee at time zero.
-    /// @return minFeeBps The minimum fee after launch decay completes.
-    /// @return decayDurationSeconds The launch fee decay duration in seconds.
+    /// @notice Exposes the default launch-fee decay schedule.
+    /// @dev New pools use this configuration unless a future implementation introduces pool-specific overrides.
+    /// @return startFeeBps Launch fee applied immediately after pool initialization.
+    /// @return minFeeBps Floor fee reached after decay completes.
+    /// @return decayDurationSeconds Time required for the launch fee to decay to its floor.
     function defaultLaunchFeeConfig()
         external
         view
         returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds);
 
-    /// @notice Sets the launch settlement caller.
-    /// @dev Expected to be restricted by the implementation's access control.
-    /// @param caller The address allowed to call `poolManager.swap` for the fixed 1% launch settlement path.
+    /// @notice Updates the account allowed to use the launch-settlement swap path.
+    /// @dev Implementations are expected to restrict this to an admin or owner role.
+    /// @param caller New authorized settlement caller.
     function setLaunchSettlementCaller(address caller) external;
 
-    /// @notice Sets the default launch fee configuration.
-    /// @dev Expected to be restricted by the implementation's access control.
-    /// @param config The new default launch fee configuration.
+    /// @notice Updates the default launch-fee decay configuration.
+    /// @dev Implementations are expected to restrict this to an admin or owner role.
+    /// @param config New default launch-fee schedule.
     function setDefaultLaunchFeeConfig(LaunchFeeConfig calldata config) external;
 
     /**
@@ -133,7 +133,7 @@ interface IMemeverseUniswapHook {
         returns (address liquidityToken, uint256 fee0PerShare, uint256 fee1PerShare);
 
     /**
-     * @notice Returns the LP token address for a hook-managed pool key.
+     * @notice Return the LP token address for a hook-managed pool key, or `address(0)` when the pool is not initialized.
      * @dev This is a convenience view over `poolInfo(key.toId()).liquidityToken`.
      * @param key The pool key to query.
      * @return liquidityToken The LP token contract address, or `address(0)` when the pool is not initialized.
@@ -141,7 +141,7 @@ interface IMemeverseUniswapHook {
     function lpToken(PoolKey calldata key) external view returns (address liquidityToken);
 
     /**
-     * @notice Returns the current claimable LP fees for an owner without mutating state.
+     * @notice Preview the current claimable LP fees for an owner without mutating state.
      * @dev Includes both already-pending fees and fees implied by the latest per-share values and owner LP balance.
      * @param key The pool key whose fee accounting is queried.
      * @param owner The owner address for the fee preview.

@@ -11,7 +11,6 @@ contract MockOAppCoreEndpoint {
     address public delegate;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
@@ -22,7 +21,6 @@ contract OAppCoreHarness is OutrunOAppCoreInit {
     constructor(address endpoint_) OutrunOAppCoreInit(endpoint_) {}
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner_ See implementation.
     /// @param delegate_ See implementation.
     function initialize(address owner_, address delegate_) external initializer {
@@ -31,7 +29,6 @@ contract OAppCoreHarness is OutrunOAppCoreInit {
     }
 
     /// @notice O app version.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @return senderVersion See implementation.
     /// @return receiverVersion See implementation.
     function oAppVersion() public pure override returns (uint64 senderVersion, uint64 receiverVersion) {
@@ -39,7 +36,6 @@ contract OAppCoreHarness is OutrunOAppCoreInit {
     }
 
     /// @notice Exposed get peer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param eid See implementation.
     /// @return See implementation.
     function exposedGetPeer(uint32 eid) external view returns (bytes32) {
@@ -59,7 +55,6 @@ contract OutrunOAppCoreInitTest is Test {
     OAppCoreHarness internal harness;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockOAppCoreEndpoint();
         implementation = new OAppCoreHarness(address(endpoint));
@@ -67,7 +62,6 @@ contract OutrunOAppCoreInitTest is Test {
     }
 
     /// @notice Test initialize rejects zero delegate and sets owner state.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeRejectsZeroDelegateAndSetsOwnerState() external {
         vm.expectRevert(IOAppCore.InvalidDelegate.selector);
         harness.initialize(OWNER, address(0));
@@ -79,7 +73,6 @@ contract OutrunOAppCoreInitTest is Test {
     }
 
     /// @notice Test set peer and get peer are owner gated.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetPeerAndGetPeerAreOwnerGated() external {
         harness.initialize(OWNER, DELEGATE);
 
@@ -97,7 +90,6 @@ contract OutrunOAppCoreInitTest is Test {
     }
 
     /// @notice Test set delegate requires owner.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSetDelegateRequiresOwner() external {
         harness.initialize(OWNER, DELEGATE);
 

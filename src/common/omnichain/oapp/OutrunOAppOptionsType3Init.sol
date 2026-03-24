@@ -38,19 +38,19 @@ abstract contract OutrunOAppOptionsType3Init is IOAppOptionsType3, OutrunOwnable
 
     function __OutrunOAppOptionsType3_init_unchained() internal onlyInitializing {}
 
-    /// @notice Returns enforced options.
-    /// @dev See the implementation for behavior details.
-    /// @param _eid The _eid value.
-    /// @param _msgType The _msgType value.
-    /// @return The return value.
+    /// @notice Exposes enforced type-3 options for a route and message type.
+    /// @dev Empty bytes means no enforced options are configured.
+    /// @param _eid LayerZero endpoint ID.
+    /// @param _msgType OApp-defined message type.
+    /// @return options Enforced options blob.
     function enforcedOptions(uint32 _eid, uint16 _msgType) public view returns (bytes memory) {
         OAppOptionsType3Storage storage $ = _getOAppOptionsType3Storage();
         return $.enforcedOptions[_eid][_msgType];
     }
 
-    /// @notice Executes set enforced options.
-    /// @dev See the implementation for behavior details.
-    /// @param _enforcedOptions The _enforcedOptions value.
+    /// @notice Sets enforced type-3 options in batch.
+    /// @dev Callable only by owner; each entry replaces existing value for `(eid,msgType)`.
+    /// @param _enforcedOptions Batch of endpoint/message-type option configs.
     function setEnforcedOptions(EnforcedOptionParam[] calldata _enforcedOptions) public virtual onlyOwner {
         OAppOptionsType3Storage storage $ = _getOAppOptionsType3Storage();
         for (uint256 i = 0; i < _enforcedOptions.length; i++) {

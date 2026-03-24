@@ -12,7 +12,6 @@ contract MockMemecoinEndpoint {
     address public delegate;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
@@ -31,7 +30,6 @@ contract MemecoinTest is Test {
     Memecoin internal memecoin;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockMemecoinEndpoint();
         implementation = new Memecoin(address(endpoint));
@@ -39,7 +37,6 @@ contract MemecoinTest is Test {
     }
 
     /// @notice Test initialize sets metadata launcher owner and delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeSetsMetadataLauncherOwnerAndDelegate() external {
         memecoin.initialize("Memecoin", "MEME", LAUNCHER, DELEGATE);
 
@@ -51,7 +48,6 @@ contract MemecoinTest is Test {
     }
 
     /// @notice Test mint only launcher and burn by holder.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testMintOnlyLauncherAndBurnByHolder() external {
         memecoin.initialize("Memecoin", "MEME", LAUNCHER, DELEGATE);
 
@@ -68,7 +64,6 @@ contract MemecoinTest is Test {
     }
 
     /// @notice Test mint and burn reject zero amount.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testMintAndBurnRejectZeroAmount() external {
         memecoin.initialize("Memecoin", "MEME", LAUNCHER, DELEGATE);
 

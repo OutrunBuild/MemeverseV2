@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 import {Initializable} from "./Initializable.sol";
 
 /**
- * @dev Outrun's OwnableInit implementation, modified from openzeppelin implementation (Just for minimal proxy)
+ * @dev Outrun's minimal-proxy-friendly Ownable implementation, adapted from OpenZeppelin.
  */
 abstract contract OutrunOwnableInit is Initializable {
     /// @custom:storage-location erc7201:openzeppelin.storage.Ownable
@@ -57,9 +57,9 @@ abstract contract OutrunOwnableInit is Initializable {
         _;
     }
 
-    /// @notice Returns owner.
-    /// @dev See the implementation for behavior details.
-    /// @return address The address value.
+    /// @notice Reads the address that currently holds ownership.
+    /// @dev Returns zero only after ownership has been renounced.
+    /// @return ownerAddress Current owner address.
     function owner() public view virtual returns (address) {
         OwnableStorage storage $ = _getOwnableStorage();
         return $._owner;
@@ -74,15 +74,15 @@ abstract contract OutrunOwnableInit is Initializable {
         }
     }
 
-    /// @notice Executes renounce ownership.
-    /// @dev See the implementation for behavior details.
+    /// @notice Renounces ownership of the contract.
+    /// @dev Sets owner to `address(0)`, disabling `onlyOwner` operations.
     function renounceOwnership() public virtual onlyOwner {
         _transferOwnership(address(0));
     }
 
-    /// @notice Executes transfer ownership.
-    /// @dev See the implementation for behavior details.
-    /// @param newOwner The newOwner value.
+    /// @notice Transfers ownership to `newOwner`.
+    /// @dev Reverts when `newOwner` is the zero address.
+    /// @param newOwner Address that will become the next owner.
     function transferOwnership(address newOwner) public virtual onlyOwner {
         if (newOwner == address(0)) {
             revert OwnableInvalidOwner(address(0));

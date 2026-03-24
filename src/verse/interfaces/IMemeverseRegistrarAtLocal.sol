@@ -4,14 +4,14 @@ pragma solidity ^0.8.28;
 import {IMemeverseRegistrar} from "./IMemeverseRegistrar.sol";
 
 interface IMemeverseRegistrarAtLocal {
-    /// @notice Executes local registration.
-    /// @dev See the implementation for behavior details.
-    /// @param param The param value.
+    /// @notice Registers the memeverse locally after the center has accepted the symbol.
+    /// @dev Only the registration center is allowed to call this hook.
+    /// @param param Fully expanded memeverse configuration derived by the registration center.
     function localRegistration(IMemeverseRegistrar.MemeverseParam calldata param) external;
 
-    /// @notice Executes set registration center.
-    /// @dev See the implementation for behavior details.
-    /// @param registrationCenter The registrationCenter value.
+    /// @notice Updates the registration center trusted by this registrar.
+    /// @dev Expected to be restricted by the implementation's ownership checks.
+    /// @param registrationCenter New registration center address.
     function setRegistrationCenter(address registrationCenter) external;
 
     event SetRegistrationCenter(address registrationCenter);

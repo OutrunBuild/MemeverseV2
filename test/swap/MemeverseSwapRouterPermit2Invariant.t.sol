@@ -53,7 +53,6 @@ contract Permit2AccountingHandler is Test {
     }
 
     /// @notice Test helper for setRouter.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param _router See implementation.
     function setRouter(MemeverseSwapRouter _router) external {
         require(address(router) == address(0), "router already set");
@@ -61,14 +60,12 @@ contract Permit2AccountingHandler is Test {
     }
 
     /// @notice Test helper for warp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param deltaSeed See implementation.
     function warp(uint256 deltaSeed) external {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 40 minutes));
     }
 
     /// @notice Test helper for regularSwap.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amountSeed See implementation.
     function regularSwap(uint256 amountSeed) external {
         uint256 balance = token0.balanceOf(address(this));
@@ -96,7 +93,6 @@ contract Permit2AccountingHandler is Test {
     }
 
     /// @notice Test helper for settlementSwap.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amountSeed See implementation.
     function settlementSwap(uint256 amountSeed) external {
         uint256 balance = token0.balanceOf(address(this));
@@ -183,14 +179,12 @@ contract Permit2SpoofHandler is Test {
     }
 
     /// @notice Test helper for warp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param deltaSeed See implementation.
     function warp(uint256 deltaSeed) external {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 40 minutes));
     }
 
     /// @notice Test helper for spoofSettlement.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param amountSeed See implementation.
     function spoofSettlement(uint256 amountSeed) external {
         uint256 balance = token0.balanceOf(address(this));
@@ -257,7 +251,6 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     Permit2SpoofHandler internal spoofHandler;
 
     /// @notice Test helper for setUp.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         manager = new MockPoolManagerForPermit2RouterTest();
         treasury = makeAddr("treasury");
@@ -301,7 +294,6 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_permit2TreasuryAccountingMatchesRegularPlusSettlementPaths.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_permit2TreasuryAccountingMatchesRegularPlusSettlementPaths() external view {
         assertEq(
             token0.balanceOf(treasury),
@@ -311,7 +303,6 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_permit2LastPullMatchesExpectedBudget.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_permit2LastPullMatchesExpectedBudget() external view {
         if (accountingHandler.lastExpectedPermitAmount() == 0) return;
         assertEq(permit2.lastOwner(), address(accountingHandler), "last owner");
@@ -321,13 +312,11 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     }
 
     /// @notice Test helper for invariant_permit2SpoofedSettlementNeverSucceeds.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_permit2SpoofedSettlementNeverSucceeds() external view {
         assertFalse(spoofHandler.unexpectedSuccess(), "spoofed settlement succeeded");
     }
 
     /// @notice Test helper for invariant_permit2RouterHoldsNoResidualInputBudget.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function invariant_permit2RouterHoldsNoResidualInputBudget() external view {
         assertEq(token0.balanceOf(address(router)), 0, "router token0 balance");
     }

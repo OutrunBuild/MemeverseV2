@@ -68,9 +68,9 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
 
     function __OutrunVotes_init_unchained() internal onlyInitializing {}
 
-    /// @notice Returns clock.
-    /// @dev See the implementation for behavior details.
-    /// @return uint48 The uint48 value.
+    /// @notice Exposes the governance clock used for vote checkpoints.
+    /// @dev Uses block numbers as defined by ERC-6372.
+    /// @return currentTimepoint Current block-number timepoint.
     function clock() public view virtual returns (uint48) {
         return Time.blockNumber();
     }
@@ -79,9 +79,9 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
      * @dev Machine-readable description of the clock as specified in ERC-6372.
      */
     // solhint-disable-next-line func-name-mixedcase
-    /// @notice Returns clock mode.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
+    /// @notice Exposes the ERC-6372 clock mode string for this votes module.
+    /// @dev Reverts if a child contract changed `clock()` semantics.
+    /// @return mode ERC-6372 clock mode descriptor string.
     function CLOCK_MODE() public view virtual returns (string memory) {
         // Check that the clock was not modified
         if (clock() != Time.blockNumber()) {
@@ -99,29 +99,29 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return SafeCast.toUint48(timepoint);
     }
 
-    /// @notice Returns get votes.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads the voting power currently delegated to `account`.
+    /// @dev Reads latest value from delegate checkpoints.
+    /// @param account Account whose current votes are requested.
+    /// @return votes Current voting power of `account`.
     function getVotes(address account) public view virtual returns (uint256) {
         VotesStorage storage $ = _getVotesStorage();
         return $._delegateCheckpoints[account].latest();
     }
 
-    /// @notice Returns get past votes.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @param timepoint The timepoint value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads the voting power delegated to `account` at a past timepoint.
+    /// @dev Reverts when querying the current/future timepoint.
+    /// @param account Account whose historical votes are requested.
+    /// @param timepoint Past block-number timepoint to query.
+    /// @return votes Voting power recorded at `timepoint`.
     function getPastVotes(address account, uint256 timepoint) public view virtual returns (uint256) {
         VotesStorage storage $ = _getVotesStorage();
         return $._delegateCheckpoints[account].upperLookupRecent(_validateTimepoint(timepoint));
     }
 
-    /// @notice Returns get past total supply.
-    /// @dev See the implementation for behavior details.
-    /// @param timepoint The timepoint value.
-    /// @return uint256 The uint256 value.
+    /// @notice Reads total tracked voting units at a past timepoint.
+    /// @dev Reverts when querying the current/future timepoint.
+    /// @param timepoint Past block-number timepoint to query.
+    /// @return totalSupply Voting-unit supply recorded at `timepoint`.
     function getPastTotalSupply(uint256 timepoint) public view virtual returns (uint256) {
         VotesStorage storage $ = _getVotesStorage();
         return $._totalCheckpoints.upperLookupRecent(_validateTimepoint(timepoint));
@@ -135,31 +135,31 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         return $._totalCheckpoints.latest();
     }
 
-    /// @notice Returns delegates.
-    /// @dev See the implementation for behavior details.
-    /// @param account The account value.
-    /// @return address The address value.
+    /// @notice Reads the delegate currently chosen by `account`.
+    /// @dev Returns zero address when no delegate has been set.
+    /// @param account Account to query.
+    /// @return delegatee Delegate currently receiving votes from `account`.
     function delegates(address account) public view virtual returns (address) {
         VotesStorage storage $ = _getVotesStorage();
         return $._delegatee[account];
     }
 
-    /// @notice Executes delegate.
-    /// @dev See the implementation for behavior details.
-    /// @param delegatee The delegatee value.
+    /// @notice Delegates caller voting units to `delegatee`.
+    /// @dev Updates vote checkpoints and emits delegation events.
+    /// @param delegatee Address that will receive caller voting power.
     function delegate(address delegatee) public virtual {
         address account = _msgSender();
         _delegate(account, delegatee);
     }
 
-    /// @notice Executes delegate by sig.
-    /// @dev See the implementation for behavior details.
-    /// @param delegatee The delegatee value.
-    /// @param nonce The nonce value.
-    /// @param expiry The expiry value.
-    /// @param v The v value.
-    /// @param r The r value.
-    /// @param s The s value.
+    /// @notice Delegates voting units using an EIP-712 signature.
+    /// @dev Reverts on expired signature or nonce mismatch.
+    /// @param delegatee Address that will receive voting power.
+    /// @param nonce Expected signer nonce.
+    /// @param expiry Signature expiration timestamp.
+    /// @param v Signature recovery parameter.
+    /// @param r Signature field `r`.
+    /// @param s Signature field `s`.
     function delegateBySig(address delegatee, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s)
         public
         virtual

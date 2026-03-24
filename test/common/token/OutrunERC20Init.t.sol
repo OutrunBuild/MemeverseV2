@@ -8,7 +8,6 @@ import {OutrunERC20Init} from "../../../src/common/token/OutrunERC20Init.sol";
 
 contract ERC20Harness is OutrunERC20Init {
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param name_ See implementation.
     /// @param symbol_ See implementation.
     function initialize(string memory name_, string memory symbol_) external initializer {
@@ -16,7 +15,6 @@ contract ERC20Harness is OutrunERC20Init {
     }
 
     /// @notice Mint test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param to See implementation.
     /// @param amount See implementation.
     function mintTest(address to, uint256 amount) external {
@@ -24,7 +22,6 @@ contract ERC20Harness is OutrunERC20Init {
     }
 
     /// @notice Burn test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param from See implementation.
     /// @param amount See implementation.
     function burnTest(address from, uint256 amount) external {
@@ -42,7 +39,6 @@ contract OutrunERC20InitTest is Test {
     ERC20Harness internal token;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new ERC20Harness();
         token = ERC20Harness(address(implementation).clone());
@@ -50,7 +46,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Test initialize sets metadata.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeSetsMetadata() external view {
         assertEq(token.name(), "Base Token");
         assertEq(token.symbol(), "BASE");
@@ -58,7 +53,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Test transfer approve and transfer from update balances and allowance.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testTransferApproveAndTransferFromUpdateBalancesAndAllowance() external {
         token.mintTest(ALICE, 10 ether);
 
@@ -79,7 +73,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Test transfer and approval reject invalid addresses or insufficient balances.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testTransferAndApprovalRejectInvalidAddressesOrInsufficientBalances() external {
         token.mintTest(ALICE, 1 ether);
 
@@ -97,7 +90,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Test burn reduces supply.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testBurnReducesSupply() external {
         token.mintTest(ALICE, 4 ether);
         token.burnTest(ALICE, 1 ether);
@@ -107,7 +99,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Assert transfer.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param erc20 See implementation.
     /// @param to See implementation.
     /// @param amount See implementation.
@@ -116,7 +107,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Assert transfer from.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param erc20 See implementation.
     /// @param from See implementation.
     /// @param to See implementation.
@@ -126,7 +116,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Assert transfer call fails.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param erc20 See implementation.
     /// @param to See implementation.
     /// @param amount See implementation.
@@ -136,7 +125,6 @@ contract OutrunERC20InitTest is Test {
     }
 
     /// @notice Assert transfer from call fails.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param erc20 See implementation.
     /// @param from See implementation.
     /// @param to See implementation.

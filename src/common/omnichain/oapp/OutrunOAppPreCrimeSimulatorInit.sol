@@ -38,33 +38,33 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
 
     function __OutrunOAppPreCrimeSimulator_init_unchained() internal onlyInitializing {}
 
-    /// @notice Returns pre crime.
-    /// @dev See the implementation for behavior details.
-    /// @return address The address value.
+    /// @notice Reads the preCrime contract currently wired into the simulator.
+    /// @dev Returns the zero address when simulation checks are disabled.
+    /// @return preCrimeAddress Address of preCrime implementation.
     function preCrime() external view override returns (address) {
         OAppPreCrimeSimulatorStorage storage $ = _getOAppPreCrimeSimulatorStorage();
         return $.preCrime;
     }
 
-    /// @notice Returns o app.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
+    /// @notice Exposes the OApp address that simulation should treat as the execution target.
+    /// @dev This base implementation simply points back to `address(this)`.
+    /// @return oAppAddress OApp address used for simulation context.
     function oApp() external view virtual returns (address) {
         return address(this);
     }
 
-    /// @notice Executes set pre crime.
-    /// @dev See the implementation for behavior details.
-    /// @param _preCrime The _preCrime value.
+    /// @notice Sets the preCrime contract address.
+    /// @dev Callable only by owner.
+    /// @param _preCrime Address of preCrime implementation.
     function setPreCrime(address _preCrime) public virtual onlyOwner {
         OAppPreCrimeSimulatorStorage storage $ = _getOAppPreCrimeSimulatorStorage();
         $.preCrime = _preCrime;
         emit PreCrimeSet(_preCrime);
     }
 
-    /// @notice Executes lz receive and revert.
-    /// @dev See the implementation for behavior details.
-    /// @param _packets The _packets value.
+    /// @notice Simulates inbound packets and always reverts with aggregated result.
+    /// @dev Intended for verifier execution in preCrime flow.
+    /// @param _packets Packets to replay through `_lzReceiveSimulate`.
     function lzReceiveAndRevert(InboundPacket[] calldata _packets) public payable virtual {
         for (uint256 i = 0; i < _packets.length; i++) {
             InboundPacket calldata packet = _packets[i];
@@ -88,13 +88,13 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         revert SimulationResult(IPreCrime(msg.sender).buildSimulationResult());
     }
 
-    /// @notice Executes lz receive simulate.
-    /// @dev See the implementation for behavior details.
-    /// @param _origin The _origin value.
-    /// @param _guid The _guid value.
-    /// @param _message The _message value.
-    /// @param _executor The _executor value.
-    /// @param _extraData The _extraData value.
+    /// @notice Entry used by simulator to invoke `_lzReceiveSimulate`.
+    /// @dev Can only be called by the contract itself during simulation replay.
+    /// @param _origin Message origin metadata.
+    /// @param _guid Unique message identifier.
+    /// @param _message Encoded LayerZero payload.
+    /// @param _executor Off-chain executor address.
+    /// @param _extraData Additional executor-supplied data.
     function lzReceiveSimulate(
         Origin calldata _origin,
         bytes32 _guid,
@@ -129,10 +129,10 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         bytes calldata _extraData
     ) internal virtual;
 
-    /// @notice Returns is peer.
-    /// @dev See the implementation for behavior details.
-    /// @param _eid The _eid value.
-    /// @param _peer The _peer value.
-    /// @return bool The bool value.
+    /// @notice Reports whether an inbound peer is trusted for a given endpoint.
+    /// @dev The simulator skips packets from untrusted sources before replaying them.
+    /// @param _eid LayerZero endpoint ID.
+    /// @param _peer Encoded peer address.
+    /// @return trusted True when peer is accepted for `_eid`.
     function isPeer(uint32 _eid, bytes32 _peer) public view virtual returns (bool);
 }

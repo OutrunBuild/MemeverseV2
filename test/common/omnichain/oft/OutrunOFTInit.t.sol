@@ -29,28 +29,24 @@ contract MockOFTEndpoint {
     bytes public lastComposeMessage;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
     }
 
     /// @notice Set lz token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param lzToken_ See implementation.
     function setLzToken(address lzToken_) external {
         lzToken = lzToken_;
     }
 
     /// @notice Set quote native fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param nativeFee See implementation.
     function setQuoteNativeFee(uint256 nativeFee) external {
         quoteNativeFee = nativeFee;
     }
 
     /// @notice Quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param sender See implementation.
     /// @return fee See implementation.
@@ -61,7 +57,6 @@ contract MockOFTEndpoint {
     }
 
     /// @notice Send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param refundAddress See implementation.
     /// @return receipt See implementation.
@@ -82,7 +77,6 @@ contract MockOFTEndpoint {
     }
 
     /// @notice Send compose.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param to See implementation.
     /// @param guid See implementation.
     /// @param index See implementation.
@@ -99,7 +93,6 @@ contract OFTHarness is OutrunOFTInit {
     constructor(address endpoint_) OutrunOFTInit(endpoint_) {}
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner_ See implementation.
     /// @param name_ See implementation.
     /// @param symbol_ See implementation.
@@ -113,7 +106,6 @@ contract OFTHarness is OutrunOFTInit {
     }
 
     /// @notice Mint test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param to See implementation.
     /// @param amount See implementation.
     function mintTest(address to, uint256 amount) external {
@@ -121,7 +113,6 @@ contract OFTHarness is OutrunOFTInit {
     }
 
     /// @notice Seed compose.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param guid See implementation.
     /// @param composer See implementation.
     /// @param ubo See implementation.
@@ -151,7 +142,6 @@ contract OutrunOFTInitTest is Test {
     OFTHarness internal oft;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockOFTEndpoint();
         implementation = new OFTHarness(address(endpoint));
@@ -163,7 +153,6 @@ contract OutrunOFTInitTest is Test {
     }
 
     /// @notice Test initialize sets metadata and token config.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeSetsMetadataAndTokenConfig() external view {
         assertEq(oft.name(), "OFT Token");
         assertEq(oft.symbol(), "OFT");
@@ -175,7 +164,6 @@ contract OutrunOFTInitTest is Test {
     }
 
     /// @notice Test quote send and send use peer and burn sender balance.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteSendAndSendUsePeerAndBurnSenderBalance() external {
         endpoint.setQuoteNativeFee(0.2 ether);
         oft.mintTest(address(this), 5 ether);
@@ -214,7 +202,6 @@ contract OutrunOFTInitTest is Test {
     }
 
     /// @notice Test withdraw if not executed requires uboand transfers composer balance.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testWithdrawIfNotExecutedRequiresUBOAndTransfersComposerBalance() external {
         bytes32 guid = bytes32("guid");
         oft.mintTest(address(0x1234), 3 ether);
@@ -236,7 +223,6 @@ contract OutrunOFTInitTest is Test {
     }
 
     /// @notice Test lz receive credits recipient and creates compose status.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testLzReceiveCreditsRecipientAndCreatesComposeStatus() external {
         Origin memory origin = Origin({srcEid: DST_EID, sender: bytes32(uint256(uint160(address(0xBEEF)))), nonce: 1});
         bytes memory message;

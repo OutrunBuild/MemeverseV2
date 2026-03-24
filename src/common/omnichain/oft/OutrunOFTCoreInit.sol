@@ -99,18 +99,18 @@ abstract contract OutrunOFTCoreInit is
 
     function __OFTCore_init_unchained() internal onlyInitializing {}
 
-    /// @notice Returns msg inspector.
-    /// @dev See the implementation for behavior details.
-    /// @return address The address value.
+    /// @notice Reads the optional outbound message inspector contract.
+    /// @dev Inspector validates outbound message/options before send.
+    /// @return inspector Address of configured inspector (zero if disabled).
     function msgInspector() public view returns (address) {
         OFTCoreStorage storage $ = _getOFTCoreStorage();
         return $.msgInspector;
     }
 
-    /// @notice Returns get compose tx executed status.
-    /// @dev See the implementation for behavior details.
-    /// @param guid The guid value.
-    /// @return bool The bool value.
+    /// @notice Checks whether a compose transaction has already been executed.
+    /// @dev Compose status is tracked for fallback withdrawal flow.
+    /// @param guid LayerZero message GUID.
+    /// @return executed True when compose transaction is finalized.
     function getComposeTxExecutedStatus(bytes32 guid) external view override returns (bool) {
         OFTCoreStorage storage $ = _getOFTCoreStorage();
         return $.composeTxs[guid].isExecuted;
@@ -130,28 +130,28 @@ abstract contract OutrunOFTCoreInit is
         return (type(IOFT).interfaceId, 1);
     }
 
-    /// @notice Returns shared decimals.
-    /// @dev See the implementation for behavior details.
-    /// @return The return value.
+    /// @notice Exposes the shared decimal precision used across the OFT mesh.
+    /// @dev Local amounts are converted against this precision for cross-chain transfer.
+    /// @return decimalsShared Shared decimals value.
     function sharedDecimals() public view virtual returns (uint8) {
         return 6;
     }
 
-    /// @notice Executes set msg inspector.
-    /// @dev See the implementation for behavior details.
-    /// @param _msgInspector The _msgInspector value.
+    /// @notice Sets outbound message inspector.
+    /// @dev Callable only by owner; set to zero address to disable inspection.
+    /// @param _msgInspector Inspector contract address.
     function setMsgInspector(address _msgInspector) public virtual onlyOwner {
         OFTCoreStorage storage $ = _getOFTCoreStorage();
         $.msgInspector = _msgInspector;
         emit MsgInspectorSet(_msgInspector);
     }
 
-    /// @notice Returns quote oft.
-    /// @dev See the implementation for behavior details.
-    /// @param _sendParam The _sendParam value.
-    /// @return oftLimit The oftLimit value.
-    /// @return oftFeeDetails The oftFeeDetails value.
-    /// @return oftReceipt The oftReceipt value.
+    /// @notice Quotes OFT transfer amounts without querying LayerZero message fee.
+    /// @dev Uses `_debitView` to simulate send-side amount mutation.
+    /// @param _sendParam Send parameter bundle.
+    /// @return oftLimit Transfer min/max limits exposed by this implementation.
+    /// @return oftFeeDetails Additional OFT-level fee breakdown (empty by default).
+    /// @return oftReceipt Simulated sent/received amount pair.
     function quoteOFT(SendParam calldata _sendParam)
         external
         view
@@ -201,13 +201,13 @@ abstract contract OutrunOFTCoreInit is
         return _quote(_sendParam.dstEid, message, options, _payInLzToken);
     }
 
-    /// @notice Executes send.
-    /// @dev See the implementation for behavior details.
-    /// @param _sendParam The _sendParam value.
-    /// @param _fee The _fee value.
-    /// @param _refundAddress The _refundAddress value.
-    /// @return msgReceipt The msgReceipt value.
-    /// @return oftReceipt The oftReceipt value.
+    /// @notice Debits local tokens and dispatches cross-chain OFT message.
+    /// @dev Emits `OFTSent` after debit and endpoint send succeed.
+    /// @param _sendParam Send parameter bundle.
+    /// @param _fee LayerZero fee values supplied by caller.
+    /// @param _refundAddress Receiver for unused fee refunds.
+    /// @return msgReceipt LayerZero messaging receipt.
+    /// @return oftReceipt OFT amount receipt for this transfer.
     function send(SendParam calldata _sendParam, MessagingFee calldata _fee, address _refundAddress)
         external
         payable
@@ -323,9 +323,9 @@ abstract contract OutrunOFTCoreInit is
         emit OFTReceived(_guid, _origin.srcEid, toAddress, amountReceivedLD);
     }
 
-    /// @notice Executes notify compose executed.
-    /// @dev See the implementation for behavior details.
-    /// @param guid The guid value.
+    /// @notice Marks compose transaction `guid` as executed.
+    /// @dev Reverts unless caller matches stored compose executor.
+    /// @param guid LayerZero message GUID.
     function notifyComposeExecuted(bytes32 guid) external override {
         ComposeTxStatus storage txStatus = _getOFTCoreStorage().composeTxs[guid];
         require(msg.sender == txStatus.composer, PermissionDenied());
@@ -359,11 +359,11 @@ abstract contract OutrunOFTCoreInit is
         _lzReceive(_origin, _guid, _message, _executor, _extraData);
     }
 
-    /// @notice Returns is peer.
-    /// @dev See the implementation for behavior details.
-    /// @param _eid The _eid value.
-    /// @param _peer The _peer value.
-    /// @return bool The bool value.
+    /// @notice Reports whether `_peer` is trusted for endpoint `_eid`.
+    /// @dev Thin wrapper around `peers` mapping from OApp core.
+    /// @param _eid LayerZero endpoint ID.
+    /// @param _peer Encoded peer address.
+    /// @return trusted True when `_peer` matches configured peer.
     function isPeer(uint32 _eid, bytes32 _peer) public view virtual override returns (bool) {
         return peers(_eid) == _peer;
     }

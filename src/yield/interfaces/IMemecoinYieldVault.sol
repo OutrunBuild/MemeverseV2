@@ -9,35 +9,35 @@ interface IMemecoinYieldVault is IERC20 {
         uint64 requestTime; // Time when the redeem request was made
     }
 
-    /// @notice Returns asset.
-    /// @dev See the implementation for behavior details.
-    /// @return assetTokenAddress The assetTokenAddress value.
+    /// @notice Exposes the underlying memecoin managed by the vault.
+    /// @dev This is the asset deposited by users and accumulated as yield.
+    /// @return assetTokenAddress Underlying asset token address.
     function asset() external view returns (address assetTokenAddress);
 
-    /// @notice Returns total assets.
-    /// @dev See the implementation for behavior details.
-    /// @return totalManagedAssets The totalManagedAssets value.
+    /// @notice Exposes the total amount of managed underlying assets.
+    /// @dev Includes deposited principal plus any accumulated yield that has not been redeemed yet.
+    /// @return totalManagedAssets Total managed asset amount.
     function totalAssets() external view returns (uint256 totalManagedAssets);
 
-    /// @notice Returns preview deposit.
-    /// @dev See the implementation for behavior details.
-    /// @param assets The assets value.
-    /// @return shares The shares value.
+    /// @notice Preview how many vault shares a deposit would mint at the current rate.
+    /// @dev Uses the vault's current share pricing without mutating state.
+    /// @param assets Amount of underlying asset to deposit.
+    /// @return shares Shares that would be minted.
     function previewDeposit(uint256 assets) external view returns (uint256 shares);
 
-    /// @notice Returns preview redeem.
-    /// @dev See the implementation for behavior details.
-    /// @param shares The shares value.
-    /// @return assets The assets value.
+    /// @notice Preview how many underlying assets redeeming `shares` would unlock today.
+    /// @dev Uses the vault's current share pricing without mutating state.
+    /// @param shares Amount of vault shares to redeem.
+    /// @return assets Underlying asset amount that would be redeemed.
     function previewRedeem(uint256 shares) external view returns (uint256 assets);
 
-    /// @notice Executes initialize.
-    /// @dev See the implementation for behavior details.
-    /// @param name The name value.
-    /// @param symbol The symbol value.
-    /// @param yieldDispatcher The yieldDispatcher value.
-    /// @param asset The asset value.
-    /// @param verseId The verseId value.
+    /// @notice Initializes the yield vault proxy.
+    /// @dev Wires ERC20 share metadata, the yield dispatcher, and the verse-specific underlying asset.
+    /// @param name Share token name.
+    /// @param symbol Share token symbol.
+    /// @param yieldDispatcher Address allowed to re-accumulate remote yield.
+    /// @param asset Underlying memecoin address.
+    /// @param verseId Verse id associated with this vault.
     function initialize(
         string memory name,
         string memory symbol,
@@ -46,33 +46,33 @@ interface IMemecoinYieldVault is IERC20 {
         uint256 verseId
     ) external;
 
-    /// @notice Executes accumulate yields.
-    /// @dev See the implementation for behavior details.
-    /// @param amount The amount value.
+    /// @notice Adds freshly supplied yield into the vault.
+    /// @dev Implementations may restrict who is allowed to call this entrypoint.
+    /// @param amount Amount of underlying asset being contributed as yield.
     function accumulateYields(uint256 amount) external;
 
-    /// @notice Executes re accumulate yields.
-    /// @dev See the implementation for behavior details.
-    /// @param lzGuid The lzGuid value.
+    /// @notice Retries a failed cross-chain yield accumulation using the stored compose payload.
+    /// @dev Implementations may restrict who is allowed to call this entrypoint.
+    /// @param lzGuid LayerZero compose guid for the failed yield transfer.
     function reAccumulateYields(bytes32 lzGuid) external;
 
-    /// @notice Executes deposit.
-    /// @dev See the implementation for behavior details.
-    /// @param assets The assets value.
-    /// @param receiver The receiver value.
-    /// @return shares The shares value.
+    /// @notice Deposits underlying asset and mints vault shares.
+    /// @dev Implementations may add validation around who may receive shares.
+    /// @param assets Amount of underlying asset to deposit.
+    /// @param receiver Recipient of the minted vault shares.
+    /// @return shares Shares minted for the deposit.
     function deposit(uint256 assets, address receiver) external returns (uint256 shares);
 
-    /// @notice Executes request redeem.
-    /// @dev See the implementation for behavior details.
-    /// @param shares The shares value.
-    /// @param receiver The receiver value.
-    /// @return assets The assets value.
+    /// @notice Queues a redemption request subject to the vault's delay.
+    /// @dev Implementations may add validation around who may queue redemptions.
+    /// @param shares Amount of shares to burn into the redemption queue.
+    /// @param receiver Account that will later execute the redemption.
+    /// @return assets Underlying assets represented by the queued redemption.
     function requestRedeem(uint256 shares, address receiver) external returns (uint256 assets);
 
-    /// @notice Executes execute redeem.
-    /// @dev See the implementation for behavior details.
-    /// @return redeemedAmount The redeemedAmount value.
+    /// @notice Redeems every matured request queued by the caller.
+    /// @dev Implementations may aggregate multiple matured requests into a single transfer result.
+    /// @return redeemedAmount Total underlying asset amount redeemed in this call.
     function executeRedeem() external returns (uint256 redeemedAmount);
 
     event AccumulateYields(address indexed yieldSource, uint256 yield, uint256 exchangeRate);

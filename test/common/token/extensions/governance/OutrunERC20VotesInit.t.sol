@@ -12,7 +12,6 @@ contract VotesHarness is OutrunERC20VotesInit {
         keccak256("Delegation(address delegatee,uint256 nonce,uint256 expiry)");
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param name_ See implementation.
     /// @param symbol_ See implementation.
     function initialize(string memory name_, string memory symbol_) external initializer {
@@ -23,7 +22,6 @@ contract VotesHarness is OutrunERC20VotesInit {
     }
 
     /// @notice Mint test.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param to See implementation.
     /// @param amount See implementation.
     function mintTest(address to, uint256 amount) external {
@@ -31,7 +29,6 @@ contract VotesHarness is OutrunERC20VotesInit {
     }
 
     /// @notice Delegation digest.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegatee See implementation.
     /// @param nonce See implementation.
     /// @param expiry See implementation.
@@ -58,7 +55,6 @@ contract OutrunERC20VotesInitTest is Test {
     VotesHarness internal token;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         implementation = new VotesHarness();
         token = VotesHarness(address(implementation).clone());
@@ -66,7 +62,6 @@ contract OutrunERC20VotesInitTest is Test {
     }
 
     /// @notice Test delegate moves voting power and creates checkpoints.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testDelegateMovesVotingPowerAndCreatesCheckpoints() external {
         token.mintTest(ALICE, 10 ether);
 
@@ -81,7 +76,6 @@ contract OutrunERC20VotesInitTest is Test {
     }
 
     /// @notice Test transfer after delegation updates past votes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testTransferAfterDelegationUpdatesPastVotes() external {
         vm.roll(10);
         token.mintTest(ALICE, 10 ether);
@@ -103,7 +97,6 @@ contract OutrunERC20VotesInitTest is Test {
     }
 
     /// @notice Test delegate by sig consumes nonce and assigns votes.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testDelegateBySigConsumesNonceAndAssignsVotes() external {
         token.mintTest(ALICE, 5 ether);
 
@@ -119,14 +112,12 @@ contract OutrunERC20VotesInitTest is Test {
     }
 
     /// @notice Test get past votes rejects future lookup.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testGetPastVotesRejectsFutureLookup() external {
         vm.expectRevert();
         token.getPastVotes(ALICE, block.number);
     }
 
     /// @notice Test mint respects safe supply cap override.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testMintRespectsSafeSupplyCapOverride() external {
         CappedVotesHarness cappedImplementation = new CappedVotesHarness();
         CappedVotesHarness capped = CappedVotesHarness(address(cappedImplementation).clone());

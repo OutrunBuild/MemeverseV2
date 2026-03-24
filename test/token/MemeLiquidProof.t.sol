@@ -13,7 +13,6 @@ contract MockMemeLiquidProofEndpoint {
     address public delegate;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
@@ -34,7 +33,6 @@ contract MemeLiquidProofTest is Test {
     MemeLiquidProof internal liquidProof;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockMemeLiquidProofEndpoint();
         implementation = new MemeLiquidProof(address(endpoint));
@@ -42,7 +40,6 @@ contract MemeLiquidProofTest is Test {
     }
 
     /// @notice Test initialize sets config and owner.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testInitializeSetsConfigAndOwner() external {
         liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 
@@ -55,7 +52,6 @@ contract MemeLiquidProofTest is Test {
     }
 
     /// @notice Test only launcher can set pool id and mint.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testOnlyLauncherCanSetPoolIdAndMint() external {
         liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
         PoolId poolId = PoolId.wrap(bytes32(uint256(1234)));
@@ -76,7 +72,6 @@ contract MemeLiquidProofTest is Test {
     }
 
     /// @notice Test burn supports direct holder and approved spender.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testBurnSupportsDirectHolderAndApprovedSpender() external {
         liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 
@@ -97,7 +92,6 @@ contract MemeLiquidProofTest is Test {
     }
 
     /// @notice Test mint and burn reject zero amount.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testMintAndBurnRejectZeroAmount() external {
         liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 /**
- * @dev Interface for the LayerZero endpoint registry.
+ * @dev Registry interface for mapping EVM chain IDs to LayerZero endpoint IDs.
  */
 interface ILzEndpointRegistry {
     struct LzEndpointIdPair {
@@ -10,15 +10,15 @@ interface ILzEndpointRegistry {
         uint32 endpointId;
     }
 
-    /// @notice Returns lz endpoint id of chain.
-    /// @dev See the implementation for behavior details.
-    /// @param chainId The chainId value.
-    /// @return uint32 The uint32 value.
+    /// @notice Looks up the LayerZero endpoint ID configured for an EVM chain.
+    /// @dev Returns zero when the chain has not been configured yet.
+    /// @param chainId EVM chain ID.
+    /// @return endpointId LayerZero endpoint ID mapped to `chainId`.
     function lzEndpointIdOfChain(uint32 chainId) external view returns (uint32);
 
-    /// @notice Executes set lz endpoint ids.
-    /// @dev See the implementation for behavior details.
-    /// @param pairs The pairs value.
+    /// @notice Applies a batch of chain-to-endpoint mappings.
+    /// @dev Implementations may restrict this to an admin path and reject invalid pairs.
+    /// @param pairs Batch of `(chainId, endpointId)` pairs to apply.
     function setLzEndpointIds(LzEndpointIdPair[] calldata pairs) external;
 
     event SetLzEndpointIds(LzEndpointIdPair[] pairs);

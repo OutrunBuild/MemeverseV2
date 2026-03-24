@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 /**
- * @dev Interface for the Memeverse Registrar on Omnichain.
+ * @title Memeverse Omnichain Registrar Interface
  */
 interface IMemeverseRegistrarOmnichain {
     struct RegistrationGasLimit {
@@ -11,6 +11,9 @@ interface IMemeverseRegistrarOmnichain {
         uint80 omnichainRegistrationGasLimit;
     }
 
+    /// @notice Updates the LayerZero gas schedule used for omnichain registrations.
+    /// @dev Expected to be restricted by the implementation's ownership checks.
+    /// @param registrationGasLimit New gas schedule for the center-chain registration receive path.
     function setRegistrationGasLimit(RegistrationGasLimit calldata registrationGasLimit) external;
 
     error InsufficientLzFee();

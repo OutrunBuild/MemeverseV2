@@ -27,21 +27,18 @@ contract MockOAppSenderEndpoint {
     uint256 public quoteLzTokenFee;
 
     /// @notice Set delegate.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param delegate_ See implementation.
     function setDelegate(address delegate_) external {
         delegate = delegate_;
     }
 
     /// @notice Set lz token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param lzToken_ See implementation.
     function setLzToken(address lzToken_) external {
         lzToken = lzToken_;
     }
 
     /// @notice Set quote fee.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param nativeFee See implementation.
     /// @param lzTokenFee See implementation.
     function setQuoteFee(uint256 nativeFee, uint256 lzTokenFee) external {
@@ -50,7 +47,6 @@ contract MockOAppSenderEndpoint {
     }
 
     /// @notice Quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param sender See implementation.
     /// @return fee See implementation.
@@ -61,7 +57,6 @@ contract MockOAppSenderEndpoint {
     }
 
     /// @notice Send.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param params See implementation.
     /// @param refundAddress See implementation.
     /// @return receipt See implementation.
@@ -87,7 +82,6 @@ contract OAppSenderHarness is OutrunOAppSenderInit {
     constructor(address endpoint_) OutrunOAppCoreInit(endpoint_) {}
 
     /// @notice Initialize.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param owner_ See implementation.
     /// @param delegate_ See implementation.
     function initialize(address owner_, address delegate_) external initializer {
@@ -96,7 +90,6 @@ contract OAppSenderHarness is OutrunOAppSenderInit {
     }
 
     /// @notice Quote external.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param dstEid See implementation.
     /// @param message See implementation.
     /// @param options See implementation.
@@ -111,7 +104,6 @@ contract OAppSenderHarness is OutrunOAppSenderInit {
     }
 
     /// @notice Send external.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     /// @param dstEid See implementation.
     /// @param message See implementation.
     /// @param options See implementation.
@@ -143,7 +135,6 @@ contract OutrunOAppSenderInitTest is Test {
     MockERC20 internal lzToken;
 
     /// @notice Set up.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function setUp() external {
         endpoint = new MockOAppSenderEndpoint();
         implementation = new OAppSenderHarness(address(endpoint));
@@ -157,7 +148,6 @@ contract OutrunOAppSenderInitTest is Test {
     }
 
     /// @notice Test quote uses configured peer and endpoint quote.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testQuoteUsesConfiguredPeerAndEndpointQuote() external {
         endpoint.setQuoteFee(0.3 ether, 0);
 
@@ -181,7 +171,6 @@ contract OutrunOAppSenderInitTest is Test {
     }
 
     /// @notice Test send rejects wrong native fee and missing lz token.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSendRejectsWrongNativeFeeAndMissingLzToken() external {
         vm.expectRevert(abi.encodeWithSelector(OutrunOAppSenderInit.NotEnoughNative.selector, 0));
         harness.sendExternal(
@@ -195,7 +184,6 @@ contract OutrunOAppSenderInitTest is Test {
     }
 
     /// @notice Test send forwards native fee and refund address.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSendForwardsNativeFeeAndRefundAddress() external {
         harness.sendExternal{value: 1 ether}(
             DST_EID, bytes("hello"), bytes("opts"), MessagingFee({nativeFee: 1 ether, lzTokenFee: 0}), address(this)
@@ -209,7 +197,6 @@ contract OutrunOAppSenderInitTest is Test {
     }
 
     /// @notice Test send transfers lz token fee when configured.
-    /// @dev Auto-generated minimal NatSpec for repository gate compliance.
     function testSendTransfersLzTokenFeeWhenConfigured() external {
         endpoint.setLzToken(address(lzToken));
         lzToken.mint(address(this), 2 ether);

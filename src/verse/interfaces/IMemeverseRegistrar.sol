@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {IMemeverseRegistrationCenter} from "./IMemeverseRegistrationCenter.sol";
 
 /**
- * @dev Interface for the Memeverse Registrar.
+ * @title Memeverse Registrar Interface
  */
 interface IMemeverseRegistrar {
     struct MemeverseParam {
@@ -21,20 +21,21 @@ interface IMemeverseRegistrar {
         bool flashGenesis; // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
     }
 
-    /// @notice Returns quote register.
-    /// @dev See the implementation for behavior details.
-    /// @param param The param value.
-    /// @param value The value value.
-    /// @return lzFee The lzFee value.
+    /// @notice Quotes the registration fee for this registrar implementation.
+    /// @dev The meaning of `value` depends on the concrete registrar. Omnichain registrars use it as the
+    /// executor-native drop encoded into LayerZero receive options, while the local registrar ignores it.
+    /// @param param Registration request forwarded toward the registration center.
+    /// @param value Registrar-specific native-drop value used when building the quote.
+    /// @return lzFee Native fee required to execute the registration flow.
     function quoteRegister(IMemeverseRegistrationCenter.RegistrationParam calldata param, uint128 value)
         external
         view
         returns (uint256 lzFee);
 
-    /// @notice Executes register at center.
-    /// @dev See the implementation for behavior details.
-    /// @param param The param value.
-    /// @param value The value value.
+    /// @notice Forwards a registration request toward the registration center.
+    /// @dev The caller must supply the native fee expected by the concrete registrar path.
+    /// @param param Registration request to submit.
+    /// @param value Registrar-specific native-drop value or forwarded center fee, depending on the implementation.
     function registerAtCenter(IMemeverseRegistrationCenter.RegistrationParam calldata param, uint128 value)
         external
         payable;

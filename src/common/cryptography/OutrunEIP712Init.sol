@@ -113,15 +113,15 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
         return MessageHashUtils.toTypedDataHash(_domainSeparatorV4(), structHash);
     }
 
-    /// @notice Returns eip712 domain.
-    /// @dev See the implementation for behavior details.
-    /// @return fields The fields value.
-    /// @return name The name value.
-    /// @return version The version value.
-    /// @return chainId The chainId value.
-    /// @return verifyingContract The verifyingContract value.
-    /// @return salt The salt value.
-    /// @return extensions The extensions value.
+    /// @notice Exposes the full IERC5267 EIP-712 domain metadata.
+    /// @dev Reverts when the storage layout indicates EIP-712 was not initialized.
+    /// @return fields Bitmask describing which domain fields are populated.
+    /// @return name Human-readable domain name.
+    /// @return version Domain version string.
+    /// @return chainId Active chain ID used in signatures.
+    /// @return verifyingContract Contract address bound to the domain.
+    /// @return salt Domain salt (unused, zero in this implementation).
+    /// @return extensions Array of extension identifiers (empty by default).
     function eip712Domain()
         public
         view

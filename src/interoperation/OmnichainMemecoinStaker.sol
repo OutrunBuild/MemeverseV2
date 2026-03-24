@@ -20,13 +20,13 @@ contract OmnichainMemecoinStaker is IOmnichainMemecoinStaker, TokenHelper {
         localEndpoint = _localEndpoint;
     }
 
-    /// @notice Executes lz compose.
-    /// @dev See the implementation for behavior details.
-    /// @param memecoin The memecoin value.
-    /// @param guid The guid value.
-    /// @param message The message value.
-    /// @param executor The executor value.
-    /// @param extraData The extraData value.
+    /// @notice Finalizes a remote memecoin staking compose message.
+    /// @dev Called by the local OFT endpoint after bridged memecoin arrives on the governance chain.
+    /// @param memecoin Bridged memecoin address.
+    /// @param guid Compose guid used for replay protection.
+    /// @param message Encoded compose payload containing the receiver and yield-vault target.
+    /// @param executor Compose executor reported by the endpoint.
+    /// @param extraData Extra endpoint-provided metadata, currently ignored.
     function lzCompose(
         address memecoin,
         bytes32 guid,

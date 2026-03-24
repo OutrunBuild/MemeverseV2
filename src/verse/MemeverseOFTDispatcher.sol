@@ -28,13 +28,14 @@ contract MemeverseOFTDispatcher is IMemeverseOFTDispatcher, TokenHelper, Ownable
         memeverseLauncher = _memeverseLauncher;
     }
 
-    /// @notice Executes lz compose.
-    /// @dev See the implementation for behavior details.
-    /// @param token The token value.
-    /// @param guid The guid value.
-    /// @param message The message value.
-    /// @param executor The executor value.
-    /// @param extraData The extraData value.
+    /// @notice Processes an incoming OFT compose payload for protocol treasury routing.
+    /// @dev Accepts compose callbacks either from the local endpoint or directly from the launcher when it uses the
+    /// local same-chain fast path.
+    /// @param token Bridged token being routed.
+    /// @param guid LayerZero compose guid used for replay protection.
+    /// @param message Encoded treasury-routing payload.
+    /// @param executor Compose executor reported by LayerZero.
+    /// @param extraData Extra compose metadata, currently ignored.
     function lzCompose(address token, bytes32 guid, bytes calldata message, address executor, bytes calldata extraData)
         external
         payable
