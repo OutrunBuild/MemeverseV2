@@ -2,60 +2,60 @@
 
 > 本模板用于本地可选的 review 草稿。
 > review note 正文默认使用简体中文。
-> 为兼容现有 gate，请保留下列英文 section / field key，并只填写冒号后的内容。
+> 为兼容 gate，请保留下列英文 section / field key，并只填写冒号后的内容。
+> source 字段采用 `role: source` 形式，表达证据来源 owner。
 
-## Scope（范围）
-- 说明：用简体中文概述本次改动和实际审阅范围。
+## Scope
 - Change summary:
 - Files reviewed:
 
-## Impact（影响）
-- 说明：保持 `yes` / `no` 取值不变，其余解释使用简体中文。
+## Impact
 - Behavior change: yes/no
 - ABI change: yes/no
 - Storage layout change: yes/no
 - Config change: yes/no
 
-## Findings（发现）
-- 说明：如果没有问题，保留 `- None: none`，其他发现可用简体中文补充。
+## Findings
+> 填写规则（二选一）：
+> 有发现时填写 `High/Medium/Low`，并把 `None` 填为 `n/a`；无发现时 `High/Medium/Low` 填 `none`，`None` 填 `none`。
 - High findings:
 - Medium findings:
 - Low findings:
 - None: none
 - Security review summary:
 - Security residual risks:
+- Security evidence source: security-reviewer: <agent-report-path>
 
-## Simplification（简化评估）
-- 说明：说明考虑过哪些更简单方案、最终采用什么、为什么拒绝其他方案。
+## Simplification
 - Candidate simplifications considered:
 - Applied:
 - Rejected (with reason):
 
-## Gas（Gas 评估）
-- 说明：聚焦 gas-sensitive 路径、已做优化与剩余风险，命令、路径、selector 保持英文。
+## Gas
 - Gas-sensitive paths reviewed:
 - Gas changes applied:
 - Gas snapshot/result:
 - Gas residual risks:
+- Gas evidence source: gas-reviewer: <agent-report-path>
 
-## Docs（文档）
-- 说明：路径、命令、文件名保持英文，原因说明使用简体中文。
+## Docs
 - Docs updated: <path>|none
 - Why these docs:
 - No-doc reason:
 
-## Tests（测试）
-- 说明：测试路径、selector、命令保持英文，说明文字使用简体中文；如果命中 `rule-map.json` 的正式规则，`Existing tests exercised` 需要显式写出对应映射测试路径。
+## Tests
+> `Tests updated` / `Existing tests exercised` 由实现角色填写（`solidity-implementer`、`process-implementer`、`security-test-writer`）。
 - Tests updated: <path>|none
 - Existing tests exercised: <selectors or paths>
+- Rule-map evidence source: verifier: <rule-id or mapped-tests>
 - No-test-change reason:
 
-## Verification（验证）
-- 说明：命令保持英文；结果总结使用简体中文。
+## Verification
 - Commands run:
 - Results:
+- Verification evidence source: verifier: <verification-source>
 
-## Decision（结论）
-- 说明：`Ready to commit` 只能填写 `yes` 或 `no`，风险描述使用简体中文。
+## Decision
 - Ready to commit: yes/no
 - Residual risks:
+- Decision evidence source: main-orchestrator: <decision-source>

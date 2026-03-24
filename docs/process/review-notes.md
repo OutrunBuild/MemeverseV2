@@ -1,38 +1,22 @@
-# Review Note 规范
+# Review Note 契约（UniversalVault 风格 + Memeverse 扩展）
 
-`docs/reviews/*.md` 默认是本地 review 草稿目录，不参与 git 提交；但当改动命中 `src/**/*.sol` 时，`quality:gate` 在本地和 CI 下都会要求至少有一份有效 review note 作为安全、简化与 gas 审阅证据。
+`docs/reviews/*.md` 默认是本地 review 草稿目录。命中 `src/**/*.sol` 时，`quality:gate` 在本地和 CI 下都要求至少 1 份有效 review note。
 
-当命中 `docs/process/rule-map.json` 中带有 `evidence_requirement` 的正式规则时，`bash ./script/process/check-solidity-review-note.sh` 还会额外校验 review note 的 `Existing tests exercised` 是否引用了对应映射测试。
+本契约分为两层：
 
-## 语言约束
+- gate 强校验层：`required_headings`、`required_fields`、`boolean_fields`、`placeholder_values`
+- 角色语义层：`field_owners`、`owner_prefixed_source_fields`
 
-- review note 正文默认使用简体中文
-- 如果使用 `script/process/check-review-note.sh` 做本地自检，固定 section / field key 保持英文
-- `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 的值仍然只能填写 `yes` 或 `no`
-- 路径、命令、代码标识、selector 保持英文原文
+机器可读真源统一在 `docs/process/policy.json`。
 
-## 必填目标
+## 语言与格式
 
-每份 review note 都必须让脚本能够回答这几个问题：
+- 自然语言说明默认使用简体中文
+- 固定 section / field key 保持英文
+- 路径、命令、代码标识、selector 保持英文
+- `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 只能填 `yes` 或 `no`
 
-1. 这次改了什么，审了哪些文件？
-2. 是否改变了行为、ABI、存储布局或配置？
-3. 安全审阅结论、残余风险和主要发现是什么？
-4. 做了哪些 simplification 与 gas 优化？还有哪些 gas 风险？
-5. 更新了哪些文档和测试？
-6. 运行了哪些命令，结果是什么？
-7. 如果命中 `rule-map.json` 的正式规则，`Existing tests exercised` 是否覆盖了对应映射测试？
-8. 当前是否允许提交？剩余风险是什么？
-
-`Findings` 和 `Simplification` 仍然保留在模板中，作为建议补充的审计上下文，但当前 gate 不会逐项校验它们的子字段。
-
-PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks / Security / Simplification / Gas` 语言；review note 在命中 `src/**/*.sol` 的本地与 CI 场景下都会参与 `quality:gate`。
-
-固定字段与占位值的机器可读定义见 `docs/process/policy.json`。
-
-## 结构要求
-
-必须包含以下章节：
+## 必填章节（`review_note.required_headings`）
 
 - `## Scope`
 - `## Impact`
@@ -44,63 +28,103 @@ PR template 会复用同一套 `Impact / Docs / Tests / Verification / Risks / S
 - `## Verification`
 - `## Decision`
 
-门禁必填字段：
+## 必填字段（`review_note.required_fields`）
 
-- `Behavior change: yes/no`
-- `ABI change: yes/no`
-- `Storage layout change: yes/no`
-- `Config change: yes/no`
-- `Change summary: ...`
-- `Files reviewed: ...`
-- `Security review summary: ...`
-- `Security residual risks: ...`
-- `Gas-sensitive paths reviewed: ...`
-- `Gas changes applied: ...`
-- `Gas snapshot/result: ...`
-- `Gas residual risks: ...`
-- `Docs updated: <path>|none`
-- `Tests updated: <path>|none`
-- `Existing tests exercised: ...`
-- `Commands run: ...`
-- `Results: ...`
-- `Ready to commit: yes/no`
-- `Residual risks: ...`
+- `Change summary`
+- `Files reviewed`
+- `Behavior change`
+- `ABI change`
+- `Storage layout change`
+- `Config change`
+- `Security review summary`
+- `Security residual risks`
+- `Gas-sensitive paths reviewed`
+- `Gas changes applied`
+- `Gas snapshot/result`
+- `Gas residual risks`
+- `Docs updated`
+- `Tests updated`
+- `Existing tests exercised`
+- `Commands run`
+- `Results`
+- `Ready to commit`
+- `Residual risks`
 
-如果命中 `rule-map.json` 的正式规则，还需要满足：
+## 布尔字段（`review_note.boolean_fields`）
 
-- `Existing tests exercised` 至少引用触发规则的 `evidence_requirement` 所要求的测试路径
-- `mode = any` 时至少引用 1 个
-- `mode = all` 时必须全部引用
-- `mode = none` 时不要求额外引用
+- `Behavior change`
+- `ABI change`
+- `Storage layout change`
+- `Config change`
+- `Ready to commit`
 
-建议补充字段：
+## 字段 owner 语义（`review_note.field_owners`）
 
-- `High findings: ...`
-- `Medium findings: ...`
-- `Low findings: ...`
-- `None: none`
-- `Candidate simplifications considered: ...`
-- `Applied: ...`
-- `Rejected (with reason): ...`
-- `Why these docs: ...`
-- `No-doc reason: ...`
-- `No-test-change reason: ...`
+默认 owner 语义：
 
-## 禁止内容
+- 安全字段（`Security review summary`、`Security residual risks`）由 `security-reviewer` 提供
+- Gas 字段（`Gas-*`）由 `gas-reviewer` 提供
+- 验证字段（`Commands run`、`Results`）由 `verifier` 提供
+- 决策字段（`Ready to commit`）由 `main-orchestrator` 最终确认
+- `Docs updated` 由实现角色（`solidity-implementer` 或 `process-implementer`）维护
+- `Tests updated` / `Existing tests exercised` 由实现角色（`solidity-implementer`、`process-implementer`、`security-test-writer`）维护
+- `Rule-map evidence source` 由 `verifier` 汇总
 
-以下内容会被脚本视为无效：
+owner 语义以 `policy.json` 为机器可读真源。
 
-- 空字段
+## 证据来源字段语义（`review_note.owner_prefixed_source_fields`）
+
+以下字段采用 `role: source` 形式，表达“结论由谁给出、证据来自哪里”：
+
+- `Security evidence source`
+- `Gas evidence source`
+- `Verification evidence source`
+- `Decision evidence source`
+- `Rule-map evidence source`
+
+示例：
+
+- `Security evidence source: security-reviewer: docs/reviews/2026-03-25-security-pass.md`
+- `Gas evidence source: gas-reviewer: docs/reviews/2026-03-25-gas-pass.md`
+- `Verification evidence source: verifier: forge test -vvv`
+- `Decision evidence source: main-orchestrator: task brief decision summary`
+
+## Memeverse 专属 rule-map 证据规则
+
+`docs/process/rule-map.json` 是 Memeverse 专属映射真源，不被通用 harness 替代。命中正式规则时：
+
+- `check-rule-map.sh` 依据 `change_requirement` 校验改动集
+- `check-solidity-review-note.sh` 依据 `evidence_requirement` 校验 `Existing tests exercised`
+- `mode = any`：至少引用 1 个映射测试
+- `mode = all`：必须覆盖全部映射测试
+- `mode = none`：不要求额外映射测试
+
+`Rule-map evidence source` 用于记录对应 rule id / 测试路径来源，便于追溯；当前 gate 仍以 `Existing tests exercised` 为硬校验入口。
+
+## Findings 填写约定
+
+`Findings` 采用二选一：
+
+- 有发现：填写 `High findings` / `Medium findings` / `Low findings`，并把 `None` 设为 `n/a`
+- 无发现：`High findings` / `Medium findings` / `Low findings` 填 `none`，`None` 保持 `none`
+
+## 禁止值
+
+以下占位值会被视为无效：
+
+- 空值
 - `TBD`
 - `<path>`
+- `<path>|none`
 - `<selectors or paths>`
+- `<agent-report-path>`
+- `<verification-source>`
+- `<decision-source>`
+- `<rule-id or mapped-tests>`
 - `yes/no`
-- 模板占位没有替换
 
 ## 使用方式
 
-- 需要本地记录审阅结论时，可基于 `docs/reviews/TEMPLATE.md` 新建草稿
-- 命中 `src/**/*.sol` 变更且准备运行本地或 CI `quality:gate` 时，必须先准备好一份可通过校验的 review note
-- 需要只检查草稿格式时，可手动运行 `bash ./script/process/check-review-note.sh <review-note>`
-- 需要连同 `rule-map.json` 的 `evidence_requirement` 一起检查时，可运行 `bash ./script/process/check-solidity-review-note.sh`
-- 是否保留、分享或转移到其他协作系统，由团队自行决定
+- 以 `docs/reviews/TEMPLATE.md` 新建 review note
+- 仅校验结构可运行：`bash ./script/process/check-review-note.sh <review-note>`
+- 需要联动 `rule-map` 证据时运行：`bash ./script/process/check-solidity-review-note.sh`

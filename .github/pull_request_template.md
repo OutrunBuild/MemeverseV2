@@ -1,6 +1,6 @@
 ## Summary
 
-- Explain what changed.
+- 说明本次改动范围、目标和主要结果。
 
 ## Impact
 
@@ -11,21 +11,26 @@
 
 ## Docs
 
-- Updated docs:
+- Docs updated:
+- Why these docs:
 
 ## Tests
 
-- Added or updated tests:
+<!-- implementer-owned: solidity-implementer | process-implementer | security-test-writer -->
+- Tests updated:
 - Existing tests exercised:
+- Rule-map evidence source: verifier: <rule-id or mapped-tests>
 
 ## Verification
 
 - Commands run:
 - Results:
+- Verification evidence source: verifier: <verification-source>
 
 ## Risks
 
 - Residual risks:
+- Decision evidence source: main-orchestrator: <decision-source>
 
 ## Security
 
@@ -34,6 +39,7 @@
 - Medium findings:
 - Low findings:
 - Security residual risks:
+- Security evidence source: security-reviewer: <agent-report-path>
 
 ## Simplification
 
@@ -47,3 +53,4 @@
 - Gas changes applied:
 - Gas snapshot/result:
 - Gas residual risks:
+- Gas evidence source: gas-reviewer: <agent-report-path>

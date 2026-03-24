@@ -39,12 +39,49 @@
       "Config change",
       "Ready to commit"
     ],
+    "field_owners": {
+      "Change summary": "solidity-implementer|process-implementer",
+      "Files reviewed": "solidity-implementer|process-implementer|verifier",
+      "Behavior change": "solidity-implementer|process-implementer",
+      "ABI change": "solidity-implementer",
+      "Storage layout change": "solidity-implementer",
+      "Config change": "solidity-implementer|process-implementer",
+      "Security review summary": "security-reviewer",
+      "Security residual risks": "security-reviewer",
+      "Security evidence source": "security-reviewer",
+      "Gas-sensitive paths reviewed": "gas-reviewer",
+      "Gas changes applied": "gas-reviewer",
+      "Gas snapshot/result": "gas-reviewer",
+      "Gas residual risks": "gas-reviewer",
+      "Gas evidence source": "gas-reviewer",
+      "Docs updated": "solidity-implementer|process-implementer",
+      "Tests updated": "solidity-implementer|process-implementer|security-test-writer",
+      "Existing tests exercised": "solidity-implementer|process-implementer|security-test-writer",
+      "Rule-map evidence source": "verifier",
+      "Commands run": "verifier",
+      "Results": "verifier",
+      "Verification evidence source": "verifier",
+      "Ready to commit": "main-orchestrator",
+      "Decision evidence source": "main-orchestrator",
+      "Residual risks": "main-orchestrator|verifier|security-reviewer|gas-reviewer"
+    },
+    "owner_prefixed_source_fields": [
+      "Security evidence source",
+      "Gas evidence source",
+      "Verification evidence source",
+      "Decision evidence source",
+      "Rule-map evidence source"
+    ],
     "placeholder_values": [
       "",
       "TBD",
       "<path>",
       "<path>|none",
       "<selectors or paths>",
+      "<agent-report-path>",
+      "<verification-source>",
+      "<decision-source>",
+      "<rule-id or mapped-tests>",
       "yes/no"
     ]
   },
@@ -61,14 +98,85 @@
       "## Gas"
     ]
   },
+  "rule_map": {
+    "path": "docs/process/rule-map.json",
+    "role": "memeverse-specific-machine-readable-truth",
+    "enforced_by": [
+      "script/process/check-rule-map.sh",
+      "script/process/check-solidity-review-note.sh"
+    ],
+    "evidence_field": "Existing tests exercised"
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": [
+      "solidity-implementer",
+      "process-implementer",
+      "security-reviewer",
+      "gas-reviewer",
+      "verifier"
+    ],
+    "on_demand_roles": [
+      "solidity-explorer",
+      "security-test-writer"
+    ],
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
   "quality_gate": {
     "swap_src_sol_pattern": "^src/swap/.*\\.sol$",
     "src_sol_pattern": "^src/.*\\.sol$",
     "test_tsol_pattern": "^test/.*\\.t\\.sol$",
     "test_sol_pattern": "^test/.*\\.sol$",
     "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
+    "package_pattern": "^(package\\.json|package-lock\\.json)$",
+    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|\\.github/pull_request_template\\.md|\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
-    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions"
+    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
+    "src_default_roles": [
+      "solidity-implementer",
+      "security-reviewer",
+      "gas-reviewer",
+      "verifier"
+    ],
+    "src_optional_roles": [
+      "solidity-explorer",
+      "security-test-writer"
+    ],
+    "test_default_roles": [
+      "solidity-implementer",
+      "verifier"
+    ],
+    "test_optional_roles": [
+      "security-reviewer",
+      "gas-reviewer"
+    ],
+    "shell_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "package_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "docs_contract_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "hard_block_conditions": [
+      "required_command_failed",
+      "unauthorized_write_out_of_scope",
+      "missing_security_or_gas_evidence_for_src_change",
+      "review_note_invalid_for_src_change",
+      "rule_map_evidence_requirement_failed"
+    ],
+    "soft_block_conditions": [
+      "explained_non_critical_gas_regression",
+      "deferrable_simplification",
+      "non_blocking_docs_follow_up",
+      "pending_human_product_decision"
+    ]
   }
 }
