@@ -20,7 +20,7 @@ import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
 import {IMemeLiquidProof} from "../token/interfaces/IMemeLiquidProof.sol";
 import {ILzEndpointRegistry} from "../common/omnichain/interfaces/ILzEndpointRegistry.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
-import {IMemeverseOFTDispatcher} from "./interfaces/IMemeverseOFTDispatcher.sol";
+import {IYieldDispatcher} from "./interfaces/IYieldDispatcher.sol";
 import {IMemeverseProxyDeployer} from "./interfaces/IMemeverseProxyDeployer.sol";
 import {IMemeverseSwapRouter} from "../swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../swap/interfaces/IMemeverseUniswapHook.sol";
@@ -38,7 +38,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     address public localLzEndpoint;
     address public lzEndpointRegistry;
-    address public oftDispatcher;
+    address public yieldDispatcher;
     address public memeverseRegistrar;
     address public memeverseProxyDeployer;
     address public memeverseSwapRouter;
@@ -47,7 +47,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     uint256 public preorderCapRatio;
     uint256 public preorderVestingDuration;
     uint128 public oftReceiveGasLimit;
-    uint128 public oftDispatcherGasLimit;
+    uint128 public yieldDispatcherGasLimit;
 
     struct PreorderState {
         uint256 totalFunds;
@@ -71,11 +71,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address _localLzEndpoint,
         address _memeverseRegistrar,
         address _memeverseProxyDeployer,
-        address _oftDispatcher,
+        address _yieldDispatcher,
         address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
-        uint128 _oftDispatcherGasLimit,
+        uint128 _yieldDispatcherGasLimit,
         uint256 _preorderCapRatio,
         uint256 _preorderVestingDuration
     ) Ownable(_owner) {
@@ -86,12 +86,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         memeverseRegistrar = _memeverseRegistrar;
         memeverseProxyDeployer = _memeverseProxyDeployer;
         lzEndpointRegistry = _lzEndpointRegistry;
-        oftDispatcher = _oftDispatcher;
+        yieldDispatcher = _yieldDispatcher;
         executorRewardRate = _executorRewardRate;
         preorderCapRatio = _preorderCapRatio;
         preorderVestingDuration = _preorderVestingDuration;
         oftReceiveGasLimit = _oftReceiveGasLimit;
-        oftDispatcherGasLimit = _oftDispatcherGasLimit;
+        yieldDispatcherGasLimit = _yieldDispatcherGasLimit;
     }
 
     modifier versIdValidate(uint256 verseId) {
@@ -290,19 +290,19 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         (uint256 UPTFee, uint256 memecoinFee) = previewGenesisMakerFees(verseId);
         uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
-        bytes memory oftDispatcherOptions = OptionsBuilder.newOptions()
-            .addExecutorLzReceiveOption(oftReceiveGasLimit, 0).addExecutorLzComposeOption(0, oftDispatcherGasLimit, 0);
+        bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
+            .addExecutorLzReceiveOption(oftReceiveGasLimit, 0).addExecutorLzComposeOption(0, yieldDispatcherGasLimit, 0);
 
         if (UPTFee != 0) {
             (, MessagingFee memory govMessagingFee) = _buildSendParamAndMessagingFee(
-                govEndpointId, UPTFee, verse.UPT, verse.governor, TokenType.UPT, oftDispatcherOptions
+                govEndpointId, UPTFee, verse.UPT, verse.governor, TokenType.UPT, yieldDispatcherOptions
             );
             lzFee += govMessagingFee.nativeFee;
         }
 
         if (memecoinFee != 0) {
             (, MessagingFee memory memecoinMessagingFee) = _buildSendParamAndMessagingFee(
-                govEndpointId, memecoinFee, verse.memecoin, verse.yieldVault, TokenType.MEMECOIN, oftDispatcherOptions
+                govEndpointId, memecoinFee, verse.memecoin, verse.yieldVault, TokenType.MEMECOIN, yieldDispatcherOptions
             );
             lzFee += memecoinMessagingFee.nativeFee;
         }
@@ -490,7 +490,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 .initialize(
                     string(abi.encodePacked("Staked ", name)),
                     string(abi.encodePacked("s", symbol)),
-                    oftDispatcher,
+                    yieldDispatcher,
                     memecoin,
                     verseId
                 );
@@ -754,28 +754,28 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (govChainId == block.chainid) {
             if (msg.value != 0) revert InvalidLzFee(0, msg.value);
             if (govFee != 0) {
-                _transferOut(UPT, oftDispatcher, govFee);
-                IMemeverseOFTDispatcher(oftDispatcher)
+                _transferOut(UPT, yieldDispatcher, govFee);
+                IYieldDispatcher(yieldDispatcher)
                     .lzCompose(UPT, bytes32(0), abi.encode(governor, TokenType.UPT, govFee), address(0), "");
             }
             if (memecoinFee != 0) {
-                _transferOut(memecoin, oftDispatcher, memecoinFee);
-                IMemeverseOFTDispatcher(oftDispatcher)
+                _transferOut(memecoin, yieldDispatcher, memecoinFee);
+                IYieldDispatcher(yieldDispatcher)
                     .lzCompose(
                         memecoin, bytes32(0), abi.encode(yieldVault, TokenType.MEMECOIN, memecoinFee), address(0), ""
                     );
             }
         } else {
             uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
-            bytes memory oftDispatcherOptions = OptionsBuilder.newOptions()
+            bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
                 .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
-                .addExecutorLzComposeOption(0, oftDispatcherGasLimit, 0);
+                .addExecutorLzComposeOption(0, yieldDispatcherGasLimit, 0);
 
             SendParam memory sendUPTParam;
             MessagingFee memory govMessagingFee;
             if (govFee != 0) {
                 (sendUPTParam, govMessagingFee) = _buildSendParamAndMessagingFee(
-                    govEndpointId, govFee, UPT, governor, TokenType.UPT, oftDispatcherOptions
+                    govEndpointId, govFee, UPT, governor, TokenType.UPT, yieldDispatcherOptions
                 );
             }
 
@@ -783,7 +783,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             MessagingFee memory memecoinMessagingFee;
             if (memecoinFee != 0) {
                 (sendMemecoinParam, memecoinMessagingFee) = _buildSendParamAndMessagingFee(
-                    govEndpointId, memecoinFee, memecoin, yieldVault, TokenType.MEMECOIN, oftDispatcherOptions
+                    govEndpointId, memecoinFee, memecoin, yieldVault, TokenType.MEMECOIN, yieldDispatcherOptions
                 );
             }
 
@@ -1213,16 +1213,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     /**
-     * @notice Set the memeverse OFT dispatcher contract.
+     * @notice Set the yield dispatcher contract.
      * @dev Only callable by the owner.
-     * @param _oftDispatcher - Address of oftDispatcher
+     * @param _yieldDispatcher - Address of yieldDispatcher
      */
-    function setOFTDispatcher(address _oftDispatcher) external override onlyOwner {
-        require(_oftDispatcher != address(0), ZeroInput());
+    function setYieldDispatcher(address _yieldDispatcher) external override onlyOwner {
+        require(_yieldDispatcher != address(0), ZeroInput());
 
-        oftDispatcher = _oftDispatcher;
+        yieldDispatcher = _yieldDispatcher;
 
-        emit SetOFTDispatcher(_oftDispatcher);
+        emit SetYieldDispatcher(_yieldDispatcher);
     }
 
     /**
@@ -1285,15 +1285,15 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @notice Set gas limits for OFT receive and yield dispatcher.
      * @dev Only callable by the owner.
      * @param _oftReceiveGasLimit - Gas limit for OFT receive
-     * @param _oftDispatcherGasLimit - Gas limit for yield dispatcher
+     * @param _yieldDispatcherGasLimit - Gas limit for yield dispatcher
      */
-    function setGasLimits(uint128 _oftReceiveGasLimit, uint128 _oftDispatcherGasLimit) external override onlyOwner {
-        require(_oftReceiveGasLimit > 0 && _oftDispatcherGasLimit > 0, ZeroInput());
+    function setGasLimits(uint128 _oftReceiveGasLimit, uint128 _yieldDispatcherGasLimit) external override onlyOwner {
+        require(_oftReceiveGasLimit > 0 && _yieldDispatcherGasLimit > 0, ZeroInput());
 
         oftReceiveGasLimit = _oftReceiveGasLimit;
-        oftDispatcherGasLimit = _oftDispatcherGasLimit;
+        yieldDispatcherGasLimit = _yieldDispatcherGasLimit;
 
-        emit SetGasLimits(_oftReceiveGasLimit, _oftDispatcherGasLimit);
+        emit SetGasLimits(_oftReceiveGasLimit, _yieldDispatcherGasLimit);
     }
 
     /**
@@ -1333,14 +1333,14 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address token,
         address receiver,
         TokenType tokenType,
-        bytes memory oftDispatcherOptions
+        bytes memory yieldDispatcherOptions
     ) internal view returns (SendParam memory sendParam, MessagingFee memory messagingFee) {
         sendParam = SendParam({
             dstEid: govEndpointId,
-            to: bytes32(uint256(uint160(oftDispatcher))),
+            to: bytes32(uint256(uint160(yieldDispatcher))),
             amountLD: amount,
             minAmountLD: 0,
-            extraOptions: oftDispatcherOptions,
+            extraOptions: yieldDispatcherOptions,
             composeMsg: abi.encode(receiver, tokenType),
             oftCmd: abi.encode()
         });

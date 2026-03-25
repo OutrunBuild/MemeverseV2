@@ -7,8 +7,8 @@ import {OFTComposeMsgCodec} from "@layerzerolabs/oft-evm/contracts/libs/OFTCompo
 
 import {IOFTCompose} from "../../src/common/omnichain/oft/IOFTCompose.sol";
 import {IBurnable} from "../../src/common/interfaces/IBurnable.sol";
-import {MemeverseOFTDispatcher} from "../../src/verse/MemeverseOFTDispatcher.sol";
-import {IMemeverseOFTDispatcher} from "../../src/verse/interfaces/IMemeverseOFTDispatcher.sol";
+import {YieldDispatcher} from "../../src/verse/YieldDispatcher.sol";
+import {IYieldDispatcher} from "../../src/verse/interfaces/IYieldDispatcher.sol";
 import {MemeverseOFTEnum} from "../../src/common/types/MemeverseOFTEnum.sol";
 
 contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
@@ -80,7 +80,7 @@ contract MockDispatcherGovernor {
     }
 }
 
-contract MemeverseOFTDispatcherTest is Test {
+contract YieldDispatcherTest is Test {
     using OFTComposeMsgCodec for bytes;
 
     address internal constant OWNER = address(0xABCD);
@@ -88,14 +88,14 @@ contract MemeverseOFTDispatcherTest is Test {
     address internal constant LAUNCHER = address(0x2222);
     address internal constant ALICE = address(0xA11CE);
 
-    MemeverseOFTDispatcher internal dispatcher;
+    YieldDispatcher internal dispatcher;
     MockDispatcherComposeToken internal token;
     MockDispatcherYieldVault internal yieldVault;
     MockDispatcherGovernor internal governor;
 
     /// @notice Set up.
     function setUp() external {
-        dispatcher = new MemeverseOFTDispatcher(OWNER, LOCAL_ENDPOINT, LAUNCHER);
+        dispatcher = new YieldDispatcher(OWNER, LOCAL_ENDPOINT, LAUNCHER);
         token = new MockDispatcherComposeToken("Compose Token", "CMP");
         yieldVault = new MockDispatcherYieldVault();
         governor = new MockDispatcherGovernor();
@@ -103,7 +103,7 @@ contract MemeverseOFTDispatcherTest is Test {
 
     /// @notice Test lz compose rejects unauthorized caller.
     function testLzComposeRejectsUnauthorizedCaller() external {
-        vm.expectRevert(IMemeverseOFTDispatcher.PermissionDenied.selector);
+        vm.expectRevert(IYieldDispatcher.PermissionDenied.selector);
         dispatcher.lzCompose(address(token), bytes32(0), "", address(0), "");
     }
 
@@ -161,7 +161,7 @@ contract MemeverseOFTDispatcherTest is Test {
         bytes memory message = OFTComposeMsgCodec.encode(1, 101, 1 ether, composeMessage);
 
         vm.prank(LOCAL_ENDPOINT);
-        vm.expectRevert(IMemeverseOFTDispatcher.AlreadyExecuted.selector);
+        vm.expectRevert(IYieldDispatcher.AlreadyExecuted.selector);
         dispatcher.lzCompose(address(token), guid, message, address(0), "");
     }
 

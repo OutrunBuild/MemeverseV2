@@ -694,11 +694,11 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         address _localLzEndpoint,
         address _memeverseRegistrar,
         address _memeverseProxyDeployer,
-        address _oftDispatcher,
+        address _yieldDispatcher,
         address _lzEndpointRegistry,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
-        uint128 _oftDispatcherGasLimit,
+        uint128 _yieldDispatcherGasLimit,
         uint256 _preorderCapRatio,
         uint256 _preorderVestingDuration
     )
@@ -707,11 +707,11 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
             _localLzEndpoint,
             _memeverseRegistrar,
             _memeverseProxyDeployer,
-            _oftDispatcher,
+            _yieldDispatcher,
             _lzEndpointRegistry,
             _executorRewardRate,
             _oftReceiveGasLimit,
-            _oftDispatcherGasLimit,
+            _yieldDispatcherGasLimit,
             _preorderCapRatio,
             _preorderVestingDuration
         )
@@ -832,7 +832,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         registry = new MockLzEndpointRegistry();
 
         launcher.setMemeverseSwapRouter(address(router));
-        launcher.setOFTDispatcher(address(dispatcher));
+        launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
     }

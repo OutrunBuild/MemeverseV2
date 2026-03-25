@@ -15,7 +15,7 @@ import {IOutrunDeployer} from "./IOutrunDeployer.sol";
 import {MemeLiquidProof} from "../src/token/MemeLiquidProof.sol";
 import {MemecoinYieldVault} from "../src/yield/MemecoinYieldVault.sol";
 import {MemeverseProxyDeployer} from "../src/verse/deployment/MemeverseProxyDeployer.sol";
-import {MemeverseOFTDispatcher} from "../src/verse/MemeverseOFTDispatcher.sol";
+import {YieldDispatcher} from "../src/verse/YieldDispatcher.sol";
 import {MemeverseRegistrarAtLocal} from "../src/verse/registration/MemeverseRegistrarAtLocal.sol";
 import {MemeverseRegistrationCenter} from "../src/verse/registration/MemeverseRegistrationCenter.sol";
 import {MemeverseRegistrarOmnichain} from "../src/verse/registration/MemeverseRegistrarOmnichain.sol";
@@ -52,7 +52,7 @@ contract MemeverseScript is BaseScript {
     address internal MEMEVERSE_REGISTRAR;
     address internal MEMEVERSE_PROXY_DEPLOYER;
     address internal MEMEVERSE_LAUNCHER;
-    address internal MEMEVERSE_OFT_DISPATCHER;
+    address internal MEMEVERSE_YIELD_DISPATCHER;
     address internal OMNICHAIN_MEMECOIN_STAKER;
 
     uint32[] public omnichainIds;
@@ -80,7 +80,7 @@ contract MemeverseScript is BaseScript {
         MEMEVERSE_REGISTRAR = vm.envAddress("MEMEVERSE_REGISTRAR");
         MEMEVERSE_PROXY_DEPLOYER = vm.envAddress("MEMEVERSE_PROXY_DEPLOYER");
         MEMEVERSE_LAUNCHER = vm.envAddress("MEMEVERSE_LAUNCHER");
-        MEMEVERSE_OFT_DISPATCHER = vm.envAddress("MEMEVERSE_OFT_DISPATCHER");
+        MEMEVERSE_YIELD_DISPATCHER = vm.envAddress("MEMEVERSE_YIELD_DISPATCHER");
         OMNICHAIN_MEMECOIN_STAKER = vm.envAddress("OMNICHAIN_MEMECOIN_STAKER");
 
         // OutrunTODO Testnet id
@@ -94,7 +94,7 @@ contract MemeverseScript is BaseScript {
         // _getDeployedLzEndpointRegistry(2);
         // _getDeployedMemeverseRegistrar(2);
         // _getDeployedMemeverseProxyDeployer(2);
-        // _getDeployedMemeverseOFTDispatcher(2);
+        // _getDeployedYieldDispatcher(2);
         // _getDeployedMemeverseOmnichainInteroperation(2);
         // _getDeployedOmnichainMemecoinStaker(2);
         // _getDeployedMemeverseLauncher(2);
@@ -108,7 +108,7 @@ contract MemeverseScript is BaseScript {
         // _deployLzEndpointRegistry(2);
         // _deployMemeverseRegistrar(2);
         // _deployMemeverseProxyDeployer(2);
-        // _deployMemeverseOFTDispatcher(2);
+        // _deployYieldDispatcher(2);
         // _deployMemeverseOmnichainInteroperation(2);
         // _deployOmnichainMemecoinStaker(2);
 
@@ -203,11 +203,11 @@ contract MemeverseScript is BaseScript {
         console.log("MemeverseLauncher deployed on %s", deployed);
     }
 
-    function _getDeployedMemeverseOFTDispatcher(uint256 nonce) internal view {
-        bytes32 salt = keccak256(abi.encodePacked("MemeverseOFTDispatcher", nonce));
+    function _getDeployedYieldDispatcher(uint256 nonce) internal view {
+        bytes32 salt = keccak256(abi.encodePacked("YieldDispatcher", nonce));
         address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(owner, salt);
 
-        console.log("MemeverseOFTDispatcher deployed on %s", deployed);
+        console.log("YieldDispatcher deployed on %s", deployed);
     }
 
     function _getDeployedMemeverseOmnichainInteroperation(uint256 nonce) internal view {
@@ -405,7 +405,7 @@ contract MemeverseScript is BaseScript {
             localEndpoint,
             MEMEVERSE_REGISTRAR,
             MEMEVERSE_PROXY_DEPLOYER,
-            MEMEVERSE_OFT_DISPATCHER,
+            MEMEVERSE_YIELD_DISPATCHER,
             25,
             115000,
             135000,
@@ -421,17 +421,17 @@ contract MemeverseScript is BaseScript {
         console.log("MemeverseLauncher deployed on %s", memeverseLauncherAddr);
     }
 
-    function _deployMemeverseOFTDispatcher(uint256 nonce) internal {
+    function _deployYieldDispatcher(uint256 nonce) internal {
         address localEndpoint = endpoints[uint32(block.chainid)];
 
         bytes memory creationCode = abi.encodePacked(
-            type(MemeverseOFTDispatcher).creationCode, abi.encode(owner, localEndpoint, MEMEVERSE_LAUNCHER)
+            type(YieldDispatcher).creationCode, abi.encode(owner, localEndpoint, MEMEVERSE_LAUNCHER)
         );
 
-        bytes32 salt = keccak256(abi.encodePacked("MemeverseOFTDispatcher", nonce));
+        bytes32 salt = keccak256(abi.encodePacked("YieldDispatcher", nonce));
         address memeverseOFTDispatcher = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(salt, creationCode);
 
-        console.log("MemeverseOFTDispatcher deployed on %s", memeverseOFTDispatcher);
+        console.log("YieldDispatcher deployed on %s", memeverseOFTDispatcher);
     }
 
     function _deployMemeverseOmnichainInteroperation(uint256 nonce) internal {

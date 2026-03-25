@@ -5,7 +5,7 @@ import {ILayerZeroComposer} from "@layerzerolabs/lz-evm-protocol-v2/contracts/in
 
 import {MemeverseOFTEnum} from "../../common/types/MemeverseOFTEnum.sol";
 
-interface IMemeverseOFTDispatcher is MemeverseOFTEnum, ILayerZeroComposer {
+interface IYieldDispatcher is MemeverseOFTEnum, ILayerZeroComposer {
     event OFTProcessed(
         bytes32 indexed guid,
         address indexed token,

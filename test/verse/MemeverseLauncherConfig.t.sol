@@ -159,12 +159,12 @@ contract MemeverseLauncherConfigTest is Test {
 
     /// @notice Test set oftdispatcher stores address and rejects zero.
     /// @dev Guards the OFT dispatcher setter against zero inputs.
-    function testSetOFTDispatcherStoresAddressAndRejectsZero() external {
-        launcher.setOFTDispatcher(address(0xBEEF));
-        assertEq(launcher.oftDispatcher(), address(0xBEEF));
+    function testSetYieldDispatcherStoresAddressAndRejectsZero() external {
+        launcher.setYieldDispatcher(address(0xBEEF));
+        assertEq(launcher.yieldDispatcher(), address(0xBEEF));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
-        launcher.setOFTDispatcher(address(0));
+        launcher.setYieldDispatcher(address(0));
     }
 
     /// @notice Test set fund meta data stores values and guards inputs.
@@ -217,7 +217,7 @@ contract MemeverseLauncherConfigTest is Test {
     function testSetGasLimitsStoresValuesAndRejectsZero() external {
         launcher.setGasLimits(1, 2);
         assertEq(launcher.oftReceiveGasLimit(), 1);
-        assertEq(launcher.oftDispatcherGasLimit(), 2);
+        assertEq(launcher.yieldDispatcherGasLimit(), 2);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setGasLimits(0, 1);

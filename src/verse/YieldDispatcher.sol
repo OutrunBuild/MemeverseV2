@@ -9,15 +9,16 @@ import {TokenHelper} from "../common/token/TokenHelper.sol";
 import {IBurnable} from "../common/interfaces/IBurnable.sol";
 import {IOFTCompose} from "../common/omnichain/oft/IOFTCompose.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
-import {IMemeverseOFTDispatcher} from "./interfaces/IMemeverseOFTDispatcher.sol";
+import {IYieldDispatcher} from "./interfaces/IYieldDispatcher.sol";
 import {IMemecoinDaoGovernor} from "../governance/interfaces/IMemecoinDaoGovernor.sol";
 
 /**
- * @title Memeverse OFT Dispatcher
- * @dev The contract is designed to interact with LayerZero's Omnichain Fungible Token (OFT) Standard,
- *      accepts Memecoin Yield from other chains and then forwards it to the corresponding yield vault.
+ * @title Yield Dispatcher
+ * @dev Routes bridged or same-chain launcher fee proceeds to the yield vault or governor treasury.
+ *      It interacts with LayerZero's OFT compose flow for remote deliveries and also supports the
+ *      launcher's same-chain fast path.
  */
-contract MemeverseOFTDispatcher is IMemeverseOFTDispatcher, TokenHelper, Ownable {
+contract YieldDispatcher is IYieldDispatcher, TokenHelper, Ownable {
     using Strings for string;
 
     address public immutable localEndpoint;

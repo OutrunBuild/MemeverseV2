@@ -308,7 +308,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         registry = new MockLzEndpointRegistry();
 
         launcher.setMemeverseSwapRouter(address(router));
-        launcher.setOFTDispatcher(address(dispatcher));
+        launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
@@ -428,7 +428,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         registry = new MockLzEndpointRegistry();
 
         launcher.setMemeverseSwapRouter(address(router));
-        launcher.setOFTDispatcher(address(dispatcher));
+        launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
@@ -518,7 +518,7 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         registry = new MockLzEndpointRegistry();
 
         launcher.setMemeverseSwapRouter(address(router));
-        launcher.setOFTDispatcher(address(dispatcher));
+        launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
@@ -623,7 +623,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         registry = new MockLzEndpointRegistry();
 
         launcher.setMemeverseSwapRouter(address(router));
-        launcher.setOFTDispatcher(address(dispatcher));
+        launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 

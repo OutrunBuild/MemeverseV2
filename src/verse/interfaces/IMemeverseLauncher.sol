@@ -260,10 +260,10 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @param memeverseProxyDeployer The new proxy deployer address.
     function setMemeverseProxyDeployer(address memeverseProxyDeployer) external;
 
-    /// @notice Replaces the OFT dispatcher contract reference.
+    /// @notice Replaces the yield dispatcher contract reference.
     /// @dev Implementations are expected to guard this with their admin or owner flow.
-    /// @param oftDispatcher The new OFT dispatcher address.
-    function setOFTDispatcher(address oftDispatcher) external;
+    /// @param yieldDispatcher The new yield dispatcher address.
+    function setYieldDispatcher(address yieldDispatcher) external;
 
     /// @notice Sets the fund metadata used for a UPT fundraising token.
     /// @dev `fundBasedAmount` controls launcher-side bootstrap pricing and may be bounded by the implementation.
@@ -286,8 +286,8 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
     /// @notice Updates the gas budgets used for launcher cross-chain calls.
     /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param oftReceiveGasLimit The gas limit used for OFT receives.
-    /// @param oftDispatcherGasLimit The gas limit used for OFT compose dispatches.
-    function setGasLimits(uint128 oftReceiveGasLimit, uint128 oftDispatcherGasLimit) external;
+    /// @param yieldDispatcherGasLimit The gas limit used for yield dispatcher compose dispatches.
+    function setGasLimits(uint128 oftReceiveGasLimit, uint128 yieldDispatcherGasLimit) external;
 
     /// @notice Updates the external metadata for a verse.
     /// @dev Stores presentation metadata and community links for the verse.
@@ -385,7 +385,7 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     event SetMemeverseProxyDeployer(address memeverseProxyDeployer);
 
-    event SetOFTDispatcher(address oftDispatcher);
+    event SetYieldDispatcher(address yieldDispatcher);
 
     event SetFundMetaData(address indexed upt, uint256 minTotalFund, uint256 fundBasedAmount);
 
@@ -393,7 +393,7 @@ interface IMemeverseLauncher is MemeverseOFTEnum {
 
     event SetPreorderConfig(uint256 preorderCapRatio, uint256 preorderVestingDuration);
 
-    event SetGasLimits(uint128 oftReceiveGasLimit, uint128 oftDispatcherGasLimit);
+    event SetGasLimits(uint128 oftReceiveGasLimit, uint128 yieldDispatcherGasLimit);
 
     event SetExternalInfo(uint256 indexed verseId, string uri, string description, string[] community);
 }
