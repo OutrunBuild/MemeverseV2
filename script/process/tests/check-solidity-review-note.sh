@@ -71,6 +71,20 @@ cat > "$policy_file" <<EOF
       "<path>|none",
       "<selectors or paths>",
       "yes/no"
+    ],
+    "field_owners": {
+      "Security evidence source": "security-reviewer",
+      "Gas evidence source": "gas-reviewer",
+      "Verification evidence source": "verifier",
+      "Decision evidence source": "main-orchestrator",
+      "Rule-map evidence source": "verifier"
+    },
+    "owner_prefixed_source_fields": [
+      "Security evidence source",
+      "Gas evidence source",
+      "Verification evidence source",
+      "Decision evidence source",
+      "Rule-map evidence source"
     ]
   },
   "pull_request": {
@@ -146,6 +160,9 @@ cat > "$review_file" <<'EOF'
 - None: none.
 - Security review summary: no critical issues.
 - Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
 - Gas-sensitive paths reviewed: Example.execute
 - Gas changes applied: none.
 - Gas snapshot/result: unchanged.
@@ -161,6 +178,8 @@ cat > "$review_file" <<'EOF'
 - Gas changes applied: none.
 - Gas snapshot/result: unchanged.
 - Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
 
 ## Docs
 - Docs updated: none
@@ -205,6 +224,7 @@ cat > "$review_file" <<'EOF'
 - None: none.
 - Security review summary: no critical issues.
 - Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
 
 ## Simplification
 - Candidate simplifications considered: none.
@@ -216,6 +236,7 @@ cat > "$review_file" <<'EOF'
 - Gas changes applied: none.
 - Gas snapshot/result: unchanged.
 - Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
 
 ## Docs
 - Docs updated: none
@@ -230,10 +251,12 @@ cat > "$review_file" <<'EOF'
 ## Verification
 - Commands run: forge test -vvv
 - Results: pass
+- Verification evidence source: verifier: forge test -vvv
 
 ## Decision
 - Ready to commit: yes
 - Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
 EOF
 
 PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-solidity-review-note.sh
@@ -307,6 +330,77 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
+set +e
+missing_source_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+missing_source_status=$?
+set -e
+
+if [ "$missing_source_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail when required evidence source fields are missing for src changes"
+    exit 1
+fi
+
+if ! printf '%s\n' "$missing_source_output" | grep -q "Security evidence source"; then
+    echo "Expected missing source-field output to reference Security evidence source"
+    printf '%s\n' "$missing_source_output"
+    exit 1
+fi
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/Example.sol
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: no critical issues.
+- Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: Example.execute
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/MappedEvidence.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+- Verification evidence source: verifier: forge test -vvv
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
+EOF
+
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
 
 cat > "$malformed_policy_file" <<EOF
@@ -360,7 +454,10 @@ cat > "$malformed_policy_file" <<EOF
       "yes/no"
     ],
     "field_owners": [],
-    "owner_prefixed_source_fields": ["Rule-map evidence source"]
+    "owner_prefixed_source_fields": [
+      "Security evidence source",
+      "Gas evidence source"
+    ]
   },
   "pull_request": {
     "required_sections": []
@@ -435,6 +532,7 @@ cat > "$review_file" <<EOF
 - None: none.
 - Security review summary: no critical issues.
 - Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
 
 ## Simplification
 - Candidate simplifications considered: none.
@@ -446,6 +544,7 @@ cat > "$review_file" <<EOF
 - Gas changes applied: none.
 - Gas snapshot/result: unchanged.
 - Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
 
 ## Docs
 - Docs updated: none
@@ -460,10 +559,12 @@ cat > "$review_file" <<EOF
 ## Verification
 - Commands run: forge test -vvv
 - Results: pass
+- Verification evidence source: verifier: forge test -vvv
 
 ## Decision
 - Ready to commit: yes
 - Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
 EOF
 
 rm -f "$temp_index"
@@ -506,6 +607,7 @@ cat > "$review_file" <<EOF
 - None: none.
 - Security review summary: no critical issues.
 - Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
 
 ## Simplification
 - Candidate simplifications considered: none.
@@ -517,6 +619,7 @@ cat > "$review_file" <<EOF
 - Gas changes applied: none.
 - Gas snapshot/result: unchanged.
 - Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
 
 ## Docs
 - Docs updated: none
@@ -531,10 +634,12 @@ cat > "$review_file" <<EOF
 ## Verification
 - Commands run: forge test -vvv
 - Results: pass
+- Verification evidence source: verifier: forge test -vvv
 
 ## Decision
 - Ready to commit: yes
 - Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
 EOF
 
 GIT_INDEX_FILE="$temp_index" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
@@ -583,6 +688,7 @@ cat > "$review_file" <<'EOF'
 - None: none.
 - Security review summary: no critical issues.
 - Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
 
 ## Simplification
 - Candidate simplifications considered: none.
@@ -594,6 +700,7 @@ cat > "$review_file" <<'EOF'
 - Gas changes applied: none.
 - Gas snapshot/result: unchanged.
 - Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
 
 ## Docs
 - Docs updated: none
@@ -608,10 +715,12 @@ cat > "$review_file" <<'EOF'
 ## Verification
 - Commands run: forge test -vvv
 - Results: pass
+- Verification evidence source: verifier: forge test -vvv
 
 ## Decision
 - Ready to commit: yes
 - Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
 EOF
 
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh

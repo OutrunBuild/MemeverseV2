@@ -108,7 +108,7 @@ cat > "$policy_file" <<EOF
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
     "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
-    "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
+    "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\\\.md|docs/spec/.*|docs/adr/.*|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
     "review_note_directory": "$review_dir",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits"
@@ -542,6 +542,31 @@ fi
 
 if [ -f "$slither_log" ] && [ -s "$slither_log" ]; then
     echo "Did not expect slither for docs-contract-only changes"
+    cat "$slither_log"
+    exit 1
+fi
+
+: > "$forge_log"
+: > "$npm_log"
+rm -f "$slither_log"
+printf '%s\n' "docs/spec/protocol.md" > "$changed_files_path"
+
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$tmp_dir/missing-review.md" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" bash ./script/process/quality-gate.sh
+
+if ! grep -q "^run docs:check$" "$npm_log"; then
+    echo "Expected quality-gate to run docs:check for product-truth doc changes"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for product-truth-doc-only changes"
+    cat "$forge_log"
+    exit 1
+fi
+
+if [ -f "$slither_log" ] && [ -s "$slither_log" ]; then
+    echo "Did not expect slither for product-truth-doc-only changes"
     cat "$slither_log"
     exit 1
 fi

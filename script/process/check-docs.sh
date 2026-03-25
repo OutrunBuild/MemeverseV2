@@ -34,7 +34,7 @@ task_brief_template="$(read_policy_value agents.task_brief_template '.codex/temp
 agent_report_template="$(read_policy_value agents.agent_report_template '.codex/templates/agent-report.md')"
 agent_directory="$(read_policy_value agents.agent_directory '.codex/agents')"
 main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
-docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
+docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
 generated_docs_root="$(read_policy_value quality_gate.generated_docs_root 'docs/contracts')"
 generated_docs_summary="$(read_policy_value quality_gate.generated_docs_summary "${generated_docs_root}/SUMMARY.md")"
 generated_docs_unexpected_nested_src="$(read_policy_value quality_gate.generated_docs_unexpected_nested_src "${generated_docs_root}/src")"
@@ -125,6 +125,11 @@ for path in "${required_product_truth_support_files[@]}"; do
         echo "Expected product-truth support doc missing: $path"
         exit 1
     fi
+
+    if [[ ! "$path" =~ $docs_contract_pattern ]]; then
+        echo "Policy docs_contract_pattern does not cover required product-truth support doc: $path"
+        exit 1
+    fi
 done
 
 for path in "${required_product_truth_core_docs[@]}"; do
@@ -132,11 +137,21 @@ for path in "${required_product_truth_core_docs[@]}"; do
         echo "Expected product-truth core doc missing: $path"
         exit 1
     fi
+
+    if [[ ! "$path" =~ $docs_contract_pattern ]]; then
+        echo "Policy docs_contract_pattern does not cover required product-truth core doc: $path"
+        exit 1
+    fi
 done
 
 for path in "${discovered_spec_docs[@]}"; do
     if [ ! -f "$path" ]; then
         echo "Expected discovered spec doc missing: $path"
+        exit 1
+    fi
+
+    if [[ ! "$path" =~ $docs_contract_pattern ]]; then
+        echo "Policy docs_contract_pattern does not cover discovered spec doc: $path"
         exit 1
     fi
 done

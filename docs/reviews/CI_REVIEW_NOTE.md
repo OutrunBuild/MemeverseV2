@@ -20,6 +20,7 @@
 - None: none
 - Security review summary: `MemeverseSwapRouter.sol` 与 `MemeverseLauncher.sol` 的生产改动本质上是内部流程拆分与职责下沉，没有改变访问控制、可调用入口、参数校验顺序或资金流向约束；对应新增测试确认 exact-liquidity 预算保护、pause/owner 权限、slippage/revert 原因和费用路径仍符合预期。`MemeverseUniswapHook.sol` 的改动则是实质 bugfix：`removeLiquidityCore` 现在直接在 `_modifyLiquidity(...)` 时把接收者设为 `params.recipient`，避免 `recipient != msg.sender` 时先把资产发送给调用者、再从 hook 余额二次转发导致错误或资产走向不符的问题。该路径已由 `test/swap/MemeverseUniswapHookLiquidity.t.sol` 的差异接收者用例覆盖。
 - Security residual risks: 当前 worktree 里与本次提交一起收尾的 Solidity 改动主要是 refactor + 单点 bugfix，未发现新的高风险授权或重入面；残余风险主要在业务分支仍然复杂，后续如继续改 launcher/redeem/distribute 或 router quote/swap 路径，仍需维持行为测试而不是依赖覆盖率数字。
+- Security evidence source: security-reviewer: docs/reviews/CI_REVIEW_NOTE.md
 
 ## Simplification（简化评估）
 - 说明：说明考虑过哪些更简单方案、最终采用什么、为什么拒绝其他方案。
@@ -33,6 +34,7 @@
 - Gas changes applied: 本次 Solidity 改动没有刻意做微观 gas 优化，重点是把长函数拆成可审阅的内部 helper 并修正 hook recipient 语义；router 与 launcher 的重构理论上引入少量内部调用跳转，但没有新增外部调用或额外存储写路径。
 - Gas snapshot/result: 在 `QUALITY_GATE_MODE=ci` + 完整 changed file list 下，`bash ./script/process/quality-gate.sh` 已执行 through `check-gas-report.sh` 并最终 PASS。gas report 过程中出现的是 Foundry lint 级别 warning / note（例如测试里的 unchecked ERC20 transfer 与 unused import），没有把本次变更判为 gas gate 失败。
 - Gas residual risks: 本次没有额外维护逐函数前后 snapshot 表，gas 结论主要来自仓库统一 gas gate 的通过结果；若后续要继续做性能优化，仍建议单独以 snapshot diff 为中心。
+- Gas evidence source: gas-reviewer: docs/reviews/CI_REVIEW_NOTE.md
 
 ## Docs（文档）
 - 说明：路径、命令、文件名保持英文，原因说明使用简体中文。
@@ -50,8 +52,10 @@
 - 说明：命令保持英文；结果总结使用简体中文。
 - Commands run: forge test --summary; forge test --match-path test/verse/MemeverseLauncherViews.t.sol --summary; forge test --match-path test/verse/registration/MemeverseRegistrarAtLocal.t.sol --summary; forge test --match-path test/interoperation/MemeverseOmnichainInteroperation.t.sol --summary; forge test --match-path test/verse/MemeverseLauncherConfig.t.sol --summary; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/memeverse_changed_files.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/CI_REVIEW_NOTE.md npm run quality:gate; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/memeverse_changed_files_full.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/CI_REVIEW_NOTE.md bash ./script/process/quality-gate.sh; forge fmt <changed Solidity files>; bash ./script/process/check-natspec.sh <changed Solidity files>; QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=/tmp/memeverse_changed_files_full.txt QUALITY_GATE_REVIEW_NOTE=docs/reviews/CI_REVIEW_NOTE.md bash ./script/process/quality-gate.sh
 - Results: `forge test --summary` 与多轮定向测试均通过。由于当前环境中的 `.git` 目录是只读文件系统，`git add -A` 无法创建 `.git/index.lock`，因此无法按仓库默认 staged 模式跑 gate，只能退回 `QUALITY_GATE_MODE=ci` + 完整 changed file list 的等价校验。收尾过程中先后修复了三类 gate 阻塞：1) file list 未覆盖未跟踪的新测试；2) 迁移后测试文件未执行 `forge fmt`；3) 大量迁移测试缺失 NatSpec。修复后，`bash ./script/process/quality-gate.sh` 已在 CI 模式下完整跑通 `check-rule-map`、`forge fmt --check`、`check-natspec.sh`、`forge build`、`forge test -vvv`、`check-slither.sh`、`check-gas-report.sh`、`check-solidity-review-note.sh` 和 `npm run docs:check`，最终 PASS。
+- Verification evidence source: verifier: docs/reviews/CI_REVIEW_NOTE.md
 
 ## Decision（结论）
 - 说明：`Ready to commit` 只能填写 `yes` 或 `no`，风险描述使用简体中文。
 - Ready to commit: no
 - Residual risks: 代码层面的 CI 模式 gate 已通过，当前唯一阻塞已经收敛到环境层：`.git` 是只读文件系统，无法创建 `.git/index.lock`，因此不能在这个会话里真正 `git add` / `git commit`，也无法拿到 staged 模式的本地 gate 证据。换到一个可写 `.git` 的环境后，应重新 `git add -A` 并再跑一次仓库默认 `npm run quality:gate`，然后再提交。
+- Decision evidence source: main-orchestrator: docs/reviews/CI_REVIEW_NOTE.md

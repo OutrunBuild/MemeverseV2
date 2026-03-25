@@ -319,7 +319,7 @@ cat > "$malformed_roles_policy_file" <<'EOF'
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -360,7 +360,7 @@ cat > "$check_docs_policy_file" <<'EOF'
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -377,6 +377,47 @@ fi
 
 if ! printf '%s\n' "$check_docs_output" | grep -q "docs/reviews/TEMPLATE.md"; then
     echo "Expected check-docs failure output to reference docs/reviews/TEMPLATE.md coverage"
+    printf '%s\n' "$check_docs_output"
+    exit 1
+fi
+
+cat > "$check_docs_policy_file" <<'EOF'
+{
+  "review_note": {
+    "required_headings": [],
+    "required_fields": [],
+    "boolean_fields": [],
+    "placeholder_values": []
+  },
+  "pull_request": {
+    "required_sections": []
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": ["process-implementer", "verifier"],
+    "on_demand_roles": ["solidity-explorer"],
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
+  "quality_gate": {
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+  }
+}
+EOF
+
+set +e
+check_docs_output="$(PROCESS_POLICY_FILE="$check_docs_policy_file" bash ./script/process/check-docs.sh 2>&1)"
+check_docs_status=$?
+set -e
+
+if [ "$check_docs_status" -eq 0 ]; then
+    echo "Expected check-docs to fail when docs_contract_pattern excludes required product-truth spec files"
+    exit 1
+fi
+
+if ! printf '%s\n' "$check_docs_output" | grep -q "docs/spec/protocol.md"; then
+    echo "Expected check-docs failure output to reference docs/spec/protocol.md coverage"
     printf '%s\n' "$check_docs_output"
     exit 1
 fi

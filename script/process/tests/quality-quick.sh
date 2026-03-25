@@ -50,7 +50,7 @@ cat > "$policy_file" <<EOF
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
     "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
-    "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
+    "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\\\.md|docs/spec/.*|docs/adr/.*|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits"
@@ -306,6 +306,26 @@ fi
 
 if [ -s "$forge_log" ]; then
     echo "Did not expect forge commands for docs-contract-only changes"
+    cat "$forge_log"
+    exit 1
+fi
+
+cat > "$changed_files_path" <<EOF
+docs/spec/protocol.md
+EOF
+
+: > "$forge_log"
+: > "$npm_log"
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+
+if ! grep -q '^run docs:check$' "$npm_log"; then
+    echo "Expected quality-quick to run docs:check for product-truth doc changes"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge commands for product-truth-doc-only changes"
     cat "$forge_log"
     exit 1
 fi

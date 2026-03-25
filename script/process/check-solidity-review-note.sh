@@ -146,6 +146,7 @@ if (!Array.isArray(ownerPrefixedFields)) {
 
 const failures = [];
 const evidenceValue = extractField(reviewNote, evidenceField);
+const optionalOwnerPrefixedFields = new Set(['Rule-map evidence source']);
 
 for (const field of ownerPrefixedFields) {
   if (typeof field !== 'string' || field.trim() === '') {
@@ -153,7 +154,12 @@ for (const field of ownerPrefixedFields) {
   }
 
   const value = extractField(reviewNote, field).trim();
-  if (value === '') continue;
+  if (value === '') {
+    if (!optionalOwnerPrefixedFields.has(field)) {
+      failures.push(`${field}: missing required evidence source.`);
+    }
+    continue;
+  }
 
   const normalized = value.toLowerCase();
   if (normalized === 'none' || normalized === 'n/a' || normalized === 'na') continue;
