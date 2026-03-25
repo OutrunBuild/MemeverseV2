@@ -1,0 +1,30 @@
+# MemeverseV2 术语表
+
+- **Verse**：一次 memecoin 启动实例，包含注册信息、生命周期状态和资金账本。
+- **uniqueId / verseId**：verse 的唯一标识；注册中心生成，launcher 作为主键使用。
+- **UPT**：Genesis 与部分结算路径使用的资金 token。
+- **Memecoin**：每个 verse 的主代币，可由 launcher 按规则 mint。
+- **POL (MemeLiquidProof)**：流动性权益代币，代表与 memecoin 启动相关的权益与退出凭证。
+- **Genesis**：募资阶段，允许 `genesis` 与 `preorder` 入金。
+- **flashGenesis**：达到最小募资即允许提前结束 Genesis 并进入 Locked 的开关。
+- **Refund**：募资失败后的退款阶段（终态）。
+- **Locked**：募资成功后、流动性锁定阶段；允许领取 POL、加池 mint POL、分发 fee。
+- **Unlocked**：锁定结束后的退出阶段（终态）。
+- **Preorder**：Genesis 内的额外 UPT 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
+- **launch settlement**：启动结算专用 swap 通道，使用 marker + 双权限校验，固定 1% 总费。
+- **launch fee window**：池初始化后的费用衰减窗口（默认从 5000 bps 衰减到 100 bps）。
+- **LP token**：Hook 为每个池发行的流动性份额代币。
+- **memecoin LP / POL LP**：分别指 `memecoin/UPT` 与 `POL/UPT` 池的 LP 代币。
+- **totalClaimablePOL**：Genesis 参与者可按比例领取的 POL 总量。
+- **totalPolLiquidity**：初始 POL 池铸造出的总 LP 份额基数。
+- **executorRewardRate**：`UPTFee` 中给执行者的比例（基数 10000）。
+- **Governor**：DAO 治理与 treasury 合约，接收 UPT 国库收入。
+- **Yield Vault**：memecoin 收益池，接收并累计 memecoin 收益。
+- **Governance Cycle Incentivizer**：治理周期奖励账本与分发模块。
+- **OFT Dispatcher**：跨链/本链收益路由器，把 token 分发到 Governor 或 Yield Vault。
+- **Governance Chain**：`omnichainIds[0]` 指定的治理主链。
+- **Registration Center**：注册参数校验、symbol 占用与跨链注册分发中心。
+- **Registrar**：把注册结果写入 launcher 的执行层（本地或异链接收）。
+- **DAY（注册时间单位）**：注册中心当前实现中的常量单位为 180 秒，不等于自然日。
+- **Protocol Fee Currency**：Hook 允许收取 protocol fee 的币种白名单。
+- **anti-snipe（PRD 术语）**：PRD 中的请求票据/soft-fail 保护机制；当前代码未实现该状态机。

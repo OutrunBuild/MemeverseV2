@@ -35,24 +35,34 @@ agent_report_template="$(read_policy_value agents.agent_report_template '.codex/
 agent_directory="$(read_policy_value agents.agent_directory '.codex/agents')"
 main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
 docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
+generated_docs_root="$(read_policy_value quality_gate.generated_docs_root 'docs/contracts')"
+generated_docs_summary="$(read_policy_value quality_gate.generated_docs_summary "${generated_docs_root}/SUMMARY.md")"
+generated_docs_unexpected_nested_src="$(read_policy_value quality_gate.generated_docs_unexpected_nested_src "${generated_docs_root}/src")"
 
 load_role_array agents.default_roles default_roles
 load_role_array agents.on_demand_roles on_demand_roles
 
 bash ./script/process/generate-docs.sh
 
-if [ -d "docs/contracts/src" ]; then
-    echo "Unexpected nested docs directory: docs/contracts/src"
+if [ ! -d "$generated_docs_root" ]; then
+    echo "Expected generated docs root missing: $generated_docs_root"
     exit 1
 fi
 
-if [ ! -d "docs/contracts/common" ]; then
-    echo "Expected docs directory missing: docs/contracts/common"
+if [ -d "$generated_docs_unexpected_nested_src" ]; then
+    echo "Unexpected nested docs directory: $generated_docs_unexpected_nested_src"
     exit 1
 fi
 
-if [ ! -f "docs/contracts/SUMMARY.md" ]; then
-    echo "Expected docs summary missing: docs/contracts/SUMMARY.md"
+if [ ! -f "$generated_docs_summary" ]; then
+    echo "Expected docs summary missing: $generated_docs_summary"
+    exit 1
+fi
+
+mapfile -t generated_docs_markdown_files < <(find "$generated_docs_root" -type f -name '*.md' ! -path "$generated_docs_summary" | sort)
+
+if [ "${#generated_docs_markdown_files[@]}" -eq 0 ]; then
+    echo "Expected generated markdown docs under $generated_docs_root (excluding summary)"
     exit 1
 fi
 
@@ -67,6 +77,35 @@ required_harness_support_files=(
     "$agent_directory/README.md"
 )
 
+required_product_truth_support_files=(
+    "docs/ARCHITECTURE.md"
+    "docs/GLOSSARY.md"
+    "docs/TRACEABILITY.md"
+    "docs/VERIFICATION.md"
+    "docs/adr/0001-universalvault-style-harness-migration.md"
+)
+
+required_product_truth_core_docs=(
+    "docs/spec/protocol.md"
+    "docs/spec/state-machines.md"
+    "docs/spec/accounting.md"
+    "docs/spec/access-control.md"
+    "docs/spec/upgradeability.md"
+    "docs/spec/implementation-map.md"
+)
+
+if [ ! -d "docs/spec" ]; then
+    echo "Expected product-truth spec directory missing: docs/spec"
+    exit 1
+fi
+
+mapfile -t discovered_spec_docs < <(find docs/spec -type f -name '*.md' | sort)
+
+if [ "${#discovered_spec_docs[@]}" -eq 0 ]; then
+    echo "Expected at least one spec doc under docs/spec"
+    exit 1
+fi
+
 mapfile -t required_role_names < <(printf '%s\n' "$main_session_role" "${default_roles[@]}" "${on_demand_roles[@]}" | awk 'NF && !seen[$0]++')
 
 for path in "${required_harness_support_files[@]}"; do
@@ -77,6 +116,27 @@ for path in "${required_harness_support_files[@]}"; do
 
     if [[ ! "$path" =~ $docs_contract_pattern ]]; then
         echo "Policy docs_contract_pattern does not cover required harness file: $path"
+        exit 1
+    fi
+done
+
+for path in "${required_product_truth_support_files[@]}"; do
+    if [ ! -f "$path" ]; then
+        echo "Expected product-truth support doc missing: $path"
+        exit 1
+    fi
+done
+
+for path in "${required_product_truth_core_docs[@]}"; do
+    if [ ! -f "$path" ]; then
+        echo "Expected product-truth core doc missing: $path"
+        exit 1
+    fi
+done
+
+for path in "${discovered_spec_docs[@]}"; do
+    if [ ! -f "$path" ]; then
+        echo "Expected discovered spec doc missing: $path"
         exit 1
     fi
 done

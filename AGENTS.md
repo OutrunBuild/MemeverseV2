@@ -187,6 +187,20 @@
 
 ## 11. Source of Truth
 
+### Product Truth Core Source of Truth
+
+- `docs/spec/*`
+- 升级性规则主文档：`docs/spec/upgradeability.md`
+- `docs/spec/implementation-map.md` 的升级性列用于记录各 surface 的代码事实，不替代升级性规则主文档
+
+### Product Truth Support Source of Truth
+
+- `docs/ARCHITECTURE.md`
+- `docs/GLOSSARY.md`
+- `docs/TRACEABILITY.md`
+- `docs/VERIFICATION.md`
+- `docs/adr/0001-universalvault-style-harness-migration.md`
+
 ### Harness Source of Truth
 
 - `AGENTS.md`
@@ -206,3 +220,14 @@
 - 生成入口：`script/process/generate-docs.sh`
 - 生成输出：`docs/contracts/**`
 - 结论：`docs/contracts/**` 仅为生成产物，不作为产品规则或 Harness 规则真源
+
+## 12. Recommended Reading Order
+
+1. `AGENTS.md`（协作边界、角色与流程契约）
+2. `docs/ARCHITECTURE.md`（架构层次与边界）
+3. `docs/spec/*`（产品真相核心规则；先读 `protocol`/`state-machines`/`accounting`/`access-control`/`upgradeability`）
+4. `docs/GLOSSARY.md`（术语与定义基线）
+5. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md`（规则追溯与验证路径）
+6. `docs/adr/0001-universalvault-style-harness-migration.md`（文档治理决策背景）
+7. `docs/process/subagent-workflow.md` + `docs/process/*`（Harness/Process 执行细则）
+8. `docs/contracts/**`（生成文档输出，仅用于参考，不作为真源）

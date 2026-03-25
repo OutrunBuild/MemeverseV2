@@ -1,0 +1,41 @@
+# MemeverseV2 实现面映射（Implementation Map）
+
+## 1. 映射原则
+
+- 仅记录“当前源码已落地”表面（no roadmap guess）。
+- 每个表面都给出：职责、权责边界、升级性、证据来源、实现状态。
+- 当前规则真源是 `docs/spec/*.md`；`src/**` 与 `test/**` 是可验证证据面。
+- 升级性规则主文档是 `docs/spec/upgradeability.md`；本文 `Upgradeability` 列仅记录各 surface 的代码事实快照。
+- `docs/contracts/**` 为生成物，不作为产品规则真源。
+- 历史 PRD 文档仅作为背景输入，不与当前规则并列。
+
+## 2. Surface Map
+
+| Surface | 核心职责 | Authority / Roles | Upgradeability | 证据来源 | 实现状态 |
+| --- | --- | --- | --- | --- | --- |
+| `src/verse/MemeverseLauncher.sol` | verse 生命周期主控、资金分配、外部模块编排 | owner 配置；registrar 注册；governor/registrar 元数据更新；业务入口大多 permissionless + stage guard | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/state-machines.md`; `src/verse/MemeverseLauncher.sol:31`, `:936-947`, `:1313`, `:1127-1297` | 已实现 |
+| `src/verse/registration/*` + `MemeverseRegistrationCenter` | 注册参数校验、symbol 生命周期、多链 fan-out | center 配置项 onlyOwner；local registrar 仅接受 center 调用；omnichain registrar gas 配置 onlyOwner | 构造部署，不走 proxy | `docs/spec/state-machines.md`; `src/verse/registration/MemeverseRegistrationCenter.sol:115`, `:308-350`; `src/verse/registration/MemeverseRegistrarAtLocal.sol:58`, `:80`; `src/verse/registration/MemeverseRegistrarOmnichain.sol:122` | 已实现 |
+| `src/verse/deployment/MemeverseProxyDeployer.sol` | clone/proxy 部署与初始化编排入口 | deploy 函数仅 launcher；`setQuorumNumerator` onlyOwner | 自身不可升级；负责部署可升级与可初始化模块 | `docs/spec/protocol.md`; `src/verse/deployment/MemeverseProxyDeployer.sol:29-36`, `:93-117`, `:131-170`, `:176` | 已实现 |
+| `src/swap/MemeverseSwapRouter.sol` | 用户路由入口（swap/liquidity/claim/bootstrap） | 对外 permissionless；launch-settlement marker 仅 `launchSettlementOperator` | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/state-machines.md`; `src/swap/MemeverseSwapRouter.sol:31`, `:46-48`, `:174-247`, `:561-563` | 已实现 |
+| `src/swap/MemeverseUniswapHook.sol` | fee engine、LP 记账、hook callbacks、launch settlement 验证 | 核心 API 对外开放；fee/treasury/emergency/settlementCaller 配置 onlyOwner；launch settlement caller 校验 | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/state-machines.md`; `src/swap/MemeverseUniswapHook.sol:57`, `:315`, `:440`, `:510`, `:550`, `:836-895` | 已实现 |
+| `src/token/Memecoin.sol` + `src/token/MemeLiquidProof.sol` | OFT memecoin/POL 资产层 | launcher 控制 mint 与 poolId；burn 按持币/授权路径开放 | clone + `initialize` 一次性 | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/token/Memecoin.sol:24-43`; `src/token/MemeLiquidProof.sol:37-66`; `src/common/access/Initializable.sol:31-41` | 已实现 |
+| `src/yield/MemecoinYieldVault.sol` | memecoin yield vault + ERC20Votes share | 无 owner 门禁型业务入口（deposit/yield/redeem）；由流程和资产校验约束 | clone + `initialize` 一次性 | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/yield/MemecoinYieldVault.sol:37-50`, `:86`, `:120`, `:132`, `:146` | 已实现 |
+| `src/governance/MemecoinDaoGovernorUpgradeable.sol` | DAO Governor + treasury + proposal/vote 扩展 | treasury 支出/升级仅治理执行 | UUPS + initializer | `docs/spec/accounting.md`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:76-92`, `:221`, `:252` | 已实现 |
+| `src/governance/GovernanceCycleIncentivizerUpgradeable.sol` | 治理周期奖励与 treasury/reward 账本 | 多数敏感接口仅 governor；`receiveTreasuryIncome/finalizeCurrentCycle` 对外开放 | UUPS + initializer | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:63-71`, `:359`, `:378`, `:401`, `:640` | 已实现（代码层） |
+| `src/verse/MemeverseOFTDispatcher.sol` | OFT compose 收益分发（governor / yieldVault / burn） | `lzCompose` 仅 endpoint 或 launcher | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/access-control.md`; `src/verse/MemeverseOFTDispatcher.sol:39-47`, `:63-79` | 已实现 |
+| `src/interoperation/MemeverseOmnichainInteroperation.sol` + `OmnichainMemecoinStaker.sol` | 跨链 staking 入口与治理链落地 | staking permissionless；gas 配置 onlyOwner；staker compose 仅 endpoint | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/access-control.md`; `src/interoperation/MemeverseOmnichainInteroperation.sol:93`, `:135`; `src/interoperation/OmnichainMemecoinStaker.sol:39` | 已实现 |
+| `src/common/omnichain/LzEndpointRegistry.sol` | chainId -> endpointId 注册表 | `setLzEndpointIds` onlyOwner | 构造部署，不走 proxy | `docs/spec/state-machines.md`; `src/common/omnichain/LzEndpointRegistry.sol:11-31` | 已实现 |
+| `src/common/access/*` + `src/common/omnichain/*`（与本任务相关子集） | 最小代理初始化、owner、peer/delegate 与 OFT/OApp 基础边界 | `initializer` 一次性、`onlyOwner` peer/delegate/msgInspector | 基础能力层 | `docs/spec/access-control.md`; `src/common/access/Initializable.sol:27-41`; `src/common/omnichain/oapp/OutrunOAppCoreInit.sol:68-92`; `src/common/omnichain/oft/OutrunOFTCoreInit.sol:143` | 已实现 |
+
+## 3. 测试与流程映射状态
+
+- 已有 rule-map 强约束（swap + launcher 主面）
+  - 证据：`docs/process/rule-map.json:11-138`
+- 已记录 testing gaps（registration/governance/interoperation/token-yield/common）
+  - 证据：`docs/process/rule-map.json:140-170`
+- 结论
+  - 产品实现面是完整的；流程层“规则 -> 测试映射”目前对 swap/launcher 最强，其它域为已登记缺口，不等于未实现。
+
+## 4. 后续业务解释事项（不影响“已实现”状态）
+
+- `src/governance/GovernanceCycleIncentivizerUpgradeable.sol` 的 `receiveTreasuryIncome` / `finalizeCurrentCycle` 属于开放入口语义，是否满足最终业务解释需在规则文档层进一步确认；当前“已实现”仅表示源码与当前规则条目可对齐。

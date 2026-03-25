@@ -22,10 +22,13 @@ npm run hooks:install
 ## 文档导航（推荐顺序）
 
 1. 主流程契约：`AGENTS.md`
-2. Subagent Harness：`docs/process/subagent-workflow.md`
-3. 流程细则与机器可读规则：`docs/process/*`
-4. 生成文档输出：`docs/contracts/**`（仅生成产物，不是流程/产品真源）
-5. 规划中的产品规则层（下一阶段路径，当前任务阶段尚未提供）：`docs/spec/protocol.md`
+2. 架构总览：`docs/ARCHITECTURE.md`
+3. 产品真相核心规则：`docs/spec/*`（升级性规则主文档为 `docs/spec/upgradeability.md`）
+4. 术语基线：`docs/GLOSSARY.md`
+5. 规则追溯与验证：`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`
+6. 文档治理决策背景：`docs/adr/0001-universalvault-style-harness-migration.md`
+7. Subagent Harness 与流程细则：`docs/process/subagent-workflow.md`、`docs/process/*`
+8. 生成文档输出：`docs/contracts/**`（仅生成产物，不是产品/流程真源）
 
 ## 关于 `docs/contracts`
 
