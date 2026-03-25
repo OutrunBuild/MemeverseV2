@@ -4,7 +4,6 @@
 
 - 本文档是当前产品真相层的一部分，定义当前记账规则。
 - 规则证据来自 `src/**` 与 `test/**`。
-- `docs/prd/*` 与 `docs/memeverse-swap/*` 仅作为历史输入，用于记录差异背景。
 
 ## 2. Genesis 与 Preorder 入账
 
@@ -82,8 +81,8 @@
 ### 5.3 治理链本地/异链分发
 
 - 若治理链为本链：
-  - `govFee(UPT)` -> `oftDispatcher` -> `Governor.receiveTreasuryIncome`
-  - `memecoinFee` -> `oftDispatcher` -> `YieldVault.accumulateYields`
+  - `govFee(UPT)` -> `yieldDispatcher` -> `Governor.receiveTreasuryIncome`
+  - `memecoinFee` -> `yieldDispatcher` -> `YieldVault.accumulateYields`
 - 若治理链为异链：
   - 分别构建两笔 OFT send
   - `msg.value` 必须等于两笔报价和（实现要求“等于”，不是“大于等于”）
@@ -95,8 +94,6 @@
 - 用户奖励按“上一周期 userVotes / totalVotes”分配。
 - YieldVault 在 `totalSupply == 0` 时收到 yield 会 burn（防首存者攫取历史收益）。
 
-## 7. 历史输入差异（会计语义）
+## 7. 启动期会计提醒
 
-- 历史输入中“anti-snipe 失败费”是重要会计分支。
-- 当前代码无 request/soft-fail 失败费分支，因此不存在该失败费的 treasury/LP 会计流水。
-- 当前启动期会计重点是 launch fee 衰减与 launch settlement 固定 1% 路径。
+- 启动期会计重点是 launch fee 衰减与 launch settlement 固定 `1%` 路径。

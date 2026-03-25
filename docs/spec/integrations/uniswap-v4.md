@@ -6,7 +6,6 @@
 标签：
 
 - `[代码已证]`
-- `[PRD假设]`
 - `[未知]`
 
 ## 2. 组件边界
@@ -47,13 +46,11 @@
 
 `[代码已证]`
 
-## 4. 与文档叙事差异
+## 4. 启动保护语义
 
-- 现有 swap PRD/补充文档仍描述 `requestSwapAttemptWithQuote(...)` 与 soft-fail 失败费流程。
-- 当前 Router/Hook 实现不包含该 request/ticket API；主路径为 execute-or-revert。
-- 当前可见“启动保护”语义是 launch fee 衰减窗口 + launch settlement 特权通道。
-
-上述差异为 `[PRD假设]` 与实现不一致。
+- 当前普通 swap 路径为 execute-or-revert。
+- 启动保护语义体现为 launch fee 衰减窗口与 launch settlement 特权通道。
+- swap API 保持单路径结算语义。
 
 ## 5. 运维配置边界
 

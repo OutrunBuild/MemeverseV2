@@ -3,10 +3,10 @@
 本文档面向前端、路由层、SDK 与第三方集成方，说明如何使用：
 
 - `MemeverseSwapRouter`
-- `MemeverseSwapRouter.quoteSwap`
+- `MemeverseSwapRouter.quoteSwap(...)`
 - `MemeverseSwapRouter` 的可选 Permit2 入口
 
-完成 Memeverse 池子的报价、下单、soft-fail 处理与 exact-output 保护。
+完成 Memeverse 池子的报价、下单、LP 管理与 fee claim。
 
 当前推荐的分层是：
 
@@ -24,8 +24,6 @@
 - `treasury` 必须是**被动收款地址**
 - 如果 protocol fee 可能以 native 支付，`treasury` 必须能正常收 ETH
 - `treasury` 的 `receive()` / `fallback()` 不得继续触发 swap、加减流动性或其他重入式链上交易逻辑
-
-换句话说，推荐把 `treasury` 设为 EOA 或简单多签，而不是复杂业务合约。
 
 ---
 
@@ -45,30 +43,20 @@
 
 原因：
 
-1. 在 anti-snipe 窗口内，Router 会先走一次 anti-snipe attempt 流程
-2. soft-fail 时，Router 会返回成功结果，但不会真的执行 swap
-3. anti-snipe 窗口外，Router 会自动跳过 attempt 流程，直接执行真实 swap
-4. exact-output 的 `amountInMaximum` 保护也在 Router 这一层生效
+1. Router 统一处理 `deadline`、`amountOutMinimum`、`amountInMaximum`
+2. Router 统一处理 native 退款地址与预算准备
+3. Router 提供 pair 级 helper，如 `lpToken(...)`、`quoteAmountsForLiquidity(...)`
+4. `launch settlement` 的特殊入口限制也放在 Router 一层
 
-换句话说：
+当前普通 swap 语义是：
 
-- anti-snipe 期内：`Recommended Router -> requestSwapAttempt -> swap`
-- anti-snipe 期外：`Router -> swap`
+- 所有 swap 都是 execute-or-revert
+- 公开交易入口集中在 Router
 
-用户视角始终是一笔原子交易。
+如果需要直接接入 Hook，应把它理解为：
 
-这里的关键点是：
-
-- `MemeverseSwapRouter` 仍然是**推荐公开入口**
-- 但 `requestSwapAttemptWithQuote(...)` 本身已经是 **permissionless anti-snipe primitive**
-- 所以第三方自定义 Router / 聚合器也可以先请求 ticket，再在同一笔交易里执行真实 swap
-- 在 anti-snipe 保护期内，同一笔交易对同一个 pool 只允许 request 一次
-
-这一点非常重要：
-
-- same-pool tx 锁限制的是 **request 次数**
-- 不是单纯限制最终成功的 swap 次数
-- 目的在于阻止同 tx 内通过重复 request 去 grind `gasleft()` / `currentAttempts`
+- `MemeverseSwapRouter` = **Recommended Public Entry Points**
+- `MemeverseUniswapHook` 的 Core 接口 = **Low-level Core APIs**
 
 ---
 
@@ -90,27 +78,17 @@
 
 ### 2.3 两者是分开结算的
 
-不要把手续费理解成“一笔 total fee 全在同一个币种收”。
-
 正确理解是：
 
 - `LP fee`：输入侧
-- `Protocol fee`：协议收费币侧
+- `Protocol fee`：由支持列表决定，输入侧优先
 
-### 2.4 anti-snipe 保护期内的失败费语义
+### 2.4 启动期收费语义
 
-保护期内如果 attempt 失败：
+当前启动期保护语义是：
 
-- 不会执行真实 swap
-- 但会额外收取一笔**输入侧失败费**
-- 这笔失败费的费率等级与当前动态费率一致
-- 如果输入币属于支持的 protocol fee 币种，则失败费全部归 `treasury`
-- 否则失败费全部归 LP
-- exact-output 时，这笔失败费按当前报价下的预计实际输入计算，而不是直接按 `amountInMaximum` 计算
-
-成功 attempt 不收这笔失败费；成功成交时仍按正常 swap 动态费语义结算。
-
-这两部分费率都来自同一个动态费率 `feeBps`，但结算币种和结算时机可能不同。
+- 普通路径：`launch fee window` 费率衰减
+- 特殊路径：`launch settlement` 固定 `1%`
 
 ---
 
@@ -128,11 +106,7 @@ function swap(
     uint256 amountOutMinimum,
     uint256 amountInMaximum,
     bytes calldata hookData
-) external payable returns (
-    BalanceDelta delta,
-    bool executed,
-    AntiSnipeFailureReason failureReason
-)
+) external payable returns (BalanceDelta delta);
 ```
 
 参数含义：
@@ -148,17 +122,13 @@ function swap(
 - `amountInMaximum`：
   - exact-input 时可传 `0`
   - exact-output 时必须传
-- `hookData`：透传给 hook 的额外数据，目前通常可传空
+- `hookData`：透传给 hook 的额外数据；普通路径通常可传空，`launch settlement` 为受限专用 marker
 
 返回值含义：
 
 - `delta`：最终 swap delta
-- `executed`：
-  - `true`：真实执行了 swap
-  - `false`：触发 anti-snipe soft-fail，没有执行 swap
-- `failureReason`：
-  - `executed == false` 时返回 soft-fail 原因
-  - `executed == true` 时通常是 `None`
+
+返回值聚焦最终 `delta` 结算结果。
 
 ---
 
@@ -171,76 +141,29 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
     returns (SwapQuote memory quote);
 ```
 
-保护期内如果需要预估失败费，还可以调用：
-
-- `MemeverseSwapRouter.quoteFailedAttempt(...)`
-
 当前推荐把 Router 视为统一公开入口：
 
-- `MemeverseSwapRouter.quoteSwap(...)`
-- `MemeverseSwapRouter.previewClaimableFees(...)`
-- `MemeverseSwapRouter.getHookPoolKey(...)`
-- `MemeverseSwapRouter.lpToken(...)`
-- `MemeverseSwapRouter.quoteAmountsForLiquidity(...)`
-- `MemeverseSwapRouter.swap(...)`
-- `MemeverseSwapRouter.swapWithPermit2(...)`
-- `MemeverseSwapRouter.addLiquidity(...)`
-- `MemeverseSwapRouter.addLiquidityWithPermit2(...)`
-- `MemeverseSwapRouter.removeLiquidity(...)`
-- `MemeverseSwapRouter.removeLiquidityWithPermit2(...)`
-- `MemeverseSwapRouter.claimFees(...)`
-- `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
-- `MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2(...)`
+- `quoteSwap(...)`
+- `previewClaimableFees(...)`
+- `getHookPoolKey(...)`
+- `lpToken(...)`
+- `quoteAmountsForLiquidity(...)`
+- `swap(...)`
+- `swapWithPermit2(...)`
+- `addLiquidity(...)`
+- `addLiquidityWithPermit2(...)`
+- `removeLiquidity(...)`
+- `removeLiquidityWithPermit2(...)`
+- `claimFees(...)`
+- `createPoolAndAddLiquidity(...)`
+- `createPoolAndAddLiquidityWithPermit2(...)`
 
-对只知道 token pair、不想感知 `PoolKey` / Hook 细节的集成方，当前新增的只读 helper 可以这样理解：
+对只知道 token pair、不想感知 `PoolKey` / Hook 细节的集成方，当前只读 helper 可以这样理解：
 
 - `lpToken(tokenA, tokenB)`：返回该 pair 对应的 Hook LP token 地址
 - `quoteAmountsForLiquidity(tokenA, tokenB, liquidityDesired)`：按当前池价返回目标 LP liquidity 需要的两侧 token 数量
 
-这两个接口的目标是把 pair 归一化、当前池价读取与 full-range liquidity 公式继续收敛在 Router 一层，而不是让上层业务自己拼 `PoolKey` 或直接读取 `poolManager`。
-
-`MemeverseLauncher` 当前的 Router 化 LP / POL 路径也依赖这组接口：
-
-- `redeemMemecoinLiquidity(...)` / `redeemPolLiquidity(...)` 通过 `lpToken(...)` 读取 pair LP token，再按旧语义直接发 LP，不拆底层资产
-- `mintPOLToken(...)` 的 exact-liquidity 模式通过 `quoteAmountsForLiquidity(...)` 先反推所需 `UPT` / `memecoin`，再调用 `addLiquidity(...)`
-
-Hook 的 `quoteSwap(...)` 仍然存在，但更适合作为 Core 层能力。
-
-对所有可能附带 `msg.value` 的 Router 入口，还应额外注意：
-
-- `swap(...)`：显式传 `nativeRefundRecipient`
-- `addLiquidity(...)`：显式传 `nativeRefundRecipient`
-- `createPoolAndAddLiquidity(...)`：显式传 `nativeRefundRecipient`
-
-另外，当前 Hook 体系下：
-
-- `addLiquidity(...)` / `removeLiquidity(...)` 不再要求用户传 `fee`
-- 这些 LP 入口内部固定作用于 `LPFeeLibrary.DYNAMIC_FEE_FLAG` 对应的动态费池
-- 也就是说，当前 Memeverse Hook 不存在“同一套 Router/Hook Core 还能再操作非动态费池”的公开语义
-
-这样即使调用方本身是 non-payable contract，也不会因为退款失败而把 soft-fail / LP 操作整笔回滚。
-
-同理，Hook 还保留：
-
-- `addLiquidityCore(...)`
-- `removeLiquidityCore(...)`
-- `claimFeesCore(...)`
-
-这些低层接口主要面向：
-
-- 官方 Router、其他链上自定义 Router / 聚合器
-- 高级集成场景
-
-其中 `requestSwapAttemptWithQuote(...)` 现在也是开放式能力：
-
-- 不需要 Router 白名单
-- 但必须满足：**同一笔交易、同一个 caller、同一组 SwapParams**
-- 否则请求到的 transient ticket 无法被真实 swap 消费
-
-换句话说：
-
-- `MemeverseSwapRouter` = **Recommended Public Entry Points**
-- `MemeverseUniswapHook` 的 Core 接口 = **Low-level Core APIs**
+---
 
 ### 3.3 Permit2 入口要点
 
@@ -248,10 +171,9 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 
 - `permit2()` 可用于确认 Router 绑定的 Permit2 合约地址
 - `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` / `createPoolAndAddLiquidityWithPermit2(...)` 只负责签名拉资
-- Permit2 拉资后，deadline、slippage、anti-snipe 判定与普通入口一致
+- Permit2 拉资后，deadline、slippage、Hook 语义与普通入口一致
 - native 资产仍走 `msg.value` 与 `nativeRefundRecipient`，不经过 Permit2
-- witness 签名必须使用 Permit2 规范类型串：`<WitnessType> witness)<WitnessType>(...)TokenPermissions(address token,uint256 amount)`，且 `witness` 取 `keccak256(abi.encode(WITNESS_TYPEHASH, ...业务字段))`
-- 签名里的 `spender` 必须是 Router 地址（Permit2 校验时的 `msg.sender`），并且 `transferDetails.to` 必须是 Router（`address(this)`）
+- 签名里的 `spender` 必须是 Router 地址，`transferDetails.to` 必须是 Router
 
 ---
 
@@ -279,246 +201,56 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
   - LP fee 金额
   - 永远在输入侧计价
 - `estimatedProtocolFeeAmount`
-  - Protocol fee 金额
-  - 永远在协议收费币侧计价
+  - protocol fee 金额
+  - 输入币优先，输入不支持时再看输出币
 
-### 4.3 侧别字段
+### 4.3 `protocolFeeOnInput`
 
-- `protocolFeeOnInput`
-  - `true`：protocol fee 在输入侧收
-  - `false`：protocol fee 在输出侧收
-
----
-
-## 5. exact-input 集成方式
-
-### 5.1 用户语义
-
-exact-input 即：
-
-- 用户指定“我最多就付这么多输入”
-- 输出数量由池子和手续费决定
-
-在 v4 里通常体现为：
-
-- `params.amountSpecified < 0`
-
-### 5.2 推荐流程
-
-1. 调用 `quoteSwap`
-2. 用以下字段展示报价：
-   - `estimatedUserOutputAmount`
-   - `estimatedLpFeeAmount`
-   - `estimatedProtocolFeeAmount`
-3. 调用 `router.swap(...)`
-4. `amountInMaximum` 传 `0`
-
-### 5.3 前端重点展示
-
-对 exact-input，最值得展示的是：
-
-- 用户支付输入：`abs(params.amountSpecified)`
-- 用户净到手：`estimatedUserOutputAmount`
-- LP fee 金额：`estimatedLpFeeAmount`
-- protocol fee 金额：`estimatedProtocolFeeAmount`
-- protocol fee 是否输入侧：`protocolFeeOnInput`
+- `true`：本次 protocol fee 在输入侧收
+- `false`：本次 protocol fee 在输出侧收
 
 ---
 
-## 6. exact-output 集成方式
+## 5. Launch Settlement 集成注意事项
 
-### 6.1 用户语义
+- 这是启动结算专用通道，不是普通用户交易接口。
+- Router 侧要求 `msg.sender == launchSettlementOperator`。
+- Hook 侧要求 `sender == launchSettlementCaller`。
+- 该路径固定总费 `1%`。
+- `MemeverseLauncher` 在接入 Router 时会校验这组配置必须联动一致。
 
-exact-output 即：
-
-- 用户指定“我最终一定要拿到多少输出”
-- 愿意多付一点输入，但要受到上限保护
-
-在 v4 里通常体现为：
-
-- `params.amountSpecified > 0`
-
-### 6.2 推荐流程
-
-1. 调用 `quoteSwap`
-2. 使用：
-   - `estimatedUserOutputAmount`
-   - `estimatedUserInputAmount`
-3. 调用 `router.swap(...)`
-4. 将 `amountInMaximum` 设置为：
-   - 默认：`preview.estimatedUserInputAmount`
-   - 或者在此基础上叠加额外用户滑点容忍
-
-### 6.3 为什么必须传 `amountInMaximum`
-
-因为 exact-output 时，最终真实输入需要：
-
-- 先算出池子的基础输入
-- 再叠加输入侧手续费
-
-所以如果没有 `amountInMaximum`，用户就没有明确的最大支付边界。
-
-Router 会在最终结算阶段校验：
-
-- `actualInputAmount <= amountInMaximum`
-
-否则整笔交易回滚。
+普通集成方不应自行构造这条路径。
 
 ---
 
-## 7. soft-fail 处理方式
+## 6. Hook Core 的定位
 
-anti-snipe 窗口内，如果交易没有通过 attempt 检查：
+Hook 仍保留：
 
-- Router 不会 revert
-- Router 会返回：
-  - `executed = false`
-  - `failureReason = ...`
-- 真实 swap 不会执行
-- 用户可能被收取一笔保护期输入侧失败费
-- 动态费状态不变
-- 但 `attempts + 1`
+- `quoteSwap(...)`
+- `addLiquidityCore(...)`
+- `removeLiquidityCore(...)`
+- `claimFeesCore(...)`
 
-如果这笔调用附带了 native input：
+这些低层接口主要面向：
 
-- Router 会把未使用的 native 退给 `nativeRefundRecipient`
-- 因此合约调用方不应该默认把退款地址写成自己，除非它本身可收 ETH
+- 官方 Router
+- 其他链上自定义 Router / 聚合器
+- 高级集成场景
 
-### 前端建议处理
+但应注意：
 
-如果返回：
-
-- `executed == false`
-
-就提示用户：
-
-- 当前处于 launch anti-snipe 保护窗口
-- 本次尝试未成交
-- 可以稍后重试
-
-不应把它当作链上错误处理。
-
-但如果是**同 tx 内对同一个 pool 重复 request**，当前设计会把它视为无效流程并直接拒绝，而不是作为新的 soft-fail attempt。
+- 当前 Hook Core 只面向动态费池
+- 普通集成方优先走 Router，而不是自己拼 `PoolManager.swap`
 
 ---
 
-## 8. anti-snipe 窗口内外差异
+## 7. 最终理解方式
 
-### anti-snipe 窗口内
+把当前 Memeverse Swap 理解成：
 
-推荐官方 Router 时，会：
+- `Router`：统一公开入口、预算与退款管理层
+- `Hook`：动态费、启动期费率、LP 记账、协议收费引擎
+- `launch settlement`：受限专用结算通道
 
-1. 先通过 `quoteFailedAttempt(...)` 估算保护期失败费预算
-2. 再调用 hook 的 `requestSwapAttemptWithQuote(...)`
-2. 如果通过，再继续真实 swap
-3. 如果失败，soft-fail 成功返回，并扣除失败费
-
-如果你使用自定义 Router，则也应遵守同样流程：
-
-1. 先调用 hook 的 `requestSwapAttemptWithQuote(...)`
-2. 在**同一笔交易**里，由**同一个 Router 地址**继续执行真实 swap
-3. 真实 swap 使用的 `SwapParams` 必须与 request 时完全一致
-
-### anti-snipe 窗口外
-
-Router 会：
-
-- 直接执行真实 swap
-- 不再记录 attempts
-
-前端不需要为这两种模式写两套流程；统一调用 Router 即可。
-
----
-
-## 9. 推荐前端交互模板
-
-### exact-input
-
-1. 用户输入：
-   - input amount
-   - 方向
-2. 前端构造 `SwapParams`
-3. 调 `quoteSwap`
-4. 展示：
-   - 净到手输出
-   - LP fee
-   - protocol fee
-5. 调 `router.swap(..., amountInMaximum = 0, ...)`
-
-### exact-output
-
-1. 用户输入：
-   - target output amount
-   - 方向
-2. 前端构造 `SwapParams`
-3. 调 `quoteSwap`
-4. 展示：
-   - 建议最大输入
-   - LP fee
-   - protocol fee
-5. 用 `estimatedUserInputAmount` 作为默认值
-6. 调 `router.swap(..., amountInMaximum, ...)`
-
----
-
-## 10. 常见失败原因
-
-### 10.1 `executed == false`
-
-代表：
-
-- anti-snipe soft-fail
-- 不是 revert
-
-这时重点看：
-
-- `failureReason`
-
-### 10.2 revert：`AmountInMaximumRequired`
-
-代表：
-
-- exact-output 没传 `amountInMaximum`
-
-### 10.3 revert：`InputAmountExceedsMaximum`
-
-代表：
-
-- exact-output 最终所需输入超过了用户给的上限
-
-### 10.4 revert：`CurrencyNotSupported`
-
-代表：
-
-- 当前池子并不包含全局配置的协议收费币
-
----
-
-## 11. 当前最推荐的前端策略
-
-### 默认策略
-
-- 所有交易都统一走 `quoteSwap -> router.swap`
-- exact-output 默认使用：
-  - `amountInMaximum = preview.estimatedUserInputAmount`
-
-### 更稳健策略
-
-- exact-output 时，在 `estimatedUserInputAmount` 之上再留一层前端风控 buffer
-- 同时给用户明确展示：
-  - 预计净到手
-  - 预计总支付
-  - LP fee
-  - protocol fee
-
----
-
-## 12. 一句话总结
-
-如果你是前端或 SDK 集成方，最简单的接法就是：
-
-- **报价：** 调 `quoteSwap`
-- **下单：** 调 `MemeverseSwapRouter.swap`
-- **soft-fail：** 看 `executed == false`
-- **exact-output：** 用 `estimatedUserInputAmount`
-- **保护期内：** 牢记同一笔交易对同一个 pool 只能 request 一次
+其中普通交易、启动期费率、LP 记账和结算专用通道都在同一套 Router + Hook 语义下协同完成。

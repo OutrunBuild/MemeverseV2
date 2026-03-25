@@ -18,7 +18,7 @@
  - `Memecoin`、`MemeLiquidProof`（基于 `OutrunOFTInit`）
  - `MemeverseLauncher`（`IOFT.quoteSend/send` 分发 fee）
  - `MemeverseOmnichainInteroperation`（跨链 staking）
- - `MemeverseOFTDispatcher`、`OmnichainMemecoinStaker`（compose 接收处理）
+ - `YieldDispatcher`、`OmnichainMemecoinStaker`（compose 接收处理）
 
 以上为 `[代码已证]`。
 
@@ -43,7 +43,7 @@
 ### 3.3 收益分发与 staking 边界
 
 - Launcher fee 分发：
- - 本链治理：调用 `MemeverseOFTDispatcher.lzCompose(...)` 本地直达
+ - 本链治理：调用 `YieldDispatcher.lzCompose(...)` 本地直达
  - 异链治理：调用 `IOFT.send(...)` 远程发送
 - Memecoin staking：
  - 本链治理：直接 deposit 到 yieldVault
@@ -54,7 +54,7 @@
 ## 4. 安全与执行约束
 
 - compose 回调授权：
- - `MemeverseOFTDispatcher.lzCompose` 仅 `localEndpoint` 或 `memeverseLauncher`
+ - `YieldDispatcher.lzCompose` 仅 `localEndpoint` 或 `memeverseLauncher`
  - `OmnichainMemecoinStaker.lzCompose` 仅 `localEndpoint`
 - replay 防护：
  - endpoint 路径检查 `getComposeTxExecutedStatus(guid)`，并 `notifyComposeExecuted(guid)`

@@ -17,7 +17,7 @@
 - `MemeverseRegistrarAtLocal` 或 `MemeverseRegistrarOmnichain`：注册执行层。`[代码已证]`
 - `MemeverseLauncher`：verse 生命周期与资金总编排。`[代码已证]`
 - `MemeverseProxyDeployer`：per-verse clone/proxy 部署器。`[代码已证]`
-- `MemeverseOFTDispatcher`：收益 OFT compose 分发器。`[代码已证]`
+- `YieldDispatcher`：收益 OFT compose 分发器。`[代码已证]`
 - `MemeverseOmnichainInteroperation` + `OmnichainMemecoinStaker`：跨链 staking 路径。`[代码已证]`
 - `MemeverseUniswapHook` + `MemeverseSwapRouter`：swap/liquidity 核心与外围。`[代码已证]`
 

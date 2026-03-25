@@ -1,11 +1,10 @@
-# MemeverseV2 配置矩阵（代码面 vs PRD 假设）
+# MemeverseV2 配置矩阵
 
 ## 1. 说明
 
 标签说明：
 
 - `[代码已证]`：当前代码可直接验证
-- `[PRD假设]`：文档叙事存在，但当前实现未完全对应
 - `[未知]`：仓库内没有部署级最终值
 
 ## 2. 代码可配置面（当前真实生效）
@@ -16,11 +15,11 @@
 | `MemeverseLauncher` | `lzEndpointRegistry` | `setLzEndpointRegistry` | 非零 | 注册 peer 配置、跨链 endpoint 映射 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseRegistrar` | `setMemeverseRegistrar` | 非零 | 注册入口权限边界 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseProxyDeployer` | `setMemeverseProxyDeployer` | 非零 | per-verse token/vault/governor 部署 | `[代码已证]` |
-| `MemeverseLauncher` | `oftDispatcher` | `setOFTDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
+| `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
 | `MemeverseLauncher` | `fundMetaDatas[UPT] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
 | `MemeverseLauncher` | `preorderCapRatio`,`preorderVestingDuration` | `setPreorderConfig` | 非零；`capRatio <= 10000` | preorder 容量和线性释放 | `[代码已证]` |
-| `MemeverseLauncher` | `oftReceiveGasLimit`,`oftDispatcherGasLimit` | `setGasLimits` | 两者 `>0` | 远端分发 OFT options | `[代码已证]` |
+| `MemeverseLauncher` | `oftReceiveGasLimit`,`yieldDispatcherGasLimit` | `setGasLimits` | 两者 `>0` | 远端分发 OFT options | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `supportedUPTs` | `setSupportedUPT` | UPT 非零 | 注册可用募资币种白名单 | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `min/maxDurationDays` | `setDurationDaysRange` | 非零，且 min < max | 注册 durationDays 校验 | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `min/maxLockupDays` | `setLockupDaysRange` | 非零，且 min < max | 注册 lockupDays 校验 | `[代码已证]` |
@@ -53,14 +52,14 @@
 | `MemecoinYieldVault` | `REDEEM_DELAY` | `1 days` | 赎回延迟 | `[代码已证]` |
 | `MemecoinYieldVault` | `MAX_REDEEM_REQUESTS` | `5` | 每地址最大排队赎回数 | `[代码已证]` |
 
-## 4. PRD 默认/假设与当前实现差异
+## 4. 当前实现提醒
 
-| 主题 | PRD/衍生文档叙事 | 当前实现事实 | 结论 |
+| 主题 | 说明 | 当前实现事实 | 结论 |
 | --- | --- | --- | --- |
-| anti-snipe request/soft-fail | 文档描述 `requestSwapAttemptWithQuote(...)`、soft-fail 及失败费路径 | Router/Hook 当前无该 request API，主路径为 execute-or-revert + launch fee 衰减 + launch-settlement marker | `[PRD假设]` 与实现不一致 |
-| anti-snipe 时间单位 | PRD常以“区块窗口”叙述 | 代码使用 `decayDurationSeconds`（秒） | `[PRD假设]` 需按秒语义解读 |
-| 注册天数语义 | PRD通常按自然日理解 | 中心链写入用 `DAY=180` 秒；本地 quote 用 24h | `[PRD假设]` 与当前链上存在偏差 |
-| 异链 fee 判定 | PRD多处写“少于报价回退” | 关键路径要求 `msg.value == quotedFee` | 以代码为准 |
+| swap 启动保护 | 启动期保护机制 | 当前主路径为 execute-or-revert + launch fee 衰减 + launch-settlement marker | 以当前实现为准 |
+| launch fee 时间单位 | launch fee 的时间语义 | 代码使用 `decayDurationSeconds`（秒） | 以秒语义解读 |
+| 注册天数语义 | 注册时长的时间语义 | 中心链写入用 `DAY=180` 秒；本地 quote 用 24h | 当前链上语义与自然日存在偏差 |
+| 异链 fee 判定 | 异链报价后的支付约束 | 关键路径要求 `msg.value == quotedFee` | 以代码为准 |
 
 ## 5. 确定性边界
 

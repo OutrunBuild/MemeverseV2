@@ -7,7 +7,6 @@
 规则分层（从高到低）：
 - 当前规则真源：`docs/spec/*.md`（含本文档）。
 - 落地证据：`src/**` 与 `test/**` 可验证行为。
-- 历史输入：`docs/prd/*` 与 `docs/memeverse-swap/*`，仅用于记录历史意图与差异背景，不与当前规则并列。
 
 ## 2. 系统目标
 
@@ -28,20 +27,21 @@
 | `Memecoin` / `MemeLiquidProof` | 发行与销毁权限边界 | 谁可 mint、如何 burn、POL 与 LP 的关系 | 当前规则（代码已证） |
 | `MemecoinYieldVault` | memecoin 收益累积、份额化与延迟赎回 | 质押收益、请求赎回与延迟执行 | 当前规则（代码已证） |
 | `MemecoinDaoGovernorUpgradeable` + `GovernanceCycleIncentivizerUpgradeable` | DAO treasury 与投票激励周期 | 国库收入记录、周期奖励结算 | 当前规则（代码已证） |
-| `MemeverseOFTDispatcher` / `MemeverseOmnichainInteroperation` / `OmnichainMemecoinStaker` | 跨链收益与跨链 staking 路径 | 异链 fee 要求、到帐目标（Governor / Vault） | 当前规则（代码已证） |
+| `YieldDispatcher` / `MemeverseOmnichainInteroperation` / `OmnichainMemecoinStaker` | 跨链收益与跨链 staking 路径 | 异链 fee 要求、到帐目标（Governor / Vault） | 当前规则（代码已证） |
 
 ## 4. 用户可见主流程
 
 ### 4.1 注册流程
 - 用户经注册中心提交参数，中心校验并生成 `uniqueId`，然后本地/跨链分发至 registrar。
 - registrar 调用 launcher 注册并补写外部信息（`uri/desc/communities`）。
+- 外部信息后续也可由 governor 更新；当前更新语义是增量覆盖，不会自动清空未提供字段。
 
 ### 4.2 Genesis 与 Preorder
 - Genesis 入金 token 为 UPT；每笔按 75% / 25% 拆分到 memecoin 侧与 POL 侧资金池。
 - Preorder 仅在 Genesis 可入金，容量受 `preorderCapRatio` 限制。
 
 ### 4.3 阶段推进
-- `changeStage` 把 `Genesis -> Locked/Refund`，以及 `Locked -> Unlocked`。
+- `changeStage` 把 `Genesis -> Locked/Refund`，以及解锁后推进到退出阶段。
 - `flashGenesis=true` 且达最小募资时可提前进入 Locked。
 
 ### 4.4 Locked 后行为
@@ -51,8 +51,12 @@
 - preorder 份额按线性解锁领取 memecoin。
 
 ### 4.5 Unlocked 后退出
-- POL 持有人可按 1:1 burn POL 赎回 memecoin/UPT LP。
-- Genesis 参与者可按出资比例一次性赎回 POL/UPT LP。
+- 从产品安全要求看，`unlockTime` 到达后应先进入 `post-unlock liquidity protection period`，而不是立即恢复无限制公开 swap。
+- 该保护窗口必须优先保障：
+  - POL 持有人按 1:1 burn POL 赎回 memecoin/UPT LP
+  - Genesis 参与者按出资比例一次性赎回 POL/UPT LP
+  - 依赖 POL 全局结算窗口的上层模块（如 POL Lend）按一致基准结算
+- 只有保护窗口结束后，才应恢复无限制公开 swap。
 
 ## 5. 模块矩阵（按生命周期）
 
@@ -62,26 +66,25 @@
 | Genesis | Launcher | `genesis`、`preorder`、`changeStage` |
 | Refund | Launcher | `refund`、`refundPreorder` |
 | Locked | Launcher + Swap + Governance/Yield | `claimPOLToken`、`mintPOLToken`、`redeemAndDistributeFees`、preorder 线性领取 |
-| Unlocked | Launcher + Swap | `redeemMemecoinLiquidity`、`redeemPolLiquidity` |
-| 全程跨链 | Interoperation / OFTDispatcher | 跨链 staking、跨链收益投递 |
+| Unlocked | Launcher + Swap | 保护窗口内优先退出；窗口结束后恢复公开 swap |
+| 全程跨链 | Interoperation / YieldDispatcher | 跨链 staking、跨链收益投递 |
 
 ## 6. 非目标（当前文档与协议范围外）
 
 - 前端交互、钱包引导与运营文案。
 - 部署脚本与 CI 流程本身。
 - 非 EVM 链适配。
-- 将 `docs/contracts/**` 生成物作为产品规则真源。
 
-## 7. 已识别历史差异（历史输入 vs 当前规则）
+## 7. 当前实现提醒
 
-### 7.1 Swap 的 anti-snipe 语义
-- 历史输入 `docs/prd/memeverse-swap-prd.md` 与 `docs/memeverse-swap/*` 仍描述 `requestSwapAttemptWithQuote`、soft-fail、attempt 记账等 anti-snipe 状态机。
-- 当前规则对应的 `src/swap/**` 未实现上述 request/ticket/soft-fail 接口；`swap` 路径是 execute-or-revert。
-- 当前实现是“launch fee 衰减窗口 + launch settlement 特权路径（固定 1%）”。
+### 7.1 Swap 的启动期语义
+- `swap` 路径采用 execute-or-revert。
+- 启动期保护语义体现为 `launch fee` 衰减窗口与 `launch settlement` 特权路径（固定 `1%`）。
+- 该机制不等价于 unlock 后的流动性保护窗口，不能替代 POL 公平赎回 / POL Lend 全局结算所需的 post-unlock protection。
 
 ### 7.2 Preorder 能力
 - launcher 已实现 preorder 入金、退款、启动时结算与线性解锁领取。
-- 这部分在历史 PRD 叙事中不是主线章节，但已是当前用户可见行为。
+- 这部分属于当前用户可见行为。
 
 ### 7.3 注册时间单位
 - `MemeverseRegistrationCenter` 当前把 `DAY` 定义为 `180` 秒（测试常量），`durationDays/lockupDays` 在中心链按此单位换算。

@@ -9,7 +9,8 @@
 - **flashGenesis**：达到最小募资即允许提前结束 Genesis 并进入 Locked 的开关。
 - **Refund**：募资失败后的退款阶段（终态）。
 - **Locked**：募资成功后、流动性锁定阶段；允许领取 POL、加池 mint POL、分发 fee。
-- **Unlocked**：锁定结束后的退出阶段（终态）。
+- **Unlocked**：当前实现中锁定结束后的退出阶段；按目标规则，unlock 后应先经过 `post-unlock liquidity protection period`，再恢复无限制公开 swap。
+- **post-unlock liquidity protection period**：unlock 后的受保护退出窗口；其目标是保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供统一结算窗口。
 - **Preorder**：Genesis 内的额外 UPT 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
 - **launch settlement**：启动结算专用 swap 通道，使用 marker + 双权限校验，固定 1% 总费。
 - **launch fee window**：池初始化后的费用衰减窗口（默认从 5000 bps 衰减到 100 bps）。
@@ -21,10 +22,9 @@
 - **Governor**：DAO 治理与 treasury 合约，接收 UPT 国库收入。
 - **Yield Vault**：memecoin 收益池，接收并累计 memecoin 收益。
 - **Governance Cycle Incentivizer**：治理周期奖励账本与分发模块。
-- **OFT Dispatcher**：跨链/本链收益路由器，把 token 分发到 Governor 或 Yield Vault。
+- **YieldDispatcher**：跨链/本链收益路由器，把 token 分发到 Governor 或 Yield Vault。
 - **Governance Chain**：`omnichainIds[0]` 指定的治理主链。
 - **Registration Center**：注册参数校验、symbol 占用与跨链注册分发中心。
 - **Registrar**：把注册结果写入 launcher 的执行层（本地或异链接收）。
 - **DAY（注册时间单位）**：注册中心当前实现中的常量单位为 180 秒，不等于自然日。
 - **Protocol Fee Currency**：Hook 允许收取 protocol fee 的币种白名单。
-- **anti-snipe（PRD 术语）**：PRD 中的请求票据/soft-fail 保护机制；当前代码未实现该状态机。

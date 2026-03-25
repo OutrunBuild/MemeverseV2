@@ -35,7 +35,7 @@
 
 ### 1.6 跨链互操作
 
-- `src/verse/MemeverseOFTDispatcher.sol`
+- `src/verse/YieldDispatcher.sol`
 - `src/interoperation/MemeverseOmnichainInteroperation.sol`
 - `src/interoperation/OmnichainMemecoinStaker.sol`
 - 负责治理收益跨链投递与 memecoin 跨链 staking。
@@ -64,12 +64,14 @@
 
 ### 2.4 Unlocked 退出路径
 
-1. POL 持有人 burn POL 换 memecoin LP。
-2. Genesis 参与者按占比赎回 POL LP（每地址一次）。
+1. `unlockTime` 到达后，按目标规则应先进入 `post-unlock liquidity protection period`。
+2. 在保护窗口内，POL 持有人 burn POL 换 memecoin LP。
+3. Genesis 参与者按占比赎回 POL LP（每地址一次）。
+4. 保护窗口结束后，才恢复无限制公开 swap。
 
 ## 3. 文档分层（Doc Layering）
 
-当前文档系统按五层组织，避免“PRD 与代码并列定规”：
+当前文档系统按四层组织：
 
 1. Harness / Process 层（流程契约与质量门禁）
  - `AGENTS.md`
@@ -77,6 +79,11 @@
  - `script/process/*`
 2. Product Truth 层（当前规则真源）
  - `docs/spec/*.md`
+ - `docs/spec/lifecycle-details.md`
+ - `docs/spec/registration-details.md`
+ - `docs/spec/governance-yield-details.md`
+ - `docs/spec/interoperation-details.md`
+ - `docs/spec/common-foundations.md`
  - `docs/ARCHITECTURE.md`
  - `docs/GLOSSARY.md`
  - `docs/TRACEABILITY.md`
@@ -86,15 +93,12 @@
 3. Implementation Evidence 层（规则落地证据）
  - `src/**`
  - `test/**`
-4. Generated / Derived 层（派生物）
- - `docs/contracts/**`（生成产物，不是规则真源）
-5. Historical Intent 层（历史输入）
- - `docs/prd/*`
+4. Topic Guides 层（专题补充）
  - `docs/memeverse-swap/*`
 
 冲突处理顺序：
 - 当前规则判断以 Product Truth 层为准，并用 Implementation Evidence 层核验。
-- Historical Intent 层只用于解释背景与记录差异，不直接定义当前规则。
+- Topic Guides 层用于补充特定模块说明，不单独定义当前规则。
 
 ## 4. 推荐阅读顺序
 
@@ -103,12 +107,11 @@
 3. `docs/spec/*`（产品真相核心规则；建议先读 `protocol`、`state-machines`、`accounting`、`access-control`、`upgradeability`）
 4. `docs/GLOSSARY.md`（术语与定义基线）
 5. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md`（规则到证据追溯与验证路径）
-6. `docs/adr/0001-universalvault-style-harness-migration.md`（关键文档系统决策背景）
-7. `docs/process/subagent-workflow.md` + `docs/process/*`（Harness/Process 执行细则）
-8. `docs/contracts/**`（生成文档输出，仅用于参考，不作为真源）
+6. `docs/process/subagent-workflow.md` + `docs/process/*`（Harness/Process 执行细则）
 
 ## 5. 当前已知边界提醒
 
-- 历史 swap 文档仍包含 anti-snipe request/soft-fail 叙事；当前规则对应实现主路径为 launch fee 衰减 + launch settlement 特权路径。
+- swap 当前规则主路径为 launch fee 衰减 + launch settlement 特权路径。
+- unlock 后的保护窗口是独立安全要求，不由 launch fee / launch settlement 替代。
 - 注册中心当前把 `durationDays/lockupDays` 按 180 秒“测试日”换算；与自然日含义存在偏差。
-- 评审与实现对齐时，先看 Product Truth 层与 `src/**` / `test/**`，再回看历史 PRD 输入。
+- 评审与实现对齐时，先看 Product Truth 层与 `src/**` / `test/**`。

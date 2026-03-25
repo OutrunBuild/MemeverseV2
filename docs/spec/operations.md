@@ -30,6 +30,10 @@
  - `Registration`
  - 目标链完成后 `RegisterMemeverse` + `SetExternalInfo`
 
+补充说明：
+
+- `SetExternalInfo` 采用增量覆盖语义；空字符串或空数组不会主动清空旧值。
+
 失败要点：symbol 未解锁、UPT 未支持、`msg.value` 不足、目标链 endpointId 未配置。`[代码已证]`
 
 ### 3.2 阶段推进（keeper 高频）
@@ -39,7 +43,12 @@
 
 - `Genesis -> Locked`：满足募资条件（`flashGenesis` 可提前）并执行部署/建池/preorder 结算
 - `Genesis -> Refund`：到期未达标
-- `Locked -> Unlocked`：`block.timestamp > unlockTime`
+- 当前实现中的 `Locked -> Unlocked`：`block.timestamp > unlockTime`
+
+补充说明：
+
+- 按当前产品安全要求，`unlockTime` 到达后应先进入 `post-unlock liquidity protection period`
+- 当前实现尚未落地该保护窗口，因此 keeper 在现状下推进到的是“直接 Unlocked”，不是目标规则下的受保护退出阶段
 
 注意：`Locked` 且未到解锁时间时，调用不回退，但事件仍是 `ChangeStage(..., Locked)`。`[代码已证]`
 
@@ -51,7 +60,7 @@
 - 先从两池 claim fee
 - `liquidProofFee` 直接 burn
 - `UPTFee` 拆成 `executorReward + govFee`
-- 本链治理：经 `oftDispatcher.lzCompose` 分发到 governor / yieldVault
+- 本链治理：经 `yieldDispatcher.lzCompose` 分发到 governor / yieldVault
 - 异链治理：走 OFT `send` 两笔，`msg.value` 必须精确等于总报价
 
 失败要点：未到 `Locked`、`rewardReceiver=0`、跨链费用不精确、外部依赖回退。`[代码已证]`
@@ -79,6 +88,12 @@
 - Hook owner 可改：`treasury`、protocol fee 币种支持、`emergencyFlag`、`launchSettlementCaller`、launch fee 衰减参数。
 - Launcher owner 更换 router 时会做 launch-settlement 联动校验，配置不一致会直接拒绝。`[代码已证]`
 
+### 3.7 unlock 后保护窗口运维语义
+
+- 按产品安全要求，unlock 后应先进入 `post-unlock liquidity protection period`
+- 在该窗口内，运维与 keeper 应优先支持退出/结算，而不是开放普通公开 swap
+- 当前实现尚未落地这套窗口语义，因此现阶段不能把“`unlockTime` 到达”误解为“产品上已经安全进入完全开放交易阶段”
+
 ## 4. 治理周期相关操作语义
 
 - `finalizeCurrentCycle()` 是对外开放入口，时间到即可执行，不要求 `onlyGovernance`。`[代码已证]`
@@ -90,6 +105,7 @@
 - 资金分发：`RedeemAndDistributeFees`、`OFTProcessed`
 - 跨链 staking：`OmnichainMemecoinStaking`、`OmnichainMemecoinStakingProcessed`
 - 配置变更：Launcher/Hook/RegistrationCenter 的 `Set*` 事件
+- unlock 后保护：当前缺少专用事件，需结合 stage、时间与 swap/赎回行为联合判断
 
 ## 6. 确定性边界
 

@@ -69,15 +69,23 @@
 
 ### INV-10 OFT compose 回调具备 replay 防护
 
-- 约束：`MemeverseOFTDispatcher` 与 `OmnichainMemecoinStaker` 都在 endpoint 路径下检查 `guid` 未执行，再标记执行。`[代码已证]`
+- 约束：`YieldDispatcher` 与 `OmnichainMemecoinStaker` 都在 endpoint 路径下检查 `guid` 未执行，再标记执行。`[代码已证]`
 - 价值：跨链到账处理不可重复记账。
-- 主要锚点：`src/verse/MemeverseOFTDispatcher.sol:47-48`，`:60`，`src/interoperation/OmnichainMemecoinStaker.sol:40`，`:50`
+- 主要锚点：`src/verse/YieldDispatcher.sol:47-48`，`:60`，`src/interoperation/OmnichainMemecoinStaker.sol:40`，`:50`
 
 ### INV-11 注册时间权威值来自注册中心写入
 
 - 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价使用 `24*3600`，中心写入使用 `DAY=180` 秒常量。`[代码已证]`
 - 价值：链上最终时间语义由中心写入决定，报价仅供参考。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:956-958`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:35-36`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:131`，`:145`
+
+### INV-12 解锁后必须先经过保护窗口，再恢复公开 swap
+
+- 约束：`unlockTime` 到达后，不得直接进入“可公开 swap + 可赎回”并存状态；必须先经过 `post-unlock liquidity protection period`。`[产品安全要求]`
+- 价值：保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供一致的全局结算窗口。
+- 违反后果：先行动者可通过先赎回并抛售底层资产，把损失外部化给后续赎回者，造成用户重大亏损。`[产品安全要求]`
+- 当前实现状态：launcher 当前在 `unlockTime` 后直接进入 `Unlocked`，swap 层未见 unlock 后保护窗口，因此该不变量当前未落地。`[当前实现缺口]`
+- 主要锚点：`src/verse/MemeverseLauncher.sol:397-399`，`src/verse/MemeverseLauncher.sol:823`，`src/verse/MemeverseLauncher.sol:849`，`src/swap/MemeverseSwapRouter.sol:544-564`
 
 ## 3. 确定性边界
 

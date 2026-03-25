@@ -13,7 +13,6 @@
 来源边界：
 - 当前规则真源是 `docs/spec/*.md`（含本文档）。
 - 规则证据来自 `src/**` 与 `test/**`。
-- 历史 PRD 文档仅用于记录差异背景，不作为并列规则源。
 
 ## 2. 角色定义（按当前代码语义）
 
@@ -31,7 +30,7 @@
   - 证据：`src/verse/MemeverseLauncher.sol:318`, `src/verse/MemeverseLauncher.sol:382`, `src/yield/MemecoinYieldVault.sol:86`
 - `external dispatcher / endpoint caller`
   - 仅允许 LayerZero endpoint、launcher 或合约自身的调度入口。
-  - 证据：`src/verse/MemeverseOFTDispatcher.sol:46`, `src/interoperation/OmnichainMemecoinStaker.sol:39`, `src/verse/registration/MemeverseRegistrationCenter.sol:180`
+  - 证据：`src/verse/YieldDispatcher.sol:46`, `src/interoperation/OmnichainMemecoinStaker.sol:39`, `src/verse/registration/MemeverseRegistrationCenter.sol:180`
 
 ## 3. 边界矩阵（源码锚点）
 
@@ -49,7 +48,7 @@
 | `Memecoin` | `mint` 仅 launcher；`burn` 自主 | `src/token/Memecoin.sol:39-43`, `:48-51` |
 | `MemeLiquidProof` | `setPoolId` 与 `mint` 仅 launcher；`burn` 为持币人或 allowance 授权方 | `src/token/MemeLiquidProof.sol:54`, `:62`, `:72-75` |
 | `MemecoinYieldVault` | `accumulateYields` / `deposit` / `requestRedeem` / `executeRedeem` 为 permissionless 业务入口（非 owner 门禁） | `src/yield/MemecoinYieldVault.sol:86`, `:120`, `:132`, `:146` |
-| `MemeverseOFTDispatcher` | `lzCompose` 仅 `localEndpoint` 或 `memeverseLauncher` | `src/verse/MemeverseOFTDispatcher.sol:39-47` |
+| `YieldDispatcher` | `lzCompose` 仅 `localEndpoint` 或 `memeverseLauncher` | `src/verse/YieldDispatcher.sol:39-47` |
 | `OmnichainMemecoinStaker` | `lzCompose` 仅 `localEndpoint` | `src/interoperation/OmnichainMemecoinStaker.sol:30-40` |
 | `MemeverseRegistrationCenter` dispatcher 封装 | `lzSend` 仅合约自身可调用；`_lzReceive` 校验 origin.sender 为 registrar | `src/verse/registration/MemeverseRegistrationCenter.sol:173-183`, `:296-297` |
 | `MemeverseOmnichainInteroperation` | staking 入口 permissionless；`setGasLimits` 仅 owner | `src/interoperation/MemeverseOmnichainInteroperation.sol:93`, `:135` |
@@ -62,9 +61,7 @@
 - Swap 的“Router 公开入口 + Hook 核心引擎 + launch settlement 受限路径”与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
 - 注册中心和 registrar 的边界与 `docs/spec/state-machines.md` 一致。
 
-## 5. 历史输入差异与不确定项
+## 5. 确定性边界
 
-- 历史 swap 文档中存在 `requestSwapAttemptWithQuote(...)` / soft-fail 叙事；当前接口与实现无该函数名，当前规则应按 launch-settlement caller gating + 动态费/launch fee 机制理解。
-  - 证据：`src/swap/interfaces/IMemeverseUniswapHook.sol:81-199`
 - 高确定性：函数级访问控制（`onlyOwner` / `require(msg.sender==...)`）可直接由源码证实。
 - 中确定性：治理链上“最终权限持有地址”依赖部署清单，不在本仓库源码内。
