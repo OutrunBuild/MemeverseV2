@@ -17,7 +17,7 @@
 
 | Surface | 机制 | 初始化入口 | 升级授权 | 证据 |
 | --- | --- | --- | --- | --- |
-| Launcher / Router / Hook / RegistrationCenter / Registrar / Dispatcher / Interoperation / Staker / LzEndpointRegistry / ProxyDeployer | 构造函数部署；无 UUPS/Transparent proxy 入口 | constructor | 不适用（按代码不可升级） | `src/verse/MemeverseLauncher.sol:69`; `src/swap/MemeverseSwapRouter.sol:75`; `src/swap/MemeverseUniswapHook.sol:158`; `src/verse/registration/MemeverseRegistrationCenter.sol:46`; `src/verse/registration/MemeverseRegistrarAtLocal.sol:16`; `src/verse/registration/MemeverseRegistrarOmnichain.sol:33`; `src/verse/MemeverseOFTDispatcher.sol:26`; `src/interoperation/MemeverseOmnichainInteroperation.sol:36`; `src/interoperation/OmnichainMemecoinStaker.sol:19`; `src/common/omnichain/LzEndpointRegistry.sol:14`; `src/verse/deployment/MemeverseProxyDeployer.sol:38` |
+| Launcher / Router / Hook / RegistrationCenter / Registrar / Dispatcher / Interoperation / Staker / LzEndpointRegistry / ProxyDeployer | 构造函数部署；无 UUPS/Transparent proxy 入口 | constructor | 不适用（按代码不可升级） | `src/verse/MemeverseLauncher.sol:69`; `src/swap/MemeverseSwapRouter.sol:75`; `src/swap/MemeverseUniswapHook.sol:158`; `src/verse/registration/MemeverseRegistrationCenter.sol:46`; `src/verse/registration/MemeverseRegistrarAtLocal.sol:16`; `src/verse/registration/MemeverseRegistrarOmnichain.sol:33`; `src/verse/YieldDispatcher.sol:26`; `src/interoperation/MemeverseOmnichainInteroperation.sol:36`; `src/interoperation/OmnichainMemecoinStaker.sol:19`; `src/common/omnichain/LzEndpointRegistry.sol:14`; `src/verse/deployment/MemeverseProxyDeployer.sol:38` |
 | `Memecoin` / `MemeLiquidProof` / `MemecoinYieldVault` | clone + `initialize(...)` | 外部 `initialize`（单次） | 无实现内升级入口 | `src/verse/deployment/MemeverseProxyDeployer.sol:93-117`; `src/token/Memecoin.sol:24`; `src/token/MemeLiquidProof.sol:37`; `src/yield/MemecoinYieldVault.sol:37` |
 | `MemecoinDaoGovernorUpgradeable` / `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:141-150`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:76`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:83`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:252`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:640` |
 
@@ -57,15 +57,15 @@
 
 ## 5. 与文档链的关系
 
-- PRD 将 deployer + governance proxy 视为 launcher 生命周期的一部分，与上述代码路径一致。
-  - 证据：`docs/prd/memeverse-launcher-prd.md:135`, `:168-170`
-- 流程层对 `src/**/*.sol` 的 gate/证据要求以 `policy.json + rule-map.json` 为真源；升级路径的“测试覆盖完整性”仍受 `testing_gaps` 影响。
-  - 证据：`docs/process/change-matrix.md:41-49`; `docs/process/rule-map.json:140`
+- deployer + governance proxy 属于 launcher 生命周期编排的一部分，与上述代码路径一致。
+- 流程层对 `src/**/*.sol` 的 gate/证据要求以 `policy.json + rule-map.json` 为真源；governance 升级路径已由 governance / deployment 相关测试和 rule-map 覆盖。
+  - 证据：`docs/process/change-matrix.md:41-49`; `docs/process/rule-map.json`
 
 ## 6. 确定性与未知项
 
 - 高确定性
   - 合约是否声明 UUPS / initializer、是否通过 clone/proxy 部署，均可由源码直接判定。
+  - governor / incentivizer 的 proxy 初始化与 `upgradeToAndCall` 授权路径已有执行级测试证据。
 - 中确定性
   - 线上部署是否额外加 timelock、多签或 owner 转移，不在仓库证据范围内。
 - 未知项

@@ -25,6 +25,20 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
         incentivizer = _deployIncentivizer(address(this), address(tokenA));
     }
 
+    function testUpgradeToAndCallRequiresGovernorAndUpgradesProxy() external {
+        GovernanceCycleIncentivizerUpgradeable governedIncentivizer = _deployIncentivizer(OTHER, address(tokenA));
+        GovernanceCycleIncentivizerUpgradeableV2 newImplementation = new GovernanceCycleIncentivizerUpgradeableV2();
+
+        vm.expectRevert(IGovernanceCycleIncentivizer.PermissionDenied.selector);
+        governedIncentivizer.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        vm.prank(OTHER);
+        governedIncentivizer.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        assertEq(GovernanceCycleIncentivizerUpgradeableV2(address(governedIncentivizer)).upgradeVersion(), 2);
+        assertEq(governedIncentivizer.currentCycleId(), 1);
+    }
+
     function _deployIncentivizer(address governor, address initialToken)
         internal
         returns (GovernanceCycleIncentivizerUpgradeable deployed)
@@ -379,5 +393,11 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
         incentivizer.updateRewardRatio(2500);
         (, uint128 rewardRatio,,,) = incentivizer.metaData();
         assertEq(rewardRatio, 2500);
+    }
+}
+
+contract GovernanceCycleIncentivizerUpgradeableV2 is GovernanceCycleIncentivizerUpgradeable {
+    function upgradeVersion() external pure returns (uint256) {
+        return 2;
     }
 }

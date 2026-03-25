@@ -126,6 +126,12 @@ contract MockGovernorIncentivizer {
     }
 }
 
+contract MemecoinDaoGovernorUpgradeableV2 is MemecoinDaoGovernorUpgradeable {
+    function upgradeVersion() external pure returns (uint256) {
+        return 2;
+    }
+}
+
 contract MemecoinDaoGovernorUpgradeableTest is Test {
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
@@ -225,6 +231,20 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         assertEq(incentivizer.lastSentTo(), BOB);
         assertEq(incentivizer.lastSentAmount(), 3 ether);
         assertEq(treasuryToken.balanceOf(BOB), 3 ether);
+    }
+
+    /// @notice Test UUPS upgrade requires governance executor and upgrades the proxy implementation.
+    function testUpgradeToAndCallRequiresGovernanceExecutorAndUpgradesProxy() external {
+        MemecoinDaoGovernorUpgradeableV2 newImplementation = new MemecoinDaoGovernorUpgradeableV2();
+
+        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorOnlyExecutor.selector, address(this)));
+        governor.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        vm.prank(address(governor));
+        governor.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        assertEq(MemecoinDaoGovernorUpgradeableV2(payable(address(governor))).upgradeVersion(), 2);
+        assertEq(governor.governanceCycleIncentivizer(), address(incentivizer));
     }
 
     function _proposalPayload()
