@@ -10,7 +10,6 @@
 - `test/`：Foundry 测试
 - `script/`：部署脚本与流程脚本
 - `docs/process/`：流程契约与机器可读规则
-- `docs/contracts/`：自动生成的合约文档产物
 - `.codex/agents/`：角色 manifest（`*.toml`）与运行时契约（`*.md`）
 - `.codex/templates/`：`Task Brief` 与 `Agent Report` 模板
 
@@ -29,7 +28,6 @@
 - 构建：`forge build`
 - 测试：`forge test -vvv`
 - 格式：`forge fmt --check`
-- 生成文档：`npm run docs:gen`
 - 流程自测：`npm run process:selftest`
 
 ## 3. Role Model
@@ -112,8 +110,6 @@
 - `AGENTS.md`、`README.md`、`docs/process/subagent-workflow.md`、`.codex/**`、`script/process/check-docs.sh`
   - 默认由 `process-implementer` 修改
   - 至少通过 `npm run docs:check`
-- `docs/contracts/**`
-  - 仅生成产物，不手工编辑，不作为产品或 Harness 真源
 
 ## 6. Pull Request Contract
 
@@ -136,11 +132,8 @@
 - 必填字段与占位规则以 `docs/process/review-notes.md` 与 `docs/process/policy.json` 为准
 - `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 仅允许 `yes` 或 `no`
 
-## 8. Generated Docs and Local-Only Files
+## 8. Local-Only Files
 
-- `docs/contracts/**` 是生成文档输出，来源链为：
-  - `script/process/generate-docs.sh` -> `docs/contracts/**`
-- `docs/contracts/**` 不属于产品或 Harness source of truth
 - `docs/plans/` 默认本地规划目录
 - `docs/reviews/` 默认本地 review 草稿目录（是否提交由团队策略决定）
 
@@ -215,12 +208,6 @@
 - `docs/process/review-notes.md`
 - `script/process/*`（含 `process:selftest` 与 gate 脚本）
 
-### Generated Docs Chain
-
-- 生成入口：`script/process/generate-docs.sh`
-- 生成输出：`docs/contracts/**`
-- 结论：`docs/contracts/**` 仅为生成产物，不作为产品规则或 Harness 规则真源
-
 ## 12. Recommended Reading Order
 
 1. `AGENTS.md`（协作边界、角色与流程契约）
@@ -230,4 +217,3 @@
 5. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md`（规则追溯与验证路径）
 6. `docs/adr/0001-universalvault-style-harness-migration.md`（文档治理决策背景）
 7. `docs/process/subagent-workflow.md` + `docs/process/*`（Harness/Process 执行细则）
-8. `docs/contracts/**`（生成文档输出，仅用于参考，不作为真源）

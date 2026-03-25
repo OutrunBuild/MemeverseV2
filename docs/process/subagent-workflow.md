@@ -118,7 +118,6 @@
 - `quality:gate` 是唯一 finish gate
 - CI 只验证证据，不编排 agent
 - `review note` 在命中 `src/**/*.sol` 时是必需证据
-- `docs/contracts/**` 仅提供生成输出，不作为证据链中的规则真源
 
 ## 6. Block 规则
 

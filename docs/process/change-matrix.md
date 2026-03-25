@@ -47,6 +47,7 @@
 - `change_requirement.mode = any|all|none` 决定是否要求同时修改映射测试
 - `evidence_requirement.mode = any|all|none` 决定 `Existing tests exercised` 的覆盖要求
 - `testing_gaps` 仅用于记录测试治理缺口，不直接触发 gate 失败
+- 当命中 launcher/router/hook 的 unlock 相关规则时，review note 还应显式填写 `Open safety mismatches assessed`，说明 `SAFE-UNLOCK-01` 是仍然开放还是已被本次改动关闭
 
 ## `test/**/*.sol`
 

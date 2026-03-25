@@ -9,6 +9,7 @@ Rules:
 - 当改动命中 `src/**/*.sol` 且准备运行 `quality:gate` 时，必须提供一份可通过校验的 review note
 - `Existing tests exercised` 必须真实记录已执行测试；命中 `rule-map.json` 正式规则时必须满足 `evidence_requirement`
 - `Tests updated` / `Existing tests exercised` 由实现角色填写（`solidity-implementer`、`process-implementer`、`security-test-writer`）
+- `Open safety mismatches assessed` 必须显式记录是否审阅了当前开放安全缺口；命中 launcher/router/hook/unlock 语义时，不得省略 `SAFE-UNLOCK-01`
 - `Security evidence source`、`Gas evidence source`、`Verification evidence source`、`Decision evidence source`、`Rule-map evidence source` 采用 `role: source` 格式
 - source 字段 owner 语义以 `policy.json -> review_note.field_owners` 与 `owner_prefixed_source_fields` 为准
 - Findings 二选一：有发现时填写 `High/Medium/Low` 且 `None: n/a`；无发现时 `High/Medium/Low: none` 且 `None: none`

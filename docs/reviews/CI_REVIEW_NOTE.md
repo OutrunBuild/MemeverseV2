@@ -20,6 +20,7 @@
 - None: none
 - Security review summary: `MemeverseSwapRouter.sol` 与 `MemeverseLauncher.sol` 的生产改动本质上是内部流程拆分与职责下沉，没有改变访问控制、可调用入口、参数校验顺序或资金流向约束；对应新增测试确认 exact-liquidity 预算保护、pause/owner 权限、slippage/revert 原因和费用路径仍符合预期。`MemeverseUniswapHook.sol` 的改动则是实质 bugfix：`removeLiquidityCore` 现在直接在 `_modifyLiquidity(...)` 时把接收者设为 `params.recipient`，避免 `recipient != msg.sender` 时先把资产发送给调用者、再从 hook 余额二次转发导致错误或资产走向不符的问题。该路径已由 `test/swap/MemeverseUniswapHookLiquidity.t.sol` 的差异接收者用例覆盖。
 - Security residual risks: 当前 worktree 里与本次提交一起收尾的 Solidity 改动主要是 refactor + 单点 bugfix，未发现新的高风险授权或重入面；残余风险主要在业务分支仍然复杂，后续如继续改 launcher/redeem/distribute 或 router quote/swap 路径，仍需维持行为测试而不是依赖覆盖率数字。
+- Open safety mismatches assessed: SAFE-UNLOCK-01: still open
 - Security evidence source: security-reviewer: docs/reviews/CI_REVIEW_NOTE.md
 
 ## Simplification（简化评估）

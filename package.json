@@ -16,7 +16,6 @@
     "lint": "$npm_execpath run lint:sol",
     "lint:fix": "solhint 'src/**/*.sol' 'test/**/*.sol' --fix --noPrompt",
     "lint:sol": "solhint 'src/**/*.sol' 'test/**/*.sol'",
-    "docs:gen": "bash ./script/process/generate-docs.sh",
     "docs:check": "bash ./script/process/check-docs.sh",
     "process:selftest": "bash ./script/process/tests/run-all.sh",
     "quality:quick": "bash ./script/process/quality-quick.sh",

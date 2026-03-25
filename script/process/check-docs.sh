@@ -4,6 +4,12 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+if [ -d "docs/contracts" ]; then
+    echo "Generated docs directory must not exist: docs/contracts"
+    echo "Remove generated contract docs and keep product-truth docs under docs/spec instead."
+    exit 1
+fi
+
 read_policy_value() {
     local key="$1"
     local default_value="$2"
@@ -35,36 +41,9 @@ agent_report_template="$(read_policy_value agents.agent_report_template '.codex/
 agent_directory="$(read_policy_value agents.agent_directory '.codex/agents')"
 main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
 docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
-generated_docs_root="$(read_policy_value quality_gate.generated_docs_root 'docs/contracts')"
-generated_docs_summary="$(read_policy_value quality_gate.generated_docs_summary "${generated_docs_root}/SUMMARY.md")"
-generated_docs_unexpected_nested_src="$(read_policy_value quality_gate.generated_docs_unexpected_nested_src "${generated_docs_root}/src")"
 
 load_role_array agents.default_roles default_roles
 load_role_array agents.on_demand_roles on_demand_roles
-
-bash ./script/process/generate-docs.sh
-
-if [ ! -d "$generated_docs_root" ]; then
-    echo "Expected generated docs root missing: $generated_docs_root"
-    exit 1
-fi
-
-if [ -d "$generated_docs_unexpected_nested_src" ]; then
-    echo "Unexpected nested docs directory: $generated_docs_unexpected_nested_src"
-    exit 1
-fi
-
-if [ ! -f "$generated_docs_summary" ]; then
-    echo "Expected docs summary missing: $generated_docs_summary"
-    exit 1
-fi
-
-mapfile -t generated_docs_markdown_files < <(find "$generated_docs_root" -type f -name '*.md' ! -path "$generated_docs_summary" | sort)
-
-if [ "${#generated_docs_markdown_files[@]}" -eq 0 ]; then
-    echo "Expected generated markdown docs under $generated_docs_root (excluding summary)"
-    exit 1
-fi
 
 required_harness_support_files=(
     "AGENTS.md"

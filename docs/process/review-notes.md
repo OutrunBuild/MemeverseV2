@@ -38,6 +38,7 @@
 - `Config change`
 - `Security review summary`
 - `Security residual risks`
+- `Open safety mismatches assessed`
 - `Gas-sensitive paths reviewed`
 - `Gas changes applied`
 - `Gas snapshot/result`
@@ -63,6 +64,7 @@
 默认 owner 语义：
 
 - 安全字段（`Security review summary`、`Security residual risks`）由 `security-reviewer` 提供
+- `Open safety mismatches assessed` 用于显式记录是否审阅了当前已知开放安全缺口（例如 `SAFE-UNLOCK-01`），默认由 `security-reviewer`、`verifier` 或 `main-orchestrator` 维护
 - Gas 字段（`Gas-*`）由 `gas-reviewer` 提供
 - 验证字段（`Commands run`、`Results`）由 `verifier` 提供
 - 决策字段（`Ready to commit`）由 `main-orchestrator` 最终确认
@@ -100,6 +102,17 @@ owner 语义以 `policy.json` 为机器可读真源。
 - `mode = none`：不要求额外映射测试
 
 `Rule-map evidence source` 用于记录对应 rule id / 测试路径来源，便于追溯；当前 gate 仍以 `Existing tests exercised` 为硬校验入口。
+
+## 开放安全缺口填写约定
+
+当改动触达 launcher / router / hook / unlock 语义时：
+
+- `Open safety mismatches assessed` 不得省略
+- 至少应显式写出：
+  - `SAFE-UNLOCK-01: still open`
+  - 或 `SAFE-UNLOCK-01: resolved by <tests/changes>`
+- 若 review note 声称该缺口已解决，`Existing tests exercised` 必须同时包含与 unlock protection 相关的映射测试
+- 若缺口仍未解决，`Security residual risks` 或 `Residual risks` 中应保留对应风险说明
 
 ## Findings 填写约定
 

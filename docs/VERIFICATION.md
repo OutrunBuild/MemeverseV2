@@ -12,8 +12,7 @@
 
 - 当前规则真源是 `docs/spec/*.md` 及其配套的 `ARCHITECTURE/GLOSSARY/TRACEABILITY/VERIFICATION/ADR`。
 - `src/**` 与 `test/**` 是规则落地证据。
-- `docs/contracts/**` 是生成产物，不是规则真源。
-- `docs/prd/*` 与 `docs/memeverse-swap/*` 仅作为历史输入，不与当前规则并列定规。
+- `docs/memeverse-swap/*` 用于补充 swap 相关专题说明，不与当前规则并列定规。
 
 ## 3. 常规验证流程
 
@@ -26,8 +25,7 @@
 
 1. `npm run docs:check`
 2. 预期：
-   - 文档生成与检查脚本可运行。
-   - `docs/contracts/SUMMARY.md` 等生成产物结构有效。
+   - 文档检查脚本可运行。
    - harness 支撑文件覆盖 `docs_contract_pattern`。
 
 ### 3.3 质量门禁
@@ -42,14 +40,14 @@
 
 ## 4. Product Truth 专项检查
 
-用于防止文档倒退回“PRD vs 代码并列定规”模式：
+用于防止文档混入非规则性标签或错误引用：
 
 1. 旧 taxonomy 清理检查
  - `rg -n "\[PRD\]|\[代码\]|\[PRD\+代码\]" docs/spec docs/ARCHITECTURE.md docs/GLOSSARY.md docs/TRACEABILITY.md docs/VERIFICATION.md docs/adr/0001-universalvault-style-harness-migration.md`
- - 预期：仅允许出现在明确“历史说明”上下文，且不得作为当前规则标签体系。
+ - 预期：不应作为当前规则标签体系。
 2. Traceability 来源检查
- - `rg -n "docs/prd/" docs/TRACEABILITY.md`
- - 预期：`Current Rule Doc` 主要指向 `docs/spec/*.md` 与 Product Truth 支撑文档（`ARCHITECTURE/GLOSSARY/TRACEABILITY/VERIFICATION/ADR`），`docs/prd/*` 仅用于历史差异行。
+ - `rg -n "docs/spec/|docs/ARCHITECTURE|docs/GLOSSARY|docs/TRACEABILITY|docs/VERIFICATION|docs/adr/" docs/TRACEABILITY.md`
+ - 预期：`Current Rule Doc` 主要指向 `docs/spec/*.md` 与 Product Truth 支撑文档（`ARCHITECTURE/GLOSSARY/TRACEABILITY/VERIFICATION/ADR`）。
 3. Upgradeability 主文档归属检查
  - `rg -n "UPG-(01|02).*(docs/spec/implementation-map\\.md)" docs/TRACEABILITY.md`
  - 预期：无命中；`UPG-*` 的 `Current Rule Doc` 主锚点应为 `docs/spec/upgradeability.md`，`implementation-map` 仅用于 surface 事实补充。
@@ -65,7 +63,7 @@
 3. `forge test --match-path test/verse/MemeverseLauncherLifecycle.t.sol -vvv`
 4. `forge test --match-path test/swap/MemeverseSwapRouter.t.sol -vvv`
 5. `forge test --match-path test/swap/MemeverseUniswapHookLiquidity.t.sol -vvv`
-6. `forge test --match-path test/verse/MemeverseOFTDispatcher.t.sol -vvv`
+6. `forge test --match-path test/verse/YieldDispatcher.t.sol -vvv`
 7. `forge test --match-path test/interoperation/OmnichainMemecoinStaker.t.sol -vvv`
 
 ## 6. 已知验证缺口管理

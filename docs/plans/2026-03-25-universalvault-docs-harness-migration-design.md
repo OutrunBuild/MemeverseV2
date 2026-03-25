@@ -2,7 +2,7 @@
 
 ## 背景
 
-`MemeverseV2` 当前已经有一套可工作的流程脚本、`review note`、`rule-map` 和 Foundry 生成文档链路，但仓库内仍缺少两类关键真源：
+`MemeverseV2` 当前已经有一套可工作的流程脚本、`review note` 与 `rule-map`，但仓库内仍缺少两类关键真源：
 
 - 以 `AGENTS.md + .codex/agents + docs/process/subagent-workflow.md` 为核心的仓内 subagent Harness
 - 以 `docs/spec/*` 为核心的产品规则与系统边界真源
@@ -13,14 +13,12 @@
 
 - 让 `MemeverseV2` 采用 `UniversalVault` 风格的仓内 Harness，统一主流程契约、subagent 角色模型和证据链
 - 把 `MemeverseV2` 的产品文档从 `PRD + 生成文档 + 零散流程说明` 收敛为 `docs/spec/*` 主真源
-- 保留 `rule-map.json`、流程脚本自测、`docs:gen/docs:check` 等 Memeverse 特有机制，并挂到新的 Harness 下面
-- 明确 `docs/contracts/` 是 Foundry 生成产物，而不是 Harness 或产品文档真源
+- 保留 `rule-map.json`、流程脚本自测、`docs:check` 等 Memeverse 特有机制，并挂到新的 Harness 下面
 
 ## 非目标
 
 - 不改动 `src/**/*.sol`、`test/**/*.sol` 的业务逻辑
 - 不把 `docs/spec/*` 写成源码逐文件说明书
-- 不删除 Foundry 生成文档链路
 - 不继续把 `skills/solidity-post-coding-flow/SKILL.md` 作为仓库主流程真源
 
 ## 方案比较
@@ -47,7 +45,7 @@
 优点：
 
 - 主契约、角色模型、证据链、产品文档分层都统一
-- 能保留 `rule-map.json`、流程自测、Foundry 生成文档链路
+- 能保留 `rule-map.json`、流程自测
 - 最适合长期维护
 
 缺点：
@@ -127,7 +125,6 @@
 
 明确排除：
 
-- `docs/contracts/` 仍是 Foundry 生成产物
 - `out/`、`cache/`、脚本输出、测试辅助件不属于产品文档真源
 
 ## 文件级迁移映射
@@ -159,8 +156,8 @@
 改写要求：
 
 - 把仓库名替换为 `MemeverseV2`
-- 在 `process-implementer`、`verifier`、`policy.json` 相关说明中显式保留 `rule-map.json`、`script/process/tests/*`、`docs:gen/docs:check`
-- 允许 `process-implementer` 修改 Harness、流程、文档和生成链路相关非 Solidity 文件
+- 在 `process-implementer`、`verifier`、`policy.json` 相关说明中显式保留 `rule-map.json`、`script/process/tests/*`、`docs:check`
+- 允许 `process-implementer` 修改 Harness、流程、文档相关非 Solidity 文件
 
 ### B. 按 `UniversalVault` 结构重写，但内容按 Memeverse 语义重写
 
@@ -193,15 +190,13 @@
 - `script/process/tests/*`
 - `script/process/tools/install-repo-skill.sh`
 - `script/process/check-pr-body.sh`
-- `script/process/generate-docs.sh`
-- `package.json` 中 `docs:gen`、`docs:check`、`process:selftest`
+- `package.json` 中 `docs:check`、`process:selftest`
 
 接入原则：
 
 - `rule-map.json` 继续作为“关键行为到测试证据”的机器可读真源
 - `policy.json`、`AGENTS.md`、`change-matrix.md`、`review-notes.md` 必须显式引用 `rule-map.json`
 - `process:selftest` 继续保留，作为流程脚本质量保障
-- `docs/contracts/` 的生成与校验链路保留，但只归类到生成文档，不上升为产品真源
 
 ### D. 新增产品文档真源目录
 
@@ -427,12 +422,12 @@
 
 ### 5. 过渡期阅读入口混乱
 
-`docs/prd/*`、旧流程说明和新 `docs/spec/*` 会短期并存。
+补充专题文档、旧流程说明和新 `docs/spec/*` 会短期并存。
 
 处理：
 
 - 在 `README.md`、`AGENTS.md`、`docs/ARCHITECTURE.md` 中明确阅读顺序
-- 把 `docs/prd/*` 降级为背景资料，不再作为当前真源
+- 把补充专题文档降级为背景资料，不再作为当前真源
 
 ## 验收标准
 
@@ -441,7 +436,6 @@
 - `docs/process/subagent-workflow.md`、`docs/process/policy.json`、`docs/process/change-matrix.md`、`docs/process/review-notes.md` 语义一致
 - `rule-map.json` 被明确纳入新的 Harness
 - 新增 `docs/spec/*` 主骨架，并至少覆盖 `protocol`、`state-machines`、`accounting`、`access-control`、`implementation-map`
-- `README.md` 和 `docs/ARCHITECTURE.md` 明确 `docs/contracts/` 只是生成产物
 - `npm run docs:check` 与 `npm run process:selftest` 能验证新骨架
 
 ## 最终建议

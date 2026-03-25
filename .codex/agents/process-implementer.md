@@ -43,8 +43,7 @@
 
 - 先确认任务属于非 Solidity 面
 - 对齐 Harness 真源：`AGENTS.md` + `.codex/**` + `docs/process/subagent-workflow.md`
-- 保留 `docs/process/rule-map.json`、`npm run process:selftest`、`script/process/generate-docs.sh -> docs/contracts/**` 的现有定位
-- 不把 `docs/contracts/**` 当作人工编辑真源
+- 保留 `docs/process/rule-map.json`、`npm run process:selftest`、`npm run docs:check` 的现有定位
 - 记录所有实际执行命令
 
 ## Decision / Block Semantics

@@ -42,7 +42,7 @@
 - 说明：路径、命令、文件名保持英文，原因说明使用简体中文。
 - Docs updated: none
 - Why these docs: 本次没有新增仓库文档，接口与行为变化主要通过 NatSpec、测试和本地 review note 说明。
-- No-doc reason: `docs/contracts/` 为生成产物，最终通过 `npm run docs:check` 验证生成链路即可，不应手工编辑。
+- No-doc reason: 本次不需要额外生成文档目录；最终通过 `npm run docs:check` 验证文档链即可。
 
 ## Tests（测试）
 - 说明：测试路径、selector、命令保持英文，说明文字使用简体中文；如果命中 `rule-map.json` 的正式规则，`Existing tests exercised` 需要显式写出对应映射测试路径。

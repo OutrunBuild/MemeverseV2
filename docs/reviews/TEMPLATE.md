@@ -24,6 +24,7 @@
 - None: none
 - Security review summary:
 - Security residual risks:
+- Open safety mismatches assessed: SAFE-UNLOCK-01: still open|resolved by <tests/changes>
 - Security evidence source: security-reviewer: <agent-report-path>
 
 ## Simplification

@@ -32,7 +32,7 @@
 - `script/process/**` 校验脚本
 - `docs/process/rule-map.json`（规则到测试证据映射真源）
 - `script/process/tests/*` 与 `npm run process:selftest` 对应流程自测脚本
-- `script/process/generate-docs.sh`、`npm run docs:gen`、`npm run docs:check` 与 `docs/contracts/**` 生成文档链
+- `npm run docs:check`
 - 需要时读取 review note 与 CI 日志
 
 ## Execution Checklist
@@ -41,7 +41,7 @@
 - 不破坏 Memeverse 专有流程面：
   - `docs/process/rule-map.json`
   - `script/process/tests/*` / `process:selftest`
-  - `docs:gen` / `docs:check` / generated-docs chain
+  - `docs:check`
 - required commands 全覆盖执行或给出不可执行原因
 - 不得省略失败项
 - 对每个失败给出最可能归因与路径定位
