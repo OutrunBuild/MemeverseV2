@@ -139,5 +139,6 @@ PR body 必须包含：
 
 - 变更触发、review note 字段和 PR sections 的机器可读真源是 `docs/process/policy.json`
 - `rule-map.json` 是 Memeverse 特有的机器可读规则映射，不被 UniversalVault 通用骨架替代
-- 当前仓库未配置统一百分比 coverage gate；“足够高覆盖率”表示改动路径不存在未解释的明显测试盲区，高风险状态路径需有多层测试支撑
+- `quality:gate` 已接入 coverage gate：默认对命中 `src/**/*.sol` 改动的目录执行 `line / function / branch` 三指标硬门禁，阈值与分层规则由 `docs/process/policy.json -> quality_gate.coverage` 控制
+- `quality:quick` 使用轻量 coverage：仅对命中目录校验 `line / function`（默认不校验 `branch`），指标集合由 `quality_gate.coverage.quick_metrics` 控制
 - 若新增 gate 语义，先更新 `policy.json` / `rule-map.json`，再同步人类文档与脚本

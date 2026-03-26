@@ -53,6 +53,10 @@ if [ -z "$changed_files" ]; then
     exit 0
 fi
 
+changed_files_tmp="$(mktemp)"
+trap 'rm -f "$changed_files_tmp"' EXIT
+printf '%s\n' "$changed_files" > "$changed_files_tmp"
+
 swap_src_sol_pattern="$(read_policy_value quality_gate.swap_src_sol_pattern '^src/swap/.*\\.sol$')"
 src_sol_pattern="$(read_policy_value quality_gate.src_sol_pattern '^src/.*\\.sol$')"
 test_tsol_pattern="$(read_policy_value quality_gate.test_tsol_pattern '^test/.*\\.t\\.sol$')"
@@ -134,10 +138,7 @@ for file in "${docs_contract_candidates[@]}"; do
 done
 
 if [ "$has_src_sol" -eq 1 ]; then
-    changed_files_tmp="$(mktemp)"
-    printf '%s\n' "$changed_files" > "$changed_files_tmp"
     bash ./script/process/check-rule-map.sh "$changed_files_tmp"
-    rm -f "$changed_files_tmp"
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
@@ -156,6 +157,11 @@ if [ "$has_src_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
 
     echo "[quality-gate] forge test -vvv"
     forge test -vvv
+fi
+
+if [ "$has_src_sol" -eq 1 ]; then
+    echo "[quality-gate] bash ./script/process/check-coverage.sh"
+    bash ./script/process/check-coverage.sh "$changed_files_tmp"
 fi
 
 if [ "$has_src_sol" -eq 1 ]; then

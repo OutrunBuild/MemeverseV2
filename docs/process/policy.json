@@ -151,6 +151,64 @@
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
+    "coverage": {
+      "enabled": true,
+      "report_file": "coverage/lcov.info",
+      "exclude_tests": true,
+      "ir_minimum": true,
+      "quick_metrics": "line,function",
+      "only_changed_tiers": true,
+      "fail_on_missing_data": true,
+      "default_thresholds": {
+        "line": 75,
+        "function": 75,
+        "branch": 30
+      },
+      "tiers": [
+        {
+          "path": "src/common",
+          "line": 80,
+          "function": 80,
+          "branch": 30
+        },
+        {
+          "path": "src/verse",
+          "line": 78,
+          "function": 78,
+          "branch": 30
+        },
+        {
+          "path": "src/swap",
+          "line": 78,
+          "function": 78,
+          "branch": 30
+        },
+        {
+          "path": "src/governance",
+          "line": 75,
+          "function": 75,
+          "branch": 30
+        },
+        {
+          "path": "src/yield",
+          "line": 75,
+          "function": 75,
+          "branch": 30
+        },
+        {
+          "path": "src/interoperation",
+          "line": 72,
+          "function": 72,
+          "branch": 30
+        },
+        {
+          "path": "src/token",
+          "line": 72,
+          "function": 72,
+          "branch": 30
+        }
+      ]
+    },
     "src_default_roles": [
       "solidity-implementer",
       "security-reviewer",

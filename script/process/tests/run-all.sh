@@ -5,6 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 tests=(
+    "script/process/tests/check-coverage.sh"
     "script/process/tests/check-gas-report.sh"
     "script/process/tests/check-natspec.sh"
     "script/process/tests/check-pr-body.sh"
@@ -14,7 +15,9 @@ tests=(
     "script/process/tests/install-repo-skill.sh"
     "script/process/tests/process-policy.sh"
     "script/process/tests/quality-quick.sh"
+    "script/process/tests/quality-quick-coverage.sh"
     "script/process/tests/quality-gate-solidity-post-coding.sh"
+    "script/process/tests/quality-gate-coverage.sh"
     "script/process/tests/rule-map-gate.sh"
 )
 
