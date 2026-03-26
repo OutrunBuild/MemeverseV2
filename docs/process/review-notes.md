@@ -32,6 +32,12 @@
 
 - `Change summary`
 - `Files reviewed`
+- `Semantic dimensions reviewed`
+- `Source-of-truth docs checked`
+- `External facts checked`
+- `Local control-flow facts checked`
+- `Evidence chain complete`
+- `Semantic alignment summary`
 - `Behavior change`
 - `ABI change`
 - `Storage layout change`
@@ -63,6 +69,8 @@
 
 默认 owner 语义：
 
+- `Semantic dimensions reviewed`、`Source-of-truth docs checked`、`External facts checked`、`Semantic alignment summary` 由 `main-orchestrator` 汇总填写
+- `Local control-flow facts checked`、`Evidence chain complete` 由 `main-orchestrator` 在复核关键代码行、关键前提和必要的外部主来源后填写
 - 安全字段（`Security review summary`、`Security residual risks`）由 `security-reviewer` 提供
 - `Open safety mismatches assessed` 用于显式记录是否审阅了当前已知开放安全缺口（例如 `SAFE-UNLOCK-01`），默认由 `security-reviewer`、`verifier` 或 `main-orchestrator` 维护
 - Gas 字段（`Gas-*`）由 `gas-reviewer` 提供
@@ -102,6 +110,13 @@ owner 语义以 `policy.json` 为机器可读真源。
 - `mode = none`：不要求额外映射测试
 
 `Rule-map evidence source` 用于记录对应 rule id / 测试路径来源，便于追溯；当前 gate 仍以 `Existing tests exercised` 为硬校验入口。
+
+## 防误报 / 证据链规则
+
+- `Local control-flow facts checked` 必须写清该结论依赖的本地关键前提，例如状态更新顺序、条件分支、金额截断、索引推进、返回值处理或权限检查
+- 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，`External facts checked` 必须写明主来源；没有主来源时只能写成 `needs verification` 或假设，不能写成已确认事实
+- `Evidence chain complete` 只有在“本地前提已复核”且“必要时外部主来源已核验”同时满足时才允许填写 `yes`
+- 若某条结论只来自 subagent 摘要而主会话未复核关键代码行，该条结论不得在 review note 中写成已确认 finding
 
 ## 开放安全缺口填写约定
 

@@ -45,10 +45,12 @@
 ## Execution Checklist
 
 - 识别变更路径与风险
+- 对语义敏感改动，在 `Task Brief` 中显式写出 `Semantic review dimensions`、`Source-of-truth docs`、`External sources required` 与 `Critical assumptions to prove or reject`
 - 选择 required / optional roles
 - 写入前先分配 ownership
 - Solidity 任务保持单写 owner
 - 要求每个下游角色消费结构化 `Task Brief`
+- 对依赖第三方协议、外部合约、SDK、API 或系统语义的改动，先明确“需要核验的外部事实”，不得让接口名、mock、wrapper 或常见模式代替主来源
 - 汇总 `Agent Report`、review note、gate/CI 证据后再决策
 
 ## Decision / Block Semantics
@@ -58,6 +60,7 @@
   - 存在未关闭 `high` 安全问题
   - required verifier command 失败
   - ownership 冲突或未授权扩 scope
+  - 语义敏感改动仍依赖未证成的外部事实或关键假设
 - Soft-block：
   - 可延期简化项
   - 可解释且非关键路径的 Gas 回退
@@ -82,4 +85,5 @@
 ## Escalation Rules
 
 - 需要改动 brief 外路径时，必须重派发或补 brief
+- subagent finding 默认不是最终结论；若主会话尚未复核关键代码行、关键前提或必要的外部主来源，不得把该 finding 升级为仓库级 confirmed finding
 - 若结论会改变产品规则（权限、资金流、可领取条件、费用、流动性等），升级为待决策点

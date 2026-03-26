@@ -14,6 +14,12 @@
     "required_fields": [
       "Change summary",
       "Files reviewed",
+      "Semantic dimensions reviewed",
+      "Source-of-truth docs checked",
+      "External facts checked",
+      "Local control-flow facts checked",
+      "Evidence chain complete",
+      "Semantic alignment summary",
       "Behavior change",
       "ABI change",
       "Storage layout change",
@@ -34,6 +40,7 @@
       "Residual risks"
     ],
     "boolean_fields": [
+      "Evidence chain complete",
       "Behavior change",
       "ABI change",
       "Storage layout change",
@@ -43,6 +50,12 @@
     "field_owners": {
       "Change summary": "solidity-implementer|process-implementer",
       "Files reviewed": "solidity-implementer|process-implementer|verifier",
+      "Semantic dimensions reviewed": "main-orchestrator",
+      "Source-of-truth docs checked": "main-orchestrator",
+      "External facts checked": "main-orchestrator",
+      "Local control-flow facts checked": "main-orchestrator",
+      "Evidence chain complete": "main-orchestrator",
+      "Semantic alignment summary": "main-orchestrator",
       "Behavior change": "solidity-implementer|process-implementer",
       "ABI change": "solidity-implementer",
       "Storage layout change": "solidity-implementer",
@@ -133,6 +146,7 @@
     "test_sol_pattern": "^test/.*\\.sol$",
     "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
     "package_pattern": "^(package\\.json|package-lock\\.json)$",
+    "lint_command": "npm run lint:sol",
     "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
@@ -171,6 +185,8 @@
       "required_command_failed",
       "unauthorized_write_out_of_scope",
       "missing_security_or_gas_evidence_for_src_change",
+      "missing_semantic_alignment_evidence_for_semantic_sensitive_change",
+      "confirmed_finding_missing_evidence_chain",
       "review_note_invalid_for_src_change",
       "rule_map_evidence_requirement_failed"
     ],

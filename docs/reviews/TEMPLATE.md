@@ -8,6 +8,12 @@
 ## Scope
 - Change summary:
 - Files reviewed:
+- Semantic dimensions reviewed:
+- Source-of-truth docs checked:
+- External facts checked:
+- Local control-flow facts checked:
+- Evidence chain complete: yes/no
+- Semantic alignment summary:
 
 ## Impact
 - Behavior change: yes/no

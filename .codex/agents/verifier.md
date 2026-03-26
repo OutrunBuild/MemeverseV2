@@ -20,6 +20,7 @@
 - 结构化 `Task Brief`
 - `Files in scope`
 - `Acceptance checks`
+- `Semantic review dimensions`（若改动属于语义敏感面）
 - 当前工作树或 CI 产物
 
 ## Allowed Writes
@@ -43,6 +44,7 @@
   - `script/process/tests/*` / `process:selftest`
   - `docs:check`
 - required commands 全覆盖执行或给出不可执行原因
+- 对语义敏感改动，确认 review note 已覆盖 brief 中声明的语义维度、source-of-truth docs、外部事实、关键假设与本地控制流事实
 - 不得省略失败项
 - 对每个失败给出最可能归因与路径定位
 
@@ -51,6 +53,7 @@
 - Hard-block：
   - 任一 required command 失败
   - required artifact 缺失
+  - 语义敏感改动缺少 semantic-alignment / evidence-chain 必填证据
 - Soft-block：
   - 非 required 的补充验证建议
   - 环境波动导致的可复现性问题待二次确认

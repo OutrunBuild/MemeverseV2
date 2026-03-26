@@ -32,11 +32,21 @@
 
 1. `npm run quality:gate`
 2. 预期（按改动路径触发）：
+   - `npm run lint:sol`
    - `check-rule-map.sh`
    - `forge fmt --check` / `forge build` / `forge test -vvv`
    - `check-slither.sh` / `check-gas-report.sh`
    - `check-solidity-review-note.sh`
    - `npm run docs:check`
+
+若改动命中外部依赖、用户资金流、权限边界、registration / settlement / liquidity / yield / omnichain 等语义敏感面，还必须确认 review note 已补齐：
+
+- `Semantic dimensions reviewed`
+- `Source-of-truth docs checked`
+- `External facts checked`
+- `Local control-flow facts checked`
+- `Evidence chain complete`
+- `Semantic alignment summary`
 
 ## 4. Product Truth 专项检查
 

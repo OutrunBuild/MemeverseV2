@@ -4,6 +4,12 @@
 - 说明：用简体中文概述本次改动和实际审阅范围。
 - Change summary: 1) 将原先散落在 `test/` 根目录下的 swap、launcher、yield、price calculator 等测试迁移到与源码目录一致的子目录，并同步更新 `docs/process/rule-map.json`，避免路径门禁继续引用已删除测试；2) 为 `MemeverseLauncher`、`MemeverseSwapRouter`、`MemeverseUniswapHook` 补充行为分支测试并重构测试结构，重点覆盖 launcher 生命周期/费用分发/POL mint、router swap 与 add/remove liquidity、hook remove-liquidity recipient 路径；3) 修复 `MemeverseUniswapHook.removeLiquidityCore` 在 `recipient != msg.sender` 时把底层资产错误先发给调用者、再尝试从 hook 二次转发的 bug，并对若干测试做了只影响可维护性的简化。
 - Files reviewed: docs/process/rule-map.json, src/swap/MemeverseSwapRouter.sol, src/swap/MemeverseUniswapHook.sol, src/verse/MemeverseLauncher.sol, test/swap/MemeverseSwapRouter.t.sol, test/swap/MemeverseSwapRouterPermit2.t.sol, test/swap/MemeverseSwapRouterInterface.t.sol, test/swap/MemeverseUniswapHookLiquidity.t.sol, test/swap/MemeverseDynamicFeeSimulation.t.sol, test/verse/MemeverseLauncherLifecycle.t.sol, test/verse/MemeverseLauncherConfig.t.sol, test/verse/MemeverseLauncherRegistration.t.sol, test/verse/MemeverseLauncherViews.t.sol, test/verse/libraries/InitialPriceCalculator.t.sol, test/yield/MemecoinYieldVault.t.sol, test/yield/libraries/OutrunSafeERC20.t.sol
+- Semantic dimensions reviewed: swap settlement semantics, liquidity recipient semantics, launcher lifecycle / fee distribution semantics, rule-map evidence alignment
+- Source-of-truth docs checked: docs/spec/protocol.md, docs/spec/state-machines.md, docs/spec/accounting.md, docs/spec/access-control.md, docs/spec/implementation-map.md
+- External facts checked: not needed; this review pass only depended on local Memeverse control flow and rule-map coverage facts
+- Local control-flow facts checked: `MemeverseUniswapHook.removeLiquidityCore` now routes the recipient directly through `_modifyLiquidity(...)`; launcher/router refactors were checked to preserve access control, fee distribution entrypoints, slippage guards, and revert-path behavior
+- Evidence chain complete: yes
+- Semantic alignment summary: local code paths, mapped tests, and review-note evidence all align on “hook recipient bug fixed, launcher/router semantics preserved, rule-map paths updated to the new test layout”
 
 ## Impact（影响）
 - 说明：保持 `yes` / `no` 取值不变，其余解释使用简体中文。

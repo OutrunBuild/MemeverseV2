@@ -49,7 +49,7 @@
 ### On-Demand Roles
 
 - `solidity-explorer`：复杂改动前影响面侦察
-- `security-test-writer`：高风险测试补强
+- `security-test-writer`：测试补强与覆盖率加固（fuzz / invariant / adversarial 等）
 
 ### Required Review Order (Harness / Process 任务)
 
@@ -57,11 +57,19 @@
 
 `main-orchestrator`（范围与契约复核） -> `verifier`
 
+### Evidence Rules
+
+- 证据先于结论：可提交结论必须能回溯到 `Task Brief`、agent 输出、review note、gate 或 CI
+- 本地前提先于外部事实：任何已确认结论都必须先核实本地关键控制流、状态更新、金额计算、索引推进与权限检查，再核验第三方语义
+- subagent finding 默认不是最终结论：`main-orchestrator` 复核关键代码行、关键前提和必要的外部主来源后，才能升级为仓库级 confirmed finding
+- 缺少本地前提证据、外部主来源证据，或只依赖 interface / mock / wrapper / 命名模式时，只能写成 `hypothesis`、`needs verification` 或测试缺口
+
 ## 4. Workflow Model
 
 ### Phase 1: Intake / Scoping
 
 - `main-orchestrator` 产出结构化 `Task Brief`
+- 对语义敏感改动，`Task Brief` 必须显式声明 `Semantic review dimensions`、`Source-of-truth docs`、`External sources required` 与 `Critical assumptions to prove or reject`
 - 识别路径、风险、required roles、write ownership
 - scope 不清时可先启用 `solidity-explorer`
 
@@ -74,26 +82,34 @@
 
 - Solidity 面由 `solidity-implementer` 在授权边界内写入
 - 非 Solidity 面由 `process-implementer` 在授权边界内写入
+- 复杂分支、状态迁移、资金/权限判断、关键外部调用、非直观数学等实现必须补充适当的方法内注释，说明意图、前置条件或安全假设；禁止噪音式逐行注释
 - 未重派发不得扩展到 ownership 外路径
 
 ### Phase 4: Specialist Review
 
 - Solidity 任务：`security-reviewer` / `gas-reviewer` 给出只读结论
+- 命中外部依赖、用户资金流、权限边界、registration / settlement / liquidity / yield / omnichain 语义的改动，review 必须显式处理 brief 中声明的语义维度与关键假设
+- review 必须先核实本地前提；关键控制流、状态变化、金额处理、权限检查与触发路径未逐行确认前，不得把问题升级为 confirmed finding
+- 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，必须在本地前提成立后再核验主来源
 - Harness/process 任务：由 `main-orchestrator` 复核契约一致性与角色边界
 - 任何会改变产品规则的建议升级为待决策点，不默认实现
 
 ### Phase 5: Test Hardening
 
-- 仅在高风险或安全审阅指出缺口时启用 `security-test-writer`
+- Solidity 改动默认需要完善测试，不得只停留在最小回归或 happy path
+- 测试至少覆盖 unit tests，并按风险与状态复杂度补充 fuzz / invariant / adversarial / integration tests，使变更路径保持足够高覆盖率；若仍有测试盲区，必须显式记录
+- 高风险路径或覆盖缺口明显时启用 `security-test-writer`
 
 ### Phase 6: Verification
 
 - `verifier` 运行或汇总 required checks
+- 对语义敏感改动，`verifier` 还需确认 review note 已填写语义对齐字段，且 brief 要求的外部来源/关键假设已收敛为结论或决策点
 - Harness/process 任务在评审后由 `verifier` 收敛最终验证结论
 
 ### Phase 7: Decision
 
 - `main-orchestrator` 汇总 `Task Brief`、`Agent Report`、review note（如适用）、gate/CI 证据
+- 对 confirmed finding，`main-orchestrator` 至少复核关键代码行、关键前提和必要的外部主来源，不能只转述 subagent 摘要
 - 证据链完整后才可进入 `quality:gate` / CI
 
 ## 5. Change Matrix Summary
@@ -103,8 +119,12 @@
   - 优先使用 `skills/solidity-post-coding-flow/SKILL.md`
   - required checks 参考 `docs/process/change-matrix.md` 与 `docs/process/policy.json`
   - `rule-map` 证据映射以 `docs/process/rule-map.json` 为准
+  - 复杂实现必须有适当的方法内注释，解释关键意图与安全假设
+  - 测试必须覆盖 unit tests，并按适用性补 fuzz / invariant / adversarial / integration tests；变更面应保持足够高覆盖率，不能留下未解释的明显盲区
+  - 语义敏感改动还必须补齐 semantic-alignment / evidence-chain 字段，不能把外部语义留在隐含前提里
 - `test/**/*.t.sol`
   - 必须通过 Solidity 相关基础检查（fmt/build/test）
+  - 测试至少覆盖正常路径、边界条件和失败路径；高风险状态路径应补 fuzz / invariant / adversarial tests，并追求足够高覆盖率
 - `script/**/*.sh` 或 `.githooks/*`
   - 必须通过 `bash -n`
 - `AGENTS.md`、`README.md`、`docs/process/subagent-workflow.md`、`.codex/**`、`script/process/check-docs.sh`
@@ -131,6 +151,13 @@
 - 命中 `src/**/*.sol` 时，本地与 CI 的 `quality:gate` 必须能找到有效 review note
 - 必填字段与占位规则以 `docs/process/review-notes.md` 与 `docs/process/policy.json` 为准
 - `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 仅允许 `yes` 或 `no`
+- 对语义敏感改动，review note 还必须补齐：
+  - `Semantic dimensions reviewed`
+  - `Source-of-truth docs checked`
+  - `External facts checked`
+  - `Local control-flow facts checked`
+  - `Evidence chain complete`
+  - `Semantic alignment summary`
 
 ## 8. Local-Only Files
 

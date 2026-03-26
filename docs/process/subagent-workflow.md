@@ -31,7 +31,7 @@
 ### 按需角色
 
 - `solidity-explorer`：预实现影响面侦察
-- `security-test-writer`：安全测试补强
+- `security-test-writer`：测试补强与覆盖率加固
 
 ### Harness / Process 任务评审顺序
 
@@ -39,12 +39,19 @@
 
 `main-orchestrator`（范围与契约复核） -> `verifier`
 
+### 证据规则
+
+- 先核本地前提，再核外部事实；不能把第三方语义事实留在隐式前提里
+- subagent finding 默认只是线索，不是最终 confirmed finding
+- 缺少本地关键控制流证据或必要的外部主来源证据时，只能输出 `hypothesis`、`needs verification` 或测试缺口
+
 ## 3. 阶段流
 
 ### Phase 1: Intake / Scoping
 
 - `main-orchestrator` 产出 `Task Brief`
 - 明确 `Files in scope`、`Write permissions`、`Required roles`
+- 对语义敏感改动，`Task Brief` 还必须显式写出 `Semantic review dimensions`、`Source-of-truth docs`、`External sources required` 与 `Critical assumptions to prove or reject`
 
 ### Phase 2: Baseline Analysis
 
@@ -55,20 +62,27 @@
 
 - Solidity 写入仅由 `solidity-implementer`（单写 owner）
 - 非 Solidity 写入仅由 `process-implementer`
+- 复杂分支、状态迁移、资金/权限判断、关键外部调用、非直观数学等实现必须补充适当的方法内注释，说明意图、前置条件或安全假设
 - 未重派发不得扩写路径
 
 ### Phase 4: Specialist Review
 
 - Solidity 任务：安全与 Gas 并行只读审阅
+- 对外部依赖、claim / registration / settlement / liquidity / yield / omnichain / 权限边界等语义敏感改动，review 必须显式处理 brief 中声明的语义维度与关键假设
+- review 必须先核本地前提；关键控制流、状态更新、金额处理、权限检查和触发路径未确认前，不得升级为 confirmed finding
+- 若结论依赖第三方行为，review 必须核验主来源，而不能只依赖本地 mock、interface、wrapper 或命名模式
 - Harness/process 任务：由 `main-orchestrator` 复核契约一致性与角色边界
 
 ### Phase 5: Test Hardening
 
-- 仅在高风险或安全审阅要求时启用 `security-test-writer`
+- Solidity 改动默认需要完善测试，至少覆盖 unit tests
+- 按风险与状态复杂度补 fuzz / invariant / adversarial / integration tests，使变更面保持足够高覆盖率；未覆盖盲区要在证据里说明
+- 高风险路径或覆盖缺口明显时启用 `security-test-writer`
 
 ### Phase 6: Verification
 
 - `verifier` 执行/汇总 required commands
+- 对语义敏感改动，`verifier` 还要确认 review note 中的语义对齐字段、外部事实、关键假设和本地控制流事实已经落盘
 - required commands 任一失败即 hard-block
 
 ### Phase 7: Decision
@@ -89,6 +103,10 @@
 - `Write permissions`
 - `Non-goals`
 - `Acceptance checks`
+- `Semantic review dimensions`
+- `Source-of-truth docs`
+- `External sources required`
+- `Critical assumptions to prove or reject`
 - `Required output fields`
 - `Review note impact`
 
@@ -118,6 +136,8 @@
 - `quality:gate` 是唯一 finish gate
 - CI 只验证证据，不编排 agent
 - `review note` 在命中 `src/**/*.sol` 时是必需证据
+- 已确认结论必须同时具备本地前提证据与必要的外部主来源证据
+- `Task Brief`、`Agent Report`、`review note` 的语义敏感字段必须能互相回溯，不能只有一处声明
 
 ## 6. Block 规则
 
@@ -128,6 +148,8 @@
 - 存在未关闭 `high` 安全 finding
 - required artifact 缺失（含 required review note）
 - 未经授权写入 scope 外路径
+- 语义敏感改动缺失 semantic-alignment / evidence-chain 必填字段
+- 已确认 finding 缺少本地前提证据或必要的外部主来源证据
 
 ### Soft-block
 
