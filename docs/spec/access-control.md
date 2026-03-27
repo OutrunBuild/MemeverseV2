@@ -14,7 +14,7 @@
 - 当前规则真源是 `docs/spec/*.md`（含本文档）。
 - 规则证据来自 `src/**` 与 `test/**`。
 
-## 2. 角色定义（按当前代码语义）
+## 2. 角色定义（按当前产品规则语义）
 
 - `owner`
   - 主要是 OpenZeppelin `Ownable` 或 Outrun `OutrunOwnableInit` 的 `onlyOwner`。
@@ -23,7 +23,7 @@
   - launcher 侧为 `memeverseRegistrar` 地址；注册中心与 local/omnichain registrar 构成上游链路。
   - 证据：`src/verse/MemeverseLauncher.sol:946`, `src/verse/registration/MemeverseRegistrarAtLocal.sol:58`
 - `governor`
-  - launcher 元数据更新与治理 treasury/upgrade 授权主体。
+  - launcher 元数据更新与治理 treasury/upgrade 授权主体，同时也是 DAO treasury 与 reward payout 的唯一资产托管者。
   - 证据：`src/verse/MemeverseLauncher.sol:1313`, `src/governance/MemecoinDaoGovernorUpgradeable.sol:221`, `src/governance/MemecoinDaoGovernorUpgradeable.sol:252`
 - `permissionless caller`
   - 未加 owner/role 白名单，仅靠阶段/参数约束。
@@ -52,16 +52,28 @@
 | `OmnichainMemecoinStaker` | `lzCompose` 仅 `localEndpoint` | `src/interoperation/OmnichainMemecoinStaker.sol:30-40` |
 | `MemeverseRegistrationCenter` dispatcher 封装 | `lzSend` 仅合约自身可调用；`_lzReceive` 校验 origin.sender 为 registrar | `src/verse/registration/MemeverseRegistrationCenter.sol:173-183`, `:296-297` |
 | `MemeverseOmnichainInteroperation` | staking 入口 permissionless；`setGasLimits` 仅 owner | `src/interoperation/MemeverseOmnichainInteroperation.sol:93`, `:135` |
-| `MemecoinDaoGovernorUpgradeable` | treasury 支出与升级授权仅治理执行 | `src/governance/MemecoinDaoGovernorUpgradeable.sol:221`, `:252` |
-| `GovernanceCycleIncentivizerUpgradeable` | 多数治理动作 `onlyGovernance`；但 `receiveTreasuryIncome`、`finalizeCurrentCycle` 非 onlyGovernance | `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:378`, `:472`, `:508`, `:522`, `:359`, `:401` |
+| `MemecoinDaoGovernorUpgradeable` | treasury 支出与升级授权仅治理执行；reward payout 资产由 governor 托管，`disburseReward(...)` 为 `Incentivizer` 专用 payout 路径 | `docs/spec/governance-yield-details.md`; `docs/spec/accounting.md` |
+| `GovernanceCycleIncentivizerUpgradeable` | `recordTreasuryIncome(...)` / `recordTreasuryAssetSpend(...)` 仅 governor；`claimReward()` 为用户入口；`finalizeCurrentCycle()` 可 permissionless | `docs/spec/governance-yield-details.md`; `docs/spec/accounting.md`; `docs/spec/access-control.md` |
 
-## 4. 与当前规则文档的对齐
+## 4. Governance Reward Path 边界
+
+- `Governor.sendTreasuryAssets(...)` 属于治理执行权限路径。
+- `Governor.disburseReward(...)` 不属于治理执行权限路径，而是 `Incentivizer` 驱动的受限 payout 路径。
+- `Governor.disburseReward(...)` 仅允许配对的 `Incentivizer` 调用。
+- `Incentivizer.recordTreasuryIncome(...)` 仅允许 `Governor` 调用。
+- `Incentivizer.recordTreasuryAssetSpend(...)` 仅允许 `Governor` 调用。
+- `Incentivizer.claimReward()` 属于用户业务入口，不受 `onlyGovernance` 限制。
+- `Incentivizer.claimReward()` 必须以 `msg.sender` 作为 reward owner，不能把 `Governor`、治理执行者或其他中间调用者视为 reward owner。
+- `Incentivizer.claimReward()` 第一版仅支持 self-claim，不支持指定 `receiver`，不支持代领。
+- 若 `finalizeCurrentCycle()` 保持 permissionless，则其开放性仅限于推进周期状态，不应削弱 treasury custody 与 reward claim 的权限边界。
+
+## 5. 与当前规则文档的对齐
 
 - Launcher 的 owner / registrar / governor / permissionless 边界与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
 - Swap 的“Router 公开入口 + Hook 核心引擎 + launch settlement 受限路径”与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
 - 注册中心和 registrar 的边界与 `docs/spec/state-machines.md` 一致。
 
-## 5. 确定性边界
+## 6. 确定性边界
 
 - 高确定性：函数级访问控制（`onlyOwner` / `require(msg.sender==...)`）可直接由源码证实。
 - 中确定性：治理链上“最终权限持有地址”依赖部署清单，不在本仓库源码内。

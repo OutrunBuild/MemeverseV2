@@ -93,28 +93,32 @@ contract MockGovernorVotesToken is IVotes {
 contract MockGovernorIncentivizer {
     address public lastReceiveToken;
     uint256 public lastReceiveAmount;
+    uint256 public lastReceiveGovernorBalance;
     address public lastSentToken;
     address public lastSentTo;
     uint256 public lastSentAmount;
+    uint256 public lastSentGovernorBalance;
     address public lastVoteAccount;
     uint256 public lastVoteAmount;
 
-    /// @notice Receive treasury income.
+    /// @notice Record treasury income.
     /// @param token See implementation.
     /// @param amount See implementation.
-    function receiveTreasuryIncome(address token, uint256 amount) external {
+    function recordTreasuryIncome(address token, uint256 amount) external {
         lastReceiveToken = token;
         lastReceiveAmount = amount;
+        lastReceiveGovernorBalance = MockERC20(token).balanceOf(msg.sender);
     }
 
-    /// @notice Send treasury assets.
+    /// @notice Record treasury asset spend.
     /// @param token See implementation.
     /// @param to See implementation.
     /// @param amount See implementation.
-    function sendTreasuryAssets(address token, address to, uint256 amount) external {
+    function recordTreasuryAssetSpend(address token, address to, uint256 amount) external {
         lastSentToken = token;
         lastSentTo = to;
         lastSentAmount = amount;
+        lastSentGovernorBalance = MockERC20(token).balanceOf(msg.sender);
     }
 
     /// @notice Accum cycle votes.
@@ -180,6 +184,7 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
 
         assertEq(incentivizer.lastReceiveToken(), address(treasuryToken));
         assertEq(incentivizer.lastReceiveAmount(), 10 ether);
+        assertEq(incentivizer.lastReceiveGovernorBalance(), 10 ether);
         assertEq(treasuryToken.balanceOf(address(governor)), 10 ether);
     }
 
@@ -230,7 +235,22 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         assertEq(incentivizer.lastSentToken(), address(treasuryToken));
         assertEq(incentivizer.lastSentTo(), BOB);
         assertEq(incentivizer.lastSentAmount(), 3 ether);
+        assertEq(incentivizer.lastSentGovernorBalance(), 10 ether);
         assertEq(treasuryToken.balanceOf(BOB), 3 ether);
+    }
+
+    /// @notice Test disburse reward is restricted to incentivizer and pays from governor custody.
+    function testDisburseRewardOnlyIncentivizerAndTransfersTokens() external {
+        treasuryToken.mint(address(governor), 10 ether);
+
+        vm.expectRevert(IMemecoinDaoGovernor.UnauthorizedRewardPayout.selector);
+        governor.disburseReward(address(treasuryToken), BOB, 4 ether);
+
+        vm.prank(address(incentivizer));
+        governor.disburseReward(address(treasuryToken), BOB, 4 ether);
+
+        assertEq(treasuryToken.balanceOf(BOB), 4 ether);
+        assertEq(treasuryToken.balanceOf(address(governor)), 6 ether);
     }
 
     /// @notice Test UUPS upgrade requires governance executor and upgrades the proxy implementation.

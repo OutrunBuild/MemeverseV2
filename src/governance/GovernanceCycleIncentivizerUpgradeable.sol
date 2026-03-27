@@ -8,6 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 
 import {OutrunSafeERC20} from "../yield/libraries/OutrunSafeERC20.sol";
 import {IGovernanceCycleIncentivizer} from "./interfaces/IGovernanceCycleIncentivizer.sol";
+import {IMemecoinDaoGovernor} from "./interfaces/IMemecoinDaoGovernor.sol";
 
 /**
  * @dev External expansion of {Governor} for governance cycle incentive.
@@ -356,7 +357,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
      * @param token - The token address
      * @param amount - The amount
      */
-    function receiveTreasuryIncome(address token, uint256 amount) external override {
+    function recordTreasuryIncome(address token, uint256 amount) external override onlyGovernance {
         require(token != address(0) && amount != 0, ZeroInput());
         GovernanceCycleIncentivizerStorage storage $ = _getGovernanceCycleIncentivizerStorage();
         require($._treasuryTokens[token], NonTreasuryToken());
@@ -364,7 +365,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
         uint128 _currentCycleId = $._currentCycleId;
         $._cycles[_currentCycleId].treasuryBalances[token] += amount;
 
-        emit TreasuryReceived(_currentCycleId, token, msg.sender, amount);
+        emit TreasuryIncomeRecorded(_currentCycleId, token, msg.sender, amount);
     }
 
     /**
@@ -375,7 +376,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
      * @param to - The receiver address
      * @param amount - The amount to transfer
      */
-    function sendTreasuryAssets(address token, address to, uint256 amount) external override onlyGovernance {
+    function recordTreasuryAssetSpend(address token, address to, uint256 amount) external override onlyGovernance {
         require(token != address(0) && to != address(0) && amount != 0, ZeroInput());
         GovernanceCycleIncentivizerStorage storage $ = _getGovernanceCycleIncentivizerStorage();
         require($._treasuryTokens[token], NonTreasuryToken());
@@ -391,7 +392,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
         // Record
         currentCycle.treasuryBalances[token] = currentBalance - amount;
 
-        emit TreasurySent(_currentCycleId, token, to, amount);
+        emit TreasuryAssetSpendRecorded(_currentCycleId, token, to, amount);
     }
 
     /**
@@ -467,17 +468,18 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
 
     /**
      * @notice Claims the caller's reward allocation from the previous cycle.
-     * @dev Restricted to governance callers because the governor contract is the user-facing claim entrypoint.
+     * @dev The caller claims for itself. Payouts are executed by the governor, which remains the asset custodian.
      */
-    function claimReward() external override onlyGovernance {
+    function claimReward() external override {
         GovernanceCycleIncentivizerStorage storage $ = _getGovernanceCycleIncentivizerStorage();
         uint128 prevCycleId = $._currentCycleId - 1;
         Cycle storage prevCycle = $._cycles[prevCycleId];
+        address user = msg.sender;
 
-        uint256 userVotes = prevCycle.userVotes[msg.sender];
+        uint256 userVotes = prevCycle.userVotes[user];
         require(userVotes != 0, NoRewardsToClaim());
 
-        prevCycle.userVotes[msg.sender] = 0;
+        prevCycle.userVotes[user] = 0;
         uint256 totalVotes = prevCycle.totalVotes;
         address[] memory rewardTokenList = prevCycle.rewardTokenList;
         uint256 length = rewardTokenList.length;
@@ -492,8 +494,8 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
                 uint256 rewardAmount = Math.mulDiv(rewardBalance, userVotes, totalVotes);
                 if (rewardAmount > 0) {
                     prevCycle.rewardBalances[token] = rewardBalance - rewardAmount;
-                    IERC20(token).safeTransfer(msg.sender, rewardAmount);
-                    emit RewardClaimed(msg.sender, prevCycleId, token, rewardAmount);
+                    IMemecoinDaoGovernor($._governor).disburseReward(token, user, rewardAmount);
+                    emit RewardClaimed(user, prevCycleId, token, rewardAmount);
                 }
             }
         }
@@ -517,7 +519,10 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
     /**
      * @dev Register for receivable treasury token
      * @param token - The token address
-     * @notice MUST confirm that the registered token is not a malicious token
+     * @notice Governance must only register reviewed standard ERC20 tokens.
+     * @dev This treasury ledger assumes nominal `amount` accounting and does not adapt to fee-on-transfer,
+     * rebasing, or other non-standard balance semantics. Registering such a token can distort treasury/reward
+     * accounting, and that asset-acceptance risk is borne by governance.
      */
     function registerTreasuryToken(address token) public override onlyGovernance {
         require(token != address(0), ZeroInput());
@@ -531,7 +536,10 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
     /**
      * @dev Register for reward token，it MUST first be registered as a treasury token.
      * @param token - The token address
-     * @notice MUST confirm that the registered token is not a malicious token
+     * @notice Governance must only register reviewed standard ERC20 reward tokens.
+     * @dev Reward payout uses nominal `amount` accounting and assumes the recipient receives the quoted amount.
+     * Fee-on-transfer, rebasing, or other non-standard balance semantics are unsupported and must not be admitted
+     * through governance token registration.
      */
     function registerRewardToken(address token) public override onlyGovernance {
         require(token != address(0), ZeroInput());

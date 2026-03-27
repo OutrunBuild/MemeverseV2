@@ -19,7 +19,7 @@
 | `src/token/Memecoin.sol` + `src/token/MemeLiquidProof.sol` | OFT memecoin/POL 资产层 | launcher 控制 mint 与 poolId；burn 按持币/授权路径开放 | clone + `initialize` 一次性 | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/token/Memecoin.sol:24-43`; `src/token/MemeLiquidProof.sol:37-66`; `src/common/access/Initializable.sol:31-41` | 已实现 |
 | `src/yield/MemecoinYieldVault.sol` | memecoin yield vault + ERC20Votes share | 无 owner 门禁型业务入口（deposit/yield/redeem）；由流程和资产校验约束 | clone + `initialize` 一次性 | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/yield/MemecoinYieldVault.sol:37-50`, `:86`, `:120`, `:132`, `:146` | 已实现 |
 | `src/governance/MemecoinDaoGovernorUpgradeable.sol` | DAO Governor + treasury + proposal/vote 扩展 | treasury 支出/升级仅治理执行 | UUPS + initializer | `docs/spec/accounting.md`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:76-92`, `:221`, `:252` | 已实现 |
-| `src/governance/GovernanceCycleIncentivizerUpgradeable.sol` | 治理周期奖励与 treasury/reward 账本 | 多数敏感接口仅 governor；`receiveTreasuryIncome/finalizeCurrentCycle` 对外开放 | UUPS + initializer | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:63-71`, `:359`, `:378`, `:401`, `:640` | 已实现（代码层） |
+| `src/governance/GovernanceCycleIncentivizerUpgradeable.sol` | 治理周期奖励与 treasury/reward 账本 | `recordTreasuryIncome` / `recordTreasuryAssetSpend` 仅 governor；`claimReward` 为用户入口；`finalizeCurrentCycle` 可 permissionless | UUPS + initializer | `docs/spec/accounting.md`; `docs/spec/access-control.md`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:68-76`, `:365`, `:385`, `:408`, `:648` | 已实现 |
 | `src/verse/YieldDispatcher.sol` | OFT compose 收益分发（governor / yieldVault / burn） | `lzCompose` 仅 endpoint 或 launcher | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/access-control.md`; `src/verse/YieldDispatcher.sol:39-47`, `:63-79` | 已实现 |
 | `src/interoperation/MemeverseOmnichainInteroperation.sol` + `OmnichainMemecoinStaker.sol` | 跨链 staking 入口与治理链落地 | staking permissionless；gas 配置 onlyOwner；staker compose 仅 endpoint | 构造部署，不走 proxy | `docs/spec/protocol.md`; `docs/spec/access-control.md`; `src/interoperation/MemeverseOmnichainInteroperation.sol:93`, `:135`; `src/interoperation/OmnichainMemecoinStaker.sol:39` | 已实现 |
 | `src/common/omnichain/LzEndpointRegistry.sol` | chainId -> endpointId 注册表 | `setLzEndpointIds` onlyOwner | 构造部署，不走 proxy | `docs/spec/state-machines.md`; `src/common/omnichain/LzEndpointRegistry.sol:11-31` | 已实现 |
@@ -42,5 +42,5 @@
 
 ## 4. 后续业务解释事项（不影响“已实现”状态）
 
-- `src/governance/GovernanceCycleIncentivizerUpgradeable.sol` 的 `receiveTreasuryIncome` / `finalizeCurrentCycle` 属于开放入口语义；其当前产品解释已由 `docs/spec/accounting.md`、`docs/spec/access-control.md` 与对应测试证据闭环。
+- `src/governance/GovernanceCycleIncentivizerUpgradeable.sol` 采用“Governor 托管真实资产、Incentivizer 维护账本并结算用户 claim”的治理奖励路径；其当前产品解释已由 `docs/spec/accounting.md`、`docs/spec/access-control.md` 与对应测试证据闭环。
 - 若继续保留 POL 公平赎回与 POL Lend / PT-YT 全局结算语义，则 unlock 后必须先经过流动性保护窗口；当前 launcher 与 swap 表面尚未落地该要求。

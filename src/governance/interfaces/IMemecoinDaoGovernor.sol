@@ -30,5 +30,11 @@ interface IMemecoinDaoGovernor {
 
     function sendTreasuryAssets(address token, address to, uint256 amount) external;
 
+    /// @notice Disburse user rewards from governor custody.
+    /// @dev Only the paired incentivizer may call this payout path.
+    function disburseReward(address token, address to, uint256 amount) external;
+
     error UserHasUnfinalizedProposal();
+
+    error UnauthorizedRewardPayout();
 }

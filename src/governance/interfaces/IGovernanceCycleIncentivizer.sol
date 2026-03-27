@@ -123,20 +123,20 @@ interface IGovernanceCycleIncentivizer {
     function getTreasuryBalances(uint128 cycleId) external view returns (address[] memory tokens, uint256[] memory balances);
 
     /**
-     * @dev Receive treasury income
+     * @dev Record treasury income into the current cycle ledger
      * @param token - The token address
      * @param amount - The amount
      */
-    function receiveTreasuryIncome(address token,uint256 amount) external;
+    function recordTreasuryIncome(address token,uint256 amount) external;
 
     /**
-     * @dev Transfer treasury assets to another address
+     * @dev Record treasury asset spend into the current cycle ledger
      * @param token - The token address
      * @param to - The receiver address
      * @param amount - The amount to transfer
-     * @notice All actions to transfer assets from the DAO treasury MUST call this function
+     * @notice All actions to transfer assets from the DAO treasury MUST record spend through this function
      */
-    function sendTreasuryAssets(address token,address to,uint256 amount) external;
+    function recordTreasuryAssetSpend(address token,address to,uint256 amount) external;
 
     /**
      * @dev End current cycle and start new cycle
@@ -217,14 +217,14 @@ interface IGovernanceCycleIncentivizer {
 
     event RewardClaimed(address indexed user, uint128 indexed cycleId, address indexed token, uint256 amount);
 
-    event TreasuryReceived(
+    event TreasuryIncomeRecorded(
         uint256 indexed cycleId, 
         address indexed token, 
         address indexed sender, 
         uint256 amount
     );
 
-    event TreasurySent(
+    event TreasuryAssetSpendRecorded(
         uint256 indexed cycleId, 
         address indexed token, 
         address indexed receiver, 

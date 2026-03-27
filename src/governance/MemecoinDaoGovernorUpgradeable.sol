@@ -199,16 +199,15 @@ contract MemecoinDaoGovernorUpgradeable is
 
     /**
      * @notice Receive treasury income on behalf of the DAO treasury.
-     * @dev Notifies the incentivizer before pulling the tokens into the governor treasury.
+     * @dev Pulls the tokens into the governor treasury, then records the income on the incentivizer ledger.
      * @param _token The token being supplied.
      * @param _amount The amount received.
      */
     function receiveTreasuryIncome(address _token, uint256 _amount) external override {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
-        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
-        _governanceCycleIncentivizer.receiveTreasuryIncome(_token, _amount);
-
+            _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
         IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        _governanceCycleIncentivizer.recordTreasuryIncome(_token, _amount);
     }
 
     /**
@@ -220,8 +219,21 @@ contract MemecoinDaoGovernorUpgradeable is
      */
     function sendTreasuryAssets(address _token, address _to, uint256 _amount) external override onlyGovernance {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
-        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
-        _governanceCycleIncentivizer.sendTreasuryAssets(_token, _to, _amount);
+            _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
+        _governanceCycleIncentivizer.recordTreasuryAssetSpend(_token, _to, _amount);
+
+        IERC20(_token).safeTransfer(_to, _amount);
+    }
+
+    /**
+     * @notice Disburse reward assets from governor custody to a user.
+     * @dev Only callable by the paired incentivizer. Reward accounting is handled in the incentivizer.
+     * @param _token Reward token to transfer.
+     * @param _to Reward recipient.
+     * @param _amount Reward amount.
+     */
+    function disburseReward(address _token, address _to, uint256 _amount) external override {
+        require(msg.sender == address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer), UnauthorizedRewardPayout());
 
         IERC20(_token).safeTransfer(_to, _amount);
     }

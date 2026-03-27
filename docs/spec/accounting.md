@@ -89,9 +89,19 @@
 
 ## 6. Treasury / Yield / Governance 周期语义
 
-- Governor 作为 treasury 入口，收到收入时同步通知 `GovernanceCycleIncentivizer` 做周期账本累计。
-- Incentivizer 周期结算时按 `rewardRatio` 从 treasury balance 划拨到 reward balance。
+- Governor 作为 treasury 入口，收到收入时先把真实资产记入 `Governor` 托管余额，再同步通知 `GovernanceCycleIncentivizer` 做周期账本累计。
+- `Governor` 持有真实 treasury 资产与 reward payout 资产。
+- `Incentivizer` 只维护对应的周期账本，不承担奖励资产托管职责。
+- `treasuryBalances[token]` 表示某周期内记入 DAO treasury 的可支配账本余额，其真实资产由 `Governor` 托管。
+- `rewardBalances[token]` 表示某周期内已为用户奖励保留的可支付账本额度，其真实资产仍由 `Governor` 托管。
+- `Incentivizer` 的账本字段不应被解释为 `Incentivizer` 的 ERC20 实际余额。
+- treasury / reward accounting 默认按名义 `amount` 记账，只支持已审查的标准 ERC20。
+- fee-on-transfer、rebasing、或其他会使名义 `amount` 与实际余额变化不一致的 token 不在支持范围内。
+- Incentivizer 周期结算时按 `rewardRatio` 从 treasury ledger 划拨到 reward ledger。
 - 用户奖励按“上一周期 userVotes / totalVotes”分配。
+- `Incentivizer.claimReward()` 结算后，由 `Governor.disburseReward(...)` 完成真实付款。
+- claim 成功前，账本扣减与真实付款必须保持同一事务内原子完成。
+- 上一周期未领完的 `rewardBalances[token]` 不永久保留；它们会在后续 `finalizeCurrentCycle()` 时回卷到 treasury ledger，并重新参与后续周期结算。
 - YieldVault 在 `totalSupply == 0` 时收到 yield 会 burn（防首存者攫取历史收益）。
 
 ## 7. 启动期会计提醒
