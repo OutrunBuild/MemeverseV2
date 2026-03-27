@@ -5,7 +5,7 @@
 三目录拆分约束：
 
 - `docs/plans/` 只放 design / implementation plan / stage draft / split draft
-- `docs/briefs/` 只放 `Task Brief`
+- `docs/task-briefs/` 只放 `Task Brief`
 - `docs/agent-reports/` 只放 `Agent Report`
 
 本契约分为两层：
@@ -131,7 +131,7 @@ owner 语义以 `policy.json` 为机器可读真源。
 
 - `Task Brief path`
   - 必须指向存在的 brief 文件
-  - 必须位于 `docs/briefs/`
+  - 必须位于 `docs/task-briefs/`
 - `Agent Report path`
   - 必须指向存在的 agent report 文件
   - 必须位于 `docs/agent-reports/`
@@ -186,7 +186,7 @@ owner 语义以 `policy.json` 为机器可读真源。
 ## 使用方式
 
 - 以 `docs/reviews/TEMPLATE.md` 新建 review note
-- `Task Brief path` 应填写 `docs/briefs/<brief>.md`
+- `Task Brief path` 应填写 `docs/task-briefs/<brief>.md`
 - `Agent Report path` 应填写 `docs/agent-reports/<report>.md`
 - 仅校验结构可运行：`bash ./script/process/check-review-note.sh <review-note>`
 - 需要联动 `rule-map` 证据时运行：`bash ./script/process/check-solidity-review-note.sh`

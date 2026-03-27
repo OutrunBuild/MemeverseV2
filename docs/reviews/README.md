@@ -7,7 +7,7 @@ Rules:
 - 正文默认使用简体中文，固定 section / field key 保持英文
 - `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 只能填写 `yes` 或 `no`
 - 当改动命中 `src/**/*.sol` 且准备运行 `quality:gate` 时，必须提供一份可通过校验的 review note
-- `Task Brief path` 必须指向 `docs/briefs/` 下的实际 brief
+- `Task Brief path` 必须指向 `docs/task-briefs/` 下的实际 brief
 - `Agent Report path` 必须指向 `docs/agent-reports/` 下的实际 report
 - `docs/plans/` 只保留设计/计划/阶段草案，不得混放 `Task Brief` 或 `Agent Report`
 - `Existing tests exercised` 必须真实记录已执行测试；命中 `rule-map.json` 正式规则时必须满足 `evidence_requirement`

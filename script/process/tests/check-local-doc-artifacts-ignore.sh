@@ -5,7 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 tmp_suffix="$$"
-tmp_brief="docs/briefs/zz-temp-brief-${tmp_suffix}.md"
+tmp_brief="docs/task-briefs/zz-temp-brief-${tmp_suffix}.md"
 tmp_report="docs/agent-reports/zz-temp-report-${tmp_suffix}.md"
 
 cleanup() {
@@ -33,7 +33,7 @@ assert_not_ignored() {
 
 assert_ignored "$tmp_brief"
 assert_ignored "$tmp_report"
-assert_not_ignored "docs/briefs/README.md"
+assert_not_ignored "docs/task-briefs/README.md"
 assert_not_ignored "docs/agent-reports/README.md"
 
 echo "local doc artifact ignore selftest: PASS"

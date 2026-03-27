@@ -51,11 +51,11 @@ find_misplaced_artifacts() {
 
 task_brief_template="$(read_policy_value agents.task_brief_template '.codex/templates/task-brief.md')"
 agent_report_template="$(read_policy_value agents.agent_report_template '.codex/templates/agent-report.md')"
-task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/briefs')"
+task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/task-briefs')"
 agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
 agent_directory="$(read_policy_value agents.agent_directory '.codex/agents')"
 main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
-docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
+docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
 
 load_role_array agents.default_roles default_roles
 load_role_array agents.on_demand_roles on_demand_roles

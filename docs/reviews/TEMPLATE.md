@@ -8,7 +8,7 @@
 ## Scope
 - Change summary:
 - Files reviewed:
-- Task Brief path: docs/briefs/<brief>.md
+- Task Brief path: docs/task-briefs/<brief>.md
 - Agent Report path: docs/agent-reports/<report>.md
 - Implementation owner:
 - Writer dispatch confirmed: yes/no

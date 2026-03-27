@@ -20,6 +20,7 @@ passing_pr_file="$tmp_dir/pr-pass.md"
 legacy_review_file="$tmp_dir/legacy-review.md"
 changed_files_list="$tmp_dir/changed-files.txt"
 check_docs_policy_file="$tmp_dir/check-docs-policy.json"
+renamed_brief_policy_file="$tmp_dir/renamed-brief-policy.json"
 malformed_roles_policy_file="$tmp_dir/malformed-roles-policy.json"
 
 cat > "$policy_file" <<EOF
@@ -45,7 +46,7 @@ cat > "$policy_file" <<EOF
     "main_session_role": "main-orchestrator",
     "default_roles": ["process-implementer", "verifier"],
     "on_demand_roles": ["solidity-explorer"],
-    "task_brief_directory": "docs/briefs",
+    "task_brief_directory": "docs/task-briefs",
     "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
@@ -59,7 +60,7 @@ cat > "$policy_file" <<EOF
 EOF
 
 task_brief_directory="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy agents.task_brief_directory)"
-if [ "$task_brief_directory" != "docs/briefs" ]; then
+if [ "$task_brief_directory" != "docs/task-briefs" ]; then
     echo "Expected read-process-config to resolve agents.task_brief_directory"
     exit 1
 fi
@@ -313,6 +314,36 @@ fi
 
 bash ./script/process/check-docs.sh
 
+cat > "$renamed_brief_policy_file" <<'EOF'
+{
+  "review_note": {
+    "required_headings": [],
+    "required_fields": [],
+    "boolean_fields": [],
+    "placeholder_values": []
+  },
+  "pull_request": {
+    "required_sections": []
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": ["process-implementer", "verifier"],
+    "on_demand_roles": ["solidity-explorer"],
+    "task_brief_directory": "docs/task-briefs",
+    "agent_report_directory": "docs/agent-reports",
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
+  "quality_gate": {
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$",
+    "package_pattern": "^(package[.]json|package-lock[.]json)$"
+  }
+}
+EOF
+
+PROCESS_POLICY_FILE="$renamed_brief_policy_file" bash ./script/process/check-docs.sh
+
 cat > "$malformed_roles_policy_file" <<'EOF'
 {
   "review_note": {
@@ -328,14 +359,14 @@ cat > "$malformed_roles_policy_file" <<'EOF'
     "main_session_role": "main-orchestrator",
     "default_roles": "process-implementer",
     "on_demand_roles": ["verifier"],
-    "task_brief_directory": "docs/briefs",
+    "task_brief_directory": "docs/task-briefs",
     "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -371,14 +402,14 @@ cat > "$check_docs_policy_file" <<'EOF'
     "main_session_role": "main-orchestrator",
     "default_roles": ["process-implementer", "verifier"],
     "on_demand_roles": ["solidity-explorer"],
-    "task_brief_directory": "docs/briefs",
+    "task_brief_directory": "docs/task-briefs",
     "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -414,14 +445,14 @@ cat > "$check_docs_policy_file" <<'EOF'
     "main_session_role": "main-orchestrator",
     "default_roles": ["process-implementer", "verifier"],
     "on_demand_roles": ["solidity-explorer"],
-    "task_brief_directory": "docs/briefs",
+    "task_brief_directory": "docs/task-briefs",
     "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
