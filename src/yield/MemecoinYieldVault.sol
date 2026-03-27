@@ -35,8 +35,8 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     /// @param _asset Underlying memecoin address.
     /// @param _verseId Verse id associated with this vault.
     function initialize(
-        string memory _name,
-        string memory _symbol,
+        string calldata _name,
+        string calldata _symbol,
         address _yieldDispatcher,
         address _asset,
         uint256 _verseId
@@ -148,7 +148,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
 
         for (uint256 i = requestQueue.length; i > 0;) {
             unchecked {
-                i -= 1;
+                --i;
             }
             if (block.timestamp >= requestQueue[i].requestTime + REDEEM_DELAY) {
                 uint256 amount = requestQueue[i].amount;

@@ -64,7 +64,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     using SafeCast for int256;
     using SafeCast for int128;
     bytes internal constant ZERO_BYTES = bytes("");
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     int24 internal constant MIN_TICK = -887200;
     int24 internal constant MAX_TICK = 887200;
@@ -94,9 +93,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint24 internal constant SHORT_COEFF_BPS = 2_000; // Short-term impact surcharge coefficient.
     uint24 internal constant SHORT_FLOOR_PPM = 20_000; // Free short-impact allowance before charging starts.
     uint24 internal constant SHORT_CAP_PPM = 150_000; // Cap for short-term impact accumulator.
-    bytes32 internal constant CLAIM_FEES_TYPEHASH =
-        keccak256("ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)");
-
     address public treasury;
     address public launchSettlementCaller;
     mapping(address => bool) public supportedProtocolFeeCurrencies;
@@ -107,6 +103,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
     mapping(address => uint256) public claimNonces;
     LaunchFeeConfig public defaultLaunchFeeConfig;
+
+    function _launchSettlementHookDataHash() internal pure returns (bytes32) {
+        // solhint-disable-next-line gas-small-strings
+        return keccak256(abi.encodePacked("memeverse.launch-settlement.hookdata"));
+    }
 
     /// @notice Per-pool exponentially weighted state used by dynamic fee computation.
     struct EWVWAPParams {
@@ -311,7 +312,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         PoolId poolId = key.toId();
-        bool launchSettlement = keccak256(hookData) == keccak256(abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH));
+        bool launchSettlement = keccak256(hookData) == keccak256(abi.encode(_launchSettlementHookDataHash()));
         if (launchSettlement && sender != launchSettlementCaller) revert Unauthorized();
 
         uint256 absSpecified = uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified);
@@ -648,6 +649,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (msg.sender == params.owner) return;
         if (params.deadline < block.timestamp) revert ExpiredPastDeadline();
 
+        // solhint-disable-next-line gas-increment-by-one
         uint256 nonce = claimNonces[params.owner]++;
         bytes32 digest = keccak256(
             abi.encodePacked(
@@ -655,7 +657,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 DOMAIN_SEPARATOR(),
                 keccak256(
                     abi.encode(
-                        CLAIM_FEES_TYPEHASH,
+                        keccak256(
+                            // solhint-disable-next-line gas-small-strings
+                            abi.encodePacked(
+                                "ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)"
+                            )
+                        ),
                         params.owner,
                         params.recipient,
                         PoolId.unwrap(params.key.toId()),
@@ -680,7 +687,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     function _computeDomainSeparator() internal view returns (bytes32) {
         return keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    // solhint-disable-next-line gas-small-strings
+                    abi.encodePacked("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+                ),
                 keccak256("MemeverseUniswapHook"),
                 keccak256("1"),
                 block.chainid,
@@ -958,7 +968,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 userInputAmount = amountSpecified < 0 ? uint256(-amountSpecified) : 0;
         uint256 requestedNetOutputAmount = amountSpecified > 0 ? uint256(amountSpecified) : 0;
 
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 3; ++i) {
             uint160 postSqrtPriceX96;
             (
                 quote.estimatedInputAmount,

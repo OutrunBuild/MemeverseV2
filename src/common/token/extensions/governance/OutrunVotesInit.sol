@@ -34,6 +34,7 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
     using Checkpoints for Checkpoints.Trace208;
 
     bytes32 private constant DELEGATION_TYPEHASH =
+        // solhint-disable-next-line gas-small-strings
         keccak256("Delegation(address delegatee,uint256 nonce,uint256 expiry)");
 
     struct VotesStorage {

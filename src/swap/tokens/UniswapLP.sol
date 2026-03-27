@@ -7,6 +7,9 @@ import {IMemeverseUniswapHook, PoolId} from "../interfaces/IMemeverseUniswapHook
 
 /// @notice LP Token For MemeverseUniswapHook
 contract UniswapLP is Owned {
+    error PermitDeadlineExpired(uint256 deadline);
+    error InvalidSigner(address recoveredAddress, address owner);
+
     string public name;
     string public symbol;
     uint8 public immutable decimals;
@@ -123,7 +126,7 @@ contract UniswapLP is Owned {
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         public
     {
-        require(deadline >= block.timestamp, "PERMIT_DEADLINE_EXPIRED");
+        require(deadline >= block.timestamp, PermitDeadlineExpired(deadline));
 
         unchecked {
             address recoveredAddress = ecrecover(
@@ -133,12 +136,12 @@ contract UniswapLP is Owned {
                         DOMAIN_SEPARATOR(),
                         keccak256(
                             abi.encode(
-                                keccak256(
-                                    "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
-                                ),
+                                // solhint-disable-next-line gas-small-strings
+                                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
                                 owner,
                                 spender,
                                 value,
+                                // solhint-disable-next-line gas-increment-by-one
                                 nonces[owner]++,
                                 deadline
                             )
@@ -150,7 +153,7 @@ contract UniswapLP is Owned {
                 s
             );
 
-            require(recoveredAddress != address(0) && recoveredAddress == owner, "INVALID_SIGNER");
+            require(recoveredAddress != address(0) && recoveredAddress == owner, InvalidSigner(recoveredAddress, owner));
 
             allowance[recoveredAddress][spender] = value;
         }
@@ -168,6 +171,7 @@ contract UniswapLP is Owned {
     function computeDomainSeparator() internal view returns (bytes32) {
         return keccak256(
             abi.encode(
+                // solhint-disable-next-line gas-small-strings
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256(bytes(name)),
                 keccak256("1"),

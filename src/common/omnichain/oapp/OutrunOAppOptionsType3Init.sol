@@ -53,7 +53,8 @@ abstract contract OutrunOAppOptionsType3Init is IOAppOptionsType3, OutrunOwnable
     /// @param _enforcedOptions Batch of endpoint/message-type option configs.
     function setEnforcedOptions(EnforcedOptionParam[] calldata _enforcedOptions) public virtual onlyOwner {
         OAppOptionsType3Storage storage $ = _getOAppOptionsType3Storage();
-        for (uint256 i = 0; i < _enforcedOptions.length; i++) {
+        uint256 enforcedOptionsLength = _enforcedOptions.length;
+        for (uint256 i = 0; i < enforcedOptionsLength; ++i) {
             // @dev Enforced options are only available for optionType 3, as type 1 and 2 dont support combining.
             _assertOptionsType3(_enforcedOptions[i].options);
             $.enforcedOptions[_enforcedOptions[i].eid][_enforcedOptions[i].msgType] = _enforcedOptions[i].options;

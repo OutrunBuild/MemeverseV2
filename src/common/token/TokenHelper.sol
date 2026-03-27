@@ -13,8 +13,12 @@ abstract contract TokenHelper is ReentrancyGuard {
     address internal constant NATIVE = address(0);
     uint256 internal constant LOWER_BOUND_APPROVAL = type(uint96).max / 2; // some tokens use 96 bits for approval
 
+    error NativeValueMismatch(uint256 expected, uint256 actual);
+    error NativeTransferFailed();
+    error SafeApproveFailed(address token, address spender, uint256 value);
+
     function _transferIn(address token, address from, uint256 amount) internal {
-        if (token == NATIVE) require(msg.value == amount, "eth mismatch");
+        if (token == NATIVE) require(msg.value == amount, NativeValueMismatch(amount, msg.value));
         else if (amount != 0) IERC20(token).safeTransferFrom(from, address(this), amount);
     }
 
@@ -26,7 +30,7 @@ abstract contract TokenHelper is ReentrancyGuard {
         if (amount == 0) return;
         if (token == NATIVE) {
             (bool success,) = to.call{value: amount}("");
-            require(success, "eth send failed");
+            require(success, NativeTransferFailed());
         } else {
             IERC20(token).safeTransfer(to, amount);
         }
@@ -35,8 +39,9 @@ abstract contract TokenHelper is ReentrancyGuard {
     /// @notice Sets allowance for `to` on `token` using a low-level approve call.
     /// @dev Some tokens require resetting allowance to zero before updating to a new value.
     function _safeApprove(address token, address to, uint256 value) internal {
+        // solhint-disable-next-line avoid-low-level-calls
         (bool success, bytes memory data) = token.call(abi.encodeWithSelector(IERC20.approve.selector, to, value));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "Safe Approve");
+        require(success && (data.length == 0 || abi.decode(data, (bool))), SafeApproveFailed(token, to, value));
     }
 
     function _safeApproveInf(address token, address to) internal {

@@ -15,7 +15,7 @@ interface IMemecoinDaoGovernor {
     }
 
     function initialize(
-        string memory _name, 
+        string calldata _name,
         IVotes _token,
         uint48 _votingDelay,
         uint32 _votingPeriod,

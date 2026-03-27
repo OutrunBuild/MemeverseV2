@@ -39,8 +39,8 @@ interface IMemecoinYieldVault is IERC20 {
     /// @param asset Underlying memecoin address.
     /// @param verseId Verse id associated with this vault.
     function initialize(
-        string memory name,
-        string memory symbol,
+        string calldata name,
+        string calldata symbol,
         address yieldDispatcher,
         address asset,
         uint256 verseId

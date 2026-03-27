@@ -20,7 +20,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
     uint256 public constant MAX_TOKENS_LIMIT = 50;
 
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.GovernanceCycleIncentivizer")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant GovernanceCycleIncentivizerStorageLocation =
+    bytes32 private constant GOVERNANCE_CYCLE_INCENTIVIZER_STORAGE_LOCATION =
         0x173bbd0db440ff8dcb0efb05aced4279e21e45a07b4974973a371552ef840a00;
 
     function _getGovernanceCycleIncentivizerStorage()
@@ -29,7 +29,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
         returns (GovernanceCycleIncentivizerStorage storage $)
     {
         assembly {
-            $.slot := GovernanceCycleIncentivizerStorageLocation
+            $.slot := GOVERNANCE_CYCLE_INCENTIVIZER_STORAGE_LOCATION
         }
     }
 
@@ -53,7 +53,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
             address token = initTreasuryTokens[i];
             _registerTreasuryToken(token, $);
             unchecked {
-                i++;
+                ++i;
             }
         }
 
@@ -180,7 +180,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
             for (uint256 i = 0; i < length;) {
                 if (token == cycle.treasuryTokenList[i]) return true;
                 unchecked {
-                    i++;
+                    ++i;
                 }
             }
         }
@@ -205,7 +205,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
             for (uint256 i = 0; i < length;) {
                 if (token == cycle.rewardTokenList[i]) return true;
                 unchecked {
-                    i++;
+                    ++i;
                 }
             }
         }
@@ -260,7 +260,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
                 uint256 rewardBalance = prevCycle.rewardBalances[token];
                 rewards[i] = Math.mulDiv(rewardBalance, userVotes, totalVotes);
                 unchecked {
-                    i++;
+                    ++i;
                 }
             }
         }
@@ -304,7 +304,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
                 address token = tokens[i];
                 rewards[i] = prevCycle.rewardBalances[token];
                 unchecked {
-                    i++;
+                    ++i;
                 }
             }
         }
@@ -345,7 +345,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
             address token = tokens[i];
             balances[i] = cycle.treasuryBalances[token];
             unchecked {
-                i++;
+                ++i;
             }
         }
     }
@@ -438,7 +438,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
                 rewardTokens[j] = token;
                 rewards[j] = rewardAmount;
                 unchecked {
-                    j++;
+                    ++j;
                 }
             }
 
@@ -446,7 +446,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
             treasuryTokens[i] = token;
             balances[i] = treasuryBalance;
             unchecked {
-                i++;
+                ++i;
             }
         }
 
@@ -485,7 +485,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
         for (uint256 i = 0; i < length;) {
             address token = rewardTokenList[i];
             unchecked {
-                i++;
+                ++i;
             }
             uint256 rewardBalance = prevCycle.rewardBalances[token];
             if (rewardBalance > 0) {
@@ -563,7 +563,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
                 break;
             }
             unchecked {
-                i++;
+                ++i;
             }
         }
 
@@ -629,7 +629,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
                 break;
             }
             unchecked {
-                i++;
+                ++i;
             }
         }
     }

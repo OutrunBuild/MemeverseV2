@@ -33,9 +33,6 @@ import {Initializable} from "../access/Initializable.sol";
  * @custom:oz-upgrades-unsafe-allow state-variable-immutable
  */
 abstract contract OutrunEIP712Init is Initializable, IERC5267 {
-    bytes32 private constant TYPE_HASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-
     /// @custom:storage-location erc7201:openzeppelin.storage.EIP712
     struct EIP712Storage {
         /// @custom:oz-renamed-from _HASHED_NAME
@@ -91,7 +88,19 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
     }
 
     function _buildDomainSeparator() private view returns (bytes32) {
-        return keccak256(abi.encode(TYPE_HASH, _EIP712NameHash(), _EIP712VersionHash(), block.chainid, address(this)));
+        return keccak256(
+            abi.encode(_eip712DomainTypeHash(), _EIP712NameHash(), _EIP712VersionHash(), block.chainid, address(this))
+        );
+    }
+
+    function _eip712DomainTypeHash() private pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                "EIP712Domain(string name,string ",
+                "version,uint256 chainId,address ",
+                "verifyingContract)"
+            )
+        );
     }
 
     /**
@@ -139,6 +148,7 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
         EIP712Storage storage $ = _getEIP712Storage();
         // If the hashed name and version in storage are non-zero, the contract hasn't been properly initialized
         // and the EIP712 domain is not reliable, as it will be missing name and version.
+        // solhint-disable-next-line gas-custom-errors
         require($._hashedName == 0 && $._hashedVersion == 0, "EIP712: Uninitialized");
 
         return

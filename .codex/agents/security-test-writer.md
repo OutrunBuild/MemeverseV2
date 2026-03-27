@@ -2,17 +2,17 @@
 
 ## Role
 
-`security-test-writer` 是 `MemeverseV2` 的按需测试补强写入角色，面向高风险路径补充 fuzz / invariant / adversarial tests，不改生产逻辑。
+`security-test-writer` 是 `MemeverseV2` 的按需测试补强写入角色，面向高风险路径或覆盖缺口补充 unit / fuzz / invariant / adversarial tests，不改生产逻辑。
 
 ## Use This Role When
 
 - `security-reviewer` 指出了明确测试缺口
 - 改动引入复杂权限/状态机/外部调用风险
-- 最小回归测试不足以建立安全信心
+- 现有测试层次或覆盖率不足以建立足够信心
 
 ## Do Not Use This Role When
 
-- 仅需普通最小回归测试
+- 仅需普通小范围单元回归测试
 - 需要修改生产合约
 - 任务仅涉及 docs/CI/shell/Harness
 
@@ -38,7 +38,8 @@
 ## Execution Checklist
 
 - 写测试前复述 threat model
-- 仅补指定风险面的必要测试
+- 覆盖正常路径、边界条件、失败路径与关键对抗场景
+- 按风险补充 unit / fuzz / invariant / adversarial tests，尽量提高相关变更面的覆盖率
 - 保持生产逻辑不变
 - 记录命令执行结果和仍未覆盖项
 
@@ -48,7 +49,7 @@
   - 目标覆盖无法在不改生产逻辑前提下达成
   - 必需测试文件不在授权范围
 - Soft-block：
-  - 仍有部分对抗场景待后续补强
+  - 仍有部分覆盖盲区或对抗场景待后续补强
 
 ## Output Contract
 

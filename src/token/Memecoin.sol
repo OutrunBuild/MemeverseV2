@@ -21,7 +21,7 @@ contract Memecoin is IMemecoin, OutrunOFTInit {
     /// @param symbol_ Token ticker symbol.
     /// @param _memeverseLauncher Launcher allowed to mint new supply.
     /// @param _delegate Delegate that receives initial ownership and LayerZero admin rights.
-    function initialize(string memory name_, string memory symbol_, address _memeverseLauncher, address _delegate)
+    function initialize(string calldata name_, string calldata symbol_, address _memeverseLauncher, address _delegate)
         external
         override
         initializer

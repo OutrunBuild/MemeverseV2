@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
  * @dev Outrun's ReentrancyGuard implementation, support transient variable.
  */
 abstract contract ReentrancyGuard {
-    bool transient locked;
+    bool private transient locked;
     error ReentrancyGuardReentrantCall();
 
     modifier nonReentrant() {

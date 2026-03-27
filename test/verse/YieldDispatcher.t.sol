@@ -9,7 +9,7 @@ import {IOFTCompose} from "../../src/common/omnichain/oft/IOFTCompose.sol";
 import {IBurnable} from "../../src/common/interfaces/IBurnable.sol";
 import {YieldDispatcher} from "../../src/verse/YieldDispatcher.sol";
 import {IYieldDispatcher} from "../../src/verse/interfaces/IYieldDispatcher.sol";
-import {MemeverseOFTEnum} from "../../src/common/types/MemeverseOFTEnum.sol";
+import {IMemeverseOFTEnum} from "../../src/common/types/IMemeverseOFTEnum.sol";
 
 contract MockDispatcherComposeToken is MockERC20, IOFTCompose, IBurnable {
     mapping(bytes32 guid => bool executed) internal executedStatus;
@@ -112,7 +112,7 @@ contract YieldDispatcherTest is Test {
         uint256 amount = 5 ether;
         token.mint(address(dispatcher), amount);
 
-        bytes memory message = abi.encode(ALICE, MemeverseOFTEnum.TokenType.MEMECOIN, amount);
+        bytes memory message = abi.encode(ALICE, IMemeverseOFTEnum.TokenType.MEMECOIN, amount);
 
         vm.prank(LAUNCHER);
         dispatcher.lzCompose(address(token), bytes32("launcher-guid"), message, address(0), "");
@@ -131,7 +131,7 @@ contract YieldDispatcherTest is Test {
         dispatcher.lzCompose(
             address(token),
             bytes32("yield-guid"),
-            abi.encode(address(yieldVault), MemeverseOFTEnum.TokenType.MEMECOIN, memeAmount),
+            abi.encode(address(yieldVault), IMemeverseOFTEnum.TokenType.MEMECOIN, memeAmount),
             address(0),
             ""
         );
@@ -142,7 +142,7 @@ contract YieldDispatcherTest is Test {
         dispatcher.lzCompose(
             address(token),
             bytes32("gov-guid"),
-            abi.encode(address(governor), MemeverseOFTEnum.TokenType.UPT, uptAmount),
+            abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UPT, uptAmount),
             address(0),
             ""
         );
@@ -156,7 +156,7 @@ contract YieldDispatcherTest is Test {
         bytes32 guid = bytes32("done");
         token.setExecuted(guid, true);
         bytes memory composeMessage = abi.encodePacked(
-            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), MemeverseOFTEnum.TokenType.UPT)
+            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UPT)
         );
         bytes memory message = OFTComposeMsgCodec.encode(1, 101, 1 ether, composeMessage);
 
@@ -172,7 +172,7 @@ contract YieldDispatcherTest is Test {
         token.mint(address(dispatcher), amount);
 
         bytes memory composeMessage = abi.encodePacked(
-            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), MemeverseOFTEnum.TokenType.UPT)
+            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UPT)
         );
         bytes memory message = OFTComposeMsgCodec.encode(1, 101, amount, composeMessage);
 

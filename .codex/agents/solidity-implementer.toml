@@ -1,5 +1,5 @@
 name = "solidity-implementer"
-description = "MemeverseV2 Solidity 面受限写入角色，负责合约实现与最小必要测试。"
+description = "MemeverseV2 Solidity 面受限写入角色，负责合约实现与配套测试。"
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"

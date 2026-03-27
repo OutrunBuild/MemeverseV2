@@ -9,6 +9,9 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 /// @notice Production helper for settling and taking PoolManager deltas.
 /// @dev Mirrors the standard Uniswap v4 settle/take behavior without depending on upstream test utilities.
 library CurrencySettler {
+    error ERC20TransferFromFailed(address payer, address manager, uint256 amount);
+    error ERC20TransferFailed(address manager, uint256 amount);
+
     /// @notice Settles an amount owed to the PoolManager.
     /// @param currency The currency being settled.
     /// @param manager The pool manager receiving settlement.
@@ -25,11 +28,12 @@ library CurrencySettler {
             if (payer != address(this)) {
                 require(
                     IERC20Minimal(Currency.unwrap(currency)).transferFrom(payer, address(manager), amount),
-                    "ERC20 transferFrom failed"
+                    ERC20TransferFromFailed(payer, address(manager), amount)
                 );
             } else {
                 require(
-                    IERC20Minimal(Currency.unwrap(currency)).transfer(address(manager), amount), "ERC20 transfer failed"
+                    IERC20Minimal(Currency.unwrap(currency)).transfer(address(manager), amount),
+                    ERC20TransferFailed(address(manager), amount)
                 );
             }
             manager.settle();

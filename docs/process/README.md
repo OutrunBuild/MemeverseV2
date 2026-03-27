@@ -7,7 +7,9 @@
 - `AGENTS.md` 负责日常操作契约、入口命令、完成定义和关键上下文。
 - 本目录负责保存细化规则、Review note 结构说明以及机器可读配置。
 - 如果规则影响脚本、CI 或提交门禁，文档变更必须和脚本变更一起提交。
+- 代码可读性与测试完备性这类叙述性规则，以 `AGENTS.md`、`docs/process/change-matrix.md` 和 `.codex/agents/*.md` 的一致表述为准。
 - `docs/process/policy.json` 是当前流程规则的机器可读真源。
+- coverage gate 的目录分层阈值与三指标配置定义在 `docs/process/policy.json -> quality_gate.coverage`，由 `script/process/check-coverage.sh` 消费；`quality:quick` 默认读取 `quality_gate.coverage.quick_metrics` 仅校验轻量指标。
 - `docs/process/rule-map.json` 是关键行为场景到测试证据的机器可读映射，同时记录测试联动要求与测试治理缺口。
 - `script/process/` 顶层保留正式流程入口。
 - `script/process/tools/` 存放不参与 gate 的辅助脚本。

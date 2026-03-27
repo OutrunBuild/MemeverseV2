@@ -20,6 +20,7 @@ import {OutrunEIP712Init} from "../cryptography/OutrunEIP712Init.sol";
  */
 abstract contract OutrunERC20PermitInit is OutrunERC20Init, IERC20Permit, OutrunEIP712Init, OutrunNoncesInit {
     bytes32 private constant PERMIT_TYPEHASH =
+        // solhint-disable-next-line gas-small-strings
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     /**

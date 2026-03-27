@@ -34,6 +34,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     uint256 public constant RATIO = 10000;
     uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
+    // solhint-disable-next-line gas-small-strings
     bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     address public localLzEndpoint;
@@ -790,9 +791,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             uint256 requiredLzFee = govMessagingFee.nativeFee + memecoinMessagingFee.nativeFee;
             if (msg.value != requiredLzFee) revert InvalidLzFee(requiredLzFee, msg.value);
             if (govFee != 0) {
+                // solhint-disable-next-line check-send-result
                 IOFT(UPT).send{value: govMessagingFee.nativeFee}(sendUPTParam, govMessagingFee, msg.sender);
             }
             if (memecoinFee != 0) {
+                // solhint-disable-next-line check-send-result,multiple-sends
                 IOFT(memecoin).send{value: memecoinMessagingFee.nativeFee}(
                     sendMemecoinParam, memecoinMessagingFee, msg.sender
                 );
@@ -1102,12 +1105,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function _lzConfigure(address memecoin, address pol, uint32[] memory omnichainIds) internal {
         uint32 currentChainId = uint32(block.chainid);
+        uint256 omnichainIdsLength = omnichainIds.length;
 
         // Use default config
-        for (uint256 i = 0; i < omnichainIds.length;) {
+        for (uint256 i = 0; i < omnichainIdsLength;) {
             uint32 omnichainId = omnichainIds[i];
             unchecked {
-                i++;
+                ++i;
             }
             if (omnichainId == currentChainId) continue;
 
@@ -1316,10 +1320,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (bytes(uri).length != 0) memeverses[verseId].uri = uri;
         if (bytes(description).length != 0) memeverses[verseId].desc = description;
         if (communities.length != 0) {
-            for (uint256 i = 0; i < communities.length;) {
+            uint256 communitiesLength = communities.length;
+            for (uint256 i = 0; i < communitiesLength;) {
                 communitiesMap[verseId][i] = communities[i];
                 unchecked {
-                    i++;
+                    ++i;
                 }
             }
         }

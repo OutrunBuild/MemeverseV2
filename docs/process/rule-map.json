@@ -432,7 +432,7 @@
           "src/common/omnichain/oft/IOFTCompose.sol",
           "src/common/omnichain/oft/OutrunOFTCoreInit.sol",
           "src/common/omnichain/oft/OutrunOFTInit.sol",
-          "src/common/types/MemeverseOFTEnum.sol"
+          "src/common/types/IMemeverseOFTEnum.sol"
         ]
       },
       "change_requirement": {

@@ -3,9 +3,9 @@ pragma solidity ^0.8.28;
 
 import {ILayerZeroComposer} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroComposer.sol";
 
-import {MemeverseOFTEnum} from "../../common/types/MemeverseOFTEnum.sol";
+import {IMemeverseOFTEnum} from "../../common/types/IMemeverseOFTEnum.sol";
 
-interface IYieldDispatcher is MemeverseOFTEnum, ILayerZeroComposer {
+interface IYieldDispatcher is IMemeverseOFTEnum, ILayerZeroComposer {
     event OFTProcessed(
         bytes32 indexed guid,
         address indexed token,

@@ -23,8 +23,8 @@ interface IMemeLiquidProof is IERC20 {
      * @param delegate_ - The address of the OFT delegate.
      */
     function initialize(
-        string memory name_,
-        string memory symbol_,
+        string calldata name_,
+        string calldata symbol_,
         address memecoin_,
         address memeverseLauncher_,
         address delegate_

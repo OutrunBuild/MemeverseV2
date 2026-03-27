@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {MemeverseOFTEnum} from "../../common/types/MemeverseOFTEnum.sol";
+import {IMemeverseOFTEnum} from "../../common/types/IMemeverseOFTEnum.sol";
 
 /**
  * @title MemeverseLauncher interface
  */
-interface IMemeverseLauncher is MemeverseOFTEnum {
+interface IMemeverseLauncher is IMemeverseOFTEnum {
     enum Stage {
         Genesis,
         Refund,

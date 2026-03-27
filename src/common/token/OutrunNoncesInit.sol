@@ -51,6 +51,7 @@ abstract contract OutrunNoncesInit is Initializable {
         // decremented or reset. This guarantees that the nonce never overflows.
         unchecked {
             // It is important to do x++ and not ++x here.
+            // solhint-disable-next-line gas-increment-by-one
             return $._nonces[owner]++;
         }
     }

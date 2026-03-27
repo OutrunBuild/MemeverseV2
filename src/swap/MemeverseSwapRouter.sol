@@ -46,6 +46,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     IMemeverseUniswapHook public immutable override hook;
     IPermit2 public immutable override permit2;
     address public immutable override launchSettlementOperator;
+    /* solhint-disable gas-small-strings */
     bytes32 internal constant SWAP_WITNESS_TYPEHASH = keccak256(
         "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
     );
@@ -67,6 +68,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
         "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
+    /* solhint-enable gas-small-strings */
 
     /// @param _manager The Uniswap v4 pool manager.
     /// @param _hook The Memeverse hook that owns launch-fee and LP accounting for routed swaps.

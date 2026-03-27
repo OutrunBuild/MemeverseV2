@@ -1,5 +1,5 @@
 name = "security-test-writer"
-description = "MemeverseV2 按需安全测试补强角色，增加 fuzz/invariant/adversarial tests，不改生产逻辑。"
+description = "MemeverseV2 按需测试补强角色，补充 unit/fuzz/invariant/adversarial tests 并提升覆盖率，不改生产逻辑。"
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"

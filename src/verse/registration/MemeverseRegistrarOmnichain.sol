@@ -74,7 +74,7 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
                 gasLimit += _registrationGasLimit.omnichainRegistrationGasLimit;
             }
             unchecked {
-                i++;
+                ++i;
             }
         }
 
@@ -103,7 +103,7 @@ contract MemeverseRegistrarOmnichain is IMemeverseRegistrarOmnichain, MemeverseR
                 gasLimit += _registrationGasLimit.omnichainRegistrationGasLimit;
             }
             unchecked {
-                i++;
+                ++i;
             }
         }
 

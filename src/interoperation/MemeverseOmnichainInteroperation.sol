@@ -123,6 +123,7 @@ contract MemeverseOmnichainInteroperation is IMemeverseOmnichainInteroperation, 
         if (msg.value != messagingFee.nativeFee) revert InvalidLzFee(messagingFee.nativeFee, msg.value);
 
         (MessagingReceipt memory rec,) =
+            // solhint-disable-next-line check-send-result
             IOFT(memecoin).send{value: messagingFee.nativeFee}(sendParam, messagingFee, msg.sender);
 
         emit OmnichainMemecoinStaking(rec.guid, msg.sender, receiver, memecoin, amount);

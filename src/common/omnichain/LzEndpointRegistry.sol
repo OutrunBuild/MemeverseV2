@@ -17,10 +17,11 @@ contract LzEndpointRegistry is ILzEndpointRegistry, Ownable {
     /// @dev Entries with `chainId == 0` or `endpointId == 0` are ignored.
     /// @param pairs List of `(chainId, endpointId)` pairs to store.
     function setLzEndpointIds(LzEndpointIdPair[] calldata pairs) external override onlyOwner {
-        for (uint256 i = 0; i < pairs.length;) {
+        uint256 pairsLength = pairs.length;
+        for (uint256 i = 0; i < pairsLength;) {
             LzEndpointIdPair calldata pair = pairs[i];
             unchecked {
-                i++;
+                ++i;
             }
             if (pair.chainId == 0 || pair.endpointId == 0) continue;
 

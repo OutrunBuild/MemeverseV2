@@ -35,8 +35,8 @@ contract MemeLiquidProof is IMemeLiquidProof, OutrunOFTInit {
     /// @param memeverseLauncher_ Launcher allowed to mint and configure this token.
     /// @param delegate_ Delegate that receives initial ownership and LayerZero admin rights.
     function initialize(
-        string memory name_,
-        string memory symbol_,
+        string calldata name_,
+        string calldata symbol_,
         address memecoin_,
         address memeverseLauncher_,
         address delegate_

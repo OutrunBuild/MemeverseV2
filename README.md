@@ -12,6 +12,7 @@ npm run hooks:install
 
 常用命令：
 
+- `npm run lint`
 - `forge build`
 - `forge test -vvv`
 - `npm run quality:quick`

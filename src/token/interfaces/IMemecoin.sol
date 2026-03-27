@@ -21,9 +21,9 @@ interface IMemecoin is IERC20 {
      * @param _delegate - The address of the delegate.
      */
     function initialize(
-        string memory name_, 
-        string memory symbol_,
-        address _memeverseLauncher, 
+        string calldata name_,
+        string calldata symbol_,
+        address _memeverseLauncher,
         address _delegate
     ) external;
 

@@ -35,7 +35,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
     // Symbol history mapping, storing all valid registration records
     mapping(string symbol => mapping(uint256 uniqueId => SymbolRegistration)) public symbolHistory;
 
-    mapping(address UPT => bool) supportedUPTs;
+    mapping(address UPT => bool) private supportedUPTs;
 
     /**
      * @notice Constructor
@@ -88,7 +88,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
                 fees[i] = 0;
                 eids[i] = 0;
                 unchecked {
-                    i++;
+                    ++i;
                 }
                 continue;
             }
@@ -101,7 +101,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
             fees[i] = fee;
             eids[i] = eid;
             unchecked {
-                i++;
+                ++i;
             }
         }
 
@@ -193,24 +193,20 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         require(msg.value >= totalFee, InsufficientLzFee());
 
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(uint128(registerGasLimit), 0);
-        for (uint256 i = 0; i < eids.length;) {
+        uint256 eidsLength = eids.length;
+        for (uint256 i = 0; i < eidsLength;) {
             uint256 fee = fees[i];
             uint32 eid = eids[i];
             unchecked {
-                i++;
+                ++i;
             }
             if (eid == 0) {
                 IMemeverseRegistrarAtLocal(MEMEVERSE_REGISTRAR).localRegistration(param);
                 continue;
             }
 
-            bytes memory functionSignature = abi.encodeWithSignature(
-                "lzSend(uint32,bytes,bytes,(uint256,uint256),address)",
-                eid,
-                message,
-                options,
-                MessagingFee({nativeFee: fee, lzTokenFee: 0}),
-                address(this)
+            bytes memory functionSignature = abi.encodeCall(
+                this.lzSend, (eid, message, options, MessagingFee({nativeFee: fee, lzTokenFee: 0}), address(this))
             );
             address(this).functionCallWithValue(functionSignature, fee);
         }
@@ -242,27 +238,28 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         uint32[] memory temp = new uint32[](input.length);
         uint256 uniqueCount = 0;
         bool found;
+        uint256 inputLength = input.length;
 
-        for (uint256 i = 0; i < input.length;) {
+        for (uint256 i = 0; i < inputLength;) {
             found = false;
             for (uint256 j = 0; j < uniqueCount;) {
                 if (temp[j] == input[i]) {
                     found = true;
                     unchecked {
-                        j++;
+                        ++j;
                     }
                     break;
                 }
                 unchecked {
-                    j++;
+                    ++j;
                 }
             }
             if (!found) {
                 temp[uniqueCount] = input[i];
-                uniqueCount++;
+                ++uniqueCount;
             }
             unchecked {
-                i++;
+                ++i;
             }
         }
 
@@ -270,7 +267,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         for (uint256 i = 0; i < uniqueCount;) {
             unique[i] = temp[i];
             unchecked {
-                i++;
+                ++i;
             }
         }
 

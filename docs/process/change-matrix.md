@@ -11,11 +11,11 @@
 ## Solidity Lint 策略
 
 - `npm run lint:sol` 由 `solhint.config.js`（`src/**/*.sol`）与 `solhint-test.config.js`（`test/**/*.sol`）组成；`quality:quick` 与 `quality:gate` 都会先执行它。
-- `src/**/*.sol` 当前已启用并要求全仓阻塞通过的规则，优先覆盖低噪音且有明确收益的项：`state-visibility`、`const-name-snakecase`、`interface-starts-with-i`、`gas-custom-errors`，以及 `avoid-low-level-calls`、`check-send-result`、`multiple-sends`。
+- `src/**/*.sol` 当前已启用并要求全仓阻塞通过的规则，优先覆盖低噪音且有明确收益的项：`state-visibility`、`const-name-snakecase`、`interface-starts-with-i`、`compiler-version`、`func-visibility`（`ignoreConstructors: true`）、`gas-custom-errors`、`gas-multitoken1155`，以及 `avoid-low-level-calls`、`check-send-result`、`multiple-sends`。
 - `avoid-low-level-calls`、`check-send-result`、`multiple-sends` 在 `src/**/*.sol` 中允许基于协议语义或兼容性需求做局部 `solhint-disable-next-line` 豁免；新增豁免时应在代码旁直接说明原因。
 - `gas-custom-errors` 在 `src/**/*.sol` 中默认开启；如果某些字符串 revert 需要保持外部兼容语义，应就地写局部豁免并说明原因，而不是全局关闭。
 - `test/**/*.sol` 采用 Foundry 兼容口径，额外关闭 `no-console`、`one-contract-per-file`、`avoid-low-level-calls`、`check-send-result`、`multiple-sends`、`gas-custom-errors`，避免测试辅助代码和多合约测试文件成为默认噪音。
-- 当前仍全局关闭的规则主要是三类：命名/风格遗留（如 `var-name-mixedcase`、`func-name-mixedcase`、`func-visibility`）、Foundry 或仓库模式兼容项（如 `no-empty-blocks`、`no-inline-assembly`、`import-path-check`、`max-states-count`）、以及暂未纳入门禁的其余 gas / NatSpec 项（如 `gas-calldata-parameters`、`gas-indexed-events`、`gas-small-strings`、`use-natspec`、`compiler-version`）。
+- 当前仍全局关闭的规则主要是三类：命名/风格遗留（如 `var-name-mixedcase`、`func-name-mixedcase`）、Foundry 或仓库模式兼容项（如 `no-empty-blocks`、`no-inline-assembly`、`import-path-check`、`max-states-count`）、以及暂未纳入门禁的其余 gas / NatSpec 项（如 `gas-indexed-events`、`gas-small-strings`、`use-natspec`）。
 - 若继续收紧 `solhint`，默认原则是先收 `src/**/*.sol`、先挑低命中低噪音规则、先修真实问题再上 gate，不一次性把历史命名或测试习惯全部拉入阻塞面。
 
 ## `src/**/*.sol`

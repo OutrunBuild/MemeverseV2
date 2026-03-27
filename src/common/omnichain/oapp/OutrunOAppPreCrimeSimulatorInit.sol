@@ -66,7 +66,8 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
     /// @dev Intended for verifier execution in preCrime flow.
     /// @param _packets Packets to replay through `_lzReceiveSimulate`.
     function lzReceiveAndRevert(InboundPacket[] calldata _packets) public payable virtual {
-        for (uint256 i = 0; i < _packets.length; i++) {
+        uint256 packetsLength = _packets.length;
+        for (uint256 i = 0; i < packetsLength; ++i) {
             InboundPacket calldata packet = _packets[i];
 
             // Ignore packets that are not from trusted peers.
