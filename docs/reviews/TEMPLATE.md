@@ -8,8 +8,8 @@
 ## Scope
 - Change summary:
 - Files reviewed:
-- Task Brief path:
-- Agent Report path:
+- Task Brief path: docs/briefs/<brief>.md
+- Agent Report path: docs/agent-reports/<report>.md
 - Implementation owner:
 - Writer dispatch confirmed: yes/no
 - Semantic dimensions reviewed:

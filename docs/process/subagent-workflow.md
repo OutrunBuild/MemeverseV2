@@ -114,6 +114,7 @@
 - `Review note impact`
 
 模板路径：`.codex/templates/task-brief.md`
+工件目录：`docs/briefs/`
 
 ### Agent Report 最少字段
 
@@ -127,6 +128,7 @@
 - `Residual risks`
 
 模板路径：`.codex/templates/agent-report.md`
+工件目录：`docs/agent-reports/`
 
 ## 5. 证据链
 
@@ -139,6 +141,8 @@
 - `quality:gate` 是唯一 finish gate
 - CI 只验证证据，不编排 agent
 - `review note` 在命中 `src/**/*.sol` 时是必需证据
+- `docs/plans/` 只保留 design / implementation plan / stage draft；`Task Brief` 与 `Agent Report` 不得再与其混放
+- `Task Brief path` 应回溯到 `docs/briefs/` 下的实际 brief；`Agent Report path` 应回溯到 `docs/agent-reports/` 下的实际 report
 - 已确认结论必须同时具备本地前提证据与必要的外部主来源证据
 - `Task Brief`、`Agent Report`、`review note` 的语义敏感字段必须能互相回溯，不能只有一处声明
 

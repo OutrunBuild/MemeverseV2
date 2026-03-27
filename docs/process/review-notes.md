@@ -2,6 +2,12 @@
 
 `docs/reviews/*.md` 默认是本地 review 草稿目录。命中 `src/**/*.sol` 时，`quality:gate` 在本地和 CI 下都要求至少 1 份有效 review note。
 
+三目录拆分约束：
+
+- `docs/plans/` 只放 design / implementation plan / stage draft / split draft
+- `docs/briefs/` 只放 `Task Brief`
+- `docs/agent-reports/` 只放 `Agent Report`
+
 本契约分为两层：
 
 - gate 强校验层：`required_headings`、`required_fields`、`boolean_fields`、`placeholder_values`
@@ -28,14 +34,10 @@
 - `## Verification`
 - `## Decision`
 
-## 必填字段（`review_note.required_fields`）
+## 必填字段（`review_note.required_fields` + `solidity_review_note.required_fields`）
 
 - `Change summary`
 - `Files reviewed`
-- `Task Brief path`
-- `Agent Report path`
-- `Implementation owner`
-- `Writer dispatch confirmed`
 - `Semantic dimensions reviewed`
 - `Source-of-truth docs checked`
 - `External facts checked`
@@ -60,6 +62,13 @@
 - `Results`
 - `Ready to commit`
 - `Residual risks`
+
+以下字段由 `solidity_review_note.required_fields` 额外约束，仅在 Solidity gate 中强校验：
+
+- `Task Brief path`
+- `Agent Report path`
+- `Implementation owner`
+- `Writer dispatch confirmed`
 
 ## 布尔字段（`review_note.boolean_fields`）
 
@@ -122,8 +131,10 @@ owner 语义以 `policy.json` 为机器可读真源。
 
 - `Task Brief path`
   - 必须指向存在的 brief 文件
+  - 必须位于 `docs/briefs/`
 - `Agent Report path`
   - 必须指向存在的 agent report 文件
+  - 必须位于 `docs/agent-reports/`
   - 其 `Role` 必须与 `Implementation owner` 一致
 - `Implementation owner`
   - 必须与 `policy.json` 中该路径命中的 required writer role 一致
@@ -175,5 +186,7 @@ owner 语义以 `policy.json` 为机器可读真源。
 ## 使用方式
 
 - 以 `docs/reviews/TEMPLATE.md` 新建 review note
+- `Task Brief path` 应填写 `docs/briefs/<brief>.md`
+- `Agent Report path` 应填写 `docs/agent-reports/<report>.md`
 - 仅校验结构可运行：`bash ./script/process/check-review-note.sh <review-note>`
 - 需要联动 `rule-map` 证据时运行：`bash ./script/process/check-solidity-review-note.sh`

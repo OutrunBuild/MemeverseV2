@@ -45,6 +45,8 @@ cat > "$policy_file" <<EOF
     "main_session_role": "main-orchestrator",
     "default_roles": ["process-implementer", "verifier"],
     "on_demand_roles": ["solidity-explorer"],
+    "task_brief_directory": "docs/briefs",
+    "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
@@ -55,6 +57,18 @@ cat > "$policy_file" <<EOF
   }
 }
 EOF
+
+task_brief_directory="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy agents.task_brief_directory)"
+if [ "$task_brief_directory" != "docs/briefs" ]; then
+    echo "Expected read-process-config to resolve agents.task_brief_directory"
+    exit 1
+fi
+
+agent_report_directory="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy agents.agent_report_directory)"
+if [ "$agent_report_directory" != "docs/agent-reports" ]; then
+    echo "Expected read-process-config to resolve agents.agent_report_directory"
+    exit 1
+fi
 
 cat > "$rule_map_file" <<'EOF'
 {
@@ -314,12 +328,14 @@ cat > "$malformed_roles_policy_file" <<'EOF'
     "main_session_role": "main-orchestrator",
     "default_roles": "process-implementer",
     "on_demand_roles": ["verifier"],
+    "task_brief_directory": "docs/briefs",
+    "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -355,12 +371,14 @@ cat > "$check_docs_policy_file" <<'EOF'
     "main_session_role": "main-orchestrator",
     "default_roles": ["process-implementer", "verifier"],
     "on_demand_roles": ["solidity-explorer"],
+    "task_brief_directory": "docs/briefs",
+    "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -396,12 +414,14 @@ cat > "$check_docs_policy_file" <<'EOF'
     "main_session_role": "main-orchestrator",
     "default_roles": ["process-implementer", "verifier"],
     "on_demand_roles": ["solidity-explorer"],
+    "task_brief_directory": "docs/briefs",
+    "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF

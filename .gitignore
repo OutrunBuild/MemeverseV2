@@ -17,6 +17,10 @@ docs/book/
 docs/src/
 docs/contracts/
 docs/plans/
+docs/briefs/*.md
+!docs/briefs/README.md
+docs/agent-reports/*.md
+!docs/agent-reports/README.md
 docs/reviews/*.md
 !docs/reviews/README.md
 !docs/reviews/TEMPLATE.md

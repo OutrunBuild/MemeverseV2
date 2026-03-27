@@ -36,11 +36,26 @@ load_role_array() {
     mapfile -t "$__target" <<< "$output"
 }
 
+find_misplaced_artifacts() {
+    local expected_heading="$1"
+    local file
+    local first_nonempty_line
+
+    while IFS= read -r -d '' file; do
+        first_nonempty_line="$(awk 'NF { print; exit }' "$file")"
+        if [ "$first_nonempty_line" = "$expected_heading" ]; then
+            printf '%s\n' "$file"
+        fi
+    done < <(find docs/plans -type f -name '*.md' -print0)
+}
+
 task_brief_template="$(read_policy_value agents.task_brief_template '.codex/templates/task-brief.md')"
 agent_report_template="$(read_policy_value agents.agent_report_template '.codex/templates/agent-report.md')"
+task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/briefs')"
+agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
 agent_directory="$(read_policy_value agents.agent_directory '.codex/agents')"
 main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
-docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
+docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
 
 load_role_array agents.default_roles default_roles
 load_role_array agents.on_demand_roles on_demand_roles
@@ -51,6 +66,8 @@ required_harness_support_files=(
     "docs/process/subagent-workflow.md"
     "docs/reviews/README.md"
     "docs/reviews/TEMPLATE.md"
+    "$task_brief_directory/README.md"
+    "$agent_report_directory/README.md"
     "$task_brief_template"
     "$agent_report_template"
     "$agent_directory/README.md"
@@ -95,6 +112,13 @@ for path in "${required_harness_support_files[@]}"; do
 
     if [[ ! "$path" =~ $docs_contract_pattern ]]; then
         echo "Policy docs_contract_pattern does not cover required harness file: $path"
+        exit 1
+    fi
+done
+
+for directory in "$task_brief_directory" "$agent_report_directory"; do
+    if [ ! -d "$directory" ]; then
+        echo "Expected artifact directory missing: $directory"
         exit 1
     fi
 done
@@ -162,3 +186,19 @@ for toml_path in "${agent_manifests[@]}"; do
         exit 1
     fi
 done
+
+while IFS= read -r misplaced_brief; do
+    if [ -n "$misplaced_brief" ]; then
+        echo "[check-docs] ERROR: Task Brief must not live under docs/plans: $misplaced_brief"
+        exit 1
+    fi
+done < <(find_misplaced_artifacts '# Task Brief')
+
+while IFS= read -r misplaced_report; do
+    if [ -n "$misplaced_report" ]; then
+        echo "[check-docs] ERROR: Agent Report must not live under docs/plans: $misplaced_report"
+        exit 1
+    fi
+done < <(find_misplaced_artifacts '# Agent Report')
+
+echo "[check-docs] PASS"

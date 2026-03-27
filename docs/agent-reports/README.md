@@ -1,0 +1,9 @@
+# Agent Reports
+
+本目录只存放 `Agent Report` 工件。
+
+Rules:
+- 使用 `.codex/templates/agent-report.md` 作为模板
+- `docs/plans/` 只保留设计文档、实现计划、阶段方案、拆分草案，不再承载 `Agent Report`
+- 命中需要落盘 report 的流程时，`Agent Report path` 必须指向本目录下的实际文件
+- 文件名建议包含日期、角色与主题，例如 `2026-03-27-process-implementer-three-directory-split.md`

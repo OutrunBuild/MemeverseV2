@@ -10,6 +10,9 @@
 - `test/`：Foundry 测试
 - `script/`：部署脚本与流程脚本
 - `docs/process/`：流程契约与机器可读规则
+- `docs/plans/`：设计文档、实现计划、阶段方案、拆分草案
+- `docs/briefs/`：本地 `Task Brief` 工件
+- `docs/agent-reports/`：本地 `Agent Report` 工件
 - `.codex/agents/`：角色 manifest（`*.toml`）与运行时契约（`*.md`）
 - `.codex/templates/`：`Task Brief` 与 `Agent Report` 模板
 
@@ -166,7 +169,9 @@
 
 ## 8. Local-Only Files
 
-- `docs/plans/` 默认本地规划目录
+- `docs/plans/` 默认本地规划目录，仅放设计文档、实现计划、阶段方案、拆分草案
+- `docs/briefs/` 默认本地 `Task Brief` 目录
+- `docs/agent-reports/` 默认本地 `Agent Report` 目录
 - `docs/reviews/` 默认本地 review 草稿目录（是否提交由团队策略决定）
 
 ## 9. Documentation Language

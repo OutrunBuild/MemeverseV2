@@ -99,10 +99,12 @@ agent_report_field="$(read_policy_value solidity_review_note.agent_report_field 
 implementation_owner_field="$(read_policy_value solidity_review_note.implementation_owner_field 'Implementation owner')"
 writer_dispatch_confirmed_field="$(read_policy_value solidity_review_note.writer_dispatch_confirmed_field 'Writer dispatch confirmed')"
 required_writer_patterns_json="$(read_policy_value agents.required_writer_for_patterns '{}')"
+task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/briefs')"
+agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
 main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
 main_session_forbidden_patterns_json="$(read_policy_value agents.main_session_forbidden_write_patterns '[]')"
 
-RULE_MAP_PATH="$rule_map_path" RULE_MAP_EVIDENCE_FIELD="$rule_map_evidence_field" REVIEW_FIELD_OWNERS="$field_owners_json" REVIEW_OWNER_PREFIXED_FIELDS="$owner_prefixed_fields_json" SOLIDITY_REQUIRED_FIELDS="$solidity_required_fields_json" SOLIDITY_BOOLEAN_FIELDS="$solidity_boolean_fields_json" TASK_BRIEF_FIELD="$task_brief_field" AGENT_REPORT_FIELD="$agent_report_field" IMPLEMENTATION_OWNER_FIELD="$implementation_owner_field" WRITER_DISPATCH_CONFIRMED_FIELD="$writer_dispatch_confirmed_field" REQUIRED_WRITER_PATTERNS="$required_writer_patterns_json" MAIN_SESSION_ROLE="$main_session_role" MAIN_SESSION_FORBIDDEN_PATTERNS="$main_session_forbidden_patterns_json" node - "$review_note" "$changed_files_tmp" <<'EOF'
+RULE_MAP_PATH="$rule_map_path" RULE_MAP_EVIDENCE_FIELD="$rule_map_evidence_field" REVIEW_FIELD_OWNERS="$field_owners_json" REVIEW_OWNER_PREFIXED_FIELDS="$owner_prefixed_fields_json" SOLIDITY_REQUIRED_FIELDS="$solidity_required_fields_json" SOLIDITY_BOOLEAN_FIELDS="$solidity_boolean_fields_json" TASK_BRIEF_FIELD="$task_brief_field" AGENT_REPORT_FIELD="$agent_report_field" IMPLEMENTATION_OWNER_FIELD="$implementation_owner_field" WRITER_DISPATCH_CONFIRMED_FIELD="$writer_dispatch_confirmed_field" REQUIRED_WRITER_PATTERNS="$required_writer_patterns_json" TASK_BRIEF_DIRECTORY="$task_brief_directory" AGENT_REPORT_DIRECTORY="$agent_report_directory" MAIN_SESSION_ROLE="$main_session_role" MAIN_SESSION_FORBIDDEN_PATTERNS="$main_session_forbidden_patterns_json" node - "$review_note" "$changed_files_tmp" <<'EOF'
 const fs = require('fs');
 const childProcess = require('child_process');
 const path = require('path');
@@ -115,6 +117,8 @@ const ownerPrefixedFields = JSON.parse(process.env.REVIEW_OWNER_PREFIXED_FIELDS 
 const solidityRequiredFields = JSON.parse(process.env.SOLIDITY_REQUIRED_FIELDS || '[]');
 const solidityBooleanFields = JSON.parse(process.env.SOLIDITY_BOOLEAN_FIELDS || '[]');
 const requiredWriterPatterns = JSON.parse(process.env.REQUIRED_WRITER_PATTERNS || '{}');
+const configuredTaskBriefDirectory = process.env.TASK_BRIEF_DIRECTORY || 'docs/briefs';
+const configuredAgentReportDirectory = process.env.AGENT_REPORT_DIRECTORY || 'docs/agent-reports';
 const mainSessionForbiddenPatterns = JSON.parse(process.env.MAIN_SESSION_FORBIDDEN_PATTERNS || '[]');
 const taskBriefField = process.env.TASK_BRIEF_FIELD || 'Task Brief path';
 const agentReportField = process.env.AGENT_REPORT_FIELD || 'Agent Report path';
@@ -193,6 +197,11 @@ if (taskBriefPath !== '') {
   const resolvedTaskBriefPath = path.resolve(taskBriefPath);
   if (!fs.existsSync(resolvedTaskBriefPath)) {
     failures.push(`${taskBriefField}: '${taskBriefPath}' does not exist.`);
+  } else {
+    const resolvedTaskBriefDirectory = path.resolve(configuredTaskBriefDirectory);
+    if (!(resolvedTaskBriefPath === resolvedTaskBriefDirectory || resolvedTaskBriefPath.startsWith(`${resolvedTaskBriefDirectory}${path.sep}`))) {
+      failures.push(`${taskBriefField}: '${taskBriefPath}' must live under the configured brief directory '${configuredTaskBriefDirectory}'.`);
+    }
   }
 }
 
@@ -200,8 +209,11 @@ const implementationOwner = extractField(reviewNote, implementationOwnerField).t
 const agentReportPath = extractField(reviewNote, agentReportField).trim();
 if (agentReportPath !== '') {
   const resolvedAgentReportPath = path.resolve(agentReportPath);
+  const resolvedAgentReportDirectory = path.resolve(configuredAgentReportDirectory);
   if (!fs.existsSync(resolvedAgentReportPath)) {
     failures.push(`${agentReportField}: '${agentReportPath}' does not exist.`);
+  } else if (!(resolvedAgentReportPath === resolvedAgentReportDirectory || resolvedAgentReportPath.startsWith(`${resolvedAgentReportDirectory}${path.sep}`))) {
+    failures.push(`${agentReportField}: '${agentReportPath}' must live under the configured agent-report directory '${configuredAgentReportDirectory}'.`);
   } else {
     const agentReport = fs.readFileSync(resolvedAgentReportPath, 'utf8');
     const agentReportRole = extractField(agentReport, 'Role').trim();

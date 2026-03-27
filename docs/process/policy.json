@@ -50,6 +50,8 @@
     "field_owners": {
       "Change summary": "solidity-implementer|process-implementer",
       "Files reviewed": "solidity-implementer|process-implementer|verifier",
+      "Task Brief path": "main-orchestrator",
+      "Agent Report path": "main-orchestrator",
       "Semantic dimensions reviewed": "main-orchestrator",
       "Source-of-truth docs checked": "main-orchestrator",
       "External facts checked": "main-orchestrator",
@@ -154,7 +156,7 @@
       "^src/.*\\.sol$": "solidity-implementer",
       "^test/.*\\.sol$": "solidity-implementer",
       "^test/.*\\.t\\.sol$": "solidity-implementer",
-      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$": "process-implementer",
+      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$": "process-implementer",
       "^(script/.*\\.sh|\\.githooks/.*)$": "process-implementer"
     },
     "default_roles": [
@@ -168,6 +170,8 @@
       "solidity-explorer",
       "security-test-writer"
     ],
+    "task_brief_directory": "docs/briefs",
+    "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
     "agent_directory": ".codex/agents"
@@ -180,7 +184,7 @@
     "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
     "package_pattern": "^(package\\.json|package-lock\\.json)$",
     "lint_command": "npm run lint:sol",
-    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
+    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",

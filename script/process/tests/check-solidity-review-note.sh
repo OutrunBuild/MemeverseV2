@@ -6,11 +6,16 @@ cd "$repo_root"
 
 tmp_dir="$(mktemp -d)"
 review_dir="$tmp_dir/reviews"
+brief_dir="$tmp_dir/briefs"
+agent_report_dir="$tmp_dir/agent-reports"
 policy_file="$tmp_dir/policy.json"
 rule_map_file="$tmp_dir/rule-map.json"
 changed_files_path="$tmp_dir/changed-files.txt"
 review_file="$review_dir/2026-03-12-example-review.md"
-agent_report_file="$tmp_dir/agent-report.md"
+task_brief_file="$brief_dir/2026-03-12-example-brief.md"
+agent_report_file="$agent_report_dir/2026-03-12-example-report.md"
+outside_task_brief_file="$tmp_dir/outside-task-brief.md"
+outside_agent_report_file="$tmp_dir/outside-agent-report.md"
 staged_deleted_src="src/swap/MemeverseSwapRouter.sol"
 staged_deleted_mapped_test="test/swap/MemeverseSwapRouterInterface.t.sol"
 temp_index="$tmp_dir/staged-deletion.index"
@@ -21,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$review_dir"
+mkdir -p "$review_dir" "$brief_dir" "$agent_report_dir"
 
 cat > "$policy_file" <<EOF
 {
@@ -107,6 +112,8 @@ cat > "$policy_file" <<EOF
     "required_sections": []
   },
   "agents": {
+    "task_brief_directory": "$brief_dir",
+    "agent_report_directory": "$agent_report_dir",
     "main_session_role": "main-orchestrator",
     "main_session_forbidden_write_patterns": [
       "^src/.*\\\\.sol$",
@@ -125,11 +132,51 @@ cat > "$policy_file" <<EOF
 }
 EOF
 
+cat > "$task_brief_file" <<'EOF'
+# Task Brief
+
+- Goal: example
+- Change type: test
+- Files in scope: src/Example.sol
+- Risks to check: none
+- Required roles: solidity-implementer, verifier
+- Optional roles: none
+- Default writer: solidity-implementer
+- Write permissions: src/Example.sol
+- Non-goals: none
+- Acceptance checks: bash ./script/process/check-solidity-review-note.sh
+- Semantic review dimensions: none
+- Source-of-truth docs: AGENTS.md
+- External sources required: none
+- Critical assumptions to prove or reject: none
+- Required output fields: Role, Summary
+- Review note impact: yes
+EOF
+
+cat > "$outside_task_brief_file" <<'EOF'
+# Task Brief
+
+- Goal: outside brief
+EOF
+
 cat > "$agent_report_file" <<'EOF'
 # Agent Report
 
 - Role: solidity-implementer
 - Summary: ok
+- Files touched/reviewed: src/Example.sol
+- Findings: none
+- Required follow-up: none
+- Commands run: forge test -vvv
+- Evidence: tests
+- Residual risks: none
+EOF
+
+cat > "$outside_agent_report_file" <<'EOF'
+# Agent Report
+
+- Role: solidity-implementer
+- Summary: outside dir
 - Files touched/reviewed: src/Example.sol
 - Findings: none
 - Required follow-up: none
@@ -246,6 +293,7 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
@@ -311,11 +359,49 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-solidity-review-note.sh
 
 printf '%s\n' "src/Example.sol" > "$changed_files_path"
+
+sed -i "s|$agent_report_file|$outside_agent_report_file|g" "$review_file"
+
+set +e
+outside_agent_report_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+outside_agent_report_status=$?
+set -e
+
+if [ "$outside_agent_report_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail when Agent Report path is outside the configured agent-report directory"
+    exit 1
+fi
+
+if ! printf '%s\n' "$outside_agent_report_output" | grep -q "Agent Report path"; then
+    echo "Expected outside agent-report output to reference Agent Report path"
+    printf '%s\n' "$outside_agent_report_output"
+    exit 1
+fi
+
+sed -i "s|$outside_agent_report_file|$agent_report_file|g" "$review_file"
+sed -i "s|$task_brief_file|$outside_task_brief_file|g" "$review_file"
+
+set +e
+outside_task_brief_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+outside_task_brief_status=$?
+set -e
+
+if [ "$outside_task_brief_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail when Task Brief path is outside the configured brief directory"
+    exit 1
+fi
+
+if ! printf '%s\n' "$outside_task_brief_output" | grep -q "Task Brief path"; then
+    echo "Expected outside task-brief output to reference Task Brief path"
+    printf '%s\n' "$outside_task_brief_output"
+    exit 1
+fi
 
 cat > "$review_file" <<'EOF'
 # review-note
@@ -376,6 +462,7 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 set +e
@@ -466,6 +553,7 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 set +e
@@ -556,6 +644,7 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 set +e
@@ -629,6 +718,7 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 set +e
@@ -706,6 +796,7 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
@@ -768,6 +859,10 @@ cat > "$malformed_policy_file" <<EOF
   },
   "pull_request": {
     "required_sections": []
+  },
+  "agents": {
+    "task_brief_directory": "$brief_dir",
+    "agent_report_directory": "$agent_report_dir"
   },
   "quality_gate": {
     "review_note_directory": "$review_dir"
@@ -891,6 +986,7 @@ cat > "$agent_report_file" <<EOF
 - Residual risks: none
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 rm -f "$temp_index"
@@ -972,6 +1068,7 @@ cat > "$review_file" <<EOF
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 GIT_INDEX_FILE="$temp_index" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
@@ -1072,6 +1169,7 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|.codex/templates/task-brief.md|$task_brief_file|g" "$review_file"
 sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh

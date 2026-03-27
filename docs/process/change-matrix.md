@@ -112,14 +112,21 @@
 - `npm ci`
 - `npm run docs:check`
 
+## 本地工件三目录
+
+- `docs/plans/**`：只保留 design doc、implementation plan、stage draft、split draft 等本地规划材料，不承载 `Task Brief` 或 `Agent Report`
+- `docs/briefs/**`：只存放 `Task Brief`；命中需要落盘 brief 的流程时，路径应回溯到本目录；仓库默认本地忽略 `docs/briefs/*.md`，但保留 `docs/briefs/README.md`
+- `docs/agent-reports/**`：只存放 `Agent Report`；命中需要落盘 report 的流程时，路径应回溯到本目录；仓库默认本地忽略 `docs/agent-reports/*.md`，但保留 `docs/agent-reports/README.md`
+
 ## Harness / Process 表面
 
-命中 `AGENTS.md`、`README.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`docs/reviews/README.md`、`.github/pull_request_template.md`、`.codex/**` 时：
+命中 `AGENTS.md`、`README.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`docs/reviews/README.md`、`docs/briefs/**`、`docs/agent-reports/**`、`.github/pull_request_template.md`、`.codex/**` 时：
 
 - 默认写入角色：`process-implementer`
 - 默认验证角色：`verifier`
 - 评审顺序遵循 Harness 契约：`main-orchestrator` -> `verifier`
 - 至少执行：`npm run docs:check`
+- 命中 `docs/briefs/**` 或 `docs/agent-reports/**` 时，仍受本地工件三目录约束：`docs/plans/` 不回退承载 brief/report，且目录内 `README.md` 之外的 `*.md` 默认按 local-only 管理
 
 ## Pull Request
 

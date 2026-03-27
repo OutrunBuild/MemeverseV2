@@ -5,6 +5,8 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 tests=(
+    "script/process/tests/check-docs.sh"
+    "script/process/tests/check-local-doc-artifacts-ignore.sh"
     "script/process/tests/check-coverage.sh"
     "script/process/tests/check-gas-report.sh"
     "script/process/tests/check-natspec.sh"
