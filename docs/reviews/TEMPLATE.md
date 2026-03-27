@@ -8,6 +8,10 @@
 ## Scope
 - Change summary:
 - Files reviewed:
+- Task Brief path:
+- Agent Report path:
+- Implementation owner:
+- Writer dispatch confirmed: yes/no
 - Semantic dimensions reviewed:
 - Source-of-truth docs checked:
 - External facts checked:

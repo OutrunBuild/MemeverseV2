@@ -35,8 +35,11 @@
 ### Main Session
 
 - 主会话默认角色是 `main-orchestrator`
-- `main-orchestrator` 负责 intake、任务拆分、ownership 分配、证据汇总、block 判定
-- `main-orchestrator` 默认不写 `src/**/*.sol`、`test/**/*.sol`、`script/**/*.sh`
+- `main-orchestrator` 只负责 intake、任务拆分、ownership 分配、证据汇总、block 判定
+- `main-orchestrator` 不得直接写 `src/**/*.sol`、`test/**/*.sol`、`script/**/*.sh`
+- 命中上述路径时，必须先派发对应 writer role；未成功派发前不得开始实现
+- 若 writer role 未成功派发，主会话必须停止并请求人工决策，不能降级为直接实现者
+- 主会话直接写入上述路径视为流程违规，不得进入 verification / decision / finish
 
 ### Default Roles
 
@@ -82,6 +85,8 @@
 
 - Solidity 面由 `solidity-implementer` 在授权边界内写入
 - 非 Solidity 面由 `process-implementer` 在授权边界内写入
+- 命中 `src/**/*.sol` 或 `test/**/*.sol` 的任务，必须先有 `Task Brief`，且其中明确 `Default writer` 与 `Write permissions`
+- 未完成 role dispatch，不得开始 Solidity 实现
 - 复杂分支、状态迁移、资金/权限判断、关键外部调用、非直观数学等实现必须补充适当的方法内注释，说明意图、前置条件或安全假设；禁止噪音式逐行注释
 - 未重派发不得扩展到 ownership 外路径
 

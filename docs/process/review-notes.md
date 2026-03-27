@@ -32,6 +32,10 @@
 
 - `Change summary`
 - `Files reviewed`
+- `Task Brief path`
+- `Agent Report path`
+- `Implementation owner`
+- `Writer dispatch confirmed`
 - `Semantic dimensions reviewed`
 - `Source-of-truth docs checked`
 - `External facts checked`
@@ -69,6 +73,7 @@
 
 默认 owner 语义：
 
+- `Task Brief path`、`Agent Report path`、`Implementation owner`、`Writer dispatch confirmed` 由 `main-orchestrator` 填写，用于证明该 Solidity 变更先有 brief，且 writer role 已按仓库契约派发并产出对应实现工件
 - `Semantic dimensions reviewed`、`Source-of-truth docs checked`、`External facts checked`、`Semantic alignment summary` 由 `main-orchestrator` 汇总填写
 - `Local control-flow facts checked`、`Evidence chain complete` 由 `main-orchestrator` 在复核关键代码行、关键前提和必要的外部主来源后填写
 - 安全字段（`Security review summary`、`Security residual risks`）由 `security-reviewer` 提供
@@ -110,6 +115,22 @@ owner 语义以 `policy.json` 为机器可读真源。
 - `mode = none`：不要求额外映射测试
 
 `Rule-map evidence source` 用于记录对应 rule id / 测试路径来源，便于追溯；当前 gate 仍以 `Existing tests exercised` 为硬校验入口。
+
+## Solidity 写入 ownership 证据
+
+命中 `src/**/*.sol` 或 `test/**/*.sol` 时，`check-solidity-review-note.sh` 还会额外校验以下字段：
+
+- `Task Brief path`
+  - 必须指向存在的 brief 文件
+- `Agent Report path`
+  - 必须指向存在的 agent report 文件
+  - 其 `Role` 必须与 `Implementation owner` 一致
+- `Implementation owner`
+  - 必须与 `policy.json` 中该路径命中的 required writer role 一致
+- `Writer dispatch confirmed`
+  - 必须为 `yes`
+
+若变更路径命中 `main_session_forbidden_write_patterns`，`Implementation owner` 不得等于 `main_session_role`。
 
 ## 防误报 / 证据链规则
 

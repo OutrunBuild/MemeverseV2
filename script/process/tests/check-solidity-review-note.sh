@@ -10,6 +10,7 @@ policy_file="$tmp_dir/policy.json"
 rule_map_file="$tmp_dir/rule-map.json"
 changed_files_path="$tmp_dir/changed-files.txt"
 review_file="$review_dir/2026-03-12-example-review.md"
+agent_report_file="$tmp_dir/agent-report.md"
 staged_deleted_src="src/swap/MemeverseSwapRouter.sol"
 staged_deleted_mapped_test="test/swap/MemeverseSwapRouterInterface.t.sol"
 temp_index="$tmp_dir/staged-deletion.index"
@@ -87,13 +88,54 @@ cat > "$policy_file" <<EOF
       "Rule-map evidence source"
     ]
   },
+  "solidity_review_note": {
+    "required_fields": [
+      "Task Brief path",
+      "Agent Report path",
+      "Implementation owner",
+      "Writer dispatch confirmed"
+    ],
+    "boolean_fields": [
+      "Writer dispatch confirmed"
+    ],
+    "task_brief_field": "Task Brief path",
+    "agent_report_field": "Agent Report path",
+    "implementation_owner_field": "Implementation owner",
+    "writer_dispatch_confirmed_field": "Writer dispatch confirmed"
+  },
   "pull_request": {
     "required_sections": []
+  },
+  "agents": {
+    "main_session_role": "main-orchestrator",
+    "main_session_forbidden_write_patterns": [
+      "^src/.*\\\\.sol$",
+      "^test/.*\\\\.sol$",
+      "^test/.*\\\\.t\\\\.sol$"
+    ],
+    "required_writer_for_patterns": {
+      "^src/.*\\\\.sol$": "solidity-implementer",
+      "^test/.*\\\\.sol$": "solidity-implementer",
+      "^test/.*\\\\.t\\\\.sol$": "solidity-implementer"
+    }
   },
   "quality_gate": {
     "review_note_directory": "$review_dir"
   }
 }
+EOF
+
+cat > "$agent_report_file" <<'EOF'
+# Agent Report
+
+- Role: solidity-implementer
+- Summary: ok
+- Files touched/reviewed: src/Example.sol
+- Findings: none
+- Required follow-up: none
+- Commands run: forge test -vvv
+- Evidence: tests
+- Residual risks: none
 EOF
 
 cat > "$rule_map_file" <<'EOF'
@@ -146,6 +188,10 @@ cat > "$review_file" <<'EOF'
 ## Scope
 - Change summary: ok
 - Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -200,6 +246,8 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
 PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
 
 rm -f "$review_file"
@@ -210,6 +258,10 @@ cat > "$review_file" <<'EOF'
 ## Scope
 - Change summary: ok
 - Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -259,9 +311,252 @@ cat > "$review_file" <<'EOF'
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
 PROCESS_POLICY_FILE="$policy_file" bash ./script/process/check-solidity-review-note.sh
 
 printf '%s\n' "src/Example.sol" > "$changed_files_path"
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: main-orchestrator
+- Writer dispatch confirmed: yes
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: no critical issues.
+- Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: Example.execute
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/MappedEvidence.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+- Verification evidence source: verifier: forge test -vvv
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
+EOF
+
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
+set +e
+owner_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+owner_status=$?
+set -e
+
+if [ "$owner_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail when Implementation owner matches forbidden main session role"
+    exit 1
+fi
+
+if ! printf '%s\n' "$owner_output" | grep -q "Implementation owner"; then
+    echo "Expected implementation-owner failure output"
+    printf '%s\n' "$owner_output"
+    exit 1
+fi
+
+cat > "$agent_report_file" <<'EOF'
+# Agent Report
+
+- Role: process-implementer
+- Summary: wrong role
+- Files touched/reviewed: src/Example.sol
+- Findings: none
+- Required follow-up: none
+- Commands run: forge test -vvv
+- Evidence: tests
+- Residual risks: none
+EOF
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: no critical issues.
+- Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: Example.execute
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/MappedEvidence.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+- Verification evidence source: verifier: forge test -vvv
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
+EOF
+
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
+set +e
+agent_report_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+agent_report_status=$?
+set -e
+
+if [ "$agent_report_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail when Agent Report role mismatches Implementation owner"
+    exit 1
+fi
+
+if ! printf '%s\n' "$agent_report_output" | grep -q "Agent Report path"; then
+    echo "Expected agent-report mismatch failure output"
+    printf '%s\n' "$agent_report_output"
+    exit 1
+fi
+
+cat > "$agent_report_file" <<'EOF'
+# Agent Report
+
+- Role: solidity-implementer
+- Summary: ok
+- Files touched/reviewed: src/Example.sol
+- Findings: none
+- Required follow-up: none
+- Commands run: forge test -vvv
+- Evidence: tests
+- Residual risks: none
+EOF
+
+cat > "$review_file" <<'EOF'
+# review-note
+
+## Scope
+- Change summary: ok
+- Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
+
+## Impact
+- Behavior change: no
+- ABI change: no
+- Storage layout change: no
+- Config change: no
+
+## Findings
+- High findings: none.
+- Medium findings: none.
+- Low findings: none.
+- None: none.
+- Security review summary: no critical issues.
+- Security residual risks: none.
+- Security evidence source: security-reviewer: docs/reviews/security-pass.md
+
+## Simplification
+- Candidate simplifications considered: none.
+- Applied: none.
+- Rejected (with reason): none.
+
+## Gas
+- Gas-sensitive paths reviewed: Example.execute
+- Gas changes applied: none.
+- Gas snapshot/result: unchanged.
+- Gas residual risks: none.
+- Gas evidence source: gas-reviewer: docs/reviews/gas-pass.md
+
+## Docs
+- Docs updated: none
+- Why these docs: none.
+- No-doc reason: none.
+
+## Tests
+- Tests updated: none
+- Existing tests exercised: test/Example.t.sol
+- No-test-change reason: none.
+
+## Verification
+- Commands run: forge test -vvv
+- Results: pass
+- Verification evidence source: verifier: forge test -vvv
+
+## Decision
+- Ready to commit: yes
+- Residual risks: none.
+- Decision evidence source: main-orchestrator: local decision summary
+EOF
+
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 set +e
 evidence_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
@@ -285,6 +580,10 @@ cat > "$review_file" <<'EOF'
 ## Scope
 - Change summary: ok
 - Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -330,6 +629,8 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 EOF
 
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
 set +e
 missing_source_output="$(PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh 2>&1)"
 missing_source_status=$?
@@ -352,6 +653,10 @@ cat > "$review_file" <<'EOF'
 ## Scope
 - Change summary: ok
 - Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -400,6 +705,8 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
+
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
 
@@ -518,6 +825,10 @@ cat > "$review_file" <<EOF
 ## Scope
 - Change summary: ok
 - Files reviewed: $staged_deleted_src
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -567,6 +878,21 @@ cat > "$review_file" <<EOF
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+cat > "$agent_report_file" <<EOF
+# Agent Report
+
+- Role: solidity-implementer
+- Summary: staged delete
+- Files touched/reviewed: $staged_deleted_src
+- Findings: none
+- Required follow-up: none
+- Commands run: forge test -vvv
+- Evidence: tests
+- Residual risks: none
+EOF
+
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
 rm -f "$temp_index"
 GIT_INDEX_FILE="$temp_index" git read-tree HEAD
 GIT_INDEX_FILE="$temp_index" git update-index --force-remove "$staged_deleted_src"
@@ -593,6 +919,10 @@ cat > "$review_file" <<EOF
 ## Scope
 - Change summary: ok
 - Files reviewed: $staged_deleted_src
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -642,6 +972,8 @@ cat > "$review_file" <<EOF
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
 
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
+
 GIT_INDEX_FILE="$temp_index" PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh
 
 cat > "$rule_map_file" <<'EOF'
@@ -668,12 +1000,29 @@ cat > "$rule_map_file" <<'EOF'
 }
 EOF
 
+cat > "$agent_report_file" <<'EOF'
+# Agent Report
+
+- Role: solidity-implementer
+- Summary: ok
+- Files touched/reviewed: src/Example.sol
+- Findings: none
+- Required follow-up: none
+- Commands run: forge test -vvv
+- Evidence: tests
+- Residual risks: none
+EOF
+
 cat > "$review_file" <<'EOF'
 # review-note
 
 ## Scope
 - Change summary: ok
 - Files reviewed: src/Example.sol
+- Task Brief path: .codex/templates/task-brief.md
+- Agent Report path: __AGENT_REPORT_PATH__
+- Implementation owner: solidity-implementer
+- Writer dispatch confirmed: yes
 
 ## Impact
 - Behavior change: no
@@ -722,5 +1071,7 @@ cat > "$review_file" <<'EOF'
 - Residual risks: none.
 - Decision evidence source: main-orchestrator: local decision summary
 EOF
+
+sed -i "s|__AGENT_REPORT_PATH__|$agent_report_file|g" "$review_file"
 
 PROCESS_POLICY_FILE="$policy_file" PROCESS_RULE_MAP_FILE="$rule_map_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/check-solidity-review-note.sh

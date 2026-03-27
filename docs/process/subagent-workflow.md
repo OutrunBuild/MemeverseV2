@@ -62,6 +62,9 @@
 
 - Solidity 写入仅由 `solidity-implementer`（单写 owner）
 - 非 Solidity 写入仅由 `process-implementer`
+- 命中 `src/**/*.sol` 或 `test/**/*.sol` 的任务，必须先有 `Task Brief`，且其中明确 `Default writer` 与 `Write permissions`
+- 未完成对应 writer role 派发前，不得开始 Solidity 实现
+- `main-orchestrator` 不得降级为 Solidity 直接实现者；writer role 派发失败时只能停止并请求人工决策
 - 复杂分支、状态迁移、资金/权限判断、关键外部调用、非直观数学等实现必须补充适当的方法内注释，说明意图、前置条件或安全假设
 - 未重派发不得扩写路径
 
@@ -144,6 +147,9 @@
 ### Hard-block
 
 - `verifier` 任一 required command 失败
+- `main-orchestrator` 直接写入 `src/**/*.sol` 或 `test/**/*.sol`
+- 命中受限 ownership 路径但未成功派发对应 writer role
+- 缺少 `Task Brief` 就开始 Solidity 实现
 - Solidity 任务缺失 `security-reviewer` 或 `gas-reviewer` 结论
 - 存在未关闭 `high` 安全 finding
 - required artifact 缺失（含 required review note）

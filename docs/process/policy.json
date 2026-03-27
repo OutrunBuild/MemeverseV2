@@ -100,6 +100,21 @@
       "yes/no"
     ]
   },
+  "solidity_review_note": {
+    "required_fields": [
+      "Task Brief path",
+      "Agent Report path",
+      "Implementation owner",
+      "Writer dispatch confirmed"
+    ],
+    "boolean_fields": [
+      "Writer dispatch confirmed"
+    ],
+    "task_brief_field": "Task Brief path",
+    "agent_report_field": "Agent Report path",
+    "implementation_owner_field": "Implementation owner",
+    "writer_dispatch_confirmed_field": "Writer dispatch confirmed"
+  },
   "pull_request": {
     "required_sections": [
       "## Summary",
@@ -124,6 +139,24 @@
   },
   "agents": {
     "main_session_role": "main-orchestrator",
+    "main_session_forbidden_write_patterns": [
+      "^src/.*\\.sol$",
+      "^test/.*\\.sol$",
+      "^test/.*\\.t\\.sol$",
+      "^script/.*\\.sh$"
+    ],
+    "require_task_brief_before_write_patterns": [
+      "^src/.*\\.sol$",
+      "^test/.*\\.sol$",
+      "^test/.*\\.t\\.sol$"
+    ],
+    "required_writer_for_patterns": {
+      "^src/.*\\.sol$": "solidity-implementer",
+      "^test/.*\\.sol$": "solidity-implementer",
+      "^test/.*\\.t\\.sol$": "solidity-implementer",
+      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$": "process-implementer",
+      "^(script/.*\\.sh|\\.githooks/.*)$": "process-implementer"
+    },
     "default_roles": [
       "solidity-implementer",
       "process-implementer",
@@ -241,6 +274,9 @@
     ],
     "hard_block_conditions": [
       "required_command_failed",
+      "main_session_unauthorized_write_to_restricted_path",
+      "missing_required_writer_dispatch_for_restricted_path",
+      "missing_task_brief_before_solidity_write",
       "unauthorized_write_out_of_scope",
       "missing_security_or_gas_evidence_for_src_change",
       "missing_semantic_alignment_evidence_for_semantic_sensitive_change",
