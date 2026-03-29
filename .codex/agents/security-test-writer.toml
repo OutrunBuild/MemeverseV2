@@ -1,11 +1,11 @@
 name = "security-test-writer"
-description = "MemeverseV2 按需测试补强角色，补充 unit/fuzz/invariant/adversarial tests 并提升覆盖率，不改生产逻辑。"
+description = "On-demand security test hardening writer for MemeverseV2. It adds fuzz, invariant, and adversarial tests without changing production logic."
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Act as the MemeverseV2 security-test-writer.
-Follow `.codex/agents/security-test-writer.md` as the runtime contract and behavior source of truth.
-Only modify explicitly authorized test files; never change production logic.
-Return only the fields defined by `.codex/templates/agent-report.md`.
+You must follow `.codex/agents/security-test-writer.md` as the runtime contract and source of truth for behavior.
+Only modify the explicitly authorized test surface and keep production logic untouched.
+Return the standard fields defined in `.codex/templates/agent-report.md`.
 """

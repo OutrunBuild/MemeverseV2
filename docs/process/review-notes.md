@@ -1,43 +1,36 @@
-# Review Note 契约（UniversalVault 风格 + Memeverse 扩展）
+# Review Note 规范
 
-`docs/reviews/*.md` 默认是本地 review 草稿目录。命中 `src/**/*.sol` 时，`quality:gate` 在本地和 CI 下都要求至少 1 份有效 review note。
+`docs/reviews/*.md` 默认是本地 review 草稿目录。命中 `src/**/*.sol` 时，本地与 CI 的 `quality:gate` 都要求至少有一份有效 review note 作为安全、简化、Gas 与验证证据。
 
-三目录拆分约束：
+## 1. 语言与格式
 
-- `docs/plans/` 只放 design / implementation plan / stage draft / split draft
-- `docs/task-briefs/` 只放 `Task Brief`
-- `docs/agent-reports/` 只放 `Agent Report`
+- review note 正文默认使用简体中文。
+- 固定 section / field key 保持英文。
+- 路径、命令、代码标识、selector 保持英文原文。
+- `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Writer dispatch confirmed`、`Evidence chain complete`、`Ready to commit` 的值只能填写 `yes` 或 `no`。
+- 所有 `* evidence source` 字段都采用 `role: source` 格式。
 
-本契约分为两层：
-
-- gate 强校验层：`required_headings`、`required_fields`、`boolean_fields`、`placeholder_values`
-- 角色语义层：`field_owners`、`owner_prefixed_source_fields`
-
-机器可读真源统一在 `docs/process/policy.json`。
-
-## 语言与格式
-
-- 自然语言说明默认使用简体中文
-- 固定 section / field key 保持英文
-- 路径、命令、代码标识、selector 保持英文
-- `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 只能填 `yes` 或 `no`
-
-## 必填章节（`review_note.required_headings`）
+## 2. 必填章节
 
 - `## Scope`
 - `## Impact`
 - `## Findings`
 - `## Simplification`
-- `## Gas`
 - `## Docs`
 - `## Tests`
 - `## Verification`
 - `## Decision`
 
-## 必填字段（`review_note.required_fields` + `solidity_review_note.required_fields`）
+## 3. 通用必填字段
+
+以下字段是跨仓库共享的 Harness 基线：
 
 - `Change summary`
 - `Files reviewed`
+- `Task Brief path`
+- `Agent Report path`
+- `Implementation owner`
+- `Writer dispatch confirmed`
 - `Semantic dimensions reviewed`
 - `Source-of-truth docs checked`
 - `External facts checked`
@@ -50,7 +43,6 @@
 - `Config change`
 - `Security review summary`
 - `Security residual risks`
-- `Open safety mismatches assessed`
 - `Gas-sensitive paths reviewed`
 - `Gas changes applied`
 - `Gas snapshot/result`
@@ -60,133 +52,68 @@
 - `Existing tests exercised`
 - `Commands run`
 - `Results`
-- `Ready to commit`
-- `Residual risks`
-
-以下字段由 `solidity_review_note.required_fields` 额外约束，仅在 Solidity gate 中强校验：
-
-- `Task Brief path`
-- `Agent Report path`
-- `Implementation owner`
-- `Writer dispatch confirmed`
-
-## 布尔字段（`review_note.boolean_fields`）
-
-- `Behavior change`
-- `ABI change`
-- `Storage layout change`
-- `Config change`
-- `Ready to commit`
-
-## 字段 owner 语义（`review_note.field_owners`）
-
-默认 owner 语义：
-
-- `Task Brief path`、`Agent Report path`、`Implementation owner`、`Writer dispatch confirmed` 由 `main-orchestrator` 填写，用于证明该 Solidity 变更先有 brief，且 writer role 已按仓库契约派发并产出对应实现工件
-- `Semantic dimensions reviewed`、`Source-of-truth docs checked`、`External facts checked`、`Semantic alignment summary` 由 `main-orchestrator` 汇总填写
-- `Local control-flow facts checked`、`Evidence chain complete` 由 `main-orchestrator` 在复核关键代码行、关键前提和必要的外部主来源后填写
-- 安全字段（`Security review summary`、`Security residual risks`）由 `security-reviewer` 提供
-- `Open safety mismatches assessed` 用于显式记录是否审阅了当前已知开放安全缺口（例如 `SAFE-UNLOCK-01`），默认由 `security-reviewer`、`verifier` 或 `main-orchestrator` 维护
-- Gas 字段（`Gas-*`）由 `gas-reviewer` 提供
-- 验证字段（`Commands run`、`Results`）由 `verifier` 提供
-- 决策字段（`Ready to commit`）由 `main-orchestrator` 最终确认
-- `Docs updated` 由实现角色（`solidity-implementer` 或 `process-implementer`）维护
-- `Tests updated` / `Existing tests exercised` 由实现角色（`solidity-implementer`、`process-implementer`、`security-test-writer`）维护
-- `Rule-map evidence source` 由 `verifier` 汇总
-
-owner 语义以 `policy.json` 为机器可读真源。
-
-## 证据来源字段语义（`review_note.owner_prefixed_source_fields`）
-
-以下字段采用 `role: source` 形式，表达“结论由谁给出、证据来自哪里”：
-
 - `Security evidence source`
 - `Gas evidence source`
 - `Verification evidence source`
 - `Decision evidence source`
+- `Ready to commit`
+- `Residual risks`
+
+## 4. Repo-specific 扩展字段
+
+如果 `docs/process/policy.json`、`docs/process/rule-map.json` 或相关 gate 脚本要求额外字段，也必须填写。常见扩展示例：
+
+- `Open safety mismatches assessed`
 - `Rule-map evidence source`
+- 其他仅在当前仓库策略文件中声明的字段
 
-示例：
+判断原则：
 
-- `Security evidence source: security-reviewer: docs/reviews/2026-03-25-security-pass.md`
-- `Gas evidence source: gas-reviewer: docs/reviews/2026-03-25-gas-pass.md`
-- `Verification evidence source: verifier: forge test -vvv`
-- `Decision evidence source: main-orchestrator: task brief decision summary`
+- 以 `docs/process/policy.json` 的 `review_note.*` 与 `solidity_review_note.*` 为准。
+- 若仓库启用了 repo-specific 证据映射，review note 必须与其约束保持一致。
 
-## Memeverse 专属 rule-map 证据规则
+## 5. 字段职责
 
-`docs/process/rule-map.json` 是 Memeverse 专属映射真源，不被通用 harness 替代。命中正式规则时：
+- `Task Brief path`、`Agent Report path`、`Implementation owner`、`Writer dispatch confirmed`
+  - 默认由 `main-orchestrator` 汇总填写，用于证明该 Solidity 变更先有 brief，且 writer role 已按仓库契约派发并产出对应实现工件。
+  - `Task Brief path` 默认应位于 `docs/task-briefs/`。
+  - `Agent Report path` 默认应位于 `docs/agent-reports/`。
+- `Semantic dimensions reviewed`、`Source-of-truth docs checked`、`External facts checked`、`Semantic alignment summary`
+  - 默认由 `main-orchestrator` 汇总 brief、review 结论与外部证据后填写。
+- `Local control-flow facts checked`、`Evidence chain complete`
+  - 默认由 `main-orchestrator` 在复核关键代码行、关键前提与必要外部主来源后填写。
+- `Security review summary`、`Security residual risks`、`Security evidence source`
+  - 默认由 `security-reviewer` 提供。
+- `Gas-sensitive paths reviewed`、`Gas changes applied`、`Gas snapshot/result`、`Gas residual risks`、`Gas evidence source`
+  - 默认由 `gas-reviewer` 提供。
+- `Commands run`、`Results`、`Verification evidence source`
+  - 默认由 `verifier` 提供。
+- `Ready to commit`、`Decision evidence source`
+  - 只能由 `main-orchestrator` 最终判定。
 
-- `check-rule-map.sh` 依据 `change_requirement` 校验改动集
-- `check-solidity-review-note.sh` 依据 `evidence_requirement` 校验 `Existing tests exercised`
-- `mode = any`：至少引用 1 个映射测试
-- `mode = all`：必须覆盖全部映射测试
-- `mode = none`：不要求额外映射测试
+## 6. 防误报与证据链规则
 
-`Rule-map evidence source` 用于记录对应 rule id / 测试路径来源，便于追溯；当前 gate 仍以 `Existing tests exercised` 为硬校验入口。
+- `Local control-flow facts checked` 必须写清结论依赖的本地关键前提，例如状态更新顺序、条件分支、金额处理、索引推进、返回值处理或权限检查。
+- 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，`External facts checked` 必须写明主来源；没有主来源时只能写成 `needs verification`、假设或待确认决策点。
+- `Evidence chain complete` 只有在“本地前提已复核”且“必要时外部主来源已核验”同时满足时才允许填写 `yes`。
+- 若某条结论只来自 subagent 摘要而主会话未复核关键代码行，该条结论不得在 review note 中写成已确认 finding。
 
-## Solidity 写入 ownership 证据
+## 7. 禁止内容
 
-命中 `src/**/*.sol` 或 `test/**/*.sol` 时，`check-solidity-review-note.sh` 还会额外校验以下字段：
+以下内容会被脚本视为无效或高风险信号：
 
-- `Task Brief path`
-  - 必须指向存在的 brief 文件
-  - 必须位于 `docs/task-briefs/`
-- `Agent Report path`
-  - 必须指向存在的 agent report 文件
-  - 必须位于 `docs/agent-reports/`
-  - 其 `Role` 必须与 `Implementation owner` 一致
-- `Implementation owner`
-  - 必须与 `policy.json` 中该路径命中的 required writer role 一致
-- `Writer dispatch confirmed`
-  - 必须为 `yes`
-
-若变更路径命中 `main_session_forbidden_write_patterns`，`Implementation owner` 不得等于 `main_session_role`。
-
-## 防误报 / 证据链规则
-
-- `Local control-flow facts checked` 必须写清该结论依赖的本地关键前提，例如状态更新顺序、条件分支、金额截断、索引推进、返回值处理或权限检查
-- 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，`External facts checked` 必须写明主来源；没有主来源时只能写成 `needs verification` 或假设，不能写成已确认事实
-- `Evidence chain complete` 只有在“本地前提已复核”且“必要时外部主来源已核验”同时满足时才允许填写 `yes`
-- 若某条结论只来自 subagent 摘要而主会话未复核关键代码行，该条结论不得在 review note 中写成已确认 finding
-
-## 开放安全缺口填写约定
-
-当改动触达 launcher / router / hook / unlock 语义时：
-
-- `Open safety mismatches assessed` 不得省略
-- 至少应显式写出：
-  - `SAFE-UNLOCK-01: still open`
-  - 或 `SAFE-UNLOCK-01: resolved by <tests/changes>`
-- 若 review note 声称该缺口已解决，`Existing tests exercised` 必须同时包含与 unlock protection 相关的映射测试
-- 若缺口仍未解决，`Security residual risks` 或 `Residual risks` 中应保留对应风险说明
-
-## Findings 填写约定
-
-`Findings` 采用二选一：
-
-- 有发现：填写 `High findings` / `Medium findings` / `Low findings`，并把 `None` 设为 `n/a`
-- 无发现：`High findings` / `Medium findings` / `Low findings` 填 `none`，`None` 保持 `none`
-
-## 禁止值
-
-以下占位值会被视为无效：
-
-- 空值
+- 空字段
 - `TBD`
 - `<path>`
 - `<path>|none`
 - `<selectors or paths>`
-- `<agent-report-path>`
-- `<verification-source>`
-- `<decision-source>`
-- `<rule-id or mapped-tests>`
 - `yes/no`
+- 其他仍保留在模板状态、不能形成证据的占位值
 
-## 使用方式
+## 8. 使用方式
 
-- 以 `docs/reviews/TEMPLATE.md` 新建 review note
-- `Task Brief path` 应填写 `docs/task-briefs/<brief>.md`
-- `Agent Report path` 应填写 `docs/agent-reports/<report>.md`
-- 仅校验结构可运行：`bash ./script/process/check-review-note.sh <review-note>`
-- 需要联动 `rule-map` 证据时运行：`bash ./script/process/check-solidity-review-note.sh`
+- 需要本地记录审阅结论时，可基于 `docs/reviews/TEMPLATE.md` 新建草稿。
+- 命中 `src/**/*.sol` 变更且准备运行本地或 CI `quality:gate` 时，必须先准备好一份可通过校验的 review note。
+- 仅检查草稿结构可运行：`bash ./script/process/check-review-note.sh <review-note>`
+- 需要在 Solidity gate 中联动检查时，可运行：`bash ./script/process/check-solidity-review-note.sh`
+- 若仓库跟踪了特定 review note 文件（例如 `docs/reviews/CI_REVIEW_NOTE.md`），它也必须与当前改动、当前 gate 语义保持一致。

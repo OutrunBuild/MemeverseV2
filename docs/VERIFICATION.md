@@ -1,89 +1,142 @@
-# MemeverseV2 文档系统验证指南
+# Verification Guide
 
-## 1. 目标
+## 1. 文档目的
 
-本指南用于持续验证以下链路一致：
+本文档定义当前仓库的验证入口，服务对象是人工开发者与 AI coding agent。目标不是“改完就声称完成”，而是先收集可复验的命令证据，再给出结论。
 
-- Harness / Process 契约链：`AGENTS.md` -> `docs/process/*` -> `script/process/*` -> npm scripts
-- Product Truth 文档链：`docs/ARCHITECTURE.md` -> `docs/spec/*.md`（升级性主文档：`docs/spec/upgradeability.md`） -> `docs/GLOSSARY.md` -> `docs/TRACEABILITY.md` -> `docs/VERIFICATION.md` -> `docs/adr/0001-universalvault-style-harness-migration.md`
-- 实现证据链：`src/**` + `test/**` + `docs/process/rule-map.json`
+## 2. 基本原则
 
-## 2. 规则分层校验基线
+- 证据先于结论。
+- `npm run quality:quick` 只用于本地快速反馈，不是 finish gate。
+- `npm run quality:gate` 是唯一 finish gate。
+- 改动命中 `src/**/*.sol` 时，不能跳过 review note。
+- 语义敏感改动不能跳过 source-of-truth、外部事实与关键假设收敛。
+- 文档修改也至少要跑对应的最低验证命令。
 
-- 当前规则真源是 `docs/spec/*.md` 及其配套的 `ARCHITECTURE/GLOSSARY/TRACEABILITY/VERIFICATION/ADR`。
-- `src/**` 与 `test/**` 是规则落地证据。
-- `docs/memeverse-swap/*` 用于补充 swap 相关专题说明，不与当前规则并列定规。
+## 3. 按改动类型选择命令
 
-## 3. 常规验证流程
+### 3.1 只改自然语言文档
 
-### 3.1 Process 自检
+最少运行：
 
-1. `npm run process:selftest`
-2. 预期：`script/process/tests/run-all.sh` 全通过，流程检查器与策略文件一致。
+```bash
+npm run docs:check
+```
 
-### 3.2 文档链检查
+建议补充：
 
-1. `npm run docs:check`
-2. 预期：
-   - 文档检查脚本可运行。
-   - harness 支撑文件覆盖 `docs_contract_pattern`。
+```bash
+rg --files docs | sort
+git diff --stat
+```
 
-### 3.3 质量门禁
+### 3.2 改 Harness / Process 文档或脚本
 
-1. `npm run quality:gate`
-2. 预期（按改动路径触发）：
-   - `npm run lint:sol`
-   - `check-rule-map.sh`
-   - `forge fmt --check` / `forge build` / `forge test -vvv`
-   - `check-slither.sh` / `check-gas-report.sh`
-   - `check-solidity-review-note.sh`
-   - `npm run docs:check`
+最少运行：
 
-若改动命中外部依赖、用户资金流、权限边界、registration / settlement / liquidity / yield / omnichain 等语义敏感面，还必须确认 review note 已补齐：
+```bash
+npm run docs:check
+```
 
-- `Semantic dimensions reviewed`
-- `Source-of-truth docs checked`
-- `External facts checked`
-- `Local control-flow facts checked`
-- `Evidence chain complete`
-- `Semantic alignment summary`
+按需补充：
 
-## 4. Product Truth 专项检查
+```bash
+bash -n <changed-shell-scripts>
+npm run process:selftest
+```
 
-用于防止文档混入非规则性标签或错误引用：
+说明：
 
-1. 旧 taxonomy 清理检查
- - `rg -n "\[PRD\]|\[代码\]|\[PRD\+代码\]" docs/spec docs/ARCHITECTURE.md docs/GLOSSARY.md docs/TRACEABILITY.md docs/VERIFICATION.md docs/adr/0001-universalvault-style-harness-migration.md`
- - 预期：不应作为当前规则标签体系。
-2. Traceability 来源检查
- - `rg -n "docs/spec/|docs/ARCHITECTURE|docs/GLOSSARY|docs/TRACEABILITY|docs/VERIFICATION|docs/adr/" docs/TRACEABILITY.md`
- - 预期：`Current Rule Doc` 主要指向 `docs/spec/*.md` 与 Product Truth 支撑文档（`ARCHITECTURE/GLOSSARY/TRACEABILITY/VERIFICATION/ADR`）。
-3. Upgradeability 主文档归属检查
- - `rg -n "UPG-(01|02).*(docs/spec/implementation-map\\.md)" docs/TRACEABILITY.md`
- - 预期：无命中；`UPG-*` 的 `Current Rule Doc` 主锚点应为 `docs/spec/upgradeability.md`，`implementation-map` 仅用于 surface 事实补充。
-4. 规则-证据可追溯检查
- - `docs/TRACEABILITY.md` 中每条规则都应可回溯到 `src/**` 或 `test/**` 的可定位锚点。
+- 命中 `AGENTS.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`.codex/**`、`.github/**`、`script/process/**` 时，不要只看文档表述，还要确认脚本入口和机器真源没有被文档改动带偏。
+- 若仓库启用了额外机器真源（例如 `docs/process/rule-map.json`），验证时也必须确认它和人类文档没有漂移。
 
-## 5. 建议的最小回归测试集
+### 3.3 改 `src/**/*.sol`
 
-当文档涉及权限、状态机、记账、swap 路径时，建议至少执行：
+默认要求：
 
-1. `forge test --match-path test/verse/MemeverseLauncherRegistration.t.sol -vvv`
-2. `forge test --match-path test/verse/MemeverseLauncherConfig.t.sol -vvv`
-3. `forge test --match-path test/verse/MemeverseLauncherLifecycle.t.sol -vvv`
-4. `forge test --match-path test/swap/MemeverseSwapRouter.t.sol -vvv`
-5. `forge test --match-path test/swap/MemeverseUniswapHookLiquidity.t.sol -vvv`
-6. `forge test --match-path test/verse/YieldDispatcher.t.sol -vvv`
-7. `forge test --match-path test/interoperation/OmnichainMemecoinStaker.t.sol -vvv`
+- 先看 `AGENTS.md`、`docs/process/change-matrix.md` 与 `docs/process/policy.json`。
+- 准备提交前，至少满足当前仓库 `quality:gate` 所要求的全部检查。
+- 如果本次先跑定向命令做迭代，也必须在最终结论前补齐 finish gate 证据。
 
-## 6. 已知验证缺口管理
+常见验证面：
 
-- `docs/process/rule-map.json` 的 `testing_gaps` 是当前受控缺口清单。
-- 当某域仍在 `testing_gaps` 中，`TRACEABILITY` 状态应标记为 `GAP` 或 `PARTIAL`，不得伪造为 `PASS`。
-- 缺口收敛后，需同步更新 `rule-map`、`TRACEABILITY` 与相关 spec 文档。
+```bash
+forge fmt --check
+bash ./script/process/check-natspec.sh <changed-src-solidity-files>
+forge build
+forge test -vvv
+bash ./script/process/check-coverage.sh
+bash ./script/process/check-slither.sh
+bash ./script/process/check-gas-report.sh
+bash ./script/process/check-solidity-review-note.sh
+npm run docs:check
+```
 
-## 7. 失败处理与修复顺序
+另外还要确认：
 
-1. 先修复真源层定义冲突（`docs/spec/*.md`）。
-2. 再修复追溯层（`docs/TRACEABILITY.md`）与架构分层说明（`docs/ARCHITECTURE.md`）。
-3. 最后补齐流程证据（`docs/process/*`、测试、quality gate 产物）。
+- 非直观方法已经补充适量的方法内注释，重点解释状态迁移、金额计算、权限前提与外部调用意图。
+- 测试不只覆盖 happy path；至少覆盖失败路径与关键边界，高风险路径补齐适用的 fuzz、invariant、adversarial、integration 或 upgrade tests。
+- 若仓库启用了额外证据映射（例如 `rule-map.json`），`Existing tests exercised` 等字段也已满足该映射规则。
+
+### 3.4 改 `test/**/*.sol`
+
+最少运行：
+
+```bash
+forge fmt --check
+forge build
+forge test -vvv
+bash ./script/process/check-coverage.sh
+```
+
+还应确认：
+
+- 本次测试覆盖了哪些风险边界。
+- 是否已经包含适用的 unit、fuzz、invariant、integration、upgrade、adversarial 测试维度。
+- 当前 `src/**` 的 coverage 是否仍满足仓库门禁。
+
+### 3.5 改 `package.json`、CI 或工具链入口
+
+最少运行：
+
+```bash
+npm ci
+npm run docs:check
+```
+
+按需补充：
+
+```bash
+npm run process:selftest
+```
+
+## 4. 输出要求
+
+验证结论至少要说明：
+
+- 运行了哪些命令。
+- 哪些通过，哪些失败。
+- 如果失败，失败归因是什么。
+- 本次是否达到 finish gate。
+
+不要只写“已验证”或“测试通过”，必须给出具体命令。
+
+## 5. 何时不能声称完成
+
+以下任一情况存在时，不能把任务表述为“完成”：
+
+- 必跑命令未执行。
+- 命令失败但未解释。
+- Solidity 改动缺 `security-reviewer` 或 `gas-reviewer` 结论。
+- 语义敏感改动缺 source-of-truth、external facts、critical assumptions 的收敛结论。
+- review note 缺失、字段不完整，或仍保留占位值。
+- 结论与命令输出不一致。
+
+## 6. Source of Truth
+
+- 主流程契约：`AGENTS.md`
+- 变更矩阵：`docs/process/change-matrix.md`
+- review note 规范：`docs/process/review-notes.md`
+- 机器可读策略源：`docs/process/policy.json`
+- 质量门禁脚本：`script/process/*`
+- 若仓库启用了额外流程真源（例如 `docs/process/rule-map.json`），以该文件及其消费脚本的实际行为为准

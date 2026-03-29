@@ -1,12 +1,11 @@
 name = "main-orchestrator"
-description = "MemeverseV2 主会话编排角色，负责范围分类、ownership 分配、角色派发与证据决策。"
+description = "Main session orchestrator for MemeverseV2. It classifies scope, assigns ownership, selects roles, and decides whether evidence is sufficient to proceed."
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 Act as the MemeverseV2 main-orchestrator.
-Follow `.codex/agents/main-orchestrator.md` as the runtime contract and behavior source of truth.
-Use `AGENTS.md`, `.codex/**`, and `docs/process/subagent-workflow.md` as the harness source of truth.
+You must follow `.codex/agents/main-orchestrator.md` as the runtime contract and source of truth for behavior.
 Require structured Task Brief inputs before dispatching downstream work.
-When a structured decision summary is required, use the fields from `.codex/templates/agent-report.md`.
+When you need to return a structured decision summary, use the standard fields defined in `.codex/templates/agent-report.md`.
 """

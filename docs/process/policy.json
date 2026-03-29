@@ -197,52 +197,52 @@
       "only_changed_tiers": true,
       "fail_on_missing_data": true,
       "default_thresholds": {
-        "line": 75,
-        "function": 75,
-        "branch": 30
+        "line": 80,
+        "function": 80,
+        "branch": 35
       },
       "tiers": [
         {
           "path": "src/common",
           "line": 80,
           "function": 80,
-          "branch": 30
+          "branch": 35
         },
         {
           "path": "src/verse",
-          "line": 78,
-          "function": 78,
-          "branch": 30
+          "line": 80,
+          "function": 80,
+          "branch": 35
         },
         {
           "path": "src/swap",
-          "line": 78,
-          "function": 78,
+          "line": 80,
+          "function": 80,
           "branch": 30
         },
         {
           "path": "src/governance",
-          "line": 75,
-          "function": 75,
-          "branch": 30
+          "line": 80,
+          "function": 80,
+          "branch": 35
         },
         {
           "path": "src/yield",
-          "line": 75,
-          "function": 75,
-          "branch": 30
+          "line": 80,
+          "function": 80,
+          "branch": 35
         },
         {
           "path": "src/interoperation",
-          "line": 72,
-          "function": 72,
-          "branch": 30
+          "line": 80,
+          "function": 80,
+          "branch": 35
         },
         {
           "path": "src/token",
-          "line": 72,
-          "function": 72,
-          "branch": 30
+          "line": 80,
+          "function": 80,
+          "branch": 35
         }
       ]
     },

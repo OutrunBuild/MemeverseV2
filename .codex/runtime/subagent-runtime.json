@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "project": {
+    "name": "MemeverseV2",
+    "type": "solidity",
+    "toolchain": "foundry"
+  },
+  "artifacts": {
+    "task_brief_directory": "docs/task-briefs",
+    "agent_report_directory": "docs/agent-reports",
+    "task_brief_template": ".codex/templates/task-brief.md",
+    "agent_report_template": ".codex/templates/agent-report.md",
+    "agent_directory": ".codex/agents"
+  },
+  "roles": {
+    "main_session_role": "main-orchestrator",
+    "default_roles": [
+      "solidity-implementer",
+      "process-implementer",
+      "security-reviewer",
+      "gas-reviewer",
+      "verifier"
+    ],
+    "on_demand_roles": [
+      "solidity-explorer",
+      "security-test-writer"
+    ]
+  },
+  "write_surfaces": [
+    {
+      "name": "src_solidity",
+      "default_writer_role": "solidity-implementer"
+    },
+    {
+      "name": "test_solidity",
+      "default_writer_role": "solidity-implementer"
+    },
+    {
+      "name": "docs_contract",
+      "default_writer_role": "process-implementer"
+    },
+    {
+      "name": "process_runtime",
+      "default_writer_role": "process-implementer"
+    },
+    {
+      "name": "shell_surface",
+      "default_writer_role": "process-implementer"
+    },
+    {
+      "name": "package_metadata",
+      "default_writer_role": "process-implementer"
+    }
+  ],
+  "authoritative_sources": {
+    "process_contract": "AGENTS.md",
+    "process_policy": "docs/process/policy.json",
+    "process_scripts": "script/process/*",
+    "agent_runtime_contracts": ".codex/agents/*.md"
+  }
+}

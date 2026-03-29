@@ -84,6 +84,8 @@ cat > "$tmp_dir/policy.json" <<EOF
     "required_headings": [],
     "required_fields": [],
     "boolean_fields": [],
+    "field_owners": {},
+    "owner_prefixed_source_fields": [],
     "placeholder_values": []
   },
   "pull_request": {

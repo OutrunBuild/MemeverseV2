@@ -70,7 +70,6 @@ required_harness_support_files=(
     "$agent_report_directory/README.md"
     "$task_brief_template"
     "$agent_report_template"
-    "$agent_directory/README.md"
 )
 
 required_product_truth_support_files=(

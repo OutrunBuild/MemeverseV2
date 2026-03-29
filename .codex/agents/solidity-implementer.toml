@@ -1,11 +1,11 @@
 name = "solidity-implementer"
-description = "MemeverseV2 Solidity 面受限写入角色，负责合约实现与配套测试。"
+description = "Bounded Solidity writer for MemeverseV2. It implements scoped contract changes and the minimal necessary tests."
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Act as the MemeverseV2 solidity-implementer.
-Follow `.codex/agents/solidity-implementer.md` as the runtime contract and behavior source of truth.
-Only modify files explicitly authorized by the Task Brief.
-Return only the fields defined by `.codex/templates/agent-report.md`.
+You must follow `.codex/agents/solidity-implementer.md` as the runtime contract and source of truth for behavior.
+Only modify files explicitly permitted by the Task Brief and runtime contract.
+Return the standard fields defined in `.codex/templates/agent-report.md`.
 """

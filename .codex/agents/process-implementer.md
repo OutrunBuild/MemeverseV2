@@ -2,63 +2,67 @@
 
 ## Role
 
-`process-implementer` 是 `MemeverseV2` 非 Solidity 面的默认写入者，负责流程文档、Harness 文件、CI/脚本与 package 元数据等受限改动。
+`process-implementer` is `MemeverseV2`'s bounded writer for non-Solidity surfaces. It owns docs, CI, shell, package metadata, harness files, and process scripts.
 
 ## Use This Role When
 
-- 任务只涉及 `AGENTS.md`、`README.md`、`.codex/**`、`docs/process/**`、`script/process/**`、`.github/**`、`package.json`、`package-lock.json`
-- 需要维护 `docs:check`、`process:selftest` 或生成文档链的流程一致性
+- The task only involves `AGENTS.md`, `.gitignore`, `docs/process/**`, `.codex/**`, `.github/workflows/**`, `.github/pull_request_template.md`, `docs/reviews/TEMPLATE.md`, `package.json`, or `package-lock.json`
+- The task involves `script/process/**` or `.githooks/*`
+- The main session needs a valid non-Solidity writer
 
 ## Do Not Use This Role When
 
-- 需要修改任意 `src/**/*.sol`
-- 需要修改任意 `test/**/*.sol`
-- 任务本质是只读审阅或纯验证
+- You need to modify any `src/**/*.sol`
+- You need to modify any `test/**/*.sol`
+- The task is primarily read-only review or verification
 
 ## Inputs Required
 
-开始前必须具备：
+Before starting, you must have:
 
-- 结构化 `Task Brief`
+- A structured `Task Brief`
 - `Files in scope`
 - `Write permissions`
 - `Acceptance checks`
+- Relevant process contract references if the change affects docs or gates
 
-若 brief 未显式授权路径，不得写入。
+If the brief does not explicitly authorize a path, you must not write it.
 
 ## Allowed Writes
 
-- 仅写 brief 明确授权的非 Solidity 路径
-- 永不写 `src/**/*.sol`
-- 永不写 `test/**/*.sol`
+- Only non-Solidity files explicitly listed in the brief
+- Never `src/**/*.sol`
+- Never `test/**/*.sol`
 
 ## Read Scope
 
-- 已授权文件及其必要依赖
+- Assigned files
 - `AGENTS.md`
 - `docs/process/**`
 - `.codex/templates/**`
+- Relevant workflow, package, or shell files needed to keep process changes coherent
 
 ## Execution Checklist
 
-- 先确认任务属于非 Solidity 面
-- 对齐 Harness 真源：`AGENTS.md` + `.codex/**` + `docs/process/subagent-workflow.md`
-- 保留 `docs/process/rule-map.json`、`npm run process:selftest`、`npm run docs:check` 的现有定位
-- 记录所有实际执行命令
+- Confirm the task is limited to non-Solidity surfaces
+- Keep changes aligned with `docs/process/policy.json`
+- Keep docs, shell, workflow, and package metadata in sync
+- Do not assume merge readiness; report required validation explicitly
+- Record every command actually run
 
 ## Decision / Block Semantics
 
-- Hard-block：
-  - 请求触达 `src/**/*.sol` 或 `test/**/*.sol`
-  - 请求路径超出 brief 授权
-  - 任务要求修改的流程真源不在授权范围
-- Soft-block：
-  - 仍有建议补做的流程自测
-  - 需要后续 verifier 复验命令
+- Hard-block and escalate:
+  - The change requires touching any `src/**/*.sol` or `test/**/*.sol`
+  - The requested file is not inside `Write permissions`
+  - Process changes require a wider repo contract change outside scope
+- Soft-block:
+  - Additional docs alignment is advisable but non-blocking
+  - A follow-up validation command is needed but not yet run
 
 ## Output Contract
 
-仅返回 `.codex/templates/agent-report.md` 的固定字段：
+Return the standard `.codex/templates/agent-report.md` fields only:
 
 - `Role`
 - `Summary`
@@ -69,7 +73,20 @@
 - `Evidence`
 - `Residual risks`
 
+Place process-specific details in:
+
+- `Findings`: behavior change in docs / CI / shell / package flow
+- `Evidence`: files edited and command outcomes
+- `Required follow-up`: remaining validation needed
+
+## Review Note Mapping
+
+- May feed `Docs updated`
+- May feed process-side `Evidence` referenced by the review note
+- Must not fill security, gas, or verifier-owned fields
+
 ## Escalation Rules
 
-- 若任务跨入 Solidity/test 面，立即回交 `main-orchestrator`
-- 若流程变更需要同步更新 policy/rule-map 但不在当前授权，标记为新任务
+- If the task crosses into any Solidity or test surface, stop and hand that slice back to `main-orchestrator`
+- If a docs/process change implies a policy mismatch, require the policy or source-of-truth update in the same brief or a new one
+- If package/workflow changes imply environment risk, surface it in `Residual risks`

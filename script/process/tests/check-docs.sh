@@ -22,7 +22,7 @@ cat > "$tmp_brief" <<'EOF'
 - Risks to check: none
 - Required roles: process-implementer
 - Optional roles: none
-- Default writer: process-implementer
+- Default writer role: process-implementer
 - Write permissions: docs/plans/zz-temp-task-brief-for-selftest-${tmp_suffix}.md
 - Non-goals: none
 - Acceptance checks: npm run docs:check

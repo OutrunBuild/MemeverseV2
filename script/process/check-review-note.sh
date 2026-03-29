@@ -12,16 +12,9 @@ cd "$repo_root"
 mapfile -t required_headings < <(node ./script/process/read-process-config.js policy review_note.required_headings --lines)
 mapfile -t required_fields < <(node ./script/process/read-process-config.js policy review_note.required_fields --lines)
 mapfile -t boolean_fields < <(node ./script/process/read-process-config.js policy review_note.boolean_fields --lines)
+mapfile -t owner_prefixed_source_fields < <(node ./script/process/read-process-config.js policy review_note.owner_prefixed_source_fields --lines)
 mapfile -t placeholder_values < <(node ./script/process/read-process-config.js policy review_note.placeholder_values --lines)
-
-field_is_required() {
-    local field="$1"
-
-    case " ${required_fields[*]} " in
-        *" $field "*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
+field_owners_json="$(node ./script/process/read-process-config.js policy review_note.field_owners)"
 
 extract_field() {
     local file="$1"
@@ -39,7 +32,11 @@ extract_field() {
 
 is_placeholder() {
     local value="$1"
-    shift
+    local angle_placeholder_pattern='<[^>]+>'
+
+    if [[ "$value" =~ $angle_placeholder_pattern ]]; then
+        return 0
+    fi
 
     for placeholder in "${placeholder_values[@]}"; do
         if [ "$value" = "$placeholder" ]; then
@@ -48,6 +45,59 @@ is_placeholder() {
     done
 
     return 1
+}
+
+field_requires_owner_prefix() {
+    local field="$1"
+
+    case " ${owner_prefixed_source_fields[*]} " in
+        *" $field "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+owners_for_field() {
+    local field="$1"
+
+    FIELD_OWNERS_JSON="$field_owners_json" node -e '
+const owners = JSON.parse(process.env.FIELD_OWNERS_JSON || "{}");
+const field = process.argv[1];
+process.stdout.write(String(owners[field] || ""));
+' "$field"
+}
+
+validate_owner_prefix() {
+    local file="$1"
+    local field="$2"
+    local value="$3"
+    local owners_spec
+    local owner
+    local matched=1
+    local source_payload
+
+    owners_spec="$(owners_for_field "$field")"
+    if [ -z "$owners_spec" ]; then
+        echo "[check-review-note] ERROR: $file field '$field' is configured for owner-prefix validation but has no field owner mapping"
+        exit 1
+    fi
+
+    IFS='|' read -r -a owners <<< "$owners_spec"
+    for owner in "${owners[@]}"; do
+        if [[ "$value" == "$owner:"* ]]; then
+            source_payload="${value#"$owner:"}"
+            source_payload="${source_payload#"${source_payload%%[![:space:]]*}"}"
+
+            if [ -n "$source_payload" ]; then
+                matched=0
+                break
+            fi
+        fi
+    done
+
+    if [ "$matched" -ne 0 ]; then
+        echo "[check-review-note] ERROR: $file field '$field' must use 'role: source' with one of the allowed owner prefixes: ${owners_spec//|/, }"
+        exit 1
+    fi
 }
 
 validate_boolean_field() {
@@ -86,13 +136,11 @@ for file in "$@"; do
                 validate_boolean_field "$file" "$field" "$value"
                 ;;
         esac
-    done
 
-    if field_is_required "None"; then
-        none_value="$(extract_field "$file" "None")"
-        if [ -z "$none_value" ]; then
-            echo "[check-review-note] ERROR: $file field 'None' must explicitly state 'none' or explain why it is not applicable"
-            exit 1
+        if field_requires_owner_prefix "$field"; then
+            validate_owner_prefix "$file" "$field" "$value"
         fi
-    fi
+    done
 done
+
+echo "[check-review-note] PASS"

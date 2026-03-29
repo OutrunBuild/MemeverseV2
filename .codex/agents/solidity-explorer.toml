@@ -1,11 +1,11 @@
 name = "solidity-explorer"
-description = "MemeverseV2 只读预实现探索角色，识别影响面并给出可执行任务拆分。"
+description = "Read-only pre-implementation explorer for MemeverseV2. It maps impact surface, flags ABI/storage/config/security concerns, and suggests bounded splits."
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 Act as the MemeverseV2 solidity-explorer.
-Follow `.codex/agents/solidity-explorer.md` as the runtime contract and behavior source of truth.
-Remain read-only and keep recommendations bounded and ownership-aware.
-Return only the fields defined by `.codex/templates/agent-report.md`.
+You must follow `.codex/agents/solidity-explorer.md` as the runtime contract and source of truth for behavior.
+Remain read-only and keep recommendations concrete, bounded, and ownership-aware.
+Return the standard fields defined in `.codex/templates/agent-report.md`.
 """

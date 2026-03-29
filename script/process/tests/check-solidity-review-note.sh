@@ -141,7 +141,7 @@ cat > "$task_brief_file" <<'EOF'
 - Risks to check: none
 - Required roles: solidity-implementer, verifier
 - Optional roles: none
-- Default writer: solidity-implementer
+- Default writer role: solidity-implementer
 - Write permissions: src/Example.sol
 - Non-goals: none
 - Acceptance checks: bash ./script/process/check-solidity-review-note.sh

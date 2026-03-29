@@ -1,6 +1,6 @@
 # Agent Operating Contract
 
-本文件是 `MemeverseV2` 的主流程契约，面向开发者与 Codex / subagent 工作流。它定义主会话角色、协作阶段、路径触发规则、完成标准与证据链。
+本文件是 `MemeverseV2` 仓库的主流程契约，面向开发者与 Codex / subagent 工作流。它定义角色职责、阶段流、路径触发规则、完成标准，以及当前仓库采用的标准化 Solidity Harness 入口。
 
 ## 1. Project Overview
 
@@ -8,141 +8,124 @@
 
 - `src/`：Memeverse 协议合约（launcher、registration、swap、governance、yield、interoperation 等）
 - `test/`：Foundry 测试
-- `script/`：部署脚本与流程脚本
-- `docs/process/`：流程契约与机器可读规则
-- `docs/plans/`：设计文档、实现计划、阶段方案、拆分草案
+- `script/`：部署与运维脚本
+- `script/process/`：开发流程脚本
+- `docs/process/`：Harness / Process 文档与机器真源
+- `docs/plans/`：本地设计文档、实现计划、阶段方案、拆分草案
 - `docs/task-briefs/`：本地 `Task Brief` 工件
 - `docs/agent-reports/`：本地 `Agent Report` 工件
-- `.codex/agents/`：角色 manifest（`*.toml`）与运行时契约（`*.md`）
+- `docs/reviews/`：本地 review 草稿模板与草稿
+- `docs/spec/`、`docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`：产品真相与支撑文档
+- `.codex/agents/`：项目级 subagent manifest（`*.toml`）与运行时契约（`*.md`）
+- `.codex/runtime/`：subagent runtime 入口索引
 - `.codex/templates/`：`Task Brief` 与 `Agent Report` 模板
+
+## 1.5 Subagent Runtime Entry
+
+- 标准 runtime 索引：`.codex/runtime/subagent-runtime.json`
+- 标准 dispatch helpers：`script/process/prepare-agent-brief.sh`、`script/process/resolve-agent-dispatch.js`、`script/process/dispatch-agent.sh`
+- 该文件只负责声明项目入口、角色集合、工件位置与默认写入 ownership，不承载机器规则细节
+- 机器规则真源仍是 `AGENTS.md`、`docs/process/policy.json`、`script/process/*` 与 `.codex/agents/*.md`
 
 ## 2. Required Commands
 
-- 初次 clone：`git submodule update --init --recursive`
-- 每个工作副本一次：`npm install`
-- 每个工作副本一次：`npm run hooks:install`
+- 初次 clone 后执行：`git submodule update --init --recursive`
+- 每个工作副本只需执行一次：`npm install`
+- 每个工作副本只需执行一次：`npm run hooks:install`
 - 流程脚本自测：`npm run process:selftest`
-- 日常快速反馈：`npm run quality:quick`
-- 唯一 finish gate：`npm run quality:gate`
+- 日常本地快速反馈：`npm run quality:quick`
+- 任意准备提交的变更，唯一 finish gate：`npm run quality:gate`
 - 文档链检查：`npm run docs:check`
 
 常用命令：
 
 - 构建：`forge build`
 - 测试：`forge test -vvv`
-- 格式：`forge fmt --check`
-- 流程自测：`npm run process:selftest`
+- 覆盖率检查：`bash ./script/process/check-coverage.sh`
+- 格式检查：`forge fmt --check`
+- 文档检查：`npm run docs:check`
+- 本地 gate：`npm run quality:quick`、`npm run quality:gate`
+- `check-coverage.sh` 默认使用 `forge coverage --ir-minimum`，用于绕过 coverage 模式下的 `stack too deep` 编译阻塞；其 source mapping 精度可能低于默认 coverage 模式
 
 ## 3. Role Model
 
 ### Main Session
 
-- 主会话默认角色是 `main-orchestrator`
-- `main-orchestrator` 只负责 intake、任务拆分、ownership 分配、证据汇总、block 判定
-- `main-orchestrator` 不得直接写 `src/**/*.sol`、`test/**/*.sol`、`script/**/*.sh`
-- 命中上述路径时，必须先派发对应 writer role；未成功派发前不得开始实现
+- `main-orchestrator` 是默认主会话角色
+- `main-orchestrator` 负责 intake、拆任务、划定 file ownership、汇总证据、判定 block
+- `main-orchestrator` 不写 `src/**/*.sol`
+- `main-orchestrator` 不写 `test/**/*.sol`
+- `main-orchestrator` 不写 `script/**/*.sh`
+- 命中 `src/**/*.sol`、`test/**/*.sol`、`script/**/*.sh` 时，必须先派发对应 writer role
 - 若 writer role 未成功派发，主会话必须停止并请求人工决策，不能降级为直接实现者
-- 主会话直接写入上述路径视为流程违规，不得进入 verification / decision / finish
+- 主会话被长期授权可按 `AGENTS.md` 自主使用 subagents
+- 主会话可自行决定何时委派、并行执行、等待结果与回收 agent，无需每次单独向用户请求许可
+- 自主委派仍必须遵守本文件的角色边界、单写 owner、证据链和 block 规则
 
 ### Default Roles
 
-- `solidity-implementer`：Solidity 面默认写入者
-- `process-implementer`：非 Solidity 面默认写入者
-- `security-reviewer`：只读安全审阅
-- `gas-reviewer`：只读 Gas 审阅
-- `verifier`：只读验证与失败归因
+- `solidity-implementer`
+  - Solidity surface 的唯一默认写入者
+  - 负责 `src/**/*.sol`、适量的方法内注释与与风险匹配的测试
+- `security-reviewer`
+  - 只读安全审阅
+  - 负责 high / medium / low findings 与必补测试建议
+- `gas-reviewer`
+  - 只读 Gas 基线、diff、优化建议与残余风险
+- `verifier`
+  - 只读验证执行与失败归因
 
 ### On-Demand Roles
 
-- `solidity-explorer`：复杂改动前影响面侦察
-- `security-test-writer`：测试补强与覆盖率加固（fuzz / invariant / adversarial 等）
+- `solidity-explorer`
+  - 复杂改动前的影响面侦察与任务拆分建议
+- `process-implementer`
+  - 流程、文档、CI、shell、package metadata 与 Harness 文件的受限写入者
+  - 对非 Solidity surface 变更默认启用；在 Solidity-centric 任务中按需启用
+- `security-test-writer`
+  - 高风险改动后的 fuzz / invariant / adversarial tests 补强
 
-### Required Review Order (Harness / Process 任务)
+### Required Review Order (Harness / Process Tasks)
 
-对于 `.codex/**`、`AGENTS.md`、`README.md`、`docs/process/subagent-workflow.md`、`script/process/**` 这类流程面变更，默认评审顺序为：
+对于 `AGENTS.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`.codex/**`、`script/process/**` 这类流程面变更，默认评审顺序为：
 
-`main-orchestrator`（范围与契约复核） -> `verifier`
+`main-orchestrator` -> `verifier`
 
-### Evidence Rules
+## 4. Core Principles
 
-- 证据先于结论：可提交结论必须能回溯到 `Task Brief`、agent 输出、review note、gate 或 CI
-- 本地前提先于外部事实：任何已确认结论都必须先核实本地关键控制流、状态更新、金额计算、索引推进与权限检查，再核验第三方语义
-- subagent finding 默认不是最终结论：`main-orchestrator` 复核关键代码行、关键前提和必要的外部主来源后，才能升级为仓库级 confirmed finding
-- 缺少本地前提证据、外部主来源证据，或只依赖 interface / mock / wrapper / 命名模式时，只能写成 `hypothesis`、`needs verification` 或测试缺口
+- 默认单写 owner：同一批 Solidity 文件在同一时间只能有一个实现型写入者
+- 并行优先用于只读任务：exploration、security review、Gas review、verification triage
+- 证据先于结论：所有可提交结论都必须能追溯到 `Task Brief`、agent 输出、review note、gate 或 CI
+- 可读性优先于省注释：对非直观控制流、状态迁移、金额计算、权限前提与外部调用，必须补充适量的方法内注释；禁止把显而易见的逐行语句翻译成噪音注释
+- 测试充分性优先于“有测试就行”：测试必须能证明行为与风险边界，不能只停留在 happy path；涉及会计、状态机、权限、资金流、升级或外部集成的高风险路径时，除单元测试外还必须补充适用的 fuzz、invariant、adversarial、integration 或 upgrade tests，并明确覆盖范围与剩余缺口
+- 本地前提先于外部事实：任何结论都必须先逐行核实本地关键控制流、状态更新与入口条件，再去核验第三方协议或外部系统行为
+- 未完成证据链，不得升级为已确认 finding：缺少本地关键前提、缺少上游主来源、或只依赖模式匹配 / mock / interface / wrapper 命名时，只能标记为 `hypothesis`、`needs verification` 或测试缺口
+- subagent finding 默认不是最终结论：`main-orchestrator` 必须复核关键代码行、关键前提和外部来源后，才能把 subagent 输出升级为仓库级结论
+- CI 不负责编排 agent：CI 只验证证据与最终 gate
+- review 结论只允许输出风险、后果、证据与可选方案；不得擅自修改产品需求，也不得把审阅建议直接固化为新的仓库规则
+- 若 review 结论会改变业务语义、权限边界、资金流约束、可领取条件、费用规则、流动性规则或其他产品规则，必须升级为 `需要 main-orchestrator / human 确认的决策点`，在确认前不得默认实现
 
-## 4. Workflow Model
+## 5. Workflow Summary
 
-### Phase 1: Intake / Scoping
+- `npm run quality:gate` 是唯一 finish gate；`npm run quality:quick` 只用于本地快速反馈
+- 工件目录约定：
+  - `docs/plans/` 只放 design / plan / draft
+  - `docs/task-briefs/` 只放 `Task Brief`
+  - `docs/agent-reports/` 只放 `Agent Report`
+  - `docs/reviews/` 放本地 review note / 模板
+- 结构化阶段流、通信模型、证据链、block 规则，统一以 [docs/process/subagent-workflow.md](/home/azkrale/Web3Project/MemeverseV2/docs/process/subagent-workflow.md) 为准
+- 在新建任何文档前，必须先校验目标目录是否符合本仓库约定；路径未校验视为流程错误
 
-- `main-orchestrator` 产出结构化 `Task Brief`
-- 对语义敏感改动，`Task Brief` 必须显式声明 `Semantic review dimensions`、`Source-of-truth docs`、`External sources required` 与 `Critical assumptions to prove or reject`
-- 识别路径、风险、required roles、write ownership
-- scope 不清时可先启用 `solidity-explorer`
+## 6. Change Surfaces
 
-### Phase 2: Baseline Analysis
+- 路径触发规则、默认角色、必跑命令与 gate 约束，以 [docs/process/change-matrix.md](/home/azkrale/Web3Project/MemeverseV2/docs/process/change-matrix.md) 为准
+- 机器可读真源以 [docs/process/policy.json](/home/azkrale/Web3Project/MemeverseV2/docs/process/policy.json) 与 `script/process/*` 为准
+- `MemeverseV2` 的 `rule-map` 是 repo-specific 扩展，不被通用 Harness 文案替代
 
-- `src/**/*.sol` 变更默认并行启用 `security-reviewer` + `gas-reviewer`
-- 非 Solidity 变更默认进入 `process-implementer`
+## 7. Pull Request Contract
 
-### Phase 3: Implementation
-
-- Solidity 面由 `solidity-implementer` 在授权边界内写入
-- 非 Solidity 面由 `process-implementer` 在授权边界内写入
-- 命中 `src/**/*.sol` 或 `test/**/*.sol` 的任务，必须先有 `Task Brief`，且其中明确 `Default writer` 与 `Write permissions`
-- 未完成 role dispatch，不得开始 Solidity 实现
-- 复杂分支、状态迁移、资金/权限判断、关键外部调用、非直观数学等实现必须补充适当的方法内注释，说明意图、前置条件或安全假设；禁止噪音式逐行注释
-- 未重派发不得扩展到 ownership 外路径
-
-### Phase 4: Specialist Review
-
-- Solidity 任务：`security-reviewer` / `gas-reviewer` 给出只读结论
-- 命中外部依赖、用户资金流、权限边界、registration / settlement / liquidity / yield / omnichain 语义的改动，review 必须显式处理 brief 中声明的语义维度与关键假设
-- review 必须先核实本地前提；关键控制流、状态变化、金额处理、权限检查与触发路径未逐行确认前，不得把问题升级为 confirmed finding
-- 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，必须在本地前提成立后再核验主来源
-- Harness/process 任务：由 `main-orchestrator` 复核契约一致性与角色边界
-- 任何会改变产品规则的建议升级为待决策点，不默认实现
-
-### Phase 5: Test Hardening
-
-- Solidity 改动默认需要完善测试，不得只停留在最小回归或 happy path
-- 测试至少覆盖 unit tests，并按风险与状态复杂度补充 fuzz / invariant / adversarial / integration tests，使变更路径保持足够高覆盖率；若仍有测试盲区，必须显式记录
-- 高风险路径或覆盖缺口明显时启用 `security-test-writer`
-
-### Phase 6: Verification
-
-- `verifier` 运行或汇总 required checks
-- 对语义敏感改动，`verifier` 还需确认 review note 已填写语义对齐字段，且 brief 要求的外部来源/关键假设已收敛为结论或决策点
-- Harness/process 任务在评审后由 `verifier` 收敛最终验证结论
-
-### Phase 7: Decision
-
-- `main-orchestrator` 汇总 `Task Brief`、`Agent Report`、review note（如适用）、gate/CI 证据
-- 对 confirmed finding，`main-orchestrator` 至少复核关键代码行、关键前提和必要的外部主来源，不能只转述 subagent 摘要
-- 证据链完整后才可进入 `quality:gate` / CI
-
-## 5. Change Matrix Summary
-
-- `src/**/*.sol`
-  - 进入 review/收尾/commit 前必须按仓库约定执行 post-coding 流程
-  - 优先使用 `skills/solidity-post-coding-flow/SKILL.md`
-  - required checks 参考 `docs/process/change-matrix.md` 与 `docs/process/policy.json`
-  - `rule-map` 证据映射以 `docs/process/rule-map.json` 为准
-  - 复杂实现必须有适当的方法内注释，解释关键意图与安全假设
-  - 测试必须覆盖 unit tests，并按适用性补 fuzz / invariant / adversarial / integration tests；变更面应保持足够高覆盖率，不能留下未解释的明显盲区
-  - 语义敏感改动还必须补齐 semantic-alignment / evidence-chain 字段，不能把外部语义留在隐含前提里
-- `test/**/*.t.sol`
-  - 必须通过 Solidity 相关基础检查（fmt/build/test）
-  - 测试至少覆盖正常路径、边界条件和失败路径；高风险状态路径应补 fuzz / invariant / adversarial tests，并追求足够高覆盖率
-- `script/**/*.sh` 或 `.githooks/*`
-  - 必须通过 `bash -n`
-- `AGENTS.md`、`README.md`、`docs/process/subagent-workflow.md`、`.codex/**`、`script/process/check-docs.sh`
-  - 默认由 `process-implementer` 修改
-  - 至少通过 `npm run docs:check`
-
-## 6. Pull Request Contract
-
-- 标准模板：`.github/pull_request_template.md`
-- PR body 必须包含：
+- 仓库提供标准模板：`.github/pull_request_template.md`
+- PR body 必须包含以下标题：
   - `## Summary`
   - `## Impact`
   - `## Docs`
@@ -153,69 +136,67 @@
   - `## Simplification`
   - `## Gas`
 
-## 7. Review Note Contract
+## 8. Review Note Contract
 
-- 模板：`docs/reviews/TEMPLATE.md`
-- 命中 `src/**/*.sol` 时，本地与 CI 的 `quality:gate` 必须能找到有效 review note
-- 必填字段与占位规则以 `docs/process/review-notes.md` 与 `docs/process/policy.json` 为准
-- `Behavior change`、`ABI change`、`Storage layout change`、`Config change`、`Ready to commit` 仅允许 `yes` 或 `no`
-- 对语义敏感改动，review note 还必须补齐：
-  - `Semantic dimensions reviewed`
-  - `Source-of-truth docs checked`
-  - `External facts checked`
-  - `Local control-flow facts checked`
-  - `Evidence chain complete`
-  - `Semantic alignment summary`
+- 模板文件：`docs/reviews/TEMPLATE.md`
+- 当命中 `src/**/*.sol` 变更时，本地与 CI 的 `quality:gate` 都必须能找到一份有效 review note
+- 字段、布尔值约束、owner-prefixed source 规则与 artifact 路径要求，以 [docs/process/review-notes.md](/home/azkrale/Web3Project/MemeverseV2/docs/process/review-notes.md) 和 [docs/process/policy.json](/home/azkrale/Web3Project/MemeverseV2/docs/process/policy.json) 为准
+- 若仓库启用了 repo-specific 证据映射或额外 gate 字段，review note 也必须同步满足
 
-## 8. Local-Only Files
+## 9. Local-Only Files
 
 - `docs/plans/` 默认本地规划目录，仅放设计文档、实现计划、阶段方案、拆分草案
 - `docs/task-briefs/` 默认本地 `Task Brief` 目录
 - `docs/agent-reports/` 默认本地 `Agent Report` 目录
 - `docs/reviews/` 默认本地 review 草稿目录（是否提交由团队策略决定）
 
-## 9. Documentation Language
+## 10. Documentation Language
 
 - 新增自然语言文档默认使用简体中文
 - 固定字段 key、命令、路径、代码标识、协议名、库名保持英文
-- review note 的固定 key 与 `yes`/`no` 取值保持英文
+- review note 的固定 key 与 `yes` / `no` 取值保持英文
 
-## 10. High-Level Architecture
+## 11. Repository Architecture Snapshot
 
-### 10.1 Verse 启动与生命周期
+### 11.1 Launcher 与生命周期
 
 - 入口：`src/verse/MemeverseLauncher.sol`
-- 负责 verse 创建、阶段推进、Genesis 相关状态、POL 与外围模块装配
+- 负责 verse 创建、阶段推进、Genesis / Refund / Locked / Unlocked 相关状态与资金主编排
 
-### 10.2 注册与跨链注册
+### 11.2 Registration 与跨链注册
 
 - 目录：`src/verse/registration/`
-- 入口与状态中心：`MemeverseRegistrationCenter.sol`
-- 本地注册与跨链注册由不同 registrar 协作完成
+- 负责参数校验、symbol 占用、local / remote fan-out，以及对 launcher 的落库调用
 
-### 10.3 Swap 与流动性
+### 11.3 Swap 与流动性
 
 - 目录：`src/swap/`
-- 用户入口：`MemeverseSwapRouter.sol`
-- Hook 扩展：`MemeverseUniswapHook.sol`
+- 用户入口：`src/swap/MemeverseSwapRouter.sol`
+- Hook 引擎：`src/swap/MemeverseUniswapHook.sol`
 
-### 10.4 Token / Yield / Governance
+### 11.4 Token / Yield / Governance
 
-- `src/token/`：`Memecoin.sol`、`MemeLiquidProof.sol`
-- `src/yield/`：`MemecoinYieldVault.sol`
+- `src/token/`：memecoin 与 POL 资产层
+- `src/yield/`：收益相关合约
 - `src/governance/`：治理与激励合约
 
-### 10.5 Omnichain Interoperation
+### 11.5 Interoperation
 
 - 目录：`src/interoperation/`
-- 负责跨链 staking、治理链侧承接、与 launcher/OFT/endpoint 配置联动
+- 负责跨链 staking、治理链侧承接，以及与 launcher / OFT / endpoint 配置联动
 
-### 10.6 Common 基础层
+## 12. Source of Truth And Reading Order
 
-- 目录：`src/common/`
-- 提供 omnichain 封装、token 基类、访问控制和密码学组件
+### Harness / Process Truth
 
-## 11. Source of Truth
+- `AGENTS.md`
+- `docs/process/change-matrix.md`
+- `docs/process/review-notes.md`
+- `docs/process/policy.json`
+- 若存在：`docs/process/rule-map.json`
+- `script/process/*`
+- `.codex/agents/*.md`
+- `.codex/agents/*.toml`
 
 ### Product Truth Core Source of Truth
 
@@ -229,28 +210,14 @@
 - `docs/GLOSSARY.md`
 - `docs/TRACEABILITY.md`
 - `docs/VERIFICATION.md`
+- `docs/SECURITY_AND_APPROVALS.md`
 - `docs/adr/0001-universalvault-style-harness-migration.md`
 
-### Harness Source of Truth
+### Recommended Reading Order
 
-- `AGENTS.md`
-- `.codex/**`
-- `docs/process/subagent-workflow.md`
-
-### Process and Policy Source of Truth
-
-- `docs/process/policy.json`
-- `docs/process/rule-map.json`
-- `docs/process/change-matrix.md`
-- `docs/process/review-notes.md`
-- `script/process/*`（含 `process:selftest` 与 gate 脚本）
-
-## 12. Recommended Reading Order
-
-1. `AGENTS.md`（协作边界、角色与流程契约）
-2. `docs/ARCHITECTURE.md`（架构层次与边界）
-3. `docs/spec/*`（产品真相核心规则；先读 `protocol`/`state-machines`/`accounting`/`access-control`/`upgradeability`）
-4. `docs/GLOSSARY.md`（术语与定义基线）
-5. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md`（规则追溯与验证路径）
-6. `docs/adr/0001-universalvault-style-harness-migration.md`（文档治理决策背景）
-7. `docs/process/subagent-workflow.md` + `docs/process/*`（Harness/Process 执行细则）
+1. `AGENTS.md`
+2. `docs/ARCHITECTURE.md`
+3. `docs/spec/*`
+4. `docs/GLOSSARY.md`
+5. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md`
+6. `docs/process/subagent-workflow.md` + `docs/process/*`
