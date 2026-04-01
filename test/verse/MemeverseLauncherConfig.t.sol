@@ -8,41 +8,32 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract MockLaunchSettlementHookConfig {
-    address internal settlementCaller;
+    address internal boundLauncher;
 
-    constructor(address settlementCaller_) {
-        settlementCaller = settlementCaller_;
+    constructor(address boundLauncher_) {
+        boundLauncher = boundLauncher_;
     }
 
-    /// @notice Returns the configured settlement caller.
-    /// @dev Mirrors the real hook accessor for config validation.
-    /// @return caller Configured settlement caller.
-    function launchSettlementCaller() external view returns (address) {
-        return settlementCaller;
+    /// @notice Returns the configured launcher binding.
+    /// @dev Mirrors the real hook accessor for launcher validation.
+    /// @return launcher_ Configured launcher binding.
+    function launcher() external view returns (address launcher_) {
+        return boundLauncher;
     }
 
-    /// @notice Updates the settlement caller used by the mock hook.
-    /// @dev Allows tests to switch callers when validating router config.
-    /// @param settlementCaller_ New settlement caller stored by the mock.
-    function setLaunchSettlementCaller(address settlementCaller_) external {
-        settlementCaller = settlementCaller_;
+    /// @notice Updates the launcher binding used by the mock hook.
+    /// @dev Allows tests to require explicit hook-to-launcher binding.
+    /// @param boundLauncher_ New launcher stored by the mock.
+    function setLauncher(address boundLauncher_) external {
+        boundLauncher = boundLauncher_;
     }
 }
 
 contract MockLaunchSettlementRouterConfig {
-    address internal settlementOperator;
     address internal hookAddress;
 
-    constructor(address settlementOperator_, address hookAddress_) {
-        settlementOperator = settlementOperator_;
+    constructor(address hookAddress_) {
         hookAddress = hookAddress_;
-    }
-
-    /// @notice Returns the configured settlement operator.
-    /// @dev Matches the router accessor used in config validation tests.
-    /// @return operator Configured settlement operator.
-    function launchSettlementOperator() external view returns (address) {
-        return settlementOperator;
     }
 
     /// @notice Returns the configured hook address.
@@ -57,6 +48,17 @@ contract MemeverseLauncherConfigTest is Test {
     address internal constant OTHER = address(0xBEEF);
 
     MemeverseLauncher internal launcher;
+
+    function _setMemeverseUniswapHook(address hookAddress) internal returns (bool ok, bytes memory data) {
+        return address(launcher).call(abi.encodeWithSignature("setMemeverseUniswapHook(address)", hookAddress));
+    }
+
+    function _readMemeverseUniswapHook() internal view returns (bool ok, address hookAddress) {
+        (bool success, bytes memory data) =
+            address(launcher).staticcall(abi.encodeWithSignature("memeverseUniswapHook()"));
+        if (!success || data.length != 32) return (false, address(0));
+        return (true, abi.decode(data, (address)));
+    }
 
     /// @notice Set up.
     /// @dev Deploys the launcher with dummy dependencies for the configuration tests.
@@ -101,30 +103,53 @@ contract MemeverseLauncherConfigTest is Test {
         assertFalse(launcher.paused());
     }
 
-    /// @notice Test set memeverse swap router stores address and rejects zero.
-    /// @dev Confirms the setter validates both the operator and hook before storing.
-    function testSetMemeverseSwapRouterStoresAddressAndRejectsZero() external {
-        MockLaunchSettlementHookConfig hook = new MockLaunchSettlementHookConfig(address(0xCAFE));
-        MockLaunchSettlementRouterConfig invalidOperatorRouter =
-            new MockLaunchSettlementRouterConfig(OTHER, address(hook));
-        MockLaunchSettlementRouterConfig invalidCallerRouter =
-            new MockLaunchSettlementRouterConfig(address(launcher), address(hook));
+    /// @notice Test swap infra config requires a bound hook and a matching router->hook edge.
+    /// @dev The launcher should reject either side of the double binding when the approved wiring is wrong.
+    function testSetMemeverseSwapInfra_RequiresMatchingHookAndRouterBindings() external {
+        MockLaunchSettlementHookConfig invalidLauncherHook = new MockLaunchSettlementHookConfig(OTHER);
+        (bool invalidHookOk, bytes memory invalidHookData) = _setMemeverseUniswapHook(address(invalidLauncherHook));
+        assertFalse(invalidHookOk, "hook with wrong launcher should fail");
+        assertEq(bytes4(invalidHookData), IMemeverseLauncher.InvalidLaunchSettlementConfig.selector, "hook revert");
+
+        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        (bool setHookOk, bytes memory setHookData) = _setMemeverseUniswapHook(address(configuredHook));
+        assertTrue(setHookOk, string(setHookData));
+
+        MockLaunchSettlementHookConfig mismatchedRouterHook = new MockLaunchSettlementHookConfig(address(launcher));
+        MockLaunchSettlementRouterConfig mismatchedRouter =
+            new MockLaunchSettlementRouterConfig(address(mismatchedRouterHook));
 
         vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
-        launcher.setMemeverseSwapRouter(address(invalidOperatorRouter));
-
-        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
-        launcher.setMemeverseSwapRouter(address(invalidCallerRouter));
+        launcher.setMemeverseSwapRouter(address(mismatchedRouter));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setMemeverseSwapRouter(address(0));
 
-        MockLaunchSettlementHookConfig settledHook = new MockLaunchSettlementHookConfig(address(0xD00D));
-        MockLaunchSettlementRouterConfig settledRouter =
-            new MockLaunchSettlementRouterConfig(address(launcher), address(settledHook));
-        settledHook.setLaunchSettlementCaller(address(settledRouter));
+        MockLaunchSettlementRouterConfig settledRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
         launcher.setMemeverseSwapRouter(address(settledRouter));
         assertEq(launcher.memeverseSwapRouter(), address(settledRouter));
+
+        (bool readHookOk, address storedHook) = _readMemeverseUniswapHook();
+        assertTrue(readHookOk, "hook getter missing");
+        assertEq(storedHook, address(configuredHook));
+    }
+
+    /// @notice Verifies the launcher hook binding is write-once while routers may still rebind to the same hook.
+    /// @dev This prevents unlock protection from drifting to a different hook namespace after pools already exist.
+    function testSetMemeverseSwapInfra_HookIsWriteOnceButRouterCanRebindToSameHook() external {
+        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        (bool firstSetOk, bytes memory firstSetData) = _setMemeverseUniswapHook(address(configuredHook));
+        assertTrue(firstSetOk, string(firstSetData));
+
+        MockLaunchSettlementRouterConfig firstRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
+        MockLaunchSettlementRouterConfig secondRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
+
+        launcher.setMemeverseSwapRouter(address(firstRouter));
+        launcher.setMemeverseSwapRouter(address(secondRouter));
+        assertEq(launcher.memeverseSwapRouter(), address(secondRouter), "router should rebind");
+
+        vm.expectRevert();
+        launcher.setMemeverseUniswapHook(address(configuredHook));
     }
 
     /// @notice Test set lz endpoint registry stores address and rejects zero.

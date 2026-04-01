@@ -55,7 +55,7 @@
 
 - Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits` 等
 - RegistrationCenter：`SetSupportedUPT`、`SetDurationDaysRange`、`SetLockupDaysRange`、`SetRegisterGasLimit`
-- Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`EmergencyFlagUpdated`、`LaunchSettlementCallerUpdated`、`DefaultLaunchFeeConfigUpdated`
+- Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`EmergencyFlagUpdated`、`LauncherUpdated`、`DefaultLaunchFeeConfigUpdated`
 - Interoperation：`SetGasLimits`
 - ProxyDeployer：`SetQuorumNumerator`
 
@@ -64,7 +64,7 @@
 - `preorder(...)`、`refundPreorder(...)`、`claimUnlockedPreorderMemecoin(...)` 没有专用事件。`[已知缺口]`
 - Router 自身没有业务事件（swap/add/remove/permit2 路径）；链上索引主要依赖 Hook 事件与 token transfer。`[已知缺口]`
 - `changeStage` 在 `Locked` 且未到 `unlockTime` 时也会发 `ChangeStage(..., Locked)`；索引器不能仅凭事件判断“是否真的迁移”。`[已知缺口]`
-- 当前实现还没有 `post-unlock liquidity protection period` 的专用阶段或专用事件；若后续落地该保护窗口，索引器需要能区分“unlock 后保护中”与“完全开放交易”的状态。`[已知缺口]`
+- 当前实现已有 `SetPostUnlockLiquidityProtectionWindow` 配置事件，但仍没有“保护窗口开始/结束”的专用阶段或专用事件；索引器需要结合 stage、`unlockTime`、窗口参数与 swap 成败联合判断“unlock 后保护中”与“完全开放交易”的状态。`[已知缺口]`
 - `SetExternalInfo` 事件携带的是本次传入数组；合约内 `communitiesMap` 为按索引覆盖，旧尾部数据可能保留，事件本身无法单独重建完整当前快照。`[已知缺口]`
 - LayerZero endpoint / PoolManager 等外部协议事件不在本仓库定义。`[未知]`
 

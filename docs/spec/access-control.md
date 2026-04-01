@@ -43,8 +43,8 @@
 | `MemeverseRegistrationCenter` | `registration` 对外开放；参数配置和 gas dust 清理是 `onlyOwner` | `src/verse/registration/MemeverseRegistrationCenter.sol:115`, `:158`, `:308`, `:319`, `:332`, `:344` |
 | `MemeverseRegistrarAtLocal` | `localRegistration` 仅 center；`setRegistrationCenter` 仅 owner | `src/verse/registration/MemeverseRegistrarAtLocal.sol:57-60`, `:80` |
 | `MemeverseRegistrarOmnichain` | `setRegistrationGasLimit` 仅 owner | `src/verse/registration/MemeverseRegistrarOmnichain.sol:122` |
-| `MemeverseSwapRouter` | 主路由入口 permissionless；仅 launch-settlement 特殊 hookData 受 `launchSettlementOperator` 限制 | `src/swap/MemeverseSwapRouter.sol:174`, `:212`, `:264`, `:365`, `:422`, `:446`, `:561-563` |
-| `MemeverseUniswapHook` | 核心 `addLiquidityCore/removeLiquidityCore/claimFeesCore` 对外开放；配置项 `onlyOwner`；launch-settlement caller 在 `_beforeSwap` 强校验 | `src/swap/MemeverseUniswapHook.sol:440`, `:510`, `:550`, `:315`, `:836`, `:846`, `:855`, `:862`, `:871`, `:881` |
+| `MemeverseSwapRouter` | 主路由入口纯 permissionless；不承载 launch-settlement 特权授权；launcher 配置时需校验其 `hook` 绑定 | `src/swap/MemeverseSwapRouter.sol:74-77`, `:174-240`, `:264`, `:365`, `:422`, `:446` |
+| `MemeverseUniswapHook` | 核心 `addLiquidityCore/removeLiquidityCore/claimFeesCore` 对外开放；配置项 `onlyOwner`；`executeLaunchSettlement(...)` 与 pair-based `setPublicSwapResumeTime(address,address,uint40)` 仅当前 launcher；`beforeSwap` 读取 pool-level resume time 执行公开 swap 保护 | `src/swap/MemeverseUniswapHook.sol:309-377`, `:440`, `:510`, `:550`, `:577-627`, `:1038-1055` |
 | `Memecoin` | `mint` 仅 launcher；`burn` 自主 | `src/token/Memecoin.sol:39-43`, `:48-51` |
 | `MemeLiquidProof` | `setPoolId` 与 `mint` 仅 launcher；`burn` 为持币人或 allowance 授权方 | `src/token/MemeLiquidProof.sol:54`, `:62`, `:72-75` |
 | `MemecoinYieldVault` | `accumulateYields` / `deposit` / `requestRedeem` / `executeRedeem` 为 permissionless 业务入口（非 owner 门禁） | `src/yield/MemecoinYieldVault.sol:86`, `:120`, `:132`, `:146` |
@@ -70,7 +70,8 @@
 ## 5. 与当前规则文档的对齐
 
 - Launcher 的 owner / registrar / governor / permissionless 边界与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
-- Swap 的“Router 公开入口 + Hook 核心引擎 + launch settlement 受限路径”与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
+- Swap 的“Router 公开入口 + Hook 核心引擎 + 显式 `Launcher -> Hook` launch settlement 路径”与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
+- Router / Hook 绑定在 launcher 配置时必须做双重校验；launcher 侧 `memeverseUniswapHook` 为 write-once，不允许后续改绑到新 hook；hook owner 后续 retarget `launcher` 仍属于同一 trust boundary 内的接受配置权。
 - 注册中心和 registrar 的边界与 `docs/spec/state-machines.md` 一致。
 
 ## 6. 确定性边界

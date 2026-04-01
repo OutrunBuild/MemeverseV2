@@ -73,7 +73,6 @@ contract LaunchFeeQuoteHandler is Test {
 }
 
 contract LaunchSettlementHandler is Test {
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal router;
@@ -117,11 +116,10 @@ contract LaunchSettlementHandler is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             amount,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+            bytes("public-swap")
         );
 
         assertLt(delta.amount0(), 0, "settlement delta0");
@@ -155,9 +153,7 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
         manager = new MockPoolManagerForHookLiquidity();
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
-        hook = new TestableMemeverseUniswapHook(
-            IPoolManager(address(manager)), address(this), address(this), address(this)
-        );
+        hook = new TestableMemeverseUniswapHook(IPoolManager(address(manager)), address(this), address(this));
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -225,9 +221,7 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
         treasury = makeAddr("treasury");
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
-        hook = new TestableMemeverseUniswapHookForRouter(
-            IPoolManager(address(manager)), address(this), treasury, address(this)
-        );
+        hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury);
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -244,13 +238,9 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
 
         handler = new LaunchSettlementHandler(token0, key, treasury);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(0xBEEF)),
-            address(handler)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
         handler.setRouter(router);
-        hook.setLaunchSettlementCaller(address(router));
         token0.mint(address(handler), 1_000_000 ether);
 
         targetContract(address(handler));
@@ -259,11 +249,6 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
     /// @notice Test helper for invariant_launchSettlementAlwaysUsesFixedProtocolShare.
     function invariant_launchSettlementAlwaysUsesFixedProtocolShare() external view {
         assertEq(token0.balanceOf(treasury), handler.expectedTreasuryFee(), "treasury accounting");
-    }
-
-    /// @notice Test helper for invariant_launchSettlementOperatorRemainsHandler.
-    function invariant_launchSettlementOperatorRemainsHandler() external view {
-        assertEq(router.launchSettlementOperator(), address(handler), "settlement operator");
     }
 
     /// @notice Test helper for invariant_publicQuoteNeverDropsBelowSettlementFeeFloor.

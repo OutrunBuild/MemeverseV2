@@ -17,7 +17,6 @@ import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswap
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
 
 contract RouterSettlementAccountingHandler is Test {
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal router;
@@ -72,8 +71,7 @@ contract RouterSettlementAccountingHandler is Test {
         IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
-        BalanceDelta delta =
-            router.swap(key, params, address(this), address(this), block.timestamp, 0, amount, bytes("regular"));
+        BalanceDelta delta = router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("regular"));
 
         assertLt(delta.amount0(), 0, "regular delta0");
         assertGt(delta.amount1(), 0, "regular delta1");
@@ -83,8 +81,8 @@ contract RouterSettlementAccountingHandler is Test {
         expectedRegularTreasuryFee += treasuryDelta;
     }
 
-    /// @notice Executes the fixed-fee launch settlement swap and records treasury accounting.
-    /// @dev Exercises the marker-gated settlement path under invariant fuzzing.
+    /// @notice Executes a marker-tagged routed swap and records treasury accounting.
+    /// @dev Marker payload now follows standard public-swap fee behavior.
     /// @param amountSeed Fuzzed swap amount seed.
     function settlementSwap(uint256 amountSeed) external {
         uint256 balance = token0.balanceOf(address(this));
@@ -92,25 +90,18 @@ contract RouterSettlementAccountingHandler is Test {
 
         uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        SwapParams memory params =
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            amount,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
-        );
+        BalanceDelta delta = router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("public-swap"));
 
         assertLt(delta.amount0(), 0, "settlement delta0");
         assertGt(delta.amount1(), 0, "settlement delta1");
 
         uint256 treasuryDelta = token0.balanceOf(treasury) - treasuryBefore;
-        uint256 expectedDelta = amount * 30 / 10_000;
-        assertEq(treasuryDelta, expectedDelta, "settlement protocol fee");
+        assertEq(treasuryDelta, quote.estimatedProtocolFeeAmount, "marker protocol fee");
         expectedSettlementTreasuryFee += treasuryDelta;
     }
 
@@ -120,18 +111,27 @@ contract RouterSettlementAccountingHandler is Test {
 }
 
 contract RouterSettlementSpoofHandler is Test {
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal immutable router;
+    TestableMemeverseUniswapHookForRouter internal immutable hook;
     MockERC20 internal immutable token0;
+    address internal immutable treasury;
     PoolKey internal key;
 
-    bool public unexpectedSuccess;
+    uint256 public expectedSpoofTreasuryFee;
 
-    constructor(MemeverseSwapRouter _router, MockERC20 _token0, PoolKey memory _key) {
+    constructor(
+        MemeverseSwapRouter _router,
+        TestableMemeverseUniswapHookForRouter _hook,
+        MockERC20 _token0,
+        address _treasury,
+        PoolKey memory _key
+    ) {
         router = _router;
+        hook = _hook;
         token0 = _token0;
+        treasury = _treasury;
         key = _key;
         token0.approve(address(router), type(uint256).max);
     }
@@ -143,8 +143,8 @@ contract RouterSettlementSpoofHandler is Test {
         vm.warp(block.timestamp + bound(deltaSeed, 0, 40 minutes));
     }
 
-    /// @notice Attempts to spoof the settlement marker from an unauthorized caller.
-    /// @dev Any success would indicate a broken router-side authorization boundary.
+    /// @notice Executes a marker-tagged public swap from an arbitrary caller.
+    /// @dev Marker payload is now treated as regular hook data.
     /// @param amountSeed Fuzzed swap amount seed.
     function spoofSettlement(uint256 amountSeed) external {
         uint256 balance = token0.balanceOf(address(this));
@@ -152,21 +152,19 @@ contract RouterSettlementSpoofHandler is Test {
 
         uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        SwapParams memory params =
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        uint256 treasuryBefore = token0.balanceOf(treasury);
 
-        try router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            amount,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
-        ) returns (
+        try router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("public-swap")) returns (
             BalanceDelta delta
         ) {
-            delta;
-            unexpectedSuccess = true;
+            assertLt(delta.amount0(), 0, "spoof delta0");
+            assertGt(delta.amount1(), 0, "spoof delta1");
+            uint256 treasuryDelta = token0.balanceOf(treasury) - treasuryBefore;
+            assertEq(treasuryDelta, quote.estimatedProtocolFeeAmount, "spoof protocol fee");
+            expectedSpoofTreasuryFee += treasuryDelta;
         } catch {}
     }
 
@@ -194,9 +192,7 @@ contract MemeverseSwapRouterSettlementInvariantTest is StdInvariant, Test {
     function setUp() external {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
-        hook = new TestableMemeverseUniswapHookForRouter(
-            IPoolManager(address(manager)), address(this), treasury, address(this)
-        );
+        hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury);
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -216,15 +212,10 @@ contract MemeverseSwapRouterSettlementInvariantTest is StdInvariant, Test {
 
         accountingHandler = new RouterSettlementAccountingHandler(hook, token0, treasury, key);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(0xBEEF)),
-            address(accountingHandler)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
         accountingHandler.setRouter(router);
-        spoofHandler = new RouterSettlementSpoofHandler(router, token0, key);
-
-        hook.setLaunchSettlementCaller(address(router));
+        spoofHandler = new RouterSettlementSpoofHandler(router, hook, token0, treasury, key);
         token0.mint(address(accountingHandler), 1_000_000 ether);
         token0.mint(address(spoofHandler), 1_000_000 ether);
 
@@ -237,29 +228,19 @@ contract MemeverseSwapRouterSettlementInvariantTest is StdInvariant, Test {
     function invariant_treasuryAccountingMatchesRegularPlusSettlementPaths() external view {
         assertEq(
             token0.balanceOf(treasury),
-            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee(),
+            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee()
+                + spoofHandler.expectedSpoofTreasuryFee(),
             "treasury accounting"
         );
     }
 
-    /// @notice Ensures unauthorized spoof attempts never succeed.
-    /// @dev The spoof handler records unexpected success explicitly.
-    function invariant_spoofedSettlementNeverSucceeds() external view {
-        assertFalse(spoofHandler.unexpectedSuccess(), "spoofed marker succeeded");
-    }
-
-    /// @notice Ensures the router settlement operator remains pinned to the accounting handler.
-    /// @dev Protects the invariant harness assumptions around the authorized caller.
-    function invariant_launchSettlementOperatorRemainsBoundedToAccountingHandler() external view {
-        assertEq(router.launchSettlementOperator(), address(accountingHandler), "launch settlement operator");
-    }
-
-    /// @notice Ensures spoof reverts never create untracked treasury fees.
-    /// @dev Treasury growth must come only from successful accounting-handler swaps.
+    /// @notice Ensures marker-path treasury growth is fully tracked.
+    /// @dev Marker-tagged swaps should behave like ordinary public swaps for accounting.
     function invariant_spoofRevertsDoNotCreateUntrackedTreasuryFees() external view {
-        assertLe(
+        assertEq(
             token0.balanceOf(treasury),
-            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee(),
+            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee()
+                + spoofHandler.expectedSpoofTreasuryFee(),
             "spoof path changed treasury"
         );
     }

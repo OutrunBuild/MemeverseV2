@@ -64,7 +64,7 @@
 
 ### 2.4 Unlocked 退出路径
 
-1. `unlockTime` 到达后，按目标规则应先进入 `post-unlock liquidity protection period`。
+1. `unlockTime` 之后，verse 在实际 `changeStage()` 调用中进入 `Unlocked`，并为受保护池写入公开 swap 恢复时间。
 2. 在保护窗口内，POL 持有人 burn POL 换 memecoin LP。
 3. Genesis 参与者按占比赎回 POL LP（每地址一次）。
 4. 保护窗口结束后，才恢复无限制公开 swap。
@@ -111,7 +111,8 @@
 
 ## 5. 当前已知边界提醒
 
-- swap 当前规则主路径为 launch fee 衰减 + launch settlement 特权路径。
+- swap 当前规则主路径为 launch fee 衰减 + 显式 `Launcher -> Hook` launch settlement 路径。
 - unlock 后的保护窗口是独立安全要求，不由 launch fee / launch settlement 替代。
+- 受保护公开 swap 的有效恢复时刻锚定实际 `Locked -> Unlocked` 迁移调用时间，再加上 `unlockProtectionWindow`。
 - 注册中心当前把 `durationDays/lockupDays` 按 180 秒“测试日”换算；与自然日含义存在偏差。
 - 评审与实现对齐时，先看 Product Truth 层与 `src/**` / `test/**`。

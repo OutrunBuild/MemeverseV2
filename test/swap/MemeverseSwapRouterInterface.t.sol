@@ -43,6 +43,31 @@ contract MemeverseSwapRouterInterfaceTest is Test {
         }
     }
 
+    /// @notice Verifies the simplified swap selector no longer includes a refund-recipient parameter.
+    /// @dev This guards the router-surface simplification that always refunds unused budgets back to the caller.
+    function testSwapSelector_DropsRefundRecipientParameter() external pure {
+        assertEq(
+            IMemeverseSwapRouter.swap.selector,
+            bytes4(
+                keccak256(
+                    "swap((address,address,uint24,int24,address),(bool,int256,uint160),address,uint256,uint256,uint256,bytes)"
+                )
+            )
+        );
+    }
+
+    /// @notice Verifies the simplified Permit2 swap selector no longer includes a refund-recipient parameter.
+    /// @dev Permit2 swaps now share the same caller-refund semantics as regular swaps.
+    function testSwapWithPermit2Selector_DropsRefundRecipientParameter() external pure {
+        bytes4 oldSelector = bytes4(
+            keccak256(
+                "swapWithPermit2(((address,uint256),uint256,uint256,(address,uint256),bytes),(address,address,uint24,int24,address),(bool,int256,uint160),address,address,uint256,uint256,uint256,bytes)"
+            )
+        );
+        assertNotEq(IMemeverseSwapRouter.swapWithPermit2.selector, oldSelector);
+        assertEq(IMemeverseSwapRouter.swapWithPermit2.selector, MemeverseSwapRouter.swapWithPermit2.selector);
+    }
+
     /// @notice Verifies the router accessor selectors remain unchanged.
     /// @dev Keeps a tiny focused regression check on the immutable public accessors.
     function testAccessorSelectorsRemainStable() external pure {

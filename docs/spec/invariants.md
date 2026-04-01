@@ -28,14 +28,14 @@
 - 价值：避免“治理链”在不同模块使用不同索引。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:288`，`src/verse/MemeverseLauncher.sol:750`，`src/interoperation/MemeverseOmnichainInteroperation.sol:68`
 
-### INV-04 启动结算特权路径必须双重通过
+### INV-04 启动结算必须走显式 `Launcher -> Hook` 结算路径
 
-- 约束：`launch settlement` 需要同时满足：
-  - Router 侧 `msg.sender == launchSettlementOperator`
-  - Hook 侧 `sender == launchSettlementCaller`
-  - Launcher 设置 router 时会校验 `launchSettlementOperator==launcher` 且 `launchSettlementCaller==router`。`[代码已证]`
-- 价值：防止任意调用者伪造启动结算 marker。
-- 主要锚点：`src/swap/MemeverseSwapRouter.sol:561-564`，`src/swap/MemeverseUniswapHook.sol:314-316`，`src/verse/MemeverseLauncher.sol:1164-1173`
+- 约束：
+  - Launcher 在 preorder 结算时直接使用已配置且 write-once 的 `memeverseUniswapHook`，并显式调用 `executeLaunchSettlement(...)`。`[代码已证]`
+  - Hook 侧要求 `msg.sender == launcher`，不再依赖 Router 特殊 `hookData` marker 或双调用者兼容接线。`[代码已证]`
+  - Launcher 配置 router / hook 时会做 set-time 双重校验：`router.hook() == hook` 且 `hook.launcher() == launcher`；同时 launcher 侧 hook 绑定是 write-once。`[代码已证]`
+- 价值：防止任意调用者伪造启动结算路径，并避免 router / hook / launcher 绑定失配或 unlock 保护漂移到错误 hook namespace。
+- 主要锚点：`src/verse/MemeverseLauncher.sol:594-608`，`src/swap/MemeverseUniswapHook.sol:572-627`，`src/verse/MemeverseLauncher.sol:1224-1240`
 
 ### INV-05 Genesis 费用分发恒等式
 
@@ -81,11 +81,11 @@
 
 ### INV-12 解锁后必须先经过保护窗口，再恢复公开 swap
 
-- 约束：`unlockTime` 到达后，不得直接进入“可公开 swap + 可赎回”并存状态；必须先经过 `post-unlock liquidity protection period`。`[产品安全要求]`
+- 约束：verse 在实际执行 `Locked -> Unlocked` 的 `changeStage()` 交易中，会按当时区块时间为受保护池写入 `publicSwapResumeTime = block.timestamp + 24 hours`。在该时刻之前，受保护的公开 swap 必须继续被阻断。`[代码已证]`
 - 价值：保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供一致的全局结算窗口。
 - 违反后果：先行动者可通过先赎回并抛售底层资产，把损失外部化给后续赎回者，造成用户重大亏损。`[产品安全要求]`
-- 当前实现状态：launcher 当前在 `unlockTime` 后直接进入 `Unlocked`，swap 层未见 unlock 后保护窗口，因此该不变量当前未落地。`[当前实现缺口]`
-- 主要锚点：`src/verse/MemeverseLauncher.sol:397-399`，`src/verse/MemeverseLauncher.sol:823`，`src/verse/MemeverseLauncher.sol:849`，`src/swap/MemeverseSwapRouter.sol:544-564`
+- 当前实现状态：保护窗口没有单独阶段，而是通过 `Stage.Unlocked + hook 按 pool-level resume time 阻断公开 swap` 落地；赎回路径与公开 swap 可用性由不同模块分离控制。保护窗口为固定 `24 hours` 产品常量，不再存在 owner 配置面。`[代码已证]`
+- 主要锚点：`src/verse/MemeverseLauncher.sol:132-142`，`src/verse/MemeverseLauncher.sol:996-1000`，`src/swap/MemeverseUniswapHook.sol:309-377`
 
 ## 3. 确定性边界
 

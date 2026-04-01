@@ -307,6 +307,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
@@ -427,6 +428,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
@@ -517,6 +519,7 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
@@ -622,6 +625,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));

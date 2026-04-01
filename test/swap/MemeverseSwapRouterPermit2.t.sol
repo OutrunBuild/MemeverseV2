@@ -44,9 +44,18 @@ contract MockPoolManagerForPermit2RouterTest {
     uint160 internal constant SQRT_PRICE_UPPER_X96 = 1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
 
     bool internal unlocked;
+    address internal lastUnlockCallbackPayer;
     mapping(bytes32 => bytes32) internal extStorage;
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
+
+    struct RouterCallbackPreview {
+        address payer;
+        address recipient;
+        PoolKey key;
+        SwapParams params;
+        bytes hookData;
+    }
 
     /// @notice Seeds mock pool state and calls the hook initialize callback.
     /// @dev Mimics the minimal pool-manager behavior the router expects during bootstrap.
@@ -67,6 +76,14 @@ contract MockPoolManagerForPermit2RouterTest {
     /// @param data The callback payload forwarded to `unlockCallback`.
     /// @return result The callback return data.
     function unlock(bytes calldata data) external returns (bytes memory result) {
+        bytes32 headWord;
+        assembly {
+            headWord := calldataload(data.offset)
+        }
+        if (headWord == bytes32(uint256(0x20))) {
+            RouterCallbackPreview memory preview = abi.decode(data, (RouterCallbackPreview));
+            lastUnlockCallbackPayer = preview.payer;
+        }
         unlocked = true;
         result = IUnlockCallbackLike(msg.sender).unlockCallback(data);
         unlocked = false;
@@ -219,6 +236,10 @@ contract MockPoolManagerForPermit2RouterTest {
         return liquidityState[poolId];
     }
 
+    function lastUnlockPayer() external view returns (address payer) {
+        return lastUnlockCallbackPayer;
+    }
+
     function _syncPoolStorage(PoolId poolId) internal {
         bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), POOLS_SLOT));
         Slot0State memory state = slot0State[poolId];
@@ -240,8 +261,8 @@ interface IUnlockCallbackLike {
 }
 
 contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
-    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
-        MemeverseUniswapHook(_manager, _owner, _treasury, _launchSettlementCaller)
+    constructor(IPoolManager _manager, address _owner, address _treasury)
+        MemeverseUniswapHook(_manager, _owner, _treasury)
     {}
 
     function validateHookAddress(BaseHook) internal pure override {}
@@ -444,6 +465,23 @@ contract SignatureVerifyingPermit2ForRouterTest {
     }
 }
 
+contract MockLauncherForPermit2ProtectionTest {
+    mapping(bytes32 => bool) internal blockedPairs;
+
+    function setPublicSwapBlocked(address tokenA, address tokenB, bool blocked) external {
+        blockedPairs[_pairKey(tokenA, tokenB)] = blocked;
+    }
+
+    function isPublicSwapAllowed(address tokenA, address tokenB) external view returns (bool) {
+        return !blockedPairs[_pairKey(tokenA, tokenB)];
+    }
+
+    function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        return keccak256(abi.encode(token0, token1));
+    }
+}
+
 contract MemeverseSwapRouterPermit2Test is Test {
     using PoolIdLibrary for PoolKey;
 
@@ -455,31 +493,41 @@ contract MemeverseSwapRouterPermit2Test is Test {
     string internal constant PERMIT_BATCH_WITNESS_TYPEHASH_STUB =
         "PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,";
     bytes32 internal constant SWAP_WITNESS_TYPEHASH = keccak256(
-        "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
+        "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
     );
     bytes32 internal constant ADD_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
-        "MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)"
+        "MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
     );
     bytes32 internal constant REMOVE_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
         "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
     );
     bytes32 internal constant CREATE_POOL_WITNESS_TYPEHASH = keccak256(
-        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)"
+        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,uint256 deadline)"
     );
     string internal constant SWAP_WITNESS_TYPE_STRING =
-        "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,address nativeRefundRecipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
+        "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
     string internal constant ADD_LIQUIDITY_WITNESS_TYPE_STRING =
-        "MemeverseAddLiquidityWitness witness)MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+        "MemeverseAddLiquidityWitness witness)MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant REMOVE_LIQUIDITY_WITNESS_TYPE_STRING =
         "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
-        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,address nativeRefundRecipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
+        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
+    bytes4 internal constant PUBLIC_SWAP_DISABLED_SELECTOR = bytes4(keccak256("PublicSwapDisabled()"));
 
     /// @notice Moves the block timestamp beyond the launch window threshold.
     /// @dev Ensures the Permit2 tests can exercise post-launch paths without real wait.
     function _matureLaunchWindow() internal {
         vm.warp(block.timestamp + 900);
+    }
+
+    function _dynamicPoolKeyForHook(address hookAddress, Currency currency0, Currency currency1)
+        internal
+        pure
+        returns (PoolKey memory)
+    {
+        return PoolKey({
+            currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(hookAddress)
+        });
     }
 
     MockPoolManagerForPermit2RouterTest internal manager;
@@ -495,30 +543,30 @@ contract MemeverseSwapRouterPermit2Test is Test {
     PoolKey internal key;
     PoolId internal poolId;
 
+    function _setPublicSwapResumeTime(address targetHook, address tokenA, address tokenB, uint40 resumeTime)
+        internal
+        returns (bool ok, bytes memory data)
+    {
+        return targetHook.call(
+            abi.encodeWithSignature("setPublicSwapResumeTime(address,address,uint40)", tokenA, tokenB, resumeTime)
+        );
+    }
+
     /// @notice Deploys the permit2 test harness, mocks, and seeded pool state.
     /// @dev Initializes both mock and signature-verifying Permit2 flows against the same pool setup.
     function setUp() public {
         manager = new MockPoolManagerForPermit2RouterTest();
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
-        hook = new TestableMemeverseUniswapHookForPermit2Router(
-            IPoolManager(address(manager)), address(this), treasury, address(this)
-        );
+        hook = new TestableMemeverseUniswapHookForPermit2Router(IPoolManager(address(manager)), address(this), treasury);
         mockPermit2 = new MockPermit2ForRouterTest();
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(mockPermit2)),
-            address(this)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(mockPermit2))
         );
         realPermit2 = new SignatureVerifyingPermit2ForRouterTest();
         realPermit2Router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(realPermit2)),
-            address(this)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(realPermit2))
         );
-        hook.setLaunchSettlementCaller(address(router));
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -558,7 +606,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             alice,
-            alice,
             block.timestamp,
             40 ether,
             100 ether,
@@ -570,32 +617,90 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(mockPermit2.lastRecipient(), address(router), "recipient");
         assertEq(mockPermit2.lastToken(), address(token0), "token");
         assertEq(mockPermit2.lastRequestedAmount(), 100 ether, "amount");
+        assertEq(manager.lastUnlockPayer(), address(router), "router should prefund permit2 swaps");
         assertLt(int256(delta.amount0()), 0, "delta0");
         assertGt(int256(delta.amount1()), 0, "delta1");
         assertLt(token0.balanceOf(alice), balance0Before, "token0 spent");
         assertGt(token1.balanceOf(alice), balance1Before, "token1 received");
     }
 
-    /// @notice Verifies Permit2 swaps cannot spoof the launch settlement marker without operator authorization.
-    /// @dev Covers the router permission check on the shared settlement marker path.
-    function testSwapWithPermit2_RevertsWhenSettlementMarkerIsSpoofedByNonOperator() external {
-        hook.setProtocolFeeCurrency(key.currency0);
-        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token0), 100 ether);
+    /// @notice Verifies Permit2 swaps also respect the post-unlock protection window.
+    /// @dev Uses hook-local pool protection while still funding the input through Permit2 first.
+    function testSwapWithPermit2_RevertsDuringPostUnlockProtectionWindow() external {
+        MockPoolManagerForPermit2RouterTest guardedManager = new MockPoolManagerForPermit2RouterTest();
+        TestableMemeverseUniswapHookForPermit2Router guardedHook = new TestableMemeverseUniswapHookForPermit2Router(
+            IPoolManager(address(guardedManager)), address(this), treasury
+        );
+        MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
+            IPoolManager(address(guardedManager)),
+            IMemeverseUniswapHook(address(guardedHook)),
+            IPermit2(address(mockPermit2))
+        );
+        PoolKey memory guardedKey = _dynamicPoolKeyForHook(
+            address(guardedHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
+        );
+
+        guardedHook.setLauncher(address(this));
+        guardedManager.initialize(guardedKey, SQRT_PRICE_1_1);
+        guardedHook.setProtocolFeeCurrency(guardedKey.currency0);
+        (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
+            address(guardedHook), address(token0), address(token1), uint40(block.timestamp + 1 hours)
+        );
+        assertTrue(setOk, string(setData));
+        token0.mint(address(guardedManager), 1_000_000 ether);
+        token1.mint(address(guardedManager), 1_000_000 ether);
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = IMemeverseSwapRouter.Permit2SingleParams({
+            permit: ISignatureTransfer.PermitTransferFrom({
+                permitted: ISignatureTransfer.TokenPermissions({token: address(token0), amount: 100 ether}),
+                nonce: 77,
+                deadline: block.timestamp
+            }),
+            transferDetails: ISignatureTransfer.SignatureTransferDetails({
+                to: address(guardedRouter), requestedAmount: 100 ether
+            }),
+            signature: hex"1234"
+        });
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
         vm.prank(alice);
-        vm.expectRevert(IMemeverseSwapRouter.InvalidLaunchSettlementOperator.selector);
+        vm.expectRevert(PUBLIC_SWAP_DISABLED_SELECTOR);
+        guardedRouter.swapWithPermit2(
+            singlePermit,
+            guardedKey,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            alice,
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+    }
+
+    /// @notice Verifies Permit2 exact-output swaps prefund `amountInMaximum` and refund the unused input.
+    /// @dev This keeps Permit2 aligned with the regular router path's single prefunded `_swap()` model.
+    function testSwapWithPermit2_ExactOutputRefundsUnusedPrefundedInput() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        uint256 balance0Before = token0.balanceOf(alice);
+        uint256 amountInMaximum = 500 ether;
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token0), amountInMaximum);
+
+        vm.prank(alice);
         router.swapWithPermit2(
             singlePermit,
             key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            alice,
+            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
             alice,
             block.timestamp,
-            40 ether,
-            100 ether,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+            0,
+            amountInMaximum,
+            ""
         );
+
+        assertEq(mockPermit2.lastRequestedAmount(), amountInMaximum, "prefunded amountInMaximum");
+        assertEq(manager.lastUnlockPayer(), address(router), "router should pay exact-output input");
+        assertEq(balance0Before - token0.balanceOf(alice), 300 ether, "unused input refunded");
+        assertEq(token0.balanceOf(address(router)), 0, "router should not retain refunded input");
     }
 
     /// @notice Verifies batch Permit2 funding supports two-ERC20 liquidity adds.
@@ -606,16 +711,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         uint128 liquidity = router.addLiquidityWithPermit2(
-            batchPermit,
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            alice,
-            alice,
-            block.timestamp
+            batchPermit, key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
         );
 
         (address liquidityToken,,) = hook.poolInfo(poolId);
@@ -644,7 +740,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
             100 ether,
             90 ether,
             90 ether,
-            alice,
             alice,
             block.timestamp
         );
@@ -679,7 +774,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
             100 ether,
             90 ether,
             90 ether,
-            alice,
             alice,
             block.timestamp
         );
@@ -749,15 +843,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidityWithPermit2(
-            batchPermit,
-            address(tokenA),
-            address(tokenB),
-            100 ether,
-            100 ether,
-            SQRT_PRICE_1_1,
-            alice,
-            alice,
-            block.timestamp
+            batchPermit, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, block.timestamp
         );
 
         (address liquidityToken,,) = hook.poolInfo(createdKey.toId());
@@ -781,15 +867,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         vm.expectRevert(IMemeverseSwapRouter.InvalidPermit2Length.selector);
         vm.prank(alice);
         router.createPoolAndAddLiquidityWithPermit2(
-            batchPermit,
-            address(tokenA),
-            address(tokenB),
-            100 ether,
-            100 ether,
-            SQRT_PRICE_1_1,
-            alice,
-            alice,
-            block.timestamp
+            batchPermit, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, block.timestamp
         );
     }
 
@@ -806,17 +884,44 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
         vm.prank(alice);
         router.addLiquidityWithPermit2(
+            batchPermit, key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
+        );
+    }
+
+    /// @notice Verifies Permit2 liquidity adds use the shared prepared-budget executor without leaving router residue.
+    /// @dev The runtime size check makes the internal `budgetsPrepared` branch removal observable to this regression.
+    function testAddLiquidityWithPermit2_UsesPreparedBudgetExecutorWithoutResidualBudget() external {
+        uint256 amount0Desired = 100 ether;
+        uint256 amount1Desired = 100 ether;
+        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
+            _batchPermit(address(token0), amount0Desired, address(token1), amount1Desired);
+
+        uint256 aliceToken0Before = token0.balanceOf(alice);
+        uint256 aliceToken1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        uint128 liquidity = router.addLiquidityWithPermit2(
             batchPermit,
             key.currency0,
             key.currency1,
-            100 ether,
-            100 ether,
+            amount0Desired,
+            amount1Desired,
             90 ether,
             90 ether,
-            alice,
             alice,
             block.timestamp
         );
+
+        uint256 token0Spent = aliceToken0Before - token0.balanceOf(alice);
+        uint256 token1Spent = aliceToken1Before - token1.balanceOf(alice);
+        assertGt(liquidity, 0, "liquidity");
+        assertGt(token0Spent, 0, "token0 spent");
+        assertGt(token1Spent, 0, "token1 spent");
+        assertLt(token0Spent, amount0Desired, "token0 refund");
+        assertLt(token1Spent, amount1Desired, "token1 refund");
+        assertEq(token0.balanceOf(address(router)), 0, "token0 residual");
+        assertEq(token1.balanceOf(address(router)), 0, "token1 residual");
+        assertLt(address(router).code.length, 15_603, "runtime should shrink after removing budgetsPrepared");
     }
 
     /// @notice Verifies canonical Permit2 witness signing works for swaps.
@@ -841,7 +946,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         });
         ISignatureTransfer.SignatureTransferDetails memory transferDetails =
             ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: amountIn});
-        bytes32 witness = _swapWitnessHash(key, params, alice, alice, deadline, amountOutMinimum, amountIn, bytes(""));
+        bytes32 witness = _swapWitnessHash(key, params, alice, deadline, amountOutMinimum, amountIn, bytes(""));
         bytes memory signature =
             _signSingleWitnessPermit(permit, address(realPermit2Router), witness, SWAP_WITNESS_TYPE_STRING);
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = IMemeverseSwapRouter.Permit2SingleParams({
@@ -850,7 +955,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         BalanceDelta delta = realPermit2Router.swapWithPermit2(
-            permitParams, key, params, alice, alice, deadline, amountOutMinimum, amountIn, bytes("")
+            permitParams, key, params, alice, deadline, amountOutMinimum, amountIn, bytes("")
         );
 
         assertLt(int256(delta.amount0()), 0, "delta0");
@@ -881,7 +986,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         });
 
         bytes32 witness = _addLiquidityWitnessHash(
-            key.currency0, key.currency1, amount0Desired, amount1Desired, 90 ether, 90 ether, alice, alice, deadline
+            key.currency0, key.currency1, amount0Desired, amount1Desired, 90 ether, 90 ether, alice, deadline
         );
         bytes memory signature =
             _signBatchWitnessPermit(permit, address(realPermit2Router), witness, ADD_LIQUIDITY_WITNESS_TYPE_STRING);
@@ -898,7 +1003,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
             amount1Desired,
             90 ether,
             90 ether,
-            alice,
             alice,
             deadline
         );
@@ -969,7 +1073,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: 100 ether});
 
         bytes32 witness = _createPoolWitnessHash(
-            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, alice, deadline
+            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, deadline
         );
         bytes memory signature =
             _signBatchWitnessPermit(permit, address(realPermit2Router), witness, CREATE_POOL_WITNESS_TYPE_STRING);
@@ -979,7 +1083,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         (uint128 liquidity, PoolKey memory createdKey) = realPermit2Router.createPoolAndAddLiquidityWithPermit2(
-            permitParams, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, alice, deadline
+            permitParams, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, deadline
         );
 
         assertGt(liquidity, 0, "liquidity");
@@ -1004,7 +1108,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         vm.prank(alice);
         liquidity = router.addLiquidity(
-            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
         );
     }
 
@@ -1071,7 +1175,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
         PoolKey memory poolKey,
         SwapParams memory params,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline,
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
@@ -1085,7 +1188,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
                 params.amountSpecified,
                 params.sqrtPriceLimitX96,
                 recipient,
-                nativeRefundRecipient,
                 deadline,
                 amountOutMinimum,
                 amountInMaximum,
@@ -1104,7 +1206,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
         uint256 amount0Min,
         uint256 amount1Min,
         address to,
-        address nativeRefundRecipient,
         uint256 deadline
     ) internal pure returns (bytes32) {
         return keccak256(
@@ -1117,7 +1218,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
                 amount0Min,
                 amount1Min,
                 to,
-                nativeRefundRecipient,
                 deadline
             )
         );
@@ -1157,7 +1257,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
         uint256 amountBDesired,
         uint160 startPrice,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline
     ) internal pure returns (bytes32) {
         return keccak256(
@@ -1169,7 +1268,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
                 amountBDesired,
                 startPrice,
                 recipient,
-                nativeRefundRecipient,
                 deadline
             )
         );

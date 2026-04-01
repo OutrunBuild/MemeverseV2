@@ -43,12 +43,13 @@
 
 - `Genesis -> Locked`：满足募资条件（`flashGenesis` 可提前）并执行部署/建池/preorder 结算
 - `Genesis -> Refund`：到期未达标
-- 当前实现中的 `Locked -> Unlocked`：`block.timestamp > unlockTime`
+- 当前实现中的 `Locked -> Unlocked`：需要 `block.timestamp > unlockTime`，并在该次 `changeStage()` 交易里把受保护公开 swap 的恢复时刻写成 `block.timestamp + 24 hours`
 
 补充说明：
 
-- 按当前产品安全要求，`unlockTime` 到达后应先进入 `post-unlock liquidity protection period`
-- 当前实现尚未落地该保护窗口，因此 keeper 在现状下推进到的是“直接 Unlocked”，不是目标规则下的受保护退出阶段
+- 当前实现没有新增独立阶段，而是通过解锁迁移时写入 pool-level `publicSwapResumeTime`，把保护窗口叠加在 `Unlocked` 状态上
+- 因此 keeper 推进到 `Unlocked` 后，仍需按窗口语义理解“赎回已开放，但受保护公开 swap 可能仍被阻断”
+- 这是显式接受的产品规则；保护窗口现为固定 `24 hours` 产品常量
 
 注意：`Locked` 且未到解锁时间时，调用不回退，但事件仍是 `ChangeStage(..., Locked)`。`[代码已证]`
 
@@ -85,14 +86,16 @@
 
 ### 3.6 Swap/LP 运维配置
 
-- Hook owner 可改：`treasury`、protocol fee 币种支持、`emergencyFlag`、`launchSettlementCaller`、launch fee 衰减参数。
-- Launcher owner 更换 router 时会做 launch-settlement 联动校验，配置不一致会直接拒绝。`[代码已证]`
+- Hook owner 可改：`treasury`、protocol fee 币种支持、`emergencyFlag`、`launcher`、launch fee 衰减参数。
+- Launcher owner 配置 router / hook 时，会同时校验 `router.hook()==hook` 且 `hook.launcher()==launcher`，配置不一致会直接拒绝；其中 `memeverseUniswapHook` 仅允许首次设置。`[代码已证]`
+- Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内运维能力，不否定 set-time 双重校验的必要性。`[代码已证]`
 
 ### 3.7 unlock 后保护窗口运维语义
 
 - 按产品安全要求，unlock 后应先进入 `post-unlock liquidity protection period`
 - 在该窗口内，运维与 keeper 应优先支持退出/结算，而不是开放普通公开 swap
-- 当前实现尚未落地这套窗口语义，因此现阶段不能把“`unlockTime` 到达”误解为“产品上已经安全进入完全开放交易阶段”
+- 当前实现已把这套窗口语义落在“解锁迁移时写入 pool-level `publicSwapResumeTime` + `hook.beforeSwap` 阻断”
+- 因此现阶段仍不能把“`unlockTime` 到达”误解为“产品上已经安全进入完全开放交易阶段”；是否恢复公开 swap 还要看实际 `changeStage()` 时间点加上固定 `24 hours` 保护窗口
 
 ## 4. 治理周期相关操作语义
 

@@ -51,13 +51,14 @@
  - deployer 部署并初始化 `yieldVault/governor/incentivizer`
 3. 若治理链非本链：
  - 仅预测 `yieldVault/governor/incentivizer` 地址，不在本链初始化
-4. launcher 创建 `memecoin/UPT` 与 `POL/UPT` 两池，必要时做 preorder 启动结算 swap
+4. launcher 创建 `memecoin/UPT` 与 `POL/UPT` 两池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
 
 以上为 `[代码已证]`。
 
 ## 4. 关键部署依赖事实
 
-- Launcher 对 router 有硬校验：`launchSettlementOperator==launcher` 且 `hook.launchSettlementCaller==router`。`[代码已证]`
+- Launcher 在配置 router / hook 时有 set-time 双重校验：`router.hook() == hook` 且 `hook.launcher() == launcher`；其中 `memeverseUniswapHook` 仅允许首次设置，后续不可改绑到新 hook。`[代码已证]`
+- Hook owner 在部署后仍可 retarget `launcher`；该能力属于与 launcher owner 同一 trust boundary 的配置权，当前产品语义接受这一点。`[代码已证]`
 - RegistrationCenter/launcher/interoperation 均依赖 `LzEndpointRegistry` 的 endpointId 映射。`[代码已证]`
 - 跨链分发与 staking 的 gas 参数来自 launcher/interoperation 的可配置 gas limits。`[代码已证]`
 - `MemeverseProxyDeployer.quorumNumerator` 仅影响后续新部署 governor 初始化，不回溯既有实例。`[代码已证]`

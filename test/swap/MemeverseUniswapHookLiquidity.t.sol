@@ -186,8 +186,8 @@ contract MockPoolManagerForHookLiquidity {
 }
 
 contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
-    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
-        MemeverseUniswapHook(_manager, _owner, _treasury, _launchSettlementCaller)
+    constructor(IPoolManager _manager, address _owner, address _treasury)
+        MemeverseUniswapHook(_manager, _owner, _treasury)
     {}
 
     function validateHookAddress(BaseHook) internal pure override {}
@@ -213,16 +213,10 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         token0.mint(address(this), 1_000_000 ether);
         token1.mint(address(this), 1_000_000 ether);
 
-        hook = new TestableMemeverseUniswapHook(
-            IPoolManager(address(mockManager)), address(this), address(this), address(this)
-        );
+        hook = new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)), address(this), address(this));
         router = new MemeverseSwapRouter(
-            IPoolManager(address(mockManager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(0xBEEF)),
-            address(this)
+            IPoolManager(address(mockManager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
-        hook.setLaunchSettlementCaller(address(router));
 
         token0.approve(address(hook), type(uint256).max);
         token1.approve(address(hook), type(uint256).max);
@@ -233,6 +227,66 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         poolId = key.toId();
 
         mockManager.initialize(key, SQRT_PRICE_1_1);
+    }
+
+    function _setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime)
+        internal
+        returns (bool ok, bytes memory data)
+    {
+        return address(hook)
+            .call(
+                abi.encodeWithSignature("setPublicSwapResumeTime(address,address,uint40)", tokenA, tokenB, resumeTime)
+            );
+    }
+
+    function _readPublicSwapResumeTime(PoolId targetPoolId) internal view returns (bool ok, uint40 resumeTime) {
+        (bool success, bytes memory data) =
+            address(hook).staticcall(abi.encodeWithSignature("publicSwapResumeTime(bytes32)", targetPoolId));
+        if (!success || data.length != 32) return (false, 0);
+        return (true, abi.decode(data, (uint40)));
+    }
+
+    /// @notice Verifies hook-local protection state is keyed only by `PoolId`.
+    /// @dev The new unlock gate must not need token-pair guessing or launcher verdict helpers.
+    function testPublicSwapResumeTime_StoresPerPoolWithoutAffectingOtherPools() external {
+        hook.setLauncher(address(this));
+
+        PoolKey memory secondKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("Token2", "TK2", 18))), Currency.wrap(address(token1)));
+        PoolId secondPoolId = secondKey.toId();
+        mockManager.initialize(secondKey, SQRT_PRICE_1_1);
+
+        (bool initialOk, uint40 initialResumeTime) = _readPublicSwapResumeTime(poolId);
+        assertTrue(initialOk, "getter missing");
+        assertEq(initialResumeTime, 0, "default resume time");
+
+        (bool setOk, bytes memory setData) =
+            _setPublicSwapResumeTime(address(token0), address(token1), uint40(block.timestamp + 1 hours));
+        assertTrue(setOk, string(setData));
+
+        (bool firstOk, uint40 firstResumeTime) = _readPublicSwapResumeTime(poolId);
+        (bool secondOk, uint40 secondResumeTime) = _readPublicSwapResumeTime(secondPoolId);
+        assertTrue(firstOk, "first getter missing");
+        assertTrue(secondOk, "second getter missing");
+        assertEq(firstResumeTime, uint40(block.timestamp + 1 hours), "first pool resume time");
+        assertEq(secondResumeTime, 0, "second pool unchanged");
+    }
+
+    /// @notice Verifies hook-local protection can be cleared by writing zero.
+    /// @dev `0` is the canonical "no active post-unlock public-swap protection" value.
+    function testPublicSwapResumeTime_CanBeClearedBackToZero() external {
+        hook.setLauncher(address(this));
+
+        (bool setOk, bytes memory setData) =
+            _setPublicSwapResumeTime(address(token0), address(token1), uint40(block.timestamp + 2 hours));
+        assertTrue(setOk, string(setData));
+
+        (bool clearOk, bytes memory clearData) = _setPublicSwapResumeTime(address(token0), address(token1), 0);
+        assertTrue(clearOk, string(clearData));
+
+        (bool readOk, uint40 resumeTime) = _readPublicSwapResumeTime(poolId);
+        assertTrue(readOk, "getter missing");
+        assertEq(resumeTime, 0, "resume time cleared");
     }
 
     /// @notice Executes test add liquidity uses unlock flow.
@@ -462,7 +516,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             90 ether,
             90 ether,
             address(this),
-            address(this),
             block.timestamp
         );
 
@@ -488,7 +541,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             90 ether,
             90 ether,
             address(this),
-            address(this),
             block.timestamp
         );
 
@@ -510,7 +562,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             100 ether,
             90 ether,
             90 ether,
-            address(this),
             address(this),
             block.timestamp
         );
@@ -561,7 +612,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             90 ether,
             90 ether,
             address(this),
-            address(this),
             block.timestamp
         );
 
@@ -591,7 +641,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             90 ether,
             90 ether,
             address(this),
-            address(this),
             block.timestamp
         );
 
@@ -620,7 +669,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             100 ether,
             90 ether,
             90 ether,
-            address(this),
             address(this),
             block.timestamp
         );
@@ -673,14 +721,56 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(maturedQuote.feeBps, 100, "matured fee");
     }
 
-    /// @notice Verifies owner launch-fee setters update state and reject invalid inputs.
-    /// @dev Covers the new launch scheduler configuration surface.
-    function testOwnerSetters_UpdateLaunchFeeConfigAndSettlementOperator() external {
-        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
-        hook.setLaunchSettlementCaller(address(0));
+    /// @notice Verifies launch settlement can only be initiated by the bound launcher.
+    function testExecuteLaunchSettlement_RevertsWhenCallerNotLauncher() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        hook.setLauncher(address(0xABCD));
 
-        hook.setLaunchSettlementCaller(address(0xCAFE));
-        assertEq(hook.launchSettlementCaller(), address(0xCAFE), "launch caller");
+        vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
+        );
+    }
+
+    /// @notice Verifies launch settlement requires the pool to be initialized.
+    function testExecuteLaunchSettlement_RevertsWhenPoolNotInitialized() external {
+        MockPoolManagerForHookLiquidity uninitializedManager = new MockPoolManagerForHookLiquidity();
+        TestableMemeverseUniswapHook uninitializedHook =
+            new TestableMemeverseUniswapHook(IPoolManager(address(uninitializedManager)), address(this), address(this));
+        PoolKey memory uninitializedKey = PoolKey({
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
+            fee: 0x800000,
+            tickSpacing: 200,
+            hooks: IHooks(address(uninitializedHook))
+        });
+        uninitializedHook.setProtocolFeeCurrency(uninitializedKey.currency0);
+        uninitializedHook.setLauncher(address(this));
+
+        vm.expectRevert(IMemeverseUniswapHook.PoolNotInitialized.selector);
+        uninitializedHook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: uninitializedKey,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
+        );
+    }
+
+    /// @notice Verifies owner launch-fee and launcher setters update state and reject invalid inputs.
+    /// @dev Covers the launch scheduler plus explicit launcher binding configuration surface.
+    function testOwnerSetters_UpdateLaunchFeeConfigAndLauncher() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.setLauncher(address(0));
+
+        hook.setLauncher(address(0xD00D));
+        assertEq(hook.launcher(), address(0xD00D), "launcher");
 
         vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
         hook.setDefaultLaunchFeeConfig(

@@ -12,7 +12,7 @@
 - `Genesis`
 - `Refund`（终态）
 - `Locked`
-- `Unlocked`（终态；当前实现缺少预期的 post-unlock protection window）
+- `Unlocked`（终态；公开 swap 是否恢复由保护窗口另行判定）
 
 ### 2.1 状态迁移规则
 
@@ -22,7 +22,7 @@
 | `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 当前规则（代码已证） |
 | `Genesis` | `changeStage` | `currentTime > endTime && !meetMinTotalFund` | `Refund` | 允许 `refund/refundPreorder` | 当前规则（代码已证） |
 | `Genesis` | `changeStage` | 其他条件 | 回退 `StillInGenesisStage` | 无 | 当前规则（代码已证） |
-| `Locked` | `changeStage` | `currentTime > unlockTime` | `Unlocked` | 当前实现会直接开放 LP 赎回路径；按安全要求这里应先进入保护窗口 | 当前实现（与目标规则不一致） |
+| `Locked` | `changeStage` | `currentTime > unlockTime` | `Unlocked` | 开放赎回路径；并按该次交易时间 + 固定 `24 hours` 为受保护池写入公开 swap 恢复时间 | 当前规则（代码已证） |
 | `Locked` | `changeStage` | `currentTime <= unlockTime` | 保持 `Locked` | 不回退，仍发 `ChangeStage(Locked)` 事件 | 当前规则（代码已证） |
 | `Refund`/`Unlocked` | `changeStage` | 任意 | 回退 `ReachedFinalStage` | 无 | 当前规则（代码已证） |
 
@@ -55,9 +55,10 @@
   - 必须禁止：普通公开 swap
   - 必须禁止：绕过公开入口的等价 swap 路径
 - 当前实现状态：
-  - launcher 在 `currentTime > unlockTime` 时直接进入 `Unlocked`
-  - 当前 `src/swap/**` 未体现 unlock 后保护窗口
-  - 因此当前实现与上述安全要求不一致
+  - verse 在 `currentTime > unlockTime` 后，需通过实际 `changeStage()` 调用进入 `Unlocked`
+  - launcher 在该次迁移里按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
+  - hook 在 `beforeSwap` 中读取该时间；未到期前，受保护 pair 的公开 swap 继续被拒绝
+  - 因此当前实现采用“无额外阶段、但公开 swap 恢复时间锚定实际迁移调用”的落地方式
 
 ## 3. 注册与跨链状态边界
 
@@ -93,9 +94,9 @@
 | --- | --- | --- | --- |
 | `LaunchFeeWindowActive` | `block.timestamp - poolLaunchTimestamp < decayDurationSeconds` | 动态费结果受 launch fee floor 约束（默认 5000 bps 向 100 bps 衰减） | 当前规则（代码已证） |
 | `LaunchFeeWindowMatured` | 超过衰减窗口 | 保留动态费/最小费逻辑 | 当前规则（代码已证） |
-| `LaunchSettlementPath` | `hookData` 命中 launch settlement marker 且权限通过 | 固定总费 1%，并受 `launchSettlementOperator` + `launchSettlementCaller` 双边界约束 | 当前规则（代码已证） |
+| `LaunchSettlementPath` | Launcher 显式调用 `hook.executeLaunchSettlement(...)` | 固定总费 1%，仅已绑定 launcher 可触发；不依赖 `hookData` marker | 当前规则（代码已证） |
 
 ### 4.2 结论
 
-- 启动期保护在实现层体现为“launch fee 衰减窗口 + 受限 settlement 通道”。
-- 上述启动期保护只覆盖 pool bootstrap / preorder settlement 风险窗口，不覆盖 unlock 后的公平赎回与全局结算风险窗口。
+- 启动期保护在实现层体现为“launch fee 衰减窗口 + 显式 settlement 通道”。
+- unlock 后的公平赎回与全局结算风险窗口，则由解锁迁移时写入的 `publicSwapResumeTime`、`hook.beforeSwap` 与固定 `24 hours` 保护窗口共同约束。

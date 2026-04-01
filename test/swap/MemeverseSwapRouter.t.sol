@@ -42,9 +42,19 @@ contract MockPoolManagerForRouterTest {
     uint160 internal constant SQRT_PRICE_UPPER_X96 = 1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
 
     bool internal unlocked;
+    address internal lastUnlockCallbackPayer;
     mapping(bytes32 => bytes32) internal extStorage;
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
+    mapping(PoolId => uint160) internal nextSwapSqrtPriceX96;
+
+    struct RouterCallbackPreview {
+        address payer;
+        address recipient;
+        PoolKey key;
+        SwapParams params;
+        bytes hookData;
+    }
 
     /// @notice Initializes mock pool state for a hook-managed pair.
     /// @dev Seeds slot0 and liquidity before calling the hook initialize callback.
@@ -65,6 +75,14 @@ contract MockPoolManagerForRouterTest {
     /// @param data Encoded callback payload.
     /// @return result Raw callback return data.
     function unlock(bytes calldata data) external returns (bytes memory result) {
+        bytes32 headWord;
+        assembly {
+            headWord := calldataload(data.offset)
+        }
+        if (headWord == bytes32(uint256(0x20))) {
+            RouterCallbackPreview memory preview = abi.decode(data, (RouterCallbackPreview));
+            lastUnlockCallbackPayer = preview.payer;
+        }
         unlocked = true;
         result = IUnlockCallbackLike(msg.sender).unlockCallback(data);
         unlocked = false;
@@ -123,8 +141,15 @@ contract MockPoolManagerForRouterTest {
     {
         if (!unlocked) revert ManagerLocked();
 
-        (, BeforeSwapDelta beforeSwapDelta,) = key.hooks.beforeSwap(msg.sender, key, params, hookData);
-        int256 amountToSwap = params.amountSpecified + beforeSwapDelta.getSpecifiedDelta();
+        PoolId poolId = key.toId();
+        // Intentionally matches vendored v4 `Hooks.sol` self-call skip semantics when `msg.sender == address(self)`.
+        bool skipHookCallbacks = msg.sender == address(key.hooks);
+        BeforeSwapDelta beforeSwapDelta = BeforeSwapDeltaLibrary.ZERO_DELTA;
+        int256 amountToSwap = params.amountSpecified;
+        if (!skipHookCallbacks) {
+            (, beforeSwapDelta,) = key.hooks.beforeSwap(msg.sender, key, params, hookData);
+            amountToSwap += beforeSwapDelta.getSpecifiedDelta();
+        }
 
         BalanceDelta poolDelta = BalanceDeltaLibrary.ZERO_DELTA;
         if (amountToSwap != 0) {
@@ -145,6 +170,17 @@ contract MockPoolManagerForRouterTest {
                     poolDelta = toBalanceDelta(int128(int256(outputAmount)), -int128(int256(inputAmount)));
                 }
             }
+        }
+
+        uint160 nextSqrtPriceX96 = nextSwapSqrtPriceX96[poolId];
+        if (nextSqrtPriceX96 != 0) {
+            slot0State[poolId].sqrtPriceX96 = nextSqrtPriceX96;
+            _syncPoolStorage(poolId);
+            delete nextSwapSqrtPriceX96[poolId];
+        }
+
+        if (skipHookCallbacks) {
+            return poolDelta;
         }
 
         (, int128 afterSwapUnspecifiedDelta) = key.hooks.afterSwap(msg.sender, key, params, poolDelta, hookData);
@@ -221,6 +257,18 @@ contract MockPoolManagerForRouterTest {
         return liquidityState[poolId];
     }
 
+    /// @notice Configures the next post-swap price written into slot0 for a pool.
+    /// @dev Used by settlement regression tests to simulate realized price movement.
+    /// @param poolId Pool whose next swap should update price.
+    /// @param sqrtPriceX96 Price to write after the next swap.
+    function setNextSwapSqrtPriceX96(PoolId poolId, uint160 sqrtPriceX96) external {
+        nextSwapSqrtPriceX96[poolId] = sqrtPriceX96;
+    }
+
+    function lastUnlockPayer() external view returns (address payer) {
+        return lastUnlockCallbackPayer;
+    }
+
     function _syncPoolStorage(PoolId poolId) internal {
         bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), POOLS_SLOT));
         Slot0State memory state = slot0State[poolId];
@@ -240,8 +288,8 @@ interface IUnlockCallbackLike {
 }
 
 contract TestableMemeverseUniswapHookForRouter is MemeverseUniswapHook {
-    constructor(IPoolManager _manager, address _owner, address _treasury, address _launchSettlementCaller)
-        MemeverseUniswapHook(_manager, _owner, _treasury, _launchSettlementCaller)
+    constructor(IPoolManager _manager, address _owner, address _treasury)
+        MemeverseUniswapHook(_manager, _owner, _treasury)
     {}
 
     function validateHookAddress(BaseHook) internal pure override {}
@@ -259,7 +307,6 @@ contract NonPayableSwapCaller {
     /// @param key Pool key to swap against.
     /// @param params Swap parameters.
     /// @param recipient Recipient of any swap output.
-    /// @param nativeRefundRecipient Recipient of any native refund.
     /// @param deadline Latest valid timestamp for the call.
     /// @param amountOutMinimum Minimum acceptable output amount.
     /// @param amountInMaximum Maximum acceptable input amount.
@@ -269,49 +316,50 @@ contract NonPayableSwapCaller {
         PoolKey calldata key,
         SwapParams calldata params,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline,
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
     ) external payable returns (BalanceDelta delta) {
         return router.swap{value: msg.value}(
-            key, params, recipient, nativeRefundRecipient, deadline, amountOutMinimum, amountInMaximum, hookData
+            key, params, recipient, deadline, amountOutMinimum, amountInMaximum, hookData
         );
     }
 }
 
 contract NonPayableTreasury {}
 
-contract DirectLaunchSettlementSpoofer {
+contract MockLauncherForRouterProtectionTest {
+    mapping(bytes32 => bool) internal blockedPairs;
+
+    function setPublicSwapBlocked(address tokenA, address tokenB, bool blocked) external {
+        blockedPairs[_pairKey(tokenA, tokenB)] = blocked;
+    }
+
+    function isPublicSwapAllowed(address tokenA, address tokenB) external view returns (bool) {
+        return !blockedPairs[_pairKey(tokenA, tokenB)];
+    }
+
+    function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        return keccak256(abi.encode(token0, token1));
+    }
+}
+
+contract DirectProtectedSwapCaller {
     MockPoolManagerForRouterTest internal immutable manager;
 
     constructor(MockPoolManagerForRouterTest _manager) {
         manager = _manager;
     }
 
-    /// @notice Attempts to spoof the launch settlement marker through a direct pool-manager unlock flow.
-    /// @dev Used to verify the hook enforces settlement authorization even when the router is bypassed.
-    /// @param key Pool key to swap against.
-    /// @param params Swap parameters.
-    /// @param hookData Marker payload forwarded into the hook callbacks.
-    /// @return delta The swap delta returned by the mocked direct call path.
-    function spoof(PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
-        external
-        returns (BalanceDelta delta)
-    {
-        delta = abi.decode(manager.unlock(abi.encode(key, params, hookData)), (BalanceDelta));
+    function swapDirect(PoolKey calldata key, SwapParams calldata params) external returns (BalanceDelta delta) {
+        delta = abi.decode(manager.unlock(abi.encode(key, params)), (BalanceDelta));
     }
 
-    /// @notice Executes the mocked swap during the manager unlock callback.
-    /// @dev The manager calls back into this contract during `unlock`.
-    /// @param data Encoded pool key, swap params, and hook data.
-    /// @return result ABI-encoded swap delta.
     function unlockCallback(bytes calldata data) external returns (bytes memory result) {
-        (PoolKey memory key, SwapParams memory params, bytes memory hookData) =
-            abi.decode(data, (PoolKey, SwapParams, bytes));
-        BalanceDelta delta = manager.swap(key, params, hookData);
-        result = abi.encode(delta);
+        (PoolKey memory key, SwapParams memory params) = abi.decode(data, (PoolKey, SwapParams));
+        result = abi.encode(manager.swap(key, params, ""));
     }
 }
 
@@ -325,7 +373,7 @@ contract MemeverseSwapRouterTest is Test {
     uint160 internal constant FULL_RANGE_MAX_SQRT_PRICE_X96 =
         1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
     uint256 internal constant ALICE_PK = 0xA11CE;
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
+    bytes4 internal constant PUBLIC_SWAP_DISABLED_SELECTOR = bytes4(keccak256("PublicSwapDisabled()"));
 
     MockPoolManagerForRouterTest internal manager;
     TestableMemeverseUniswapHookForRouter internal hook;
@@ -334,9 +382,28 @@ contract MemeverseSwapRouterTest is Test {
     MockERC20 internal token1;
     address internal treasury;
     address internal alice;
-    DirectLaunchSettlementSpoofer internal spoofSettlementCaller;
     PoolKey internal key;
     PoolId internal poolId;
+
+    function _setPublicSwapResumeTime(address targetHook, address tokenA, address tokenB, uint40 resumeTime)
+        internal
+        returns (bool ok, bytes memory data)
+    {
+        return targetHook.call(
+            abi.encodeWithSignature("setPublicSwapResumeTime(address,address,uint40)", tokenA, tokenB, resumeTime)
+        );
+    }
+
+    function _readPublicSwapResumeTime(address targetHook, PoolId targetPoolId)
+        internal
+        view
+        returns (bool ok, uint40 resumeTime)
+    {
+        (bool success, bytes memory data) =
+            targetHook.staticcall(abi.encodeWithSignature("publicSwapResumeTime(bytes32)", targetPoolId));
+        if (!success || data.length != 32) return (false, 0);
+        return (true, abi.decode(data, (uint40)));
+    }
 
     /// @notice Deploys the mock manager, hook, router, and test tokens.
     /// @dev Seeds balances and approvals used throughout the router test suite.
@@ -344,17 +411,10 @@ contract MemeverseSwapRouterTest is Test {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
-        hook = new TestableMemeverseUniswapHookForRouter(
-            IPoolManager(address(manager)), address(this), treasury, address(this)
-        );
+        hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(0xBEEF)),
-            address(this)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
-        hook.setLaunchSettlementCaller(address(router));
-        spoofSettlementCaller = new DirectLaunchSettlementSpoofer(manager);
 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
@@ -389,25 +449,28 @@ contract MemeverseSwapRouterTest is Test {
         vm.warp(block.timestamp + 900);
     }
 
+    function _dynamicPoolKeyForHook(address hookAddress, Currency currency0, Currency currency1)
+        internal
+        pure
+        returns (PoolKey memory)
+    {
+        return PoolKey({
+            currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(hookAddress)
+        });
+    }
+
     /// @notice Verifies hook deployment rejects a zero treasury address.
     /// @dev Covers constructor validation.
     function testConstructor_RevertsWhenTreasuryIsZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
-        new TestableMemeverseUniswapHookForRouter(
-            IPoolManager(address(manager)), address(this), address(0), address(this)
-        );
+        new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), address(0));
     }
 
-    /// @notice Verifies hook deployment rejects a zero launch settlement operator.
-    /// @dev Covers constructor validation for the launch settlement permission boundary.
-    function testConstructor_RevertsWhenLaunchSettlementOperatorIsZeroAddress() external {
-        vm.expectRevert(IMemeverseSwapRouter.ZeroAddress.selector);
-        new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF)), address(0)
-        );
-
+    /// @notice Verifies explicit launcher binding rejects the zero address.
+    /// @dev Launch settlement authorization now depends only on the launcher binding.
+    function testSetLauncher_RevertsOnZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
-        new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury, address(0));
+        hook.setLauncher(address(0));
     }
 
     /// @notice Verifies swaps reject pool keys wired to a different hook address.
@@ -426,7 +489,6 @@ contract MemeverseSwapRouterTest is Test {
             invalidKey,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             100 ether,
@@ -442,7 +504,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: 0, sqrtPriceLimitX96: 0}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             100 ether,
@@ -457,7 +518,6 @@ contract MemeverseSwapRouterTest is Test {
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
             address(this),
             block.timestamp,
             0,
@@ -516,7 +576,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: erc20PriceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             100 ether,
@@ -527,7 +586,6 @@ contract MemeverseSwapRouterTest is Test {
         router.swap{value: 300 ether}(
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: nativePriceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             0,
@@ -553,7 +611,6 @@ contract MemeverseSwapRouterTest is Test {
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             300 ether,
@@ -575,7 +632,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             40 ether,
             100 ether,
@@ -587,6 +643,26 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
+    }
+
+    /// @notice Verifies direct ERC20 swaps enter the manager unlock with router-prefunded input.
+    /// @dev The simplified shared `_swap()` core should use router balance for regular swaps too.
+    function testSwap_RegularPathUsesRouterAsUnlockPayer() external {
+        _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+
+        assertEq(manager.lastUnlockPayer(), address(router), "router should prefund regular swaps");
+        assertEq(token0.balanceOf(address(router)), 0, "router should not retain input");
     }
 
     /// @notice Verifies routed swaps do not pay for a redundant launch-fee quote round-trip.
@@ -605,7 +681,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             40 ether,
             100 ether,
@@ -616,47 +691,151 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(delta.amount1(), 0, "delta1");
     }
 
-    /// @notice Verifies only the configured launch settlement operator can execute the preorder settlement swap.
-    /// @dev Prevents ordinary users from accessing the fixed 1% settlement path.
-    function testExecuteLaunchPreorderSwap_RevertsWhenCallerIsNotSettlementOperator() external {
-        _setProtocolFeeCurrency(key.currency0);
-        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+    /// @notice Verifies router swaps revert during the post-unlock protection window.
+    /// @dev Protection now comes from hook-local pool state, not a launcher pair verdict.
+    function testSwap_RevertsDuringPostUnlockProtectionWindow() external {
+        MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
+        TestableMemeverseUniswapHookForRouter guardedHook =
+            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), treasury);
+        MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
+            IPoolManager(address(guardedManager)),
+            IMemeverseUniswapHook(address(guardedHook)),
+            IPermit2(address(0xBEEF))
+        );
+        PoolKey memory guardedKey = _dynamicPoolKeyForHook(
+            address(guardedHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
+        );
 
-        vm.prank(alice);
-        vm.expectRevert(IMemeverseSwapRouter.InvalidLaunchSettlementOperator.selector);
-        router.swap(
-            key,
+        guardedHook.setLauncher(address(this));
+        guardedManager.initialize(guardedKey, SQRT_PRICE_1_1);
+        guardedHook.setProtocolFeeCurrency(guardedKey.currency0);
+        (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
+            address(guardedHook), address(token0), address(token1), uint40(block.timestamp + 1 hours)
+        );
+        assertTrue(setOk, string(setData));
+        token0.mint(address(guardedManager), 1_000_000 ether);
+        token1.mint(address(guardedManager), 1_000_000 ether);
+        token0.approve(address(guardedRouter), type(uint256).max);
+        token1.approve(address(guardedRouter), type(uint256).max);
+
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        vm.expectRevert(PUBLIC_SWAP_DISABLED_SELECTOR);
+        guardedRouter.swap(
+            guardedKey,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
-            40 ether,
+            0,
             100 ether,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+            ""
         );
     }
 
-    /// @notice Verifies launch settlement swaps bypass the launch fee floor and dynamic fee logic and settle at 1%.
-    /// @dev Confirms the treasury only receives the 30% protocol slice of a 1% total fee.
-    function testExecuteLaunchPreorderSwap_UsesFixedOnePercentFee() external {
+    /// @notice Verifies a blocked pool does not leak protection to unrelated pools.
+    /// @dev `publicSwapResumeTime == 0` must remain a no-op for other pool ids.
+    function testSwap_LocalProtectionBlocksOnlyTargetPool() external {
+        MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
+        TestableMemeverseUniswapHookForRouter guardedHook =
+            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), treasury);
+        MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
+            IPoolManager(address(guardedManager)),
+            IMemeverseUniswapHook(address(guardedHook)),
+            IPermit2(address(0xBEEF))
+        );
+        MockERC20 otherToken = new MockERC20("Token2", "TK2", 18);
+        otherToken.mint(address(this), 1_000_000 ether);
+        otherToken.mint(address(guardedManager), 1_000_000 ether);
+
+        PoolKey memory blockedKey = _dynamicPoolKeyForHook(
+            address(guardedHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
+        );
+        PoolKey memory openKey = _dynamicPoolKeyForHook(
+            address(guardedHook), Currency.wrap(address(otherToken)), Currency.wrap(address(token1))
+        );
+
+        guardedHook.setLauncher(address(this));
+        guardedManager.initialize(blockedKey, SQRT_PRICE_1_1);
+        guardedManager.initialize(openKey, SQRT_PRICE_1_1);
+        guardedHook.setProtocolFeeCurrency(blockedKey.currency0);
+        guardedHook.setProtocolFeeCurrency(openKey.currency0);
+        (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
+            address(guardedHook), address(token0), address(token1), uint40(block.timestamp + 1 hours)
+        );
+        assertTrue(setOk, string(setData));
+        (bool readOk, uint40 resumeTime) = _readPublicSwapResumeTime(address(guardedHook), blockedKey.toId());
+        assertTrue(readOk, "resume getter missing");
+        assertEq(resumeTime, uint40(block.timestamp + 1 hours), "resume time stored");
+
+        token0.mint(address(guardedManager), 1_000_000 ether);
+        token1.mint(address(guardedManager), 1_000_000 ether);
+        token0.approve(address(guardedRouter), type(uint256).max);
+        token1.approve(address(guardedRouter), type(uint256).max);
+        otherToken.approve(address(guardedRouter), type(uint256).max);
+
+        vm.expectRevert(PUBLIC_SWAP_DISABLED_SELECTOR);
+        guardedRouter.swap(
+            blockedKey,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+
+        BalanceDelta openDelta = guardedRouter.swap(
+            openKey,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+        assertLt(openDelta.amount0(), 0, "open pool should swap");
+        assertGt(openDelta.amount1(), 0, "open pool output");
+    }
+
+    /// @notice Verifies explicit launch settlement can only be initiated by the configured launcher.
+    /// @dev Settlement no longer routes through router marker swap mode.
+    function testExecuteLaunchSettlement_RevertsWhenCallerIsNotLauncher() external {
+        _setProtocolFeeCurrency(key.currency0);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        hook.setLauncher(address(this));
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
+        );
+    }
+
+    /// @notice Verifies explicit launch settlement uses fixed 1% economics.
+    /// @dev Confirms the treasury receives the 30% protocol slice of the fixed fee.
+    function testExecuteLaunchSettlement_UsesFixedOnePercentFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         uint256 treasury0Before = token0.balanceOf(treasury);
+        hook.setLauncher(address(this));
+        token0.approve(address(hook), type(uint256).max);
 
         IMemeverseUniswapHook.SwapQuote memory quoteAtLaunch = hook.quoteSwap(
             key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit})
         );
         assertEq(quoteAtLaunch.feeBps, 5000, "public launch fee");
 
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            address(this),
-            block.timestamp,
-            40 ether,
-            100 ether,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        BalanceDelta delta = hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
         );
 
         assertLt(delta.amount0(), 0, "delta0");
@@ -664,26 +843,54 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "fixed 1% protocol fee");
     }
 
-    /// @notice Verifies changing the launch fee floor does not change the fixed-fee preorder settlement path.
-    /// @dev Guards against coupling settlement pricing to the owner-configurable launch decay minimum.
-    function testExecuteLaunchPreorderSwap_IgnoresConfigurableLaunchFeeFloor() external {
+    /// @notice Verifies explicit launch settlement on an output-fee pool only collects the output-side protocol fee once.
+    /// @dev The treasury/output balances should match a single 30 bps output fee on the post-LP-fee swap output.
+    function testExecuteLaunchSettlement_OutputSideProtocolFeeCollectedExactlyOnce() external {
+        _setProtocolFeeCurrency(key.currency1);
+        hook.setLauncher(address(this));
+        token0.approve(address(hook), type(uint256).max);
+
+        uint256 sender1Before = token1.balanceOf(address(this));
+        uint256 treasury0Before = token0.balanceOf(treasury);
+        uint256 treasury1Before = token1.balanceOf(treasury);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+
+        BalanceDelta delta = hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
+        );
+
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0, "no input-side protocol fee");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 0.14895 ether, "single output-side protocol fee");
+        assertEq(token1.balanceOf(address(this)) - sender1Before, 49.50105 ether, "recipient gets net output once");
+        assertEq(delta.amount0(), -int128(int256(99.3 ether)), "delta0 tracks post-LP-fee swap input");
+        assertEq(delta.amount1(), int128(int256(49.50105 ether)), "delta1 reduced by one output-side fee");
+    }
+
+    /// @notice Verifies changing launch-fee floor does not change explicit settlement pricing.
+    /// @dev Settlement remains fixed-fee while public swaps still use launch fee schedule.
+    function testExecuteLaunchSettlement_IgnoresConfigurableLaunchFeeFloor() external {
         _setProtocolFeeCurrency(key.currency0);
         hook.setDefaultLaunchFeeConfig(
             IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 300, decayDurationSeconds: 900})
         );
+        hook.setLauncher(address(this));
+        token0.approve(address(hook), type(uint256).max);
 
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         uint256 treasury0Before = token0.balanceOf(treasury);
 
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            address(this),
-            block.timestamp,
-            40 ether,
-            100 ether,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        BalanceDelta delta = hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
         );
 
         assertLt(delta.amount0(), 0, "delta0");
@@ -691,17 +898,92 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "settlement remains fixed 1%");
     }
 
-    /// @notice Verifies spoofed launch-settlement markers also fail when callers bypass the router.
-    /// @dev Locks the authorization check into the hook instead of relying only on the router.
-    function testDirectPoolManagerSwap_RevertsWhenLaunchSettlementMarkerIsSpoofed() external {
+    /// @notice Verifies explicit settlement updates dynamic-fee state even though the pool-manager self-call skips hook callbacks.
+    /// @dev The immediate follow-up quote should observe carried short/volatility state, not a pristine fee engine.
+    function testExecuteLaunchSettlement_UpdatesDynamicFeeStateAndSubsequentQuote() external {
         _setProtocolFeeCurrency(key.currency0);
-        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        hook.setLauncher(address(this));
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
+        );
+        token0.approve(address(hook), type(uint256).max);
 
-        vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
-        spoofSettlementCaller.spoof(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        uint160 postSettlementPrice = uint160((uint256(SQRT_PRICE_1_1) * 120) / 100);
+        manager.setNextSwapSqrtPriceX96(poolId, postSettlementPrice);
+
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this),
+                amountInMaximum: 100 ether
+            })
+        );
+
+        (
+            uint256 weightedVolume0,
+            uint256 weightedPriceVolume0,
+            uint256 ewVWAPX18,,,
+            uint24 volDeviationAccumulator,,
+            uint24 shortImpactPpm,
+        ) = hook.poolEWVWAPParams(poolId);
+
+        assertGt(weightedVolume0, 0, "weighted volume");
+        assertGt(weightedPriceVolume0, 0, "weighted price volume");
+        assertGt(ewVWAPX18, 0, "ewvwap");
+        assertGt(volDeviationAccumulator, 0, "volatility accumulator");
+        assertGt(shortImpactPpm, 0, "short impact");
+
+        MockPoolManagerForRouterTest pristineManager = new MockPoolManagerForRouterTest();
+        TestableMemeverseUniswapHookForRouter pristineHook =
+            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(pristineManager)), address(this), treasury);
+        PoolKey memory pristineKey = _dynamicPoolKeyForHook(
+            address(pristineHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
+        );
+        pristineManager.initialize(pristineKey, postSettlementPrice);
+        pristineHook.setProtocolFeeCurrency(pristineKey.currency0);
+        pristineHook.setDefaultLaunchFeeConfig(
+            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
+        );
+
+        SwapParams memory followUpParams =
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0});
+        IMemeverseUniswapHook.SwapQuote memory settledQuote = hook.quoteSwap(key, followUpParams);
+        IMemeverseUniswapHook.SwapQuote memory pristineQuote = pristineHook.quoteSwap(pristineKey, followUpParams);
+
+        assertGt(settledQuote.feeBps, pristineQuote.feeBps, "settlement quote should carry dynamic state");
+    }
+
+    /// @notice Verifies direct/custom swap paths are also blocked during the protection window.
+    /// @dev This adversarial path bypasses the router and proves the hook gate is the true enforcement layer.
+    function testDirectPoolManagerSwap_RevertsDuringPostUnlockProtectionWindow() external {
+        MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
+        TestableMemeverseUniswapHookForRouter guardedHook =
+            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), treasury);
+        new MemeverseSwapRouter(
+            IPoolManager(address(guardedManager)),
+            IMemeverseUniswapHook(address(guardedHook)),
+            IPermit2(address(0xBEEF))
+        );
+        PoolKey memory guardedKey = _dynamicPoolKeyForHook(
+            address(guardedHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
+        );
+        DirectProtectedSwapCaller directCaller = new DirectProtectedSwapCaller(guardedManager);
+
+        guardedHook.setLauncher(address(this));
+        guardedManager.initialize(guardedKey, SQRT_PRICE_1_1);
+        guardedHook.setProtocolFeeCurrency(guardedKey.currency0);
+        (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
+            address(guardedHook), address(token0), address(token1), uint40(block.timestamp + 1 hours)
+        );
+        assertTrue(setOk, string(setData));
+        token0.mint(address(guardedManager), 1_000_000 ether);
+        token1.mint(address(guardedManager), 1_000_000 ether);
+
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        vm.expectRevert(PUBLIC_SWAP_DISABLED_SELECTOR);
+        directCaller.swapDirect(
+            guardedKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit})
         );
     }
 
@@ -718,7 +1000,6 @@ contract MemeverseSwapRouterTest is Test {
         BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             40 ether,
@@ -745,7 +1026,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             40 ether,
             100 ether,
@@ -768,7 +1048,6 @@ contract MemeverseSwapRouterTest is Test {
         BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             40 ether,
@@ -794,7 +1073,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             300 ether,
@@ -806,6 +1084,28 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
         assertEq(delta.amount1(), int128(int256(100 ether)), "delta1");
         assertLt(delta.amount0(), -int128(int256(200 ether)), "delta0 fee-adjusted");
+    }
+
+    /// @notice Verifies exact-output ERC20 swaps refund unused prefunded input.
+    /// @dev The router should prefund `amountInMaximum`, spend only the realized input, then return the remainder.
+    function testSwap_ExactOutputRefundsUnusedPrefundedInput() external {
+        _setProtocolFeeCurrency(key.currency0);
+        uint256 balance0Before = token0.balanceOf(address(this));
+        uint256 amountInMaximum = 500 ether;
+
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            amountInMaximum,
+            ""
+        );
+
+        assertEq(manager.lastUnlockPayer(), address(router), "router should pay exact-output input");
+        assertEq(balance0Before - token0.balanceOf(address(this)), 300 ether, "unused input refunded");
+        assertEq(token0.balanceOf(address(router)), 0, "router should not retain refunded input");
     }
 
     /// @notice Verifies one-for-zero exact-output swaps execute and charge input-side fees.
@@ -820,7 +1120,6 @@ contract MemeverseSwapRouterTest is Test {
         BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             0,
@@ -848,7 +1147,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             300 ether,
@@ -873,7 +1171,6 @@ contract MemeverseSwapRouterTest is Test {
         BalanceDelta delta = router.swap(
             key,
             SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             0,
@@ -901,7 +1198,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             address(this),
-            address(this),
             block.timestamp,
             40 ether,
             100 ether,
@@ -925,7 +1221,6 @@ contract MemeverseSwapRouterTest is Test {
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             200 ether,
@@ -946,7 +1241,6 @@ contract MemeverseSwapRouterTest is Test {
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             60 ether,
@@ -1004,7 +1298,6 @@ contract MemeverseSwapRouterTest is Test {
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this),
-            address(this),
             block.timestamp,
             0,
             300 ether,
@@ -1015,6 +1308,61 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(delta.amount1(), int128(int256(100 ether)), "delta1");
     }
 
+    /// @notice Verifies native exact-output swaps refund any unused native budget back to the caller.
+    /// @dev This directly covers the caller-only refund model for native swap paths.
+    function testSwap_NativeExactOutputRefundsUnusedBudgetToCaller() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        _dealAndInitializeNativePool(nativeKey, true);
+        _setProtocolFeeCurrency(nativeKey.currency0);
+
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        uint256 nativeBefore = address(this).balance;
+        uint256 suppliedNative = 500 ether;
+
+        router.swap{value: suppliedNative}(
+            nativeKey,
+            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this),
+            block.timestamp,
+            0,
+            suppliedNative,
+            ""
+        );
+
+        uint256 nativeSpent = nativeBefore - address(this).balance;
+        assertLt(nativeSpent, suppliedNative, "caller should receive native refund");
+        assertGt(nativeSpent, 0, "swap should spend native budget");
+        assertEq(address(router).balance, 0, "router should not retain native");
+    }
+
+    /// @notice Verifies native exact-output swaps fail closed when the caller cannot receive the native refund.
+    /// @dev The simplified router surface no longer allows redirecting native refunds to a separate recipient.
+    function testSwap_NativeExactOutputRevertsWhenCallerCannotReceiveRefund() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        _dealAndInitializeNativePool(nativeKey, true);
+        _setProtocolFeeCurrency(nativeKey.currency0);
+
+        NonPayableSwapCaller caller = new NonPayableSwapCaller(router);
+        uint256 suppliedNative = 500 ether;
+        vm.deal(address(caller), suppliedNative);
+
+        vm.expectRevert(IMemeverseUniswapHook.ERC20TransferFailed.selector);
+        vm.prank(address(this));
+        caller.attemptSwap{value: suppliedNative}(
+            nativeKey,
+            SwapParams({
+                zeroForOne: true,
+                amountSpecified: 100 ether,
+                sqrtPriceLimitX96: uint160((uint256(SQRT_PRICE_1_1) * 99) / 100)
+            }),
+            address(this),
+            block.timestamp,
+            0,
+            suppliedNative,
+            ""
+        );
+    }
+
     /// @notice Verifies router fee claims relay through the hook core with a signature.
     /// @dev Covers router-mediated LP fee claiming.
     function testRouterClaimFees_UsesHookCoreWithSignature() external {
@@ -1022,7 +1370,7 @@ contract MemeverseSwapRouterTest is Test {
 
         vm.prank(alice);
         router.addLiquidity(
-            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
         );
         _matureLaunchWindow();
 
@@ -1030,7 +1378,6 @@ contract MemeverseSwapRouterTest is Test {
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             40 ether,
@@ -1075,7 +1422,7 @@ contract MemeverseSwapRouterTest is Test {
 
         vm.prank(alice);
         router.addLiquidity(
-            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
         );
         _matureLaunchWindow();
 
@@ -1083,7 +1430,6 @@ contract MemeverseSwapRouterTest is Test {
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             40 ether,
@@ -1149,7 +1495,7 @@ contract MemeverseSwapRouterTest is Test {
 
         vm.prank(alice);
         router.addLiquidity(
-            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
         );
         _matureLaunchWindow();
 
@@ -1157,7 +1503,6 @@ contract MemeverseSwapRouterTest is Test {
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
             address(this),
             block.timestamp,
             40 ether,
@@ -1240,14 +1585,7 @@ contract MemeverseSwapRouterTest is Test {
         tokenB.approve(address(router), type(uint256).max);
 
         (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
-            address(tokenA),
-            address(tokenB),
-            100 ether,
-            100 ether,
-            SQRT_PRICE_1_1,
-            address(this),
-            address(this),
-            block.timestamp
+            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, address(this), block.timestamp
         );
 
         (address liquidityToken,,) = hook.poolInfo(createdKey.toId());
@@ -1269,18 +1607,33 @@ contract MemeverseSwapRouterTest is Test {
         token6.approve(address(router), type(uint256).max);
 
         (, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
-            address(token18),
-            address(token6),
-            100 ether,
-            100 * 1e6,
-            startPrice,
-            address(this),
-            address(this),
-            block.timestamp
+            address(token18), address(token6), 100 ether, 100 * 1e6, startPrice, address(this), block.timestamp
         );
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(createdKey.toId());
         assertEq(sqrtPriceX96, startPrice, "provided sqrt price");
+    }
+
+    /// @notice Verifies native bootstrap refunds any unused native budget back to the caller.
+    /// @dev This directly covers caller-only native refunds on create-and-add flows.
+    function testCreatePoolAndAddLiquidity_NativeRefundsUnusedBudgetToCaller() external {
+        vm.deal(address(this), 1_000_000 ether);
+        token1.mint(address(this), 1_000_000 ether);
+        token1.approve(address(router), type(uint256).max);
+
+        uint256 nativeBefore = address(this).balance;
+        uint256 suppliedNative = 300 ether;
+
+        (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidity{value: suppliedNative}(
+            address(0), address(token1), suppliedNative, 100 ether, SQRT_PRICE_1_1, address(this), block.timestamp
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(address(createdKey.hooks), address(hook), "hook");
+        uint256 nativeSpent = nativeBefore - address(this).balance;
+        assertLt(nativeSpent, suppliedNative, "caller should receive native refund");
+        assertGt(nativeSpent, 0, "bootstrap should spend native budget");
+        assertEq(address(router).balance, 0, "router should not retain native");
     }
 
     /// @notice Verifies addLiquidity rejects expired deadlines.
@@ -1288,36 +1641,33 @@ contract MemeverseSwapRouterTest is Test {
     function testAddLiquidityReverts_WhenDeadlineExpired() external {
         vm.expectRevert(IMemeverseSwapRouter.ExpiredPastDeadline.selector);
         router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            address(this),
-            block.timestamp - 1
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp - 1
         );
     }
 
-    /// @notice Verifies native-input addLiquidity requires a refund recipient.
-    /// @dev Covers the invalid native refund recipient branch.
-    function testAddLiquidityReverts_WhenNativeRefundRecipientMissing() external {
+    /// @notice Verifies native-input addLiquidity refunds any unused native budget back to the caller.
+    /// @dev The simplified router surface no longer asks callers to specify a separate native refund recipient.
+    function testAddLiquidity_NativeRefundsUnusedBudgetToCaller() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         _dealAndInitializeNativePool(nativeKey, false);
 
-        vm.expectRevert(IMemeverseSwapRouter.InvalidNativeRefundRecipient.selector);
-        router.addLiquidity{value: 100 ether}(
+        uint256 nativeBefore = address(this).balance;
+        uint256 suppliedNative = 300 ether;
+        uint128 liquidity = router.addLiquidity{value: suppliedNative}(
             nativeKey.currency0,
             nativeKey.currency1,
-            100 ether,
+            suppliedNative,
             100 ether,
             90 ether,
             90 ether,
             address(this),
-            address(0),
             block.timestamp
         );
+        assertGt(liquidity, 0, "liquidity");
+        uint256 nativeSpent = nativeBefore - address(this).balance;
+        assertLt(nativeSpent, suppliedNative, "caller should receive native refund");
+        assertGt(nativeSpent, 0, "router should still spend native budget");
+        assertEq(address(router).balance, 0, "router should not retain native");
     }
 
     /// @notice Verifies removeLiquidity rejects expired deadlines.
@@ -1325,7 +1675,7 @@ contract MemeverseSwapRouterTest is Test {
     function testRemoveLiquidityReverts_WhenDeadlineExpired() external {
         vm.prank(alice);
         router.addLiquidity(
-            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, alice, block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
         );
         (address liquidityToken,,) = hook.poolInfo(poolId);
         uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
@@ -1340,14 +1690,7 @@ contract MemeverseSwapRouterTest is Test {
     function testCreatePoolAndAddLiquidityReverts_WhenTokenPairIsIdentical() external {
         vm.expectRevert(IMemeverseSwapRouter.InvalidTokenPair.selector);
         router.createPoolAndAddLiquidity(
-            address(token0),
-            address(token0),
-            100 ether,
-            100 ether,
-            SQRT_PRICE_1_1,
-            address(this),
-            address(this),
-            block.timestamp
+            address(token0), address(token0), 100 ether, 100 ether, SQRT_PRICE_1_1, address(this), block.timestamp
         );
     }
 
@@ -1363,14 +1706,7 @@ contract MemeverseSwapRouterTest is Test {
 
         vm.expectRevert(IMemeverseSwapRouter.ExpiredPastDeadline.selector);
         router.createPoolAndAddLiquidity(
-            address(tokenA),
-            address(tokenB),
-            100 ether,
-            100 ether,
-            SQRT_PRICE_1_1,
-            address(this),
-            address(this),
-            block.timestamp - 1
+            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, address(this), block.timestamp - 1
         );
     }
 

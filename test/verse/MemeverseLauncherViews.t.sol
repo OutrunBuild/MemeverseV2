@@ -220,6 +220,17 @@ contract MemeverseLauncherViewsTest is Test {
         vm.stopPrank();
     }
 
+    /// @notice Verifies launcher no longer exposes a configurable unlock-protection getter/setter surface.
+    /// @dev The protection window is now a fixed product constant rather than owner-configurable state.
+    function testUnlockProtectionWindow_ConfigSurfaceRemoved() external view {
+        (bool getterOk,) = address(launcher).staticcall(abi.encodeWithSignature("unlockProtectionWindow()"));
+        (bool setterOk,) =
+            address(launcher).staticcall(abi.encodeWithSignature("setUnlockProtectionWindow(uint256)", 1));
+
+        assertFalse(getterOk, "getter should be removed");
+        assertFalse(setterOk, "setter should be removed");
+    }
+
     /// @notice Test genesis reverts when verse missing or paused or wrong stage and accumulates funds.
     /// @dev Confirms genesis enforces id, stage, zero-input, and pause guards while still accounting for funds.
     function testGenesisRevertsWhenVerseMissingOrPausedOrWrongStageAndAccumulatesFunds() external {

@@ -29,10 +29,11 @@
 
 `[代码已证]`
 
-### 2.3 Launch settlement 特殊通道
+### 2.3 Launch settlement 显式结算通道
 
-- Router 识别特定 `hookData` marker，仅 `launchSettlementOperator` 可走该通道。
-- Hook 再次校验 `sender == launchSettlementCaller`。
+- 启动结算不再走 Router 特殊 `hookData` marker 分支。
+- 当前设计是 `MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)`。
+- Hook 仅接受已绑定 launcher 的直接调用，并在内部自发起 `PoolManager.unlock/swap` 完成结算。
 - 该路径固定总费 `1%`（100 bps）。
 
 `[代码已证]`
@@ -49,7 +50,8 @@
 ## 4. 启动保护语义
 
 - 当前普通 swap 路径为 execute-or-revert。
-- 启动保护语义体现为 launch fee 衰减窗口与 launch settlement 特权通道。
+- 启动保护语义体现为 launch fee 衰减窗口与显式 launch settlement 结算通道。
+- 解锁后的公开 swap 保护由 launcher 在 `Locked -> Unlocked` 迁移时写入各受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 执行；未到该时间前，受保护 pair 的公开 swap 会被拒绝。
 - swap API 保持单路径结算语义。
 
 ## 5. 运维配置边界
@@ -58,9 +60,11 @@
  - `treasury`
  - protocol fee 币种支持
  - `emergencyFlag`
- - `launchSettlementCaller`
+ - `launcher`
  - `defaultLaunchFeeConfig`
-- Router 的 `hook/permit2/launchSettlementOperator` 为构造不可变参数。
+- Launcher owner 配置 router / hook 时，必须同时校验 `router.hook()==hook` 且 `hook.launcher()==launcher`；其中 launcher 侧 `memeverseUniswapHook` 是 write-once。
+- Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内配置权，不视为额外越权模型。
+- Router 的 `hook/permit2` 为构造不可变参数。
 
 `[代码已证]`
 

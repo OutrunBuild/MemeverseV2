@@ -33,16 +33,15 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     using PoolIdLibrary for PoolKey;
 
     uint256 public constant RATIO = 10000;
+    uint256 internal constant UNLOCK_PROTECTION_WINDOW = 24 hours;
     uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
-    // solhint-disable-next-line gas-small-strings
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
-
     address public localLzEndpoint;
     address public lzEndpointRegistry;
     address public yieldDispatcher;
     address public memeverseRegistrar;
     address public memeverseProxyDeployer;
     address public memeverseSwapRouter;
+    address public memeverseUniswapHook;
 
     uint256 public executorRewardRate;
     uint256 public preorderCapRatio;
@@ -58,6 +57,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     mapping(address UPT => FundMetaData) public fundMetaDatas;
     mapping(address memecoin => uint256) public memecoinToIds;
+    mapping(address liquidProof => uint256) public liquidProofToIds;
     mapping(uint256 verseId => Memeverse) public memeverses;
     mapping(uint256 verseId => GenesisFund) public genesisFunds;
     mapping(uint256 verseId => PreorderState) internal preorderStates;
@@ -397,6 +397,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             currentStage = _handleGenesisStage(verseId, currentTime, verse);
         } else if (currentStage == Stage.Locked && currentTime > verse.unlockTime) {
             verse.currentStage = Stage.Unlocked;
+            _activatePostUnlockPublicSwapProtection(verse);
             currentStage = Stage.Unlocked;
         }
 
@@ -524,6 +525,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         _safeApproveInf(UPT, memeverseSwapRouter);
         _safeApproveInf(memecoin, memeverseSwapRouter);
         _safeApproveInf(pol, memeverseSwapRouter);
+        _safeApproveInf(UPT, memeverseUniswapHook);
 
         // Deploy memecoin liquidity
         uint256 memecoinAmount = totalMemecoinFunds * fundMetaDatas[UPT].fundBasedAmount;
@@ -533,14 +535,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         (uint128 memecoinLiquidity, PoolKey memory poolKey) = IMemeverseSwapRouter(memeverseSwapRouter)
             .createPoolAndAddLiquidity(
-                memecoin,
-                UPT,
-                memecoinAmount,
-                totalMemecoinFunds,
-                memecoinStartPrice,
-                address(this),
-                address(this),
-                block.timestamp
+                memecoin, UPT, memecoinAmount, totalMemecoinFunds, memecoinStartPrice, address(this), block.timestamp
             );
 
         _settleLaunchPreorder(verseId, poolKey, UPT, memecoin);
@@ -555,14 +550,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             InitialPriceCalculator.calculateInitialSqrtPriceX96(pol, UPT, deployedPOL, totalLiquidProofFunds);
         (uint128 polLiquidity,) = IMemeverseSwapRouter(memeverseSwapRouter)
             .createPoolAndAddLiquidity(
-                pol,
-                UPT,
-                deployedPOL,
-                totalLiquidProofFunds,
-                polStartPrice,
-                address(this),
-                address(this),
-                block.timestamp
+                pol, UPT, deployedPOL, totalLiquidProofFunds, polStartPrice, address(this), block.timestamp
             );
 
         totalPolLiquidity[verseId] = polLiquidity;
@@ -575,16 +563,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (totalFunds == 0) return;
 
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == UPT;
-        BalanceDelta delta = IMemeverseSwapRouter(memeverseSwapRouter)
-            .swap(
-                poolKey,
-                SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: 0}),
-                address(this),
-                address(this),
-                block.timestamp,
-                0,
-                totalFunds,
-                abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+        BalanceDelta delta = IMemeverseUniswapHook(memeverseUniswapHook)
+            .executeLaunchSettlement(
+                IMemeverseUniswapHook.LaunchSettlementParams({
+                    key: poolKey,
+                    params: SwapParams({
+                        zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: 0
+                    }),
+                    recipient: address(this),
+                    amountInMaximum: totalFunds
+                })
             );
 
         uint256 settledMemecoin = _deltaAmountForToken(delta, zeroForOne, memecoin, poolKey);
@@ -963,6 +951,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         memeverses[uniqueId] = verse;
         memecoinToIds[memecoin] = uniqueId;
+        liquidProofToIds[pol] = uniqueId;
 
         emit RegisterMemeverse(uniqueId, verse);
     }
@@ -1027,7 +1016,6 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 amountInUPTMin,
                 amountInMemecoinMin,
                 address(this),
-                address(this),
                 deadline
             );
 
@@ -1063,7 +1051,6 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 amountInMemecoin,
                 amountInUPT,
                 amountInMemecoin,
-                address(this),
                 address(this),
                 deadline
             );
@@ -1158,23 +1145,44 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function setMemeverseSwapRouter(address _memeverseSwapRouter) external override onlyOwner {
         require(_memeverseSwapRouter != address(0), ZeroInput());
-        _validateLaunchSettlementRouter(_memeverseSwapRouter);
+        _validateLaunchSettlementConfig(_memeverseSwapRouter, memeverseUniswapHook);
 
         memeverseSwapRouter = _memeverseSwapRouter;
 
         emit SetMemeverseSwapRouter(_memeverseSwapRouter);
     }
 
-    function _validateLaunchSettlementRouter(address routerAddress) internal view {
+    /// @notice Set the memeverse hook contract.
+    /// @dev Only callable by the owner. The hook is write-once because existing live pools are namespaced by hook.
+    /// @param _memeverseUniswapHook Address of the Memeverse hook.
+    function setMemeverseUniswapHook(address _memeverseUniswapHook) external override onlyOwner {
+        require(_memeverseUniswapHook != address(0), ZeroInput());
+        if (memeverseUniswapHook != address(0)) revert HookAlreadyConfigured();
+        address routerAddress = memeverseSwapRouter;
+        if (routerAddress != address(0)) {
+            _validateLaunchSettlementConfig(routerAddress, _memeverseUniswapHook);
+        } else {
+            address boundLauncher = IMemeverseUniswapHook(_memeverseUniswapHook).launcher();
+            require(boundLauncher == address(this), InvalidLaunchSettlementConfig());
+        }
+
+        memeverseUniswapHook = _memeverseUniswapHook;
+    }
+
+    function _validateLaunchSettlementConfig(address routerAddress, address hookAddress) internal view {
+        require(hookAddress != address(0), InvalidLaunchSettlementConfig());
         IMemeverseSwapRouter router = IMemeverseSwapRouter(routerAddress);
-        address settlementOperator = router.launchSettlementOperator();
-        IMemeverseUniswapHook settlementHook = router.hook();
-        address settlementCaller = settlementHook.launchSettlementCaller();
-        require(
-            settlementOperator == address(this) && address(settlementHook) != address(0)
-                && settlementCaller == routerAddress,
-            InvalidLaunchSettlementConfig()
-        );
+        address routerHookAddress = address(router.hook());
+        address boundLauncher = IMemeverseUniswapHook(hookAddress).launcher();
+        require(routerHookAddress == hookAddress && boundLauncher == address(this), InvalidLaunchSettlementConfig());
+    }
+
+    function _activatePostUnlockPublicSwapProtection(Memeverse storage verse) internal {
+        uint40 resumeTime = uint40(block.timestamp + UNLOCK_PROTECTION_WINDOW);
+        IMemeverseUniswapHook hook = IMemeverseUniswapHook(memeverseUniswapHook);
+
+        hook.setPublicSwapResumeTime(verse.memecoin, verse.UPT, resumeTime);
+        hook.setPublicSwapResumeTime(verse.liquidProof, verse.UPT, resumeTime);
     }
 
     /**

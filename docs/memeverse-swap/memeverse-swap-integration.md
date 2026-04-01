@@ -46,7 +46,7 @@
 1. Router 统一处理 `deadline`、`amountOutMinimum`、`amountInMaximum`
 2. Router 统一处理 native 退款地址与预算准备
 3. Router 提供 pair 级 helper，如 `lpToken(...)`、`quoteAmountsForLiquidity(...)`
-4. `launch settlement` 的特殊入口限制也放在 Router 一层
+4. Router 保持纯公开 surface；启动结算由 Launcher 直接走 Hook 显式路径，普通集成方无需感知专用 settlement 接线
 
 当前普通 swap 语义是：
 
@@ -88,7 +88,7 @@
 当前启动期保护语义是：
 
 - 普通路径：`launch fee window` 费率衰减
-- 特殊路径：`launch settlement` 固定 `1%`
+- 特殊路径：`MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)` 固定 `1%`
 
 ---
 
@@ -122,7 +122,7 @@ function swap(
 - `amountInMaximum`：
   - exact-input 时可传 `0`
   - exact-output 时必须传
-- `hookData`：透传给 hook 的额外数据；普通路径通常可传空，`launch settlement` 为受限专用 marker
+- `hookData`：透传给 hook 的额外数据；普通集成路径通常可传空，当前公开 Router 不再为 launch settlement 保留专用 marker
 
 返回值含义：
 
@@ -214,10 +214,10 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 ## 5. Launch Settlement 集成注意事项
 
 - 这是启动结算专用通道，不是普通用户交易接口。
-- Router 侧要求 `msg.sender == launchSettlementOperator`。
-- Hook 侧要求 `sender == launchSettlementCaller`。
+- 当前路径是 `MemeverseLauncher` 直接调用 `MemeverseUniswapHook.executeLaunchSettlement(...)`。
+- Hook 侧要求 `msg.sender == launcher`。
 - 该路径固定总费 `1%`。
-- `MemeverseLauncher` 在接入 Router 时会校验这组配置必须联动一致。
+- `MemeverseLauncher` 在接入 Router 时会校验 `router.hook().launcher() == launcher`。
 
 普通集成方不应自行构造这条路径。
 
@@ -250,7 +250,7 @@ Hook 仍保留：
 把当前 Memeverse Swap 理解成：
 
 - `Router`：统一公开入口、预算与退款管理层
-- `Hook`：动态费、启动期费率、LP 记账、协议收费引擎
-- `launch settlement`：受限专用结算通道
+- `Hook`：动态费、启动期费率、LP 记账、协议收费引擎，以及显式 launch settlement 执行面
+- `launch settlement`：`Launcher -> Hook` 的受限专用结算通道
 
 其中普通交易、启动期费率、LP 记账和结算专用通道都在同一套 Router + Hook 语义下协同完成。

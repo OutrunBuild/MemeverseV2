@@ -21,7 +21,7 @@ MemeverseV2 的主路径可以概括为：
 2. `Genesis`
 3. 成功进入 `Locked`，或失败进入 `Refund`
 4. `unlockTime` 到达
-5. 先进入 `post-unlock liquidity protection period`
+5. 在 `unlockTime` 之后实际执行 `changeStage()` 时进入 `Unlocked`，并为受保护池写入恢复公开 swap 的时间
 6. 保护窗口结束后才恢复无限制公开 swap
 
 其中：
@@ -47,7 +47,7 @@ MemeverseV2 的主路径可以概括为：
 - 把结果 fan-out 到本链或异链 registrar
 - 由 registrar 最终落库到 launcher
 
-这一阶段决定了后续募资何时结束，以及退出保护何时开始。
+这一阶段决定了后续募资何时结束，以及最早可进入解锁迁移的时间边界；退出保护窗口的实际起点仍以后续 `changeStage()` 交易时间为准。
 
 ## 4. Genesis 募资阶段
 
@@ -174,12 +174,13 @@ V2 当前已实现的启动保护是：
 
 ### 7.4 当前实现状态
 
-当前实现仍然存在缺口：
+当前实现已经落地该窗口语义，但方式不是新增阶段：
 
-- launcher 在 `unlockTime` 后直接进入 `Unlocked`
-- swap 层未体现 unlock 后保护窗口
+- verse 需先到达 `unlockTime`，然后在实际 `changeStage()` 调用里进入 `Unlocked`
+- launcher 在该次迁移里按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
+- hook 在 `beforeSwap` 中读取该 pool-level 时间；未到期时继续拒绝受保护 pair 的公开 swap
 
-因此当前实现尚未达到本节目标规则。
+因此当前实现采用的是“阶段直接进入 `Unlocked`，但公开 swap 恢复时间锚定实际迁移调用”的实现方式。
 
 ## 8. 真正完全解锁的市场状态
 
@@ -188,7 +189,7 @@ V2 当前已实现的启动保护是：
 - 无限制公开 swap
 - 退出与公开市场行为同时存在的自由状态
 
-因此，“`unlockTime` 到达”和“市场完全开放”在产品语义上不应视为同一时刻。
+因此，“`unlockTime` 到达”“实际进入 `Unlocked`”和“市场完全开放”在产品语义上不是同一时刻。
 
 ## 9. 生命周期中的三类保护
 
@@ -219,7 +220,7 @@ V2 当前已实现的启动保护是：
 - Genesis 入金先拆成 memecoin 侧与 POL 侧两部分。
 - preorder 单独积累，直到进入 `Locked` 时统一换成 memecoin。
 - `Locked` 期产生的两池 fee 会拆成 burn、执行者奖励、governor treasury 收入与 yield 收入。
-- `unlockTime` 到达后，协议应优先保障 POL 与 Genesis LP 的退出，而不是立即恢复公开市场竞争。
+- 实际 `Locked -> Unlocked` 迁移完成后，协议应优先保障 POL 与 Genesis LP 的退出，而不是立即恢复公开市场竞争。
 
 ## 11. 当前实现与目标规则差异
 
@@ -230,11 +231,9 @@ V2 当前已实现的启动保护是：
 - launch 保护
 - `Locked` / `Unlocked` 的赎回路径
 
-当前尚未按目标规则落地：
+当前需要注意的不是“缺少保护窗口”，而是：
 
-- `post-unlock liquidity protection period`
-
-该缺口已在 `docs/TRACEABILITY.md` 中登记为高严重度 `MISMATCH`。
+- 保护窗口没有独立生命周期阶段或专用事件，需要由 stage、解锁迁移交易时间与 swap 行为联合解释
 
 ## 12. 相关真源与证据
 

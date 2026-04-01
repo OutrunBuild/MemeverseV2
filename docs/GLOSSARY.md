@@ -9,10 +9,10 @@
 - **flashGenesis**：达到最小募资即允许提前结束 Genesis 并进入 Locked 的开关。
 - **Refund**：募资失败后的退款阶段（终态）。
 - **Locked**：募资成功后、流动性锁定阶段；允许领取 POL、加池 mint POL、分发 fee。
-- **Unlocked**：当前实现中锁定结束后的退出阶段；按目标规则，unlock 后应先经过 `post-unlock liquidity protection period`，再恢复无限制公开 swap。
+- **Unlocked**：当前实现中锁定结束后的退出阶段；需在 `unlockTime` 之后实际执行 `changeStage()` 才进入，赎回可用，但受保护公开 swap 要等该次迁移时间加上 `unlockProtectionWindow` 后才恢复。
 - **post-unlock liquidity protection period**：unlock 后的受保护退出窗口；其目标是保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供统一结算窗口。
 - **Preorder**：Genesis 内的额外 UPT 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
-- **launch settlement**：启动结算专用 swap 通道，使用 marker + 双权限校验，固定 1% 总费。
+- **launch settlement**：启动结算专用 swap 通道，走显式 `Launcher -> Hook.executeLaunchSettlement(...)` 路径，固定 1% 总费。
 - **launch fee window**：池初始化后的费用衰减窗口（默认从 5000 bps 衰减到 100 bps）。
 - **LP token**：Hook 为每个池发行的流动性份额代币。
 - **memecoin LP / POL LP**：分别指 `memecoin/UPT` 与 `POL/UPT` 池的 LP 代币。

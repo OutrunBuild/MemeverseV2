@@ -52,31 +52,28 @@ flowchart TD
 
 ---
 
-## 3. Launch Settlement 特殊通道
+## 3. Launch Settlement 显式通道
 
 ```mermaid
 sequenceDiagram
     participant L as Launcher
-    participant R as Router
     participant H as Hook
     participant PM as PoolManager
 
-    L->>R: swap(..., hookData=LAUNCH_SETTLEMENT_MARKER)
-    R->>R: 校验 msg.sender == launchSettlementOperator
-    R->>PM: swap(...)
-    PM->>H: beforeSwap
-    H->>H: 校验 sender == launchSettlementCaller
-    H->>H: 应用固定 1% fee
-    PM->>PM: 完成 launch settlement
-    PM->>H: afterSwap
-    H-->>R: 返回 delta
-    R-->>L: 返回 BalanceDelta
+    L->>H: executeLaunchSettlement(params)
+    H->>H: 校验 msg.sender == launcher
+    H->>H: 计算固定 1% fee
+    H->>PM: unlock(...)
+    PM->>H: unlockCallback(...)
+    H->>PM: swap(..., hookData=ZERO_BYTES)
+    PM-->>H: 返回 BalanceDelta
+    H-->>L: 返回 BalanceDelta
 ```
 
 说明：
 
 - 这条路径不是普通用户路径。
-- Router 与 Hook 各自做一层授权校验。
+- 启动结算不再经过 Router，也不再依赖特殊 `hookData` marker。
 - 该路径固定总费 `1%`，不复用普通动态费结果。
 
 ---
@@ -146,12 +143,12 @@ flowchart TD
     B --> C[Hook 动态费 + launch fee window]
     C --> D[成功则返回 delta，失败则回退]
 
-    E[launch settlement] --> F[Router operator 校验]
-    F --> G[Hook caller 校验]
+    E[launch settlement] --> F[Launcher 调 Hook.executeLaunchSettlement]
+    F --> G[Hook 校验 launcher 绑定]
     G --> H[固定 1% 结算]
 ```
 
 一句话概括：
 
 - 普通 swap：execute-or-revert，启动期靠费率衰减保护
-- 特殊启动结算：双权限校验，固定 `1%` 费率
+- 特殊启动结算：显式 `Launcher -> Hook`，固定 `1%` 费率

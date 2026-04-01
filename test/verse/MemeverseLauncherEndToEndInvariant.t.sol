@@ -300,19 +300,17 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
             7 days
         );
         hook = new TestableMemeverseUniswapHookForLauncherIntegration(
-            IPoolManager(address(manager)), address(this), treasury, address(launcher)
+            IPoolManager(address(manager)), address(this), treasury
         );
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(0xBEEF)),
-            address(launcher)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
-        hook.setLaunchSettlementCaller(address(router));
+        hook.setLauncher(address(launcher));
         proxyDeployer = new MockLauncherIntegrationProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLauncherIntegrationLzEndpointRegistry();
         upt = new MockERC20("UPT", "UPT", 18);
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
@@ -408,7 +406,6 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
         );
         assertGt(settlementTimestamp, 0, "missing settlement timestamp");
         assertEq(upt.balanceOf(treasury), totalFunds * 30 / 10_000, "treasury settlement fee");
-        assertEq(router.launchSettlementOperator(), address(launcher), "launch operator");
     }
 
     /// @notice Test helper for invariant_endToEndPreorderClaimsRemainBounded.
@@ -485,19 +482,17 @@ contract MemeverseLauncherRefundEndToEndInvariantTest is StdInvariant, Test {
             7 days
         );
         hook = new TestableMemeverseUniswapHookForLauncherIntegration(
-            IPoolManager(address(manager)), address(this), treasury, address(launcher)
+            IPoolManager(address(manager)), address(this), treasury
         );
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(0xBEEF)),
-            address(launcher)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
-        hook.setLaunchSettlementCaller(address(router));
+        hook.setLauncher(address(launcher));
         proxyDeployer = new MockLauncherIntegrationProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLauncherIntegrationLzEndpointRegistry();
         upt = new MockERC20("UPT", "UPT", 18);
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));

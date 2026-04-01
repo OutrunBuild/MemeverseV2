@@ -51,12 +51,14 @@
 - preorder 份额按线性解锁领取 memecoin。
 
 ### 4.5 Unlocked 后退出
-- 从产品安全要求看，`unlockTime` 到达后应先进入 `post-unlock liquidity protection period`，而不是立即恢复无限制公开 swap。
+- 从产品安全要求看，`unlockTime` 到达后不能立即恢复无限制公开 swap。
 - 该保护窗口必须优先保障：
   - POL 持有人按 1:1 burn POL 赎回 memecoin/UPT LP
   - Genesis 参与者按出资比例一次性赎回 POL/UPT LP
   - 依赖 POL 全局结算窗口的上层模块（如 POL Lend）按一致基准结算
-- 只有保护窗口结束后，才应恢复无限制公开 swap。
+- 当前接受的产品规则是：有效的公开 swap 恢复时刻锚定在实际 `changeStage()` 完成 `Locked -> Unlocked` 的交易时间，再加上固定 `24 hours`。
+- 当前实现把这套语义落在 `Launcher` 于解锁迁移时向 `Hook` 写入每个受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 按该时间阻断公开 swap。
+- 保护窗口现为固定产品常量；已写入的 pool-level 恢复时间不再依赖 owner 配置。
 
 ## 5. 模块矩阵（按生命周期）
 
@@ -79,8 +81,8 @@
 
 ### 7.1 Swap 的启动期语义
 - `swap` 路径采用 execute-or-revert。
-- 启动期保护语义体现为 `launch fee` 衰减窗口与 `launch settlement` 特权路径（固定 `1%`）。
-- 该机制不等价于 unlock 后的流动性保护窗口，不能替代 POL 公平赎回 / POL Lend 全局结算所需的 post-unlock protection。
+- 启动期保护语义体现为 `launch fee` 衰减窗口与显式 `launch settlement` 路径（固定 `1%`）。
+- unlock 后的流动性保护则由解锁迁移时写入的 pool-level `publicSwapResumeTime` 与 `hook.beforeSwap` 实现。
 
 ### 7.2 Preorder 能力
 - launcher 已实现 preorder 入金、退款、启动时结算与线性解锁领取。

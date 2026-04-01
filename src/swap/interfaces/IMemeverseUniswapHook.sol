@@ -63,6 +63,13 @@ interface IMemeverseUniswapHook {
         bytes32 s;
     }
 
+    struct LaunchSettlementParams {
+        PoolKey key;
+        SwapParams params;
+        address recipient;
+        uint256 amountInMaximum;
+    }
+
     struct SwapQuote {
         uint256 feeBps;
         uint256 estimatedUserInputAmount;
@@ -88,10 +95,16 @@ interface IMemeverseUniswapHook {
      */
     function quoteSwap(PoolKey calldata key, SwapParams calldata params) external view returns (SwapQuote memory quote);
 
-    /// @notice Exposes the account allowed to invoke the hook's launch-settlement swap path.
-    /// @dev This is usually the router, not an end-user address.
-    /// @return caller Authorized pool-manager swap caller for launch settlement.
-    function launchSettlementCaller() external view returns (address caller);
+    /// @notice Exposes the launcher consulted for post-unlock public-swap protection.
+    /// @dev Returns the explicit launcher binding used by hook implementations for launch-state checks.
+    /// @return launcher_ Explicit launcher binding used for public-swap protection checks.
+    function launcher() external view returns (address launcher_);
+
+    /// @notice Exposes the public-swap resume time for a hook-managed pool.
+    /// @dev `0` means no active post-unlock public-swap protection is recorded for the pool.
+    /// @param poolId Pool being queried.
+    /// @return resumeTime Stored public-swap resume timestamp for the pool.
+    function publicSwapResumeTime(PoolId poolId) external view returns (uint40 resumeTime);
 
     /// @notice Exposes when a hook-managed pool was initialized.
     /// @dev The launch timestamp anchors the launch-fee decay schedule.
@@ -109,10 +122,18 @@ interface IMemeverseUniswapHook {
         view
         returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds);
 
-    /// @notice Updates the account allowed to use the launch-settlement swap path.
+    /// @notice Updates the launcher consulted for public-swap protection.
     /// @dev Implementations are expected to restrict this to an admin or owner role.
-    /// @param caller New authorized settlement caller.
-    function setLaunchSettlementCaller(address caller) external;
+    /// @param launcher_ New launcher binding.
+    function setLauncher(address launcher_) external;
+
+    /// @notice Updates the public-swap resume time for a hook-managed pool identified by token pair.
+    /// @dev Intended for the configured launcher to snapshot post-unlock protection windows without depending on
+    /// router-derived pool-key helpers.
+    /// @param tokenA One token in the pair.
+    /// @param tokenB The other token in the pair.
+    /// @param resumeTime New public-swap resume timestamp for the pool.
+    function setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime) external;
 
     /// @notice Updates the default launch-fee decay configuration.
     /// @dev Implementations are expected to restrict this to an admin or owner role.
@@ -189,6 +210,14 @@ interface IMemeverseUniswapHook {
         returns (uint256 fee0Amount, uint256 fee1Amount);
 
     /**
+     * @notice Execute the launch preorder settlement swap through the hook's dedicated settlement path.
+     * @dev Callable only by the configured launcher.
+     * @param params Launch settlement payload.
+     * @return delta Balance delta describing the net token movement after applying fixed 1% settlement economics.
+     */
+    function executeLaunchSettlement(LaunchSettlementParams calldata params) external returns (BalanceDelta delta);
+
+    /**
      * @notice Internal accounting helper for LP fee snapshots.
      * @dev Integrators normally should not call this directly unless they intentionally want to synchronize fee
      * accounting outside the standard LP token transfer / claim flow.
@@ -210,8 +239,8 @@ interface IMemeverseUniswapHook {
     /// @notice Emitted when the emergency fixed-fee mode is toggled.
     event EmergencyFlagUpdated(bool oldFlag, bool newFlag);
 
-    /// @notice Emitted when the launch settlement caller is updated.
-    event LaunchSettlementCallerUpdated(address oldCaller, address newCaller);
+    /// @notice Emitted when the launcher binding is updated.
+    event LauncherUpdated(address oldLauncher, address newLauncher);
 
     /// @notice Emitted when the default launch fee configuration is updated.
     event DefaultLaunchFeeConfigUpdated(
@@ -298,6 +327,9 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when the caller is not authorized.
     error Unauthorized();
+
+    /// @notice Reverts when a public swap is attempted during the post-unlock protection window.
+    error PublicSwapDisabled();
 
     /// @notice Reverts when an ERC20 transfer returns false.
     error ERC20TransferFailed();

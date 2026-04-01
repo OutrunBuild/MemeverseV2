@@ -245,6 +245,16 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param memeverseSwapRouter The new router address.
     function setMemeverseSwapRouter(address memeverseSwapRouter) external;
 
+    /// @notice Exposes the hook configured for launch settlement and unlock-protection writes.
+    /// @dev The launcher stores this explicitly instead of resolving it from the router on each use.
+    /// @return memeverseHook The configured hook address.
+    function memeverseUniswapHook() external view returns (address memeverseHook);
+
+    /// @notice Initializes the launcher's hook binding.
+    /// @dev The hook binding is write-once because live pool identities include the hook address.
+    /// @param memeverseHook The hook address to bind permanently.
+    function setMemeverseUniswapHook(address memeverseHook) external;
+
     /// @notice Repoints the launcher to a new LayerZero endpoint registry.
     /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param lzEndpointRegistry The new endpoint registry contract address.
@@ -319,6 +329,8 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     error NoPOLAvailable();
 
     error InvalidLaunchSettlementConfig();
+
+    error HookAlreadyConfigured();
 
     error NotRefundStage();
 
@@ -396,4 +408,6 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     event SetGasLimits(uint128 oftReceiveGasLimit, uint128 yieldDispatcherGasLimit);
 
     event SetExternalInfo(uint256 indexed verseId, string uri, string description, string[] community);
+
+    event SetUnlockProtectionWindow(uint256 previousWindow, uint256 newWindow);
 }

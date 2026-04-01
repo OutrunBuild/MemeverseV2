@@ -43,12 +43,12 @@ Router 为每条 Permit2 入口构造独立 witness：
 - `REMOVE_LIQUIDITY_WITNESS_TYPEHASH`
 - `CREATE_POOL_WITNESS_TYPEHASH`
 
-witness 绑定了关键业务参数（池子、方向、预算、截止时间、退款地址等），签名不可跨业务复用。`[代码已证]`
+witness 绑定了关键业务参数（池子、方向、预算、截止时间等），签名不可跨业务复用。`[代码已证]`
 
 ## 5. 与普通入口一致/不一致点
 
 - 一致：Permit2 只改变 ERC20 资金准备方式，后续 slippage、deadline、hook 语义一致。`[代码已证]`
-- 不一致：native 资产不通过 Permit2，仍依赖 `msg.value` 与 `nativeRefundRecipient`。`[代码已证]`
+- 不一致：native 资产不通过 Permit2，仍依赖 `msg.value`；未使用的 native 预算默认退回调用者。`[代码已证]`
 
 ## 6. 安全边界
 

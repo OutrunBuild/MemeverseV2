@@ -16,14 +16,16 @@ import {
     OFTFeeDetail
 } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
+import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 
 interface IRefundCallbackObserver {
     /// @notice Handles the token refund callback emitted by the test refund token.
@@ -32,23 +34,85 @@ interface IRefundCallbackObserver {
 }
 
 contract MockLaunchSettlementHookForLauncherTest {
-    address internal settlementCaller;
-
-    constructor(address settlementCaller_) {
-        settlementCaller = settlementCaller_;
+    struct LaunchSwapResult {
+        uint256 amountIn;
+        uint256 amountOut;
     }
 
-    /// @notice Exposes the mock launch-settlement caller.
-    /// @dev Mirrors the hook accessor consumed by launcher-side config validation.
-    /// @return caller Mock settlement caller address.
-    function launchSettlementCaller() external view returns (address) {
-        return settlementCaller;
+    address internal boundLauncher;
+    mapping(bytes32 => LaunchSwapResult) internal launchSwapResults;
+    mapping(bytes32 => uint40) internal publicSwapResumeTimes;
+
+    constructor(address boundLauncher_) {
+        boundLauncher = boundLauncher_;
+    }
+
+    function launcher() external view returns (address launcher_) {
+        return boundLauncher;
+    }
+
+    function setLaunchSwapResult(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut) external {
+        launchSwapResults[keccak256(abi.encode(_pairKey(tokenIn, tokenOut), tokenIn, tokenOut))] =
+            LaunchSwapResult({amountIn: amountIn, amountOut: amountOut});
+    }
+
+    function setPublicSwapResumeTime(bytes32 poolId, uint40 resumeTime) external {
+        require(msg.sender == boundLauncher, "unauthorized launcher");
+        publicSwapResumeTimes[poolId] = resumeTime;
+    }
+
+    function setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime) external {
+        require(msg.sender == boundLauncher, "unauthorized launcher");
+        publicSwapResumeTimes[_poolId(tokenA, tokenB)] = resumeTime;
+    }
+
+    function publicSwapResumeTime(bytes32 poolId) external view returns (uint40 resumeTime) {
+        return publicSwapResumeTimes[poolId];
+    }
+
+    function executeLaunchSettlement(IMemeverseUniswapHook.LaunchSettlementParams calldata params)
+        external
+        returns (BalanceDelta delta)
+    {
+        require(msg.sender == boundLauncher, "unauthorized launcher");
+        address tokenIn =
+            params.params.zeroForOne ? Currency.unwrap(params.key.currency0) : Currency.unwrap(params.key.currency1);
+        address tokenOut =
+            params.params.zeroForOne ? Currency.unwrap(params.key.currency1) : Currency.unwrap(params.key.currency0);
+        LaunchSwapResult memory result =
+            launchSwapResults[keccak256(abi.encode(_pairKey(tokenIn, tokenOut), tokenIn, tokenOut))];
+        if (result.amountOut != 0) {
+            MockERC20(tokenOut).mint(params.recipient, result.amountOut);
+        }
+        require(uint256(-params.params.amountSpecified) == result.amountIn, "unexpected amountIn");
+
+        if (params.params.zeroForOne) {
+            return toBalanceDelta(-int128(int256(result.amountIn)), int128(int256(result.amountOut)));
+        }
+        return toBalanceDelta(int128(int256(result.amountOut)), -int128(int256(result.amountIn)));
+    }
+
+    function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        return keccak256(abi.encode(token0, token1));
+    }
+
+    function _poolId(address tokenA, address tokenB) internal view returns (bytes32) {
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        return PoolId.unwrap(
+            PoolKey({
+                    currency0: Currency.wrap(token0),
+                    currency1: Currency.wrap(token1),
+                    fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+                    tickSpacing: 200,
+                    hooks: IHooks(address(this))
+                }).toId()
+        );
     }
 }
 
 contract MockSwapRouter {
     using SafeERC20 for IERC20;
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
 
     struct Quote {
         uint256 fee0;
@@ -61,35 +125,20 @@ contract MockSwapRouter {
         uint256 amount1Used;
     }
 
-    struct LaunchSwapResult {
-        uint256 amountIn;
-        uint256 amountOut;
-    }
-
     mapping(bytes32 => Quote) internal previewQuotes;
     mapping(bytes32 => Quote) internal claimQuotes;
     mapping(bytes32 => address) internal lpTokens;
     mapping(bytes32 => AddLiquidityResult) internal addLiquidityResults;
-    mapping(bytes32 => LaunchSwapResult) internal launchSwapResults;
     mapping(bytes32 => uint256) internal liquidityQuoteAmountA;
     mapping(bytes32 => uint256) internal liquidityQuoteAmountB;
-    address internal immutable settlementOperator;
     MockLaunchSettlementHookForLauncherTest internal immutable settlementHook;
 
-    constructor(address settlementOperator_) {
-        settlementOperator = settlementOperator_;
-        settlementHook = new MockLaunchSettlementHookForLauncherTest(address(this));
-    }
-
-    /// @notice Exposes the mock router settlement operator.
-    /// @dev Lets launcher tests validate the router-side settlement operator wiring.
-    /// @return operator Mock settlement operator address.
-    function launchSettlementOperator() external view returns (address) {
-        return settlementOperator;
+    constructor(address launcher_) {
+        settlementHook = new MockLaunchSettlementHookForLauncherTest(launcher_);
     }
 
     /// @notice Exposes the mock hook used by the router.
-    /// @dev Returns the helper hook that reports this router as the settlement caller.
+    /// @dev Returns the helper hook that supports explicit launch settlement execution.
     /// @return hookAddress Mock hook address.
     function hook() external view returns (address) {
         return address(settlementHook);
@@ -194,8 +243,7 @@ contract MockSwapRouter {
     /// @param amountIn Mock amount of `tokenIn` consumed.
     /// @param amountOut Mock amount of `tokenOut` returned.
     function setLaunchSwapResult(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut) external {
-        launchSwapResults[keccak256(abi.encode(_pairKey(tokenIn, tokenOut), tokenIn, tokenOut))] =
-            LaunchSwapResult({amountIn: amountIn, amountOut: amountOut});
+        settlementHook.setLaunchSwapResult(tokenIn, tokenOut, amountIn, amountOut);
     }
 
     /// @notice Returns the mocked preview fees for a token pair and owner.
@@ -244,14 +292,14 @@ contract MockSwapRouter {
     /// @param tokenA First token in the pair.
     /// @param tokenB Second token in the pair.
     /// @return key Mock pool key for the pair.
-    function getHookPoolKey(address tokenA, address tokenB) external pure returns (PoolKey memory key) {
+    function getHookPoolKey(address tokenA, address tokenB) external view returns (PoolKey memory key) {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         return PoolKey({
             currency0: Currency.wrap(token0),
             currency1: Currency.wrap(token1),
-            fee: 0,
-            tickSpacing: 0,
-            hooks: IHooks(address(0))
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 200,
+            hooks: IHooks(address(settlementHook))
         });
     }
 
@@ -293,7 +341,6 @@ contract MockSwapRouter {
     /// @param amount0Min Unused minimum amount for `currency0`.
     /// @param amount1Min Unused minimum amount for `currency1`.
     /// @param to Recipient of the mocked LP shares.
-    /// @param nativeRefundRecipient Unused native refund recipient.
     /// @param deadline Unused deadline.
     /// @return liquidity Mock LP liquidity minted to `to`.
     function addLiquidity(
@@ -304,14 +351,12 @@ contract MockSwapRouter {
         uint256 amount0Min,
         uint256 amount1Min,
         address to,
-        address nativeRefundRecipient,
         uint256 deadline
     ) external returns (uint128 liquidity) {
         amount0Desired;
         amount1Desired;
         amount0Min;
         amount1Min;
-        nativeRefundRecipient;
         deadline;
 
         address token0 = Currency.unwrap(currency0);
@@ -335,7 +380,6 @@ contract MockSwapRouter {
     /// @param amountBDesired Unused desired amount for `tokenB`.
     /// @param startPrice Unused pool start price.
     /// @param recipient Recipient of mocked LP shares.
-    /// @param nativeRefundRecipient Unused native refund recipient.
     /// @param deadline Unused deadline.
     /// @return liquidity Mock LP liquidity minted to `recipient`.
     /// @return poolKey Normalized mock pool key for the pair.
@@ -346,13 +390,11 @@ contract MockSwapRouter {
         uint256 amountBDesired,
         uint160 startPrice,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline
     ) external returns (uint128 liquidity, PoolKey memory poolKey) {
         amountADesired;
         amountBDesired;
         startPrice;
-        nativeRefundRecipient;
         deadline;
 
         poolKey = this.getHookPoolKey(tokenA, tokenB);
@@ -363,49 +405,21 @@ contract MockSwapRouter {
         }
         return (result.liquidity, poolKey);
     }
+}
 
-    /// @notice Executes the mocked swap path.
-    /// @dev When the launch settlement marker is provided, returns the configured preorder launch swap result.
-    /// @param key Mock pool key being swapped against.
-    /// @param params Mock swap params forwarded by the launcher.
-    /// @param recipient Recipient of the mocked output token.
-    /// @param nativeRefundRecipient Unused native refund recipient.
-    /// @param deadline Unused deadline.
-    /// @param amountOutMinimum Unused minimum output amount.
-    /// @param amountInMaximum Unused maximum input amount.
-    /// @param hookData Marker payload used to distinguish launch settlement.
-    /// @return delta Mock balance delta for the launch settlement swap.
-    function swap(
-        PoolKey calldata key,
-        SwapParams calldata params,
-        address recipient,
-        address nativeRefundRecipient,
-        uint256 deadline,
-        uint256 amountOutMinimum,
-        uint256 amountInMaximum,
-        bytes calldata hookData
-    ) external returns (BalanceDelta delta) {
-        nativeRefundRecipient;
-        deadline;
-        amountOutMinimum;
-        amountInMaximum;
+contract MockSwapRouterWithBrokenPoolKey {
+    address internal immutable hookAddress;
 
-        if (keccak256(hookData) != keccak256(abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH))) {
-            revert("unexpected hookData");
-        }
+    constructor(address hookAddress_) {
+        hookAddress = hookAddress_;
+    }
 
-        address tokenIn = params.zeroForOne ? Currency.unwrap(key.currency0) : Currency.unwrap(key.currency1);
-        address tokenOut = params.zeroForOne ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
-        LaunchSwapResult memory result =
-            launchSwapResults[keccak256(abi.encode(_pairKey(tokenIn, tokenOut), tokenIn, tokenOut))];
-        if (result.amountOut != 0) {
-            MockERC20(tokenOut).mint(recipient, result.amountOut);
-        }
+    function hook() external view returns (address) {
+        return hookAddress;
+    }
 
-        if (params.zeroForOne) {
-            return toBalanceDelta(-int128(int256(result.amountIn)), int128(int256(result.amountOut)));
-        }
-        return toBalanceDelta(int128(int256(result.amountOut)), -int128(int256(result.amountIn)));
+    function getHookPoolKey(address, address) external pure returns (PoolKey memory) {
+        revert("pool key helper unused");
     }
 }
 
@@ -792,9 +806,19 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
     function setTotalClaimablePOLForTest(uint256 verseId, uint256 amount) external {
         totalClaimablePOL[verseId] = amount;
     }
+
+    /// @notice Stores mock liquid-proof to verse-id state for a verse.
+    /// @dev Exposes the symmetric swap-gate index to unit tests without going through full registration.
+    /// @param liquidProofAddress Liquid-proof token address whose verse id should be set.
+    /// @param verseId Verse id to associate with the liquid-proof token.
+    function setVerseIdByLiquidProofForTest(address liquidProofAddress, uint256 verseId) external {
+        liquidProofToIds[liquidProofAddress] = verseId;
+    }
 }
 
 contract MemeverseLauncherLifecycleTest is Test {
+    using PoolIdLibrary for PoolKey;
+
     TestableMemeverseLauncher internal launcher;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
@@ -806,6 +830,14 @@ contract MemeverseLauncherLifecycleTest is Test {
 
     address internal constant REWARD_RECEIVER = address(0xBEEF);
     address internal constant ALICE = address(0xA11CE);
+
+    function _readPublicSwapResumeTime(PoolKey memory key) internal view returns (bool ok, uint40 resumeTime) {
+        address hookAddress = address(IMemeverseSwapRouter(address(router)).hook());
+        (bool success, bytes memory data) =
+            hookAddress.staticcall(abi.encodeWithSignature("publicSwapResumeTime(bytes32)", key.toId()));
+        if (!success || data.length != 32) return (false, 0);
+        return (true, abi.decode(data, (uint40)));
+    }
 
     /// @notice Deploys the launcher test harness and supporting mocks.
     /// @dev Wires the launcher to the mock router and mock dispatcher.
@@ -831,6 +863,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
 
+        launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
@@ -1155,6 +1188,48 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Unlocked));
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked));
+    }
+
+    /// @notice Verifies entering `Unlocked` snapshots pool resume times onto the hook with the fixed 24 hour window.
+    /// @dev The protection window is now a constant product rule rather than a mutable config surface.
+    function testChangeStage_LockedAfterUnlockSnapshotsHookResumeTimes() external {
+        uint256 verseId = 24;
+        _setLockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.unlockTime = uint128(block.timestamp - 1);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        PoolKey memory memecoinKey = router.getHookPoolKey(address(memecoin), address(upt));
+        PoolKey memory polKey = router.getHookPoolKey(address(liquidProof), address(upt));
+
+        launcher.changeStage(verseId);
+
+        (bool memecoinResumeOk, uint40 memecoinResumeTime) = _readPublicSwapResumeTime(memecoinKey);
+        (bool polResumeOk, uint40 polResumeTime) = _readPublicSwapResumeTime(polKey);
+        assertTrue(memecoinResumeOk, "memecoin resume getter missing");
+        assertTrue(polResumeOk, "pol resume getter missing");
+        assertEq(memecoinResumeTime, uint40(block.timestamp + 24 hours), "memecoin resume time");
+        assertEq(polResumeTime, uint40(block.timestamp + 24 hours), "pol resume time");
+    }
+
+    /// @notice Verifies unlock protection no longer depends on the router's pool-key helper after router rebinding.
+    /// @dev Rebinding to a router that shares the same hook but has a broken helper must still protect the live pool.
+    function testChangeStage_LockedAfterUnlockDoesNotDependOnRouterPoolKeyHelper() external {
+        uint256 verseId = 27;
+        _setLockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.unlockTime = uint128(block.timestamp - 1);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        PoolKey memory memecoinKey = router.getHookPoolKey(address(memecoin), address(upt));
+        address sharedHook = address(router.hook());
+        launcher.setMemeverseSwapRouter(address(new MockSwapRouterWithBrokenPoolKey(sharedHook)));
+
+        launcher.changeStage(verseId);
+
+        (bool memecoinResumeOk, uint40 memecoinResumeTime) = _readPublicSwapResumeTime(memecoinKey);
+        assertTrue(memecoinResumeOk, "memecoin resume getter missing");
+        assertEq(memecoinResumeTime, uint40(block.timestamp + 24 hours), "memecoin resume time");
     }
 
     /// @notice Test refund reverts when stage or user state invalid.
@@ -1514,6 +1589,27 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(memecoinLp.balanceOf(address(launcher)), 6 ether, "launcher memecoin lp");
     }
 
+    /// @notice Verifies memecoin LP redemption stays available during the post-unlock protection window.
+    /// @dev Protection-window config should only gate public swaps, not unlocked liquidity redemption.
+    function testRedeemMemecoinLiquidity_AllowsDuringPostUnlockProtectionWindow() external {
+        uint256 verseId = 21;
+        _setUnlockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.unlockTime = uint128(block.timestamp);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
+        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        memecoinLp.mint(address(launcher), 10 ether);
+        liquidProof.mint(ALICE, 10 ether);
+
+        vm.prank(ALICE);
+        uint256 amountInLP = launcher.redeemMemecoinLiquidity(verseId, 4 ether);
+
+        assertEq(amountInLP, 4 ether, "lp amount");
+        assertEq(memecoinLp.balanceOf(ALICE), 4 ether, "alice memecoin lp");
+    }
+
     /// @notice Test redeem memecoin liquidity reverts when launcher lp balance insufficient.
     /// @dev Ensures the contract only transfers LP when it holds enough balance.
     function testRedeemMemecoinLiquidity_RevertsWhenLauncherLpBalanceInsufficient() external {
@@ -1576,6 +1672,29 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertFalse(isRefunded, "is refunded");
         assertFalse(isClaimed, "is claimed");
         assertTrue(isRedeemed, "is redeemed");
+    }
+
+    /// @notice Verifies POL LP redemption stays available during the post-unlock protection window.
+    /// @dev The protection window must not re-lock genesis liquidity that is already in `Stage.Unlocked`.
+    function testRedeemPolLiquidity_AllowsDuringPostUnlockProtectionWindow() external {
+        uint256 verseId = 22;
+        _setUnlockedVerse(verseId);
+        IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
+        verse.unlockTime = uint128(block.timestamp);
+        launcher.setMemeverseForTest(verseId, verse);
+
+        MockERC20 polLp = new MockERC20("POL-LP", "POL-LP", 18);
+        router.setLpToken(address(liquidProof), address(upt), address(polLp));
+        polLp.mint(address(launcher), 60 ether);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false, false);
+        launcher.setTotalPolLiquidityForTest(verseId, 60 ether);
+
+        vm.prank(ALICE);
+        uint256 amountInLP = launcher.redeemPolLiquidity(verseId);
+
+        assertEq(amountInLP, 12 ether, "lp amount");
+        assertEq(polLp.balanceOf(ALICE), 12 ether, "alice pol lp");
     }
 
     /// @notice Test redeem pol liquidity reverts when launcher lp balance insufficient.

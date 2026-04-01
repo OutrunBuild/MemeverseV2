@@ -23,7 +23,6 @@ import {
 } from "./MemeverseSwapRouterPermit2.t.sol";
 
 contract Permit2AccountingHandler is Test {
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal router;
@@ -80,7 +79,7 @@ contract Permit2AccountingHandler is Test {
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swapWithPermit2(
-            permitParams, key, params, address(this), address(this), block.timestamp, 0, amount, bytes("regular")
+            permitParams, key, params, address(this), block.timestamp, 0, amount, bytes("regular")
         );
 
         assertLt(delta.amount0(), 0, "regular delta0");
@@ -100,19 +99,14 @@ contract Permit2AccountingHandler is Test {
 
         uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        SwapParams memory params =
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swapWithPermit2(
-            permitParams,
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            amount,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+            permitParams, key, params, address(this), block.timestamp, 0, amount, bytes("public-swap")
         );
 
         assertLt(delta.amount0(), 0, "settlement delta0");
@@ -121,7 +115,7 @@ contract Permit2AccountingHandler is Test {
         expectedSettlementTreasuryFee += token0.balanceOf(treasury) - treasuryBefore;
         lastExpectedPermitAmount = amount;
         _assertLastPermitPull(amount);
-        assertEq(token0.balanceOf(treasury) - treasuryBefore, amount * 30 / 10_000, "settlement fee");
+        assertEq(token0.balanceOf(treasury) - treasuryBefore, quote.estimatedProtocolFeeAmount, "marker fee");
     }
 
     function _assertLastPermitPull(uint256 amount) internal view {
@@ -155,25 +149,30 @@ contract Permit2AccountingHandler is Test {
 }
 
 contract Permit2SpoofHandler is Test {
-    bytes32 internal constant LAUNCH_SETTLEMENT_HOOKDATA_HASH = keccak256("memeverse.launch-settlement.hookdata");
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal immutable router;
+    TestableMemeverseUniswapHookForPermit2Router internal immutable hook;
     MockPermit2ForRouterTest internal immutable permit2;
     MockERC20 internal immutable token0;
+    address internal immutable treasury;
     PoolKey internal key;
 
-    bool public unexpectedSuccess;
+    uint256 public expectedSpoofTreasuryFee;
 
     constructor(
         MemeverseSwapRouter _router,
+        TestableMemeverseUniswapHookForPermit2Router _hook,
         MockPermit2ForRouterTest _permit2,
         MockERC20 _token0,
+        address _treasury,
         PoolKey memory _key
     ) {
         router = _router;
+        hook = _hook;
         permit2 = _permit2;
         token0 = _token0;
+        treasury = _treasury;
         key = _key;
         token0.approve(address(permit2), type(uint256).max);
     }
@@ -193,22 +192,21 @@ contract Permit2SpoofHandler is Test {
         uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
+        SwapParams memory params =
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        uint256 treasuryBefore = token0.balanceOf(treasury);
 
         try router.swapWithPermit2(
-            permitParams,
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            address(this),
-            block.timestamp,
-            0,
-            amount,
-            abi.encode(LAUNCH_SETTLEMENT_HOOKDATA_HASH)
+            permitParams, key, params, address(this), block.timestamp, 0, amount, bytes("public-swap")
         ) returns (
             BalanceDelta delta
         ) {
-            delta;
-            unexpectedSuccess = true;
+            assertLt(delta.amount0(), 0, "spoof delta0");
+            assertGt(delta.amount1(), 0, "spoof delta1");
+            uint256 treasuryDelta = token0.balanceOf(treasury) - treasuryBefore;
+            assertEq(treasuryDelta, quote.estimatedProtocolFeeAmount, "spoof fee");
+            expectedSpoofTreasuryFee += treasuryDelta;
         } catch {}
     }
 
@@ -254,9 +252,7 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     function setUp() external {
         manager = new MockPoolManagerForPermit2RouterTest();
         treasury = makeAddr("treasury");
-        hook = new TestableMemeverseUniswapHookForPermit2Router(
-            IPoolManager(address(manager)), address(this), treasury, address(this)
-        );
+        hook = new TestableMemeverseUniswapHookForPermit2Router(IPoolManager(address(manager)), address(this), treasury);
         permit2 = new MockPermit2ForRouterTest();
 
         token0 = new MockERC20("Token0", "TK0", 18);
@@ -277,15 +273,10 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
 
         accountingHandler = new Permit2AccountingHandler(hook, permit2, token0, treasury, key);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)),
-            IMemeverseUniswapHook(address(hook)),
-            IPermit2(address(permit2)),
-            address(accountingHandler)
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(permit2))
         );
         accountingHandler.setRouter(router);
-        spoofHandler = new Permit2SpoofHandler(router, permit2, token0, key);
-
-        hook.setLaunchSettlementCaller(address(router));
+        spoofHandler = new Permit2SpoofHandler(router, hook, permit2, token0, treasury, key);
         token0.mint(address(accountingHandler), 1_000_000 ether);
         token0.mint(address(spoofHandler), 1_000_000 ether);
 
@@ -297,7 +288,8 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     function invariant_permit2TreasuryAccountingMatchesRegularPlusSettlementPaths() external view {
         assertEq(
             token0.balanceOf(treasury),
-            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee(),
+            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee()
+                + spoofHandler.expectedSpoofTreasuryFee(),
             "treasury accounting"
         );
     }
@@ -305,15 +297,11 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     /// @notice Test helper for invariant_permit2LastPullMatchesExpectedBudget.
     function invariant_permit2LastPullMatchesExpectedBudget() external view {
         if (accountingHandler.lastExpectedPermitAmount() == 0) return;
-        assertEq(permit2.lastOwner(), address(accountingHandler), "last owner");
-        assertEq(permit2.lastRecipient(), address(router), "last recipient");
-        assertEq(permit2.lastToken(), address(token0), "last token");
-        assertEq(permit2.lastRequestedAmount(), accountingHandler.lastExpectedPermitAmount(), "last amount");
-    }
-
-    /// @notice Test helper for invariant_permit2SpoofedSettlementNeverSucceeds.
-    function invariant_permit2SpoofedSettlementNeverSucceeds() external view {
-        assertFalse(spoofHandler.unexpectedSuccess(), "spoofed settlement succeeded");
+        if (permit2.lastOwner() == address(accountingHandler)) {
+            assertEq(permit2.lastRecipient(), address(router), "last recipient");
+            assertEq(permit2.lastToken(), address(token0), "last token");
+            assertEq(permit2.lastRequestedAmount(), accountingHandler.lastExpectedPermitAmount(), "last amount");
+        }
     }
 
     /// @notice Test helper for invariant_permit2RouterHoldsNoResidualInputBudget.

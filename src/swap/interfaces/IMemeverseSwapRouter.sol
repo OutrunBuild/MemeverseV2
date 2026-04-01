@@ -49,25 +49,11 @@ interface IMemeverseSwapRouter {
     /// @notice Reverts when bootstrap uses identical token addresses.
     error InvalidTokenPair();
 
-    /// @notice Reverts when native input is used without a refund recipient.
-    error InvalidNativeRefundRecipient();
-
     /// @notice Reverts when Permit2 batch arrays do not match the expected ERC20 funding leg count.
     error InvalidPermit2Length();
 
     /// @notice Reverts when a Permit2 batch entry does not match the expected token ordering.
     error InvalidPermit2Token(uint256 index, address expectedToken, address actualToken);
-
-    /// @notice Reverts when the caller is not the configured launch settlement operator.
-    error InvalidLaunchSettlementOperator();
-
-    /// @notice Reverts when the launch settlement operator is zero.
-    error ZeroAddress();
-
-    /// @notice Exposes the account allowed to trigger launch-settlement swaps through the router.
-    /// @dev This is normally the launcher, not an arbitrary end user.
-    /// @return operator Authorized launch-settlement caller.
-    function launchSettlementOperator() external view returns (address operator);
 
     /// @notice Exposes the Memeverse hook wired into this router.
     /// @dev Integrations can use this to confirm they are quoting and routing against the expected deployment.
@@ -127,13 +113,11 @@ interface IMemeverseSwapRouter {
         view
         returns (uint256 amountARequired, uint256 amountBRequired);
 
-    /// @notice Execute a swap through the Memeverse hook with router-managed slippage and native refund handling.
+    /// @notice Execute a swap through the Memeverse hook with router-managed slippage and caller-directed refunds.
     /// @dev Swaps always settle or revert; the caller must cover slippage via `amountOutMinimum` or `amountInMaximum`.
-    /// @custom:security Callers must also supply a payable `nativeRefundRecipient` whenever `msg.value` is forwarded.
     /// @param key Pool key to swap against.
     /// @param params Swap parameters shaping direction, amounts, and price impact.
     /// @param recipient Address that should receive the swap output.
-    /// @param nativeRefundRecipient Address that receives any leftover native input when `msg.value` is attached.
     /// @param deadline Timestamp by which the call must execute.
     /// @param amountOutMinimum Minimum net output the caller is willing to accept.
     /// @param amountInMaximum Maximum input the caller allows for exact-output swaps.
@@ -143,7 +127,6 @@ interface IMemeverseSwapRouter {
         PoolKey calldata key,
         SwapParams calldata params,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline,
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
@@ -157,7 +140,6 @@ interface IMemeverseSwapRouter {
     /// @param key The pool key to swap against.
     /// @param params The swap parameters.
     /// @param recipient The address receiving any swap output.
-    /// @param nativeRefundRecipient The address receiving any unused native input when `msg.value` is attached.
     /// @param deadline The latest timestamp at which the call is valid.
     /// @param amountOutMinimum The minimum net output the caller is willing to receive.
     /// @param amountInMaximum The maximum input the caller is willing to pay.
@@ -168,7 +150,6 @@ interface IMemeverseSwapRouter {
         PoolKey calldata key,
         SwapParams calldata params,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline,
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
@@ -185,7 +166,6 @@ interface IMemeverseSwapRouter {
     /// @param amount0Min Minimum currency0 spend accepted after routing to the hook.
     /// @param amount1Min Minimum currency1 spend accepted after routing to the hook.
     /// @param to Recipient of minted LP shares.
-    /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
     /// @return liquidity The LP liquidity minted to `to`.
     function addLiquidity(
@@ -196,7 +176,6 @@ interface IMemeverseSwapRouter {
         uint256 amount0Min,
         uint256 amount1Min,
         address to,
-        address nativeRefundRecipient,
         uint256 deadline
     ) external payable returns (uint128 liquidity);
 
@@ -211,7 +190,6 @@ interface IMemeverseSwapRouter {
     /// @param amount0Min Minimum currency0 spend accepted.
     /// @param amount1Min Minimum currency1 spend accepted.
     /// @param to Recipient of minted LP shares.
-    /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
     /// @return liquidity The LP liquidity minted to `to`.
     function addLiquidityWithPermit2(
@@ -223,7 +201,6 @@ interface IMemeverseSwapRouter {
         uint256 amount0Min,
         uint256 amount1Min,
         address to,
-        address nativeRefundRecipient,
         uint256 deadline
     ) external payable returns (uint128 liquidity);
 
@@ -288,14 +265,13 @@ interface IMemeverseSwapRouter {
 
     /// @notice Initialize a hook-managed pool and seed its first full-range liquidity position.
     /// @dev The router sorts the token pair, initializes the pool at `startPrice`, adds liquidity, and refunds unused input.
-    /// @custom:security Token addresses must be distinct, and native bootstrap calls require a payable refund recipient whenever `msg.value` is supplied.
+    /// @custom:security Token addresses must be distinct, and native bootstrap calls must send the exact `msg.value` budget.
     /// @param tokenA One side of the pool pair; pass `address(0)` if this side should be native currency.
     /// @param tokenB The other side of the pool pair.
     /// @param amountADesired Desired budget for `tokenA`.
     /// @param amountBDesired Desired budget for `tokenB`.
     /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
     /// @param recipient Recipient of minted LP shares.
-    /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
     /// @return liquidity The minted LP liquidity.
     /// @return poolKey The initialized pool key.
@@ -306,7 +282,6 @@ interface IMemeverseSwapRouter {
         uint256 amountBDesired,
         uint160 startPrice,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline
     ) external payable returns (uint128 liquidity, PoolKey memory poolKey);
 
@@ -320,7 +295,6 @@ interface IMemeverseSwapRouter {
     /// @param amountBDesired Desired budget for `tokenB`.
     /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
     /// @param recipient Recipient of minted LP shares.
-    /// @param nativeRefundRecipient Recipient of any unused native refund.
     /// @param deadline The latest timestamp at which the call is valid.
     /// @return liquidity The minted LP liquidity.
     /// @return poolKey The initialized pool key.
@@ -332,7 +306,6 @@ interface IMemeverseSwapRouter {
         uint256 amountBDesired,
         uint160 startPrice,
         address recipient,
-        address nativeRefundRecipient,
         uint256 deadline
     ) external payable returns (uint128 liquidity, PoolKey memory poolKey);
 }
