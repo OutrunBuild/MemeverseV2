@@ -13,9 +13,6 @@ typechain-types
 broadcast
 
 # Docs
-docs/book/
-docs/src/
-docs/contracts/
 docs/plans/
 docs/task-briefs/*.md
 !docs/task-briefs/README.md
@@ -56,5 +53,3 @@ package-lock.json
 .worktrees/
 
 skills/
-AGENTS.md
-CLAUDE.md

@@ -27,7 +27,6 @@
 ## 2. Subagent Runtime Entry
 
 - 标准 runtime 索引：`.codex/runtime/subagent-runtime.json`
-- dispatch helpers：`script/process/prepare-agent-brief.sh`、`script/process/resolve-agent-dispatch.js`、`script/process/dispatch-agent.sh`
 - 该文件只保留项目入口、角色集合、工件位置与默认写入 ownership
 - reviewer、verifier 与 explorer 的触发范围仍以 `AGENTS.md`、`docs/process/change-matrix.md` 与 `docs/process/policy.json` 为准
 - 具体规则、路径匹配、命令要求与 gate 语义仍以 `AGENTS.md`、`docs/process/policy.json`、`script/process/*` 与 `.codex/agents/*.md` 为准
