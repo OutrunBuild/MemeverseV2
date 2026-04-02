@@ -327,6 +327,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         _applyLaunchFeeFloor(poolId, quote);
         uint256 dynamicFeeBps = quote.feeBps;
 
+        // `afterSwap` must reuse the exact same pre-swap fee quote and price anchor even though PoolManager callbacks split the flow.
         MemeverseTransientState.storeSwapContext(dynamicFeeBps, preSqrtPriceX96);
 
         uint256 lpFeeBps = _lpFeeBps(dynamicFeeBps);
@@ -335,6 +336,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 lpFeeInputAmount = 0;
         uint256 protocolFeeInputAmount = 0;
         if (params.amountSpecified < 0) {
+            // Exact-input swaps can charge input-side fees immediately because the user's budget is already known up front.
             lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
             if (ctx.protocolFeeOnInput) {
                 protocolFeeInputAmount = FullMath.mulDiv(absSpecified, protocolFeeBps, BPS_BASE);
@@ -349,6 +351,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         }
 
         if (params.amountSpecified > 0 && !ctx.protocolFeeOnInput) {
+            // Exact-output with output-side protocol fees asks the pool for the gross output now; the hook keeps the fee delta later.
             uint256 protocolFeeOutputAmount = quote.estimatedGrossOutputAmount - absSpecified;
             return (IHooks.beforeSwap.selector, toBeforeSwapDelta(protocolFeeOutputAmount.toInt128(), int128(0)), 0);
         }
@@ -379,6 +382,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 protocolFeeBps = _protocolFeeBps(feeBps);
 
         if (params.amountSpecified > 0) {
+            // Exact-output fees settle against the actual fill, so only `afterSwap` knows the final input amount to charge.
             uint256 actualInputAbs = _actualInputAmount(delta, params.zeroForOne);
             if (actualInputAbs == 0) return (IHooks.afterSwap.selector, 0);
 
@@ -395,6 +399,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 }
                 unspecifiedDelta = exactOutputLpFeeInputAmount + exactOutputProtocolFeeInputAmount;
             } else {
+                // Output-side protocol fee was grossed up in `beforeSwap`; here the hook withholds the realized output fee from the taker.
                 uint256 actualGrossOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
                 uint256 exactOutputProtocolFeeOutputAmount = actualGrossOutputAbs - uint256(params.amountSpecified);
                 if (exactOutputProtocolFeeOutputAmount > 0) {
@@ -595,6 +600,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 netInputAmount = grossInputAmount - lpFeeInputAmount - protocolFeeInputAmount;
         if (netInputAmount == 0) revert ZeroValue();
 
+        // Regular hook callbacks are bypassed for this launcher-owned path, so settlement collects input fees explicitly here.
         _collectLaunchSettlementInputFees(msg.sender, poolId, feeContext, lpFeeInputAmount, protocolFeeInputAmount);
 
         SwapParams memory settlementParams = params.params;
@@ -685,6 +691,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         uint256 protocolFeeOutputAmount = 0;
         if (!data.protocolFeeOnInput) {
+            // When protocol fee is charged on output, the pool pays gross proceeds first and the hook skims treasury share before forwarding.
             uint256 grossOutputAmount = _actualOutputAmount(swapDelta, data.params.zeroForOne);
             protocolFeeOutputAmount = FullMath.mulDiv(grossOutputAmount, protocolFeeBps, BPS_BASE);
             _collectProtocolFee(poolId, feeContext.currencyOut, protocolFeeOutputAmount);
@@ -887,6 +894,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (lpFeeInputAmount > 0) {
             if (ctx.currencyIn.isAddressZero()) revert InvalidNativeValue(lpFeeInputAmount, 0);
             uint256 totalSupply = UniswapLP(poolInfo[poolId].liquidityToken).totalSupply();
+            // Launcher settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, address(this), lpFeeInputAmount)) {
                 revert ERC20TransferFailed();
             }
@@ -982,12 +990,14 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         uint256 balance = UniswapLP(pool.liquidityToken).balanceOf(user);
         if (balance == 0) {
+            // A zero-balance account should not retain stale offsets; advancing them prevents future mint recipients from inheriting old fees.
             state.fee0Offset = pool.fee0PerShare;
             state.fee1Offset = pool.fee1PerShare;
             return;
         }
 
         unchecked {
+            // Crystallize accrued fees before any mint/burn changes the user's LP balance baseline.
             uint256 fee0Claimable = FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, PRECISION);
             uint256 fee1Claimable = FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, PRECISION);
 

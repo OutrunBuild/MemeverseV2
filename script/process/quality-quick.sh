@@ -274,7 +274,11 @@ for file in "${docs_contract_candidates[@]}"; do
 done
 
 if [ "$has_src_sol" -eq 1 ]; then
-    bash ./script/process/check-rule-map.sh "$changed_files_tmp"
+    if [ "$classification" = "non-semantic" ]; then
+        echo "[quality-quick] skip rule-map changed-test gate (non-semantic classification)"
+    else
+        bash ./script/process/check-rule-map.sh "$changed_files_tmp"
+    fi
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_script_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then

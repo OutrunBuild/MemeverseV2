@@ -11,6 +11,8 @@ tmp_report="$plan_dir/zz-temp-agent-report-for-selftest.md"
 
 mkdir -p "$plan_dir"
 
+CHECK_DOCS_PLAN_DIR="$plan_dir" npm run docs:check
+
 cat > "$tmp_brief" <<EOF
 # Task Brief
 

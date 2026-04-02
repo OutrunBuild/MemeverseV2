@@ -231,7 +231,6 @@
 - `docs/TRACEABILITY.md`
 - `docs/VERIFICATION.md`
 - `docs/SECURITY_AND_APPROVALS.md`
-- `docs/adr/0001-universalvault-style-harness-migration.md`
 
 ### Recommended Reading Order
 

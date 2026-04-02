@@ -509,14 +509,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Confirms the router add-liquidity helper goes through the hook's liquidity plumbing.
     function testRouterAddLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
         );
 
         (address liquidityToken,,) = hook.poolInfo(poolId);
@@ -556,14 +549,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Ensures the router remove path reuses the hook core logic for exits.
     function testRouterRemoveLiquidity_UsesHookCore() external {
         uint128 liquidity = router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
         );
         (address liquidityToken,,) = hook.poolInfo(poolId);
         UniswapLP(liquidityToken).approve(address(router), liquidity);
@@ -605,14 +591,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     function testUpdateUserSnapshot_ZeroBalanceOnlyUpdatesOffsets() external {
         hook.setProtocolFeeCurrency(key.currency0);
         router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
         );
 
         (address lpToken,,) = hook.poolInfo(poolId);
@@ -634,14 +613,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Covers the `ExpiredPastDeadline` branch in claim authorization.
     function testClaimFeesCoreReverts_WhenSignatureExpired() external {
         router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
         );
 
         vm.prank(address(0xCAFE));
@@ -663,14 +635,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Covers the invalid-recovery branch in claim authorization.
     function testClaimFeesCoreReverts_WhenSignatureInvalid() external {
         router.addLiquidity(
-            key.currency0,
-            key.currency1,
-            100 ether,
-            100 ether,
-            90 ether,
-            90 ether,
-            address(this),
-            block.timestamp
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
         );
 
         vm.prank(address(0xCAFE));

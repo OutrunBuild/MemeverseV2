@@ -42,11 +42,14 @@ contract OmnichainMemecoinStaker is IOmnichainMemecoinStaker, TokenHelper {
         uint256 amount = OFTComposeMsgCodec.amountLD(message);
         (address receiver, address yieldVault) = abi.decode(OFTComposeMsgCodec.composeMsg(message), (address, address));
         if (yieldVault.code.length == 0) {
+            // If the predicted vault is not deployed on the destination chain yet, release the bridged memecoin to the user instead of trapping it.
             _transferOut(memecoin, receiver, amount);
         } else {
+            // Otherwise complete the happy path locally by staking the bridged memecoin into the target vault for the receiver.
             _safeApproveInf(memecoin, yieldVault);
             IMemecoinYieldVault(yieldVault).deposit(amount, receiver);
         }
+        // Mark the compose as consumed only after one of the local delivery branches succeeds.
         IOFTCompose(memecoin).notifyComposeExecuted(guid);
 
         emit OmnichainMemecoinStakingProcessed(guid, memecoin, yieldVault, receiver, amount);

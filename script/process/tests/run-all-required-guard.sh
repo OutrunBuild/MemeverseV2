@@ -42,11 +42,21 @@ cat > "$suite_dir/gamma.sh" <<EOF
 printf '%s\n' "gamma" >> "$run_log"
 EOF
 
-chmod +x "$suite_dir/beta.sh" "$suite_dir/gamma.sh"
+cat > "$suite_dir/env-probe.sh" <<EOF
+#!/usr/bin/env bash
+if [ -n "\${QUALITY_GATE_REVIEW_NOTE:-}" ]; then
+    echo "QUALITY_GATE_REVIEW_NOTE leaked into selftest runner: \${QUALITY_GATE_REVIEW_NOTE}" >&2
+    exit 1
+fi
+printf '%s\n' "env-probe" >> "$run_log"
+EOF
+
+chmod +x "$suite_dir/beta.sh" "$suite_dir/gamma.sh" "$suite_dir/env-probe.sh"
 
 success_output="$(
+    QUALITY_GATE_REVIEW_NOTE="docs/reviews/CI_REVIEW_NOTE.md" \
     PROCESS_SELFTEST_RUN_ALL_TEST_DIR="$suite_dir" \
-    PROCESS_SELFTEST_RUN_ALL_REQUIRED_TOP_LEVEL=$'alpha.sh\nbeta.sh' \
+    PROCESS_SELFTEST_RUN_ALL_REQUIRED_TOP_LEVEL=$'alpha.sh\nbeta.sh\nenv-probe.sh' \
     bash ./script/process/tests/run-all.sh 2>&1
 )"
 
@@ -66,5 +76,36 @@ selftest::assert_file_contains \
     "$run_log" \
     "^gamma$" \
     "Expected run-all to preserve auto-discovery for additional top-level selftests"
+selftest::assert_file_contains \
+    "$run_log" \
+    "^env-probe$" \
+    "Expected run-all to isolate polluting parent env before executing selftests"
+
+filtered_log="$tmp_dir/filtered.log"
+cat > "$suite_dir/filter-target.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "filter-target" >> "$filtered_log"
+EOF
+chmod +x "$suite_dir/filter-target.sh"
+
+filtered_output="$(
+    QUALITY_GATE_REVIEW_NOTE="docs/reviews/CI_REVIEW_NOTE.md" \
+    PROCESS_SELFTEST_RUN_ALL_TEST_DIR="$suite_dir" \
+    PROCESS_SELFTEST_RUN_ALL_REQUIRED_TOP_LEVEL=$'alpha.sh\nbeta.sh\nenv-probe.sh' \
+    bash ./script/process/tests/run-all.sh --filter filter-target 2>&1
+)"
+
+selftest::assert_text_contains \
+    "$filtered_output" \
+    "running $suite_dir/filter-target.sh" \
+    "Expected run-all --filter to execute the matching selftest only"
+selftest::assert_text_lacks \
+    "$filtered_output" \
+    "running $suite_dir/alpha.sh" \
+    "Expected run-all --filter to skip non-matching selftests"
+selftest::assert_file_contains \
+    "$filtered_log" \
+    "^filter-target$" \
+    "Expected filtered selftest to run to completion"
 
 echo "run-all required guard selftest: PASS"

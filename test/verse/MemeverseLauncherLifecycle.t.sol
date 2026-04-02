@@ -1202,6 +1202,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         PoolKey memory memecoinKey = router.getHookPoolKey(address(memecoin), address(upt));
         PoolKey memory polKey = router.getHookPoolKey(address(liquidProof), address(upt));
 
+        // Unlocking should snapshot the same fixed protection window onto both launcher-managed pools.
         launcher.changeStage(verseId);
 
         (bool memecoinResumeOk, uint40 memecoinResumeTime) = _readPublicSwapResumeTime(memecoinKey);

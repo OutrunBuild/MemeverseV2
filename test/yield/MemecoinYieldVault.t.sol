@@ -96,6 +96,7 @@ contract MemecoinYieldVaultTest is Test {
         vm.prank(ATTACKER);
         vault.deposit(10 ether, ATTACKER);
 
+        // Direct ERC20 donations should not move the preview path because pricing tracks managed assets only.
         uint256 previewBefore = vault.previewDeposit(20 ether);
 
         vm.prank(ATTACKER);

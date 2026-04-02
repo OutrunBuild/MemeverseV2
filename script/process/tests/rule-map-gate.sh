@@ -213,8 +213,10 @@ cat > "$file_list_path" <<EOF
 $source_path
 EOF
 
+CHANGE_CLASSIFIER_FORCE=non-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
+
 set +e
-output="$(PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh 2>&1)"
+output="$(CHANGE_CLASSIFIER_FORCE=prod-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh 2>&1)"
 status=$?
 set -e
 
@@ -234,7 +236,7 @@ $source_path
 test/MemeverseSwapRouter.t.sol
 EOF
 
-PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
+CHANGE_CLASSIFIER_FORCE=prod-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
 
 cat > "$rule_map_path" <<'EOF'
 {
@@ -264,8 +266,10 @@ cat > "$file_list_path" <<EOF
 $source_path
 EOF
 
+CHANGE_CLASSIFIER_FORCE=non-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
+
 set +e
-output="$(PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh 2>&1)"
+output="$(CHANGE_CLASSIFIER_FORCE=prod-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh 2>&1)"
 status=$?
 set -e
 
@@ -285,7 +289,7 @@ $source_path
 test/MemeverseSwapRouter.t.sol
 EOF
 
-PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
+CHANGE_CLASSIFIER_FORCE=prod-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
 
 cat > "$rule_map_path" <<'EOF'
 {
@@ -315,4 +319,4 @@ cat > "$file_list_path" <<EOF
 $source_path
 EOF
 
-PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh
+CHANGE_CLASSIFIER_FORCE=prod-semantic PATH="$fake_bin_dir:$PATH" SLITHER_BIN="$fake_bin_dir/slither" FORGE_BIN="$fake_bin_dir/forge" PROCESS_RULE_MAP_FILE="$rule_map_path" PROCESS_POLICY_FILE="$tmp_dir/policy.json" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$file_list_path" QUALITY_GATE_REVIEW_NOTE="$review_file" bash ./script/process/quality-gate.sh

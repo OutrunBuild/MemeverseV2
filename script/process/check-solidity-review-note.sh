@@ -561,12 +561,14 @@ printf '%s\n' "$changed_files" > "$changed_files_tmp"
 classification_json="$(QUALITY_GATE_MODE="$mode" QUALITY_GATE_FILE_LIST="$changed_files_tmp" CHANGE_CLASSIFIER_FORCE="${CHANGE_CLASSIFIER_FORCE:-}" CHANGE_CLASSIFIER_DIFF_FILE="${CHANGE_CLASSIFIER_DIFF_FILE:-}" node ./script/process/classify-change.js)"
 
 src_sol_pattern="$(read_policy_value quality_gate.src_sol_pattern '^src/.*\.sol$')"
-if ! node - "$changed_files_tmp" "$src_sol_pattern" <<'EOF'
+script_sol_pattern="$(read_policy_value quality_gate.script_sol_pattern '^script/.*\.sol$')"
+if ! node - "$changed_files_tmp" "$src_sol_pattern" "$script_sol_pattern" <<'EOF'
 const fs = require('fs');
-const [changedFilesPath, patternText] = process.argv.slice(2);
-const pattern = new RegExp(patternText);
+const [changedFilesPath, srcPatternText, scriptPatternText] = process.argv.slice(2);
+const srcPattern = new RegExp(srcPatternText);
+const scriptPattern = new RegExp(scriptPatternText);
 const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
-process.exit(changedFiles.some((file) => pattern.test(file)) ? 0 : 1);
+process.exit(changedFiles.some((file) => srcPattern.test(file) || scriptPattern.test(file)) ? 0 : 1);
 EOF
 then
     exit 0

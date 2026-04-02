@@ -114,6 +114,7 @@ contract OmnichainMemecoinStakerTest is Test {
             abi.encodePacked(bytes32(uint256(uint160(RECEIVER))), abi.encode(RECEIVER, address(yieldVault)))
         );
 
+        // Contract vault targets should receive the full compose amount before the guid is marked executed.
         vm.prank(LOCAL_ENDPOINT);
         staker.lzCompose(address(memecoin), guid, message, address(0), "");
 

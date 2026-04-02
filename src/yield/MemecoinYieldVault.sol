@@ -99,7 +99,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     }
 
     function _accumulateYield(address yieldSource, uint256 yield) internal {
-        // If the vault is empty, burn the yield
+        // Empty-vault yield would otherwise create unowned value for the next depositor, so the asset is burned instead.
         if (totalSupply() == 0) {
             IMemecoin(asset).burn(yield);
         } else {
@@ -154,7 +154,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
                 uint256 amount = requestQueue[i].amount;
                 redeemedAmount += amount;
 
-                // Remove redeemed request
+                // Iterate backwards so pop-based removals can swap in the tail element without skipping unchecked requests.
                 if (i != requestQueue.length - 1) {
                     requestQueue[i] = requestQueue[requestQueue.length - 1];
                     requestQueue[requestQueue.length - 1].amount = 0;
@@ -174,6 +174,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         require(requestCount < MAX_REDEEM_REQUESTS, MaxRedeemRequestsReached());
 
         _burn(sender, shares);
+        // The queued asset amount stops participating in future yield immediately, so share price only reflects still-staked assets.
         totalAssets -= assets;
         redeemRequestQueues[receiver].push(
             RedeemRequest({amount: uint192(assets), requestTime: uint64(block.timestamp)})
@@ -183,10 +184,12 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     }
 
     function _convertToShares(uint256 assets, uint256 latestTotalAssets) internal view returns (uint256) {
+        // The +1 guards keep empty-vault and full-redemption edges well-defined without special-casing zero supply/assets.
         return Math.mulDiv(assets, totalSupply() + 1, latestTotalAssets + 1);
     }
 
     function _convertToAssets(uint256 shares, uint256 latestTotalAssets) internal view returns (uint256) {
+        // Mirror `_convertToShares` so previews and queued redemptions use the same seeded exchange-rate convention.
         return Math.mulDiv(shares, latestTotalAssets + 1, totalSupply() + 1);
     }
 

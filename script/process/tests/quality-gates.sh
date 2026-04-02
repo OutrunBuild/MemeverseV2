@@ -88,6 +88,10 @@ fi
 case "\${1:-}" in
   ./script/process/check-natspec.sh|./script/process/check-coverage.sh|./script/process/check-slither.sh|./script/process/check-gas-report.sh|./script/process/check-solidity-review-note.sh|./script/process/run-stale-evidence-loop.sh|./script/process/check-rule-map.sh)
     printf 'bash %s\n' "\$1" >> "$command_log"
+    if [ "\$1" = "./script/process/check-rule-map.sh" ] && [ "\${FAIL_RULE_MAP_GATE:-0}" = "1" ]; then
+      printf '[check-rule-map] simulated failure\n' >&2
+      exit 1
+    fi
     if [ "\$1" = "./script/process/check-solidity-review-note.sh" ]; then
       printf '[check-solidity-review-note] PASS\n'
     fi
@@ -112,12 +116,12 @@ run_quality_script() {
     printf '%s\n' "$changed_file" > "$changed_files_path"
     printf '%s\n' "$diff_content" > "$diff_file"
     if [ "$gate_mode" = "ci" ]; then
-        PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
+        PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" FAIL_RULE_MAP_GATE="${FAIL_RULE_MAP_GATE:-0}" \
             /bin/bash "./script/process/${script_name}" >"$output_file" 2>&1
         return
     fi
 
-    PATH="$bin_dir:$PATH" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
+    PATH="$bin_dir:$PATH" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" FAIL_RULE_MAP_GATE="${FAIL_RULE_MAP_GATE:-0}" \
         /bin/bash "./script/process/${script_name}" >"$output_file" 2>&1
 }
 
@@ -157,6 +161,39 @@ assert_contains "ci" "$npm_log" "quality-gate npm log for package change"
 assert_contains "run docs:check" "$npm_log" "quality-gate npm log for package change"
 assert_contains "run process:selftest" "$npm_log" "quality-gate npm log for package change"
 
+: > "$command_log"
+FAIL_RULE_MAP_GATE=1 run_quality_script "quality-quick.sh" "$existing_src_file" "$quick_output" "non-semantic" "diff --git a/$existing_src_file b/$existing_src_file
+--- a/$existing_src_file
++++ b/$existing_src_file
+@@ -1 +1 @@
+-// old
++// new"
+assert_contains "change classification: non-semantic" "$quick_output" "quality-quick output for non-semantic Solidity change"
+if grep -q "bash ./script/process/check-rule-map.sh" "$command_log"; then
+    echo "Did not expect rule-map changed-test gate during non-semantic quality-quick routing"
+    cat "$command_log"
+    exit 1
+fi
+
+: > "$command_log"
+FAIL_RULE_MAP_GATE=1
+set +e
+run_quality_script "quality-quick.sh" "$existing_src_file" "$quick_output" "prod-semantic" "diff --git a/$existing_src_file b/$existing_src_file
+--- a/$existing_src_file
++++ b/$existing_src_file
+@@ -10 +10 @@
+-        return amount;
++        return amount + 1;"
+status=$?
+set -e
+if [ "$status" -eq 0 ]; then
+    echo "Expected semantic quality-quick routing to enforce the rule-map changed-test gate"
+    cat "$quick_output"
+    exit 1
+fi
+assert_contains "[check-rule-map] simulated failure" "$quick_output" "quality-quick output for semantic rule-map failure"
+assert_contains "bash ./script/process/check-rule-map.sh" "$command_log" "quality-quick command log for semantic rule-map failure"
+
 run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "non-semantic" "diff --git a/$existing_src_file b/$existing_src_file
 --- a/$existing_src_file
 +++ b/$existing_src_file
@@ -179,7 +216,32 @@ if grep -q "check-slither" "$command_log"; then
     cat "$command_log"
     exit 1
 fi
+if grep -q "check-rule-map" "$command_log"; then
+    echo "Did not expect rule-map changed-test gate during non-semantic quality-gate routing"
+    cat "$command_log"
+    exit 1
+fi
 
+: > "$command_log"
+FAIL_RULE_MAP_GATE=1
+set +e
+run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "test-semantic" "diff --git a/$existing_src_file b/$existing_src_file
+--- a/$existing_src_file
++++ b/$existing_src_file
+@@ -10 +10 @@
+-        return amount;
++        return amount + 1;"
+status=$?
+set -e
+if [ "$status" -eq 0 ]; then
+    echo "Expected semantic quality-gate routing to enforce the rule-map changed-test gate"
+    cat "$gate_output"
+    exit 1
+fi
+assert_contains "[check-rule-map] simulated failure" "$gate_output" "quality-gate output for semantic rule-map failure"
+assert_contains "bash ./script/process/check-rule-map.sh" "$command_log" "quality-gate command log for semantic rule-map failure"
+
+FAIL_RULE_MAP_GATE=0
 run_quality_script "quality-gate.sh" "$existing_test_file" "$gate_output" "test-semantic" "diff --git a/$existing_test_file b/$existing_test_file
 --- a/$existing_test_file
 +++ b/$existing_test_file
@@ -195,6 +257,7 @@ if grep -q "check-coverage" "$command_log"; then
     exit 1
 fi
 
+FAIL_RULE_MAP_GATE=0
 run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "prod-semantic" "diff --git a/$existing_src_file b/$existing_src_file
 --- a/$existing_src_file
 +++ b/$existing_src_file

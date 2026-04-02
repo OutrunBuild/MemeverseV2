@@ -394,9 +394,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         require(currentStage != Stage.Refund && currentStage != Stage.Unlocked, ReachedFinalStage());
 
         if (currentStage == Stage.Genesis) {
+            // Genesis is the only stage that can resolve into either a successful launch or a refund outcome.
             currentStage = _handleGenesisStage(verseId, currentTime, verse);
         } else if (currentStage == Stage.Locked && currentTime > verse.unlockTime) {
             verse.currentStage = Stage.Unlocked;
+            // The public-swap cooldown starts when the stage flip is actually executed, not at the preset unlock time.
             _activatePostUnlockPublicSwapProtection(verse);
             currentStage = Stage.Unlocked;
         }
@@ -423,11 +425,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 endTime = verse.endTime;
 
         if ((verse.flashGenesis && meetMinTotalFund) || (currentTime > endTime && meetMinTotalFund)) {
+            // Either flashGenesis short-circuits once the minimum fund is reached, or the normal path resolves at endTime.
             _deployAndSetupMemeverse(verseId, verse, UPT, totalMemecoinFunds, totalLiquidProofFunds);
             verse.currentStage = Stage.Locked;
             return Stage.Locked;
         }
 
+        // Missing the minimum at `endTime` permanently sends the verse into the refund branch; there is no partial launch path.
         require(currentTime > endTime, StillInGenesisStage(endTime));
         verse.currentStage = Stage.Refund;
         return Stage.Refund;
@@ -487,6 +491,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 proposalThreshold = IMemecoin(memecoin).totalSupply() / 50;
 
         if (govChainId == block.chainid) {
+            // On the governance chain we deploy concrete contracts immediately because fee distribution will target them locally.
             yieldVault = IMemeverseProxyDeployer(memeverseProxyDeployer).deployYieldVault(verseId);
             IMemecoinYieldVault(yieldVault)
                 .initialize(
@@ -499,6 +504,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             (governor, incentivizer) = IMemeverseProxyDeployer(memeverseProxyDeployer)
                 .deployGovernorAndIncentivizer(name, UPT, memecoin, pol, yieldVault, verseId, proposalThreshold);
         } else {
+            // Remote governance chains receive bridged assets later, so launcher only records the deterministic target addresses here.
             yieldVault = IMemeverseProxyDeployer(memeverseProxyDeployer).predictYieldVaultAddress(verseId);
             (governor, incentivizer) =
                 IMemeverseProxyDeployer(memeverseProxyDeployer).computeGovernorAndIncentivizerAddress(verseId);
@@ -527,7 +533,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         _safeApproveInf(pol, memeverseSwapRouter);
         _safeApproveInf(UPT, memeverseUniswapHook);
 
-        // Deploy memecoin liquidity
+        // The memecoin pool must exist first because preorder settlement spends UPT into that freshly launched pool.
         uint256 memecoinAmount = totalMemecoinFunds * fundMetaDatas[UPT].fundBasedAmount;
         uint160 memecoinStartPrice =
             InitialPriceCalculator.calculateMemecoinStartPriceX96(memecoin, UPT, fundMetaDatas[UPT].fundBasedAmount);
@@ -540,7 +546,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         _settleLaunchPreorder(verseId, poolKey, UPT, memecoin);
 
-        // Mint liquidity proof token
+        // POL supply mirrors the memecoin LP position created above, then a third is redeployed into the POL/UPT pool.
         IMemeLiquidProof(pol).mint(address(this), memecoinLiquidity);
         IMemeLiquidProof(pol).setPoolId(poolKey.toId());
 
@@ -563,6 +569,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (totalFunds == 0) return;
 
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == UPT;
+        // Settlement goes through the hook's dedicated launch path so preorder accounting stays isolated from public swap flow.
         BalanceDelta delta = IMemeverseUniswapHook(memeverseUniswapHook)
             .executeLaunchSettlement(
                 IMemeverseUniswapHook.LaunchSettlementParams({
@@ -576,6 +583,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             );
 
         uint256 settledMemecoin = _deltaAmountForToken(delta, zeroForOne, memecoin, poolKey);
+        // Later vesting claims split this aggregate fill pro rata by each user's preorder funds and anchor to this timestamp.
         preorderState.settledMemecoin = settledMemecoin;
         preorderState.settlementTimestamp = uint40(block.timestamp);
     }
@@ -728,12 +736,14 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         UPTFee += polPairUPTFee;
 
         if (UPTFee == 0 && memecoinFee == 0 && liquidProofFee == 0) return (0, 0, 0, 0);
+        // POL pair fees are burned before distribution so the LP proof supply stays aligned with the remaining claim surface.
         if (liquidProofFee != 0) IMemeLiquidProof(liquidProof).burn(address(this), liquidProofFee);
 
         unchecked {
             executorReward = UPTFee * executorRewardRate / RATIO;
             govFee = UPTFee - executorReward;
         }
+        // Anyone can execute fee redemption; only the UPT-side fee is split with the caller as an execution incentive.
         if (executorReward != 0) _transferOut(UPT, rewardReceiver, executorReward);
 
         uint32 govChainId = verse.omnichainIds[0];
@@ -742,6 +752,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         if (govChainId == block.chainid) {
             if (msg.value != 0) revert InvalidLzFee(0, msg.value);
+            // Same-chain governance routes through YieldDispatcher's compose entry so local and remote fee flows share one sink.
             if (govFee != 0) {
                 _transferOut(UPT, yieldDispatcher, govFee);
                 IYieldDispatcher(yieldDispatcher)
@@ -755,6 +766,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                     );
             }
         } else {
+            // Cross-chain governance prebuilds both OFT sends, then requires the caller to fund exactly the combined native messaging fee.
             uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
             bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
                 .addExecutorLzReceiveOption(oftReceiveGasLimit, 0)
@@ -1181,6 +1193,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint40 resumeTime = uint40(block.timestamp + UNLOCK_PROTECTION_WINDOW);
         IMemeverseUniswapHook hook = IMemeverseUniswapHook(memeverseUniswapHook);
 
+        // Both protected pools resume public swaps off the same transition-time anchor to avoid immediate arbitrage against unlock exits.
         hook.setPublicSwapResumeTime(verse.memecoin, verse.UPT, resumeTime);
         hook.setPublicSwapResumeTime(verse.liquidProof, verse.UPT, resumeTime);
     }

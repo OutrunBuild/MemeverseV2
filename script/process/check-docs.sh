@@ -92,7 +92,6 @@ required_product_truth_support_files=(
     "docs/GLOSSARY.md"
     "docs/TRACEABILITY.md"
     "docs/VERIFICATION.md"
-    "docs/adr/0001-universalvault-style-harness-migration.md"
 )
 
 required_product_truth_core_docs=(

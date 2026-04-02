@@ -10,6 +10,7 @@ agent_report_dir="$tmp_dir/agent-reports"
 task_brief_dir="$tmp_dir/task-briefs"
 policy_file="$tmp_dir/policy.json"
 changed_files_path="$tmp_dir/changed-files.txt"
+script_changed_files_path="$tmp_dir/script-changed-files.txt"
 mixed_changed_files_path="$tmp_dir/mixed-changed-files.txt"
 review_file="$review_dir/2026-03-27-example-review.md"
 unrelated_review_file="$review_dir/2026-03-28-unrelated-review.md"
@@ -300,6 +301,10 @@ cat > "$changed_files_path" <<'EOF'
 src/Example.sol
 EOF
 
+cat > "$script_changed_files_path" <<'EOF'
+script/Example.s.sol
+EOF
+
 cat > "$mixed_changed_files_path" <<'EOF'
 src/Example.sol
 test/Example.t.sol
@@ -486,6 +491,22 @@ EOF
 }
 
 write_task_brief
+
+set +e
+script_missing_output="$(CHANGE_CLASSIFIER_FORCE=prod-semantic PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$script_changed_files_path" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+script_missing_status=$?
+set -e
+
+if [ "$script_missing_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note to fail for script Solidity changes when no review note is provided or discoverable"
+    exit 1
+fi
+
+if ! printf '%s\n' "$script_missing_output" | grep -q "review note"; then
+    echo "Expected missing review note output for script Solidity changes"
+    printf '%s\n' "$script_missing_output"
+    exit 1
+fi
 
 set +e
 missing_output="$(CHANGE_CLASSIFIER_FORCE=prod-semantic PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/check-solidity-review-note.sh 2>&1)"

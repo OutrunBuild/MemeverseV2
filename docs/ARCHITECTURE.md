@@ -88,7 +88,6 @@
  - `docs/GLOSSARY.md`
  - `docs/TRACEABILITY.md`
  - `docs/VERIFICATION.md`
- - `docs/adr/0001-universalvault-style-harness-migration.md`
  - 升级性规则以 `docs/spec/upgradeability.md` 为主，`docs/spec/implementation-map.md` 仅记录各 surface 的升级性实现事实
 3. Implementation Evidence 层（规则落地证据）
  - `src/**`
