@@ -26,11 +26,6 @@ docs/reviews/*.md
 # Dotenv file
 .env
 
-# Hardhat files
-cache
-artifacts
-deployments
-
 # LayerZero specific files
 .layerzero
 

@@ -22,10 +22,11 @@
 Before starting, you must have:
 
 - User goal
+- Task Brief path from the dispatching Task Brief or main-orchestrator handoff
 - Candidate files or feature area
 - Relevant repo contract references
 
-If inputs are insufficient to assess the impact surface, you must state the uncertainty rather than forcing a fake-precise split.
+If the Task Brief path is missing or the inputs are insufficient to assess the impact surface, state the uncertainty rather than forcing a fake-precise split.
 
 ## Allowed Writes
 
@@ -54,10 +55,16 @@ If inputs are insufficient to assess the impact surface, you must state the unce
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` fields only:
+Return the standard `.codex/templates/agent-report.md` structure.
+
+- Always fill required fields.
+- Fill conditional fields only when the report depends on them.
+- Do not add non-standard keys.
 
 - `Role`
 - `Summary`
+- `Task Brief path`
+- `Scope / ownership respected`
 - `Files touched/reviewed`
 - `Findings`
 - `Required follow-up`
@@ -67,9 +74,12 @@ Return the standard `.codex/templates/agent-report.md` fields only:
 
 Place exploration-specific details in:
 
-- `Findings`: impacted files, flags, and suggested task split
-- `Required follow-up`: missing context or specialist role recommendations
-- `Evidence`: code paths or docs inspected
+- `Task Brief path`: the brief driving the pre-implementation exploration
+- `Scope / ownership respected`: confirm any suggested split stays within the read-only scope
+- `Findings`: required when the report suggests impacted files, flags, or a task split
+- `Required follow-up`: required when the report still needs missing context or a specialist role recommendation
+- `Commands run`: required whenever commands were run as part of the exploration
+- `Evidence`: required when the report suggests impact scope or task split
 
 ## Review Note Mapping
 

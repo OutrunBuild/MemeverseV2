@@ -4,28 +4,58 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-tests=(
-    "script/process/tests/check-docs.sh"
-    "script/process/tests/check-local-doc-artifacts-ignore.sh"
-    "script/process/tests/check-coverage.sh"
-    "script/process/tests/check-gas-report.sh"
-    "script/process/tests/check-natspec.sh"
-    "script/process/tests/check-pr-body.sh"
-    "script/process/tests/check-slither.sh"
-    "script/process/tests/check-solidity-review-note.sh"
-    "script/process/tests/ci-workflow.sh"
-    "script/process/tests/install-repo-skill.sh"
-    "script/process/tests/process-policy.sh"
-    "script/process/tests/quality-quick.sh"
-    "script/process/tests/quality-quick-coverage.sh"
-    "script/process/tests/quality-gate-solidity-post-coding.sh"
-    "script/process/tests/quality-gate-coverage.sh"
-    "script/process/tests/rule-map-gate.sh"
-)
+test_dir="${PROCESS_SELFTEST_RUN_ALL_TEST_DIR:-script/process/tests}"
+required_scripts=()
 
-for test_script in "${tests[@]}"; do
+if [ -n "${PROCESS_SELFTEST_RUN_ALL_REQUIRED_TOP_LEVEL:-}" ]; then
+    while IFS= read -r script_name; do
+        [ -n "$script_name" ] && required_scripts+=("$script_name")
+    done < <(printf '%s\n' "${PROCESS_SELFTEST_RUN_ALL_REQUIRED_TOP_LEVEL}")
+else
+    required_scripts=(
+        "brief-templates.sh"
+        "change-classifier.sh"
+        "check-coverage.sh"
+        "check-docs.sh"
+        "check-gas-report.sh"
+        "check-local-doc-artifacts-ignore.sh"
+        "check-natspec.sh"
+        "check-pr-body.sh"
+        "check-slither.sh"
+        "check-solidity-review-note.sh"
+        "ci-workflow.sh"
+        "codex-review.sh"
+        "logic-reviewer-contract.sh"
+        "pre-push-quality-gate.sh"
+        "process-policy.sh"
+        "quality-gate-coverage.sh"
+        "quality-gate-stale-remediation.sh"
+        "quality-gates.sh"
+        "quality-quick-coverage.sh"
+        "quality-quick.sh"
+        "rule-map-gate.sh"
+        "run-all-required-guard.sh"
+        "stale-evidence-loop.sh"
+    )
+fi
+
+missing_required_scripts=()
+for script_name in "${required_scripts[@]}"; do
+    if [ ! -f "$test_dir/$script_name" ]; then
+        missing_required_scripts+=("$script_name")
+    fi
+done
+
+if [ "${#missing_required_scripts[@]}" -gt 0 ]; then
+    printf -v missing_summary '%s, ' "${missing_required_scripts[@]}"
+    missing_summary="${missing_summary%, }"
+    echo "[process-selftest] missing required top-level selftests: $missing_summary"
+    exit 1
+fi
+
+while IFS= read -r test_script; do
     echo "[process-selftest] running $test_script"
     bash "$test_script"
-done
+done < <(find "$test_dir" -maxdepth 1 -type f -name '*.sh' ! -name 'run-all.sh' | sort)
 
 echo "[process-selftest] PASS"

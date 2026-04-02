@@ -10,6 +10,8 @@ npm install
 npm run hooks:install
 ```
 
+`hooks:install` 会把本地 Git hooks 指向仓库内的 `.githooks/`，当前至少包含 `pre-commit` 和 `pre-push`。
+
 常用命令：
 
 - `npm run lint`
@@ -17,6 +19,7 @@ npm run hooks:install
 - `forge test -vvv`
 - `npm run quality:quick`
 - `npm run quality:gate`
+- `npm run codex:review`
 - `npm run docs:check`
 - `npm run process:selftest`
 

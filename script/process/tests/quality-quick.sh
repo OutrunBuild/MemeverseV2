@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/lib/common.sh"
+
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
@@ -11,6 +13,8 @@ fake_bin_dir="$tmp_dir/bin"
 forge_log="$tmp_dir/forge.log"
 npm_log="$tmp_dir/npm.log"
 changed_files_path="$tmp_dir/changed-files.txt"
+patch_file="$tmp_dir/semantic.patch"
+command_output="$tmp_dir/quality-quick.out"
 
 src_file="src/QualityQuickTemp.sol"
 swap_file="src/swap/MemeverseSwapRouter.sol"
@@ -49,11 +53,33 @@ cat > "$policy_file" <<EOF
     "test_tsol_pattern": "^test/.*\\\\.t\\\\.sol$",
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
+    "process_surface_pattern": "^(AGENTS\\\\.md|docs/process/.*|\\\\.codex/.*|script/process/.*|\\\\.github/.*|\\\\.githooks/.*|README\\\\.md|docs/reviews/(README|TEMPLATE)\\\\.md|docs/task-briefs/README\\\\.md|docs/agent-reports/README\\\\.md|\\\\.solhint\\\\.json|\\\\.solhintignore)$",
+    "process_js_pattern": "^script/process/.*\\\\.js$",
     "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
     "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\\\.md|docs/spec/.*|docs/adr/.*|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
+    "process_selftest_patterns": [
+      "^script/process/.*$",
+      "^docs/process/.*$",
+      "^AGENTS\\\\.md$",
+      "^package\\\\.json$",
+      "^package-lock\\\\.json$",
+      "^\\\\.codex/.*$"
+    ],
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
-    "slither_exclude_detectors": "naming-convention,too-many-digits"
+    "slither_exclude_detectors": "naming-convention,too-many-digits",
+    "process_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "package_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "docs_contract_default_roles": [
+      "process-implementer",
+      "verifier"
+    ]
   }
 }
 EOF
@@ -193,7 +219,21 @@ $swap_file
 EOF
 
 : > "$forge_log"
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+: > "$command_output"
+cat > "$patch_file" <<EOF
+diff --git a/$swap_file b/$swap_file
+--- a/$swap_file
++++ b/$swap_file
+@@ -1 +1 @@
+-        return amountOut;
++        return amountOut + 1;
+EOF
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" CHANGE_CLASSIFIER_DIFF_FILE="$patch_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh > "$command_output" 2>&1
+
+selftest::assert_text_lacks \
+    "$(cat "$command_output")" \
+    "forced by CHANGE_CLASSIFIER_FORCE=prod-semantic" \
+    "Expected swap semantic-path selftest to use the real classifier integration"
 
 if ! grep -q '^test --match-path test/swap/MemeverseSwapRouterInterface.t.sol$' "$forge_log"; then
     echo "Expected quality-quick to run mapped forge test for swap source changes"
@@ -234,7 +274,21 @@ $launcher_file
 EOF
 
 : > "$forge_log"
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+: > "$command_output"
+cat > "$patch_file" <<EOF
+diff --git a/$launcher_file b/$launcher_file
+--- a/$launcher_file
++++ b/$launcher_file
+@@ -1 +1 @@
+-        return currentEpoch;
++        return currentEpoch + 1;
+EOF
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" CHANGE_CLASSIFIER_DIFF_FILE="$patch_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh > "$command_output" 2>&1
+
+selftest::assert_text_lacks \
+    "$(cat "$command_output")" \
+    "forced by CHANGE_CLASSIFIER_FORCE=prod-semantic" \
+    "Expected non-swap semantic-path selftest to use the real classifier integration"
 
 if ! grep -q "^test --match-path $launcher_test_file$" "$forge_log"; then
     echo "Expected quality-quick to run mapped forge test for non-swap source changes"
@@ -276,7 +330,16 @@ $test_file
 EOF
 
 : > "$forge_log"
-PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh
+: > "$command_output"
+cat > "$patch_file" <<EOF
+diff --git a/$swap_file b/$swap_file
+--- a/$swap_file
++++ b/$swap_file
+@@ -1 +1 @@
+-        return amountOut;
++        return amountOut + 1;
+EOF
+PATH="$fake_bin_dir:$PATH" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" CHANGE_CLASSIFIER_DIFF_FILE="$patch_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-quick.sh > "$command_output" 2>&1
 
 if ! grep -q '^test --match-path test/swap/MemeverseSwapRouterInterface.t.sol$' "$forge_log"; then
     echo "Expected quality-quick to run targeted forge test for changed or mapped tests"

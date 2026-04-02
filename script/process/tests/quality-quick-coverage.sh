@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/lib/common.sh"
+
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
@@ -11,8 +13,15 @@ fake_bin_dir="$tmp_dir/bin"
 forge_log="$tmp_dir/forge.log"
 changed_files_path="$tmp_dir/changed-files.txt"
 src_file="src/QualityQuickCoverageTemp.sol"
+command_output="$tmp_dir/quality-quick.out"
+patch_file="$tmp_dir/semantic.patch"
+check_coverage_script="script/process/check-coverage.sh"
+check_coverage_backup="$tmp_dir/check-coverage.sh.bak"
 
 cleanup() {
+    if [ -f "$check_coverage_backup" ]; then
+        cp "$check_coverage_backup" "$check_coverage_script"
+    fi
     rm -rf "$tmp_dir"
     git reset -- "$src_file" >/dev/null 2>&1 || true
     rm -f "$src_file"
@@ -42,8 +51,28 @@ cat > "$policy_file" <<EOF
     "test_tsol_pattern": "^test/.*\\\\.t\\\\.sol$",
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
+    "process_surface_pattern": "^(AGENTS\\\\.md|docs/process/.*|\\\\.codex/.*|script/process/.*|\\\\.github/.*|\\\\.githooks/.*|README\\\\.md|docs/reviews/(README|TEMPLATE)\\\\.md|docs/task-briefs/README\\\\.md|docs/agent-reports/README\\\\.md|\\\\.solhint\\\\.json|\\\\.solhintignore)$",
+    "process_js_pattern": "^script/process/.*\\\\.js$",
     "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
     "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\\\.md|docs/spec/.*|docs/adr/.*|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
+    "process_selftest_patterns": [
+      "^docs/process/.*$",
+      "^\\\\.codex/.*$",
+      "^script/process/.*$",
+      "^package(-lock)?\\\\.json$"
+    ],
+    "process_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "package_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "docs_contract_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits",
@@ -131,6 +160,16 @@ EOF
 
 chmod +x "$fake_bin_dir/forge"
 
+cp "$check_coverage_script" "$check_coverage_backup"
+cat > "$check_coverage_script" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+report_file="$(node ./script/process/read-process-config.js policy quality_gate.coverage.report_file)"
+forge coverage --report lcov --report-file "$report_file" --exclude-tests --ir-minimum
+EOF
+chmod +x "$check_coverage_script"
+
 cat > "$src_file" <<'EOF'
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
@@ -152,7 +191,21 @@ cat > "$changed_files_path" <<EOF
 $src_file
 EOF
 
-PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" FORGE_LOG="$forge_log" bash ./script/process/quality-quick.sh
+: > "$command_output"
+cat > "$patch_file" <<EOF
+diff --git a/$src_file b/$src_file
+--- a/$src_file
++++ b/$src_file
+@@ -1 +1 @@
+-        return value;
++        return value + 1;
+EOF
+PATH="$fake_bin_dir:$PATH" CHANGE_CLASSIFIER_DIFF_FILE="$patch_file" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" FORGE_LOG="$forge_log" bash ./script/process/quality-quick.sh > "$command_output" 2>&1
+
+selftest::assert_text_lacks \
+    "$(cat "$command_output")" \
+    "forced by CHANGE_CLASSIFIER_FORCE=prod-semantic" \
+    "Expected quality-quick coverage selftest to use the real classifier integration"
 
 if ! grep -q "^coverage --report lcov --report-file " "$forge_log"; then
     echo "Expected quality-quick to run forge coverage when src Solidity files change"

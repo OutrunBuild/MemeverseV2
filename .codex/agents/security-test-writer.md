@@ -58,10 +58,16 @@ If there is no explicit threat model, do not expand test scope by guessing.
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` fields only:
+Return the standard `.codex/templates/agent-report.md` structure.
+
+- Always fill required fields.
+- Fill conditional fields only when the report depends on them.
+- Do not add non-standard keys.
 
 - `Role`
 - `Summary`
+- `Task Brief path`
+- `Scope / ownership respected`
 - `Files touched/reviewed`
 - `Findings`
 - `Required follow-up`
@@ -71,9 +77,12 @@ Return the standard `.codex/templates/agent-report.md` fields only:
 
 Place test-hardening details in:
 
-- `Findings`: tests added and threat model covered
-- `Required follow-up`: uncovered adversarial cases
-- `Evidence`: command outcomes, targeted coverage notes, and any remaining high-risk gaps
+- `Task Brief path`: the brief that authorized the security test work
+- `Scope / ownership respected`: confirm the scoped test files and adversarial coverage stayed within the brief
+- `Findings`: required when the report claims tests added, threats covered, or uncovered adversarial cases
+- `Required follow-up`: required for uncovered adversarial cases or missing scope
+- `Commands run`: required whenever tests or verification commands were run
+- `Evidence`: required whenever the report depends on command outcomes, targeted coverage notes, or remaining high-risk gaps
 
 ## Review Note Mapping
 

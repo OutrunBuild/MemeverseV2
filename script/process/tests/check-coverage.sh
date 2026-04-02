@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
+source "$(dirname "$0")/lib/common.sh"
 
-tmp_dir="$(mktemp -d)"
+selftest::enter_repo_root
+selftest::setup_tmpdir
 policy_file="$tmp_dir/policy.json"
 changed_files_path="$tmp_dir/changed-files.txt"
 lcov_file="$tmp_dir/lcov.info"
-
-cleanup() {
-    rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
 
 cat > "$policy_file" <<EOF
 {
@@ -75,11 +70,7 @@ if [ "$failing_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$failing_output" | grep -q "function"; then
-    echo "Expected failing check-coverage output to reference function coverage"
-    printf '%s\n' "$failing_output"
-    exit 1
-fi
+selftest::assert_text_contains "$failing_output" "function" "Expected failing check-coverage output to reference function coverage"
 
 cat > "$lcov_file" <<'EOF'
 TN:
@@ -107,11 +98,7 @@ EOF
 
 passing_output="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/check-coverage.js "$changed_files_path" "$lcov_file" 2>&1)"
 
-if ! printf '%s\n' "$passing_output" | grep -q "PASS"; then
-    echo "Expected check-coverage to pass after all metrics meet threshold"
-    printf '%s\n' "$passing_output"
-    exit 1
-fi
+selftest::assert_text_contains "$passing_output" "PASS" "Expected check-coverage to pass after all metrics meet threshold"
 
 cat > "$changed_files_path" <<'EOF'
 src/common/access/Guard.sol
@@ -151,11 +138,7 @@ if [ "$prefix_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$prefix_output" | grep -q "src/common/access"; then
-    echo "Expected longest-prefix failure output to reference src/common/access tier"
-    printf '%s\n' "$prefix_output"
-    exit 1
-fi
+selftest::assert_text_contains "$prefix_output" "src/common/access" "Expected longest-prefix failure output to reference src/common/access tier"
 
 cat > "$changed_files_path" <<'EOF'
 src/verse/Foo.sol
@@ -186,8 +169,4 @@ end_of_record
 EOF
 
 line_function_only_output="$(PROCESS_POLICY_FILE="$policy_file" COVERAGE_METRICS="line,function" node ./script/process/check-coverage.js "$changed_files_path" "$lcov_file" 2>&1)"
-if ! printf '%s\n' "$line_function_only_output" | grep -q "PASS"; then
-    echo "Expected check-coverage to pass when branch metric is excluded"
-    printf '%s\n' "$line_function_only_output"
-    exit 1
-fi
+selftest::assert_text_contains "$line_function_only_output" "PASS" "Expected check-coverage to pass when branch metric is excluded"

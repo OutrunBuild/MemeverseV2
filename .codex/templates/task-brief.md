@@ -1,18 +1,32 @@
 # Task Brief
 
 - Goal:
+- Change classification:
+- Change classification rationale:
 - Change type:
 - Files in scope:
+- Out of scope:
+- Known facts:
+- Open questions / assumptions:
 - Risks to check:
 - Required roles:
 - Optional roles:
+- Verifier profile:
 - Default writer role:
+- Implementation owner:
 - Write permissions:
+- Writer dispatch backend:
+- Writer dispatch target:
+- Writer dispatch scope:
 - Non-goals:
 - Acceptance checks:
+- Required verifier commands:
+- Required artifacts:
+- Review note required:
 - Semantic review dimensions:
 - Source-of-truth docs:
 - External sources required:
 - Critical assumptions to prove or reject:
 - Required output fields:
 - Review note impact:
+- If blocked:

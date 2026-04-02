@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
+source "$(dirname "$0")/lib/common.sh"
 
-tmp_dir="$(mktemp -d)"
-
-cleanup() {
-    rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
+selftest::enter_repo_root
+selftest::setup_tmpdir
 
 missing_file="$tmp_dir/missing-sections.md"
 legacy_file="$tmp_dir/legacy-sections.md"
@@ -99,11 +94,7 @@ if [ "$missing_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$missing_output" | grep -q "missing required sections"; then
-    echo "Expected missing PR section failure output"
-    printf '%s\n' "$missing_output"
-    exit 1
-fi
+selftest::assert_text_contains "$missing_output" "missing required sections" "Expected missing PR section failure output"
 
 set +e
 legacy_output="$(bash ./script/process/check-pr-body.sh "$legacy_file" 2>&1)"
@@ -115,10 +106,6 @@ if [ "$legacy_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$legacy_output" | grep -q "## Security"; then
-    echo "Expected PR policy failure output to reference missing security section"
-    printf '%s\n' "$legacy_output"
-    exit 1
-fi
+selftest::assert_text_contains "$legacy_output" "## Security" "Expected PR policy failure output to reference missing security section"
 
 bash ./script/process/check-pr-body.sh "$passing_file"

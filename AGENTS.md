@@ -13,7 +13,7 @@
 - `docs/process/`：Harness / Process 文档与机器真源
 - `docs/plans/`：本地设计文档、实现计划、阶段方案、拆分草案
 - `docs/task-briefs/`：本地 `Task Brief` 工件
-- `docs/agent-reports/`：本地 `Agent Report` 工件
+- `docs/agent-reports/`：本地 `Agent Report` 工件；`Agent Report` 仍是独立 workflow artifact，不并入 `docs/plans/`。其字段分为 `required` 与 `conditional` 两类，字段真源以 `.codex/templates/agent-report.md` 和 `docs/process/policy.json` 为准
 - `docs/reviews/`：本地 review 草稿模板与草稿
 - `docs/spec/`、`docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`：产品真相与支撑文档
 - `.codex/agents/`：项目级 subagent manifest（`*.toml`）与运行时契约（`*.md`）
@@ -22,10 +22,12 @@
 
 ## 1.5 Subagent Runtime Entry
 
-- 标准 runtime 索引：`.codex/runtime/subagent-runtime.json`
-- 标准 dispatch helpers：`script/process/prepare-agent-brief.sh`、`script/process/resolve-agent-dispatch.js`、`script/process/dispatch-agent.sh`
-- 该文件只负责声明项目入口、角色集合、工件位置与默认写入 ownership，不承载机器规则细节
-- 机器规则真源仍是 `AGENTS.md`、`docs/process/policy.json`、`script/process/*` 与 `.codex/agents/*.md`
+- 原生 dispatch backend：平台原生 subagent 派发 + `.codex/agents/*.toml`
+- 角色运行时契约：`.codex/agents/*.md`
+- workflow index：`.codex/workflows/solidity-subagent-workflow.json`
+- runtime index：`.codex/runtime/subagent-runtime.json`
+- `.codex/workflows/*.json` 与 `.codex/runtime/*.json` 只负责索引、角色目录与工件位置，不承载机器规则细节
+- 机器规则真源仍是 `AGENTS.md`、`docs/process/subagent-workflow.md`、`docs/process/policy.json`、`script/process/*` 与 `.codex/agents/*.md`
 
 ## 2. Required Commands
 
@@ -33,6 +35,7 @@
 - 每个工作副本只需执行一次：`npm install`
 - 每个工作副本只需执行一次：`npm run hooks:install`
 - 流程脚本自测：`npm run process:selftest`
+- 手动 / 高风险兜底 Codex 审查：`npm run codex:review`
 - 日常本地快速反馈：`npm run quality:quick`
 - 任意准备提交的变更，唯一 finish gate：`npm run quality:gate`
 - 文档链检查：`npm run docs:check`
@@ -53,35 +56,43 @@
 
 - `main-orchestrator` 是默认主会话角色
 - `main-orchestrator` 负责 intake、拆任务、划定 file ownership、汇总证据、判定 block
+- `main-orchestrator` 不是 product / process / config surface 的默认写入者；除 orchestration artifact（例如 `docs/task-briefs/*`）与 evidence aggregation 阶段的 review note 汇总外，不直接改仓库文件
 - `main-orchestrator` 不写 `src/**/*.sol`
+- `main-orchestrator` 不写 `script/**/*.sol`
 - `main-orchestrator` 不写 `test/**/*.sol`
 - `main-orchestrator` 不写 `script/**/*.sh`
-- 命中 `src/**/*.sol`、`test/**/*.sol`、`script/**/*.sh` 时，必须先派发对应 writer role
+- `main-orchestrator` 不写 `script/process/**`
+- `main-orchestrator` 不写 `AGENTS.md`、`docs/process/**`、`.codex/**`、`.github/**`、`.githooks/*`、`package.json`、`package-lock.json`
+- 命中 `src/**/*.sol`、`script/**/*.sol`、`test/**/*.sol`、`script/**/*.sh`、`script/process/**`、`.githooks/*` 或其他流程面文件时，必须先派发对应 writer role
 - 若 writer role 未成功派发，主会话必须停止并请求人工决策，不能降级为直接实现者
-- 主会话被长期授权可按 `AGENTS.md` 自主使用 subagents
-- 主会话可自行决定何时委派、并行执行、等待结果与回收 agent，无需每次单独向用户请求许可
+- 允许 native dispatch 时，主会话只可通过 `.codex/agents/*.toml` 启动角色；不得虚构 repo-local helper backend
 - 自主委派仍必须遵守本文件的角色边界、单写 owner、证据链和 block 规则
 
 ### Default Roles
 
 - `solidity-implementer`
   - Solidity surface 的唯一默认写入者
-  - 负责 `src/**/*.sol`、适量的方法内注释与与风险匹配的测试
+  - 负责 `src/**/*.sol`、`script/**/*.sol`、适量的方法内注释与与风险匹配的测试
+- `process-implementer`
+  - 非 Solidity surface 的默认写入者
+  - 负责流程、文档、CI、`script/process/**`、shell、`.githooks/*`、package metadata 与 Harness 文件
+- `logic-reviewer`
+  - 分类驱动的只读逻辑审阅者
+  - 在 `test-semantic`、`prod-semantic`、`high-risk` 分类下启用，负责控制流、状态迁移、边界条件、语义偏差与可简化点
 - `security-reviewer`
-  - 只读安全审阅
-  - 负责 high / medium / low findings 与必补测试建议
+  - 分类驱动的只读安全审阅
+  - 默认只在 `prod-semantic`、`high-risk` 分类下启用，负责 findings、测试缺口与残余风险
 - `gas-reviewer`
-  - 只读 Gas 基线、diff、优化建议与残余风险
+  - 分类驱动的只读 Gas 审阅
+  - 默认只在 `prod-semantic`、`high-risk` 分类下启用，负责热路径、Gas diff、优化建议与残余风险
 - `verifier`
   - 只读验证执行与失败归因
+  - 按 classifier 运行 `light` / `full` 两档
 
 ### On-Demand Roles
 
 - `solidity-explorer`
   - 复杂改动前的影响面侦察与任务拆分建议
-- `process-implementer`
-  - 流程、文档、CI、shell、package metadata 与 Harness 文件的受限写入者
-  - 对非 Solidity surface 变更默认启用；在 Solidity-centric 任务中按需启用
 - `security-test-writer`
   - 高风险改动后的 fuzz / invariant / adversarial tests 补强
 
@@ -89,7 +100,11 @@
 
 对于 `AGENTS.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`.codex/**`、`script/process/**` 这类流程面变更，默认评审顺序为：
 
-`main-orchestrator` -> `verifier`
+`process-implementer` -> `codex review` -> `verifier`
+
+对于 `src/**/*.sol`、`script/**/*.sol` 变更，默认评审顺序为：
+
+`solidity-implementer` -> `logic-reviewer` -> `security-reviewer` -> `gas-reviewer` -> `codex review` -> `verifier`
 
 ## 4. Core Principles
 
@@ -108,18 +123,22 @@
 ## 5. Workflow Summary
 
 - `npm run quality:gate` 是唯一 finish gate；`npm run quality:quick` 只用于本地快速反馈
+- 标准 artifact chain：
+  - Solidity surface：`Task Brief -> Agent Report -> codex review -> review note -> verifier evidence -> quality:gate -> CI`
+  - Process surface：`Task Brief -> Agent Report -> codex review -> verifier evidence -> docs:check / process:selftest`
 - 工件目录约定：
   - `docs/plans/` 只放 design / plan / draft
   - `docs/task-briefs/` 只放 `Task Brief`
   - `docs/agent-reports/` 只放 `Agent Report`
   - `docs/reviews/` 放本地 review note / 模板
+- `.codex/workflows/solidity-subagent-workflow.json` 是 workflow index；`.codex/runtime/subagent-runtime.json` 是 runtime index；两者都不是 dispatch backend
 - 结构化阶段流、通信模型、证据链、block 规则，统一以 [docs/process/subagent-workflow.md](/home/azkrale/Web3Project/MemeverseV2/docs/process/subagent-workflow.md) 为准
 - 在新建任何文档前，必须先校验目标目录是否符合本仓库约定；路径未校验视为流程错误
 
 ## 6. Change Surfaces
 
 - 路径触发规则、默认角色、必跑命令与 gate 约束，以 [docs/process/change-matrix.md](/home/azkrale/Web3Project/MemeverseV2/docs/process/change-matrix.md) 为准
-- 机器可读真源以 [docs/process/policy.json](/home/azkrale/Web3Project/MemeverseV2/docs/process/policy.json) 与 `script/process/*` 为准
+- 机器可读真源以 [docs/process/policy.json](/home/azkrale/Web3Project/MemeverseV2/docs/process/policy.json)、`.codex/workflows/solidity-subagent-workflow.json`、`.codex/runtime/subagent-runtime.json` 与 `script/process/*` 为准
 - `MemeverseV2` 的 `rule-map` 是 repo-specific 扩展，不被通用 Harness 文案替代
 
 ## 7. Pull Request Contract
@@ -139,7 +158,7 @@
 ## 8. Review Note Contract
 
 - 模板文件：`docs/reviews/TEMPLATE.md`
-- 当命中 `src/**/*.sol` 变更时，本地与 CI 的 `quality:gate` 都必须能找到一份有效 review note
+- 当命中 `src/**/*.sol`、`script/**/*.sol` 变更时，本地与 CI 的 `quality:gate` 都必须能找到一份有效 review note
 - 字段、布尔值约束、owner-prefixed source 规则与 artifact 路径要求，以 [docs/process/review-notes.md](/home/azkrale/Web3Project/MemeverseV2/docs/process/review-notes.md) 和 [docs/process/policy.json](/home/azkrale/Web3Project/MemeverseV2/docs/process/policy.json) 为准
 - 若仓库启用了 repo-specific 证据映射或额外 gate 字段，review note 也必须同步满足
 
@@ -191,6 +210,7 @@
 
 - `AGENTS.md`
 - `docs/process/change-matrix.md`
+- `.codex/workflows/solidity-subagent-workflow.json`
 - `docs/process/review-notes.md`
 - `docs/process/policy.json`
 - 若存在：`docs/process/rule-map.json`

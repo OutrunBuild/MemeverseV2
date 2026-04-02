@@ -14,6 +14,10 @@
     "required_fields": [
       "Change summary",
       "Files reviewed",
+      "Task Brief path",
+      "Agent Report path",
+      "Implementation owner",
+      "Writer dispatch confirmed",
       "Semantic dimensions reviewed",
       "Source-of-truth docs checked",
       "External facts checked",
@@ -24,6 +28,8 @@
       "ABI change",
       "Storage layout change",
       "Config change",
+      "Logic review summary",
+      "Logic residual risks",
       "Security review summary",
       "Security residual risks",
       "Open safety mismatches assessed",
@@ -36,10 +42,16 @@
       "Existing tests exercised",
       "Commands run",
       "Results",
+      "Logic evidence source",
+      "Security evidence source",
+      "Gas evidence source",
+      "Verification evidence source",
+      "Decision evidence source",
       "Ready to commit",
       "Residual risks"
     ],
     "boolean_fields": [
+      "Writer dispatch confirmed",
       "Evidence chain complete",
       "Behavior change",
       "ABI change",
@@ -49,9 +61,11 @@
     ],
     "field_owners": {
       "Change summary": "solidity-implementer|process-implementer",
-      "Files reviewed": "solidity-implementer|process-implementer|verifier",
+      "Files reviewed": "solidity-implementer|process-implementer",
       "Task Brief path": "main-orchestrator",
       "Agent Report path": "main-orchestrator",
+      "Implementation owner": "main-orchestrator",
+      "Writer dispatch confirmed": "main-orchestrator",
       "Semantic dimensions reviewed": "main-orchestrator",
       "Source-of-truth docs checked": "main-orchestrator",
       "External facts checked": "main-orchestrator",
@@ -59,12 +73,13 @@
       "Evidence chain complete": "main-orchestrator",
       "Semantic alignment summary": "main-orchestrator",
       "Behavior change": "solidity-implementer|process-implementer",
-      "ABI change": "solidity-implementer",
-      "Storage layout change": "solidity-implementer",
+      "ABI change": "solidity-implementer|process-implementer",
+      "Storage layout change": "solidity-implementer|process-implementer",
       "Config change": "solidity-implementer|process-implementer",
       "Security review summary": "security-reviewer",
       "Security residual risks": "security-reviewer",
       "Open safety mismatches assessed": "security-reviewer|verifier|main-orchestrator",
+      "Rule-map evidence source": "verifier",
       "Security evidence source": "security-reviewer",
       "Gas-sensitive paths reviewed": "gas-reviewer",
       "Gas changes applied": "gas-reviewer",
@@ -74,20 +89,26 @@
       "Docs updated": "solidity-implementer|process-implementer",
       "Tests updated": "solidity-implementer|process-implementer|security-test-writer",
       "Existing tests exercised": "solidity-implementer|process-implementer|security-test-writer",
-      "Rule-map evidence source": "verifier",
       "Commands run": "verifier",
       "Results": "verifier",
       "Verification evidence source": "verifier",
       "Ready to commit": "main-orchestrator",
       "Decision evidence source": "main-orchestrator",
-      "Residual risks": "main-orchestrator|verifier|security-reviewer|gas-reviewer"
+      "Residual risks": "main-orchestrator|verifier|security-reviewer|gas-reviewer",
+      "Codex review summary": "verifier",
+      "Codex review evidence source": "verifier",
+      "Logic review summary": "logic-reviewer",
+      "Logic residual risks": "logic-reviewer",
+      "Logic evidence source": "logic-reviewer"
     },
     "owner_prefixed_source_fields": [
+      "Logic evidence source",
       "Security evidence source",
       "Gas evidence source",
       "Verification evidence source",
       "Decision evidence source",
-      "Rule-map evidence source"
+      "Rule-map evidence source",
+      "Codex review evidence source"
     ],
     "placeholder_values": [
       "",
@@ -98,8 +119,8 @@
       "<agent-report-path>",
       "<verification-source>",
       "<decision-source>",
-      "<rule-id or mapped-tests>",
-      "yes/no"
+      "yes/no",
+      "<rule-id or mapped-tests>"
     ]
   },
   "solidity_review_note": {
@@ -107,15 +128,63 @@
       "Task Brief path",
       "Agent Report path",
       "Implementation owner",
-      "Writer dispatch confirmed"
+      "Writer dispatch confirmed",
+      "Semantic dimensions reviewed",
+      "Source-of-truth docs checked",
+      "External facts checked",
+      "Local control-flow facts checked",
+      "Evidence chain complete",
+      "Semantic alignment summary",
+      "Logic review summary",
+      "Logic residual risks",
+      "Logic evidence source",
+      "Codex review summary",
+      "Codex review evidence source"
     ],
     "boolean_fields": [
-      "Writer dispatch confirmed"
+      "Writer dispatch confirmed",
+      "Evidence chain complete"
     ],
     "task_brief_field": "Task Brief path",
     "agent_report_field": "Agent Report path",
     "implementation_owner_field": "Implementation owner",
-    "writer_dispatch_confirmed_field": "Writer dispatch confirmed"
+    "writer_dispatch_confirmed_field": "Writer dispatch confirmed",
+    "semantic_dimensions_field": "Semantic dimensions reviewed",
+    "source_of_truth_field": "Source-of-truth docs checked",
+    "external_facts_field": "External facts checked",
+    "local_control_flow_field": "Local control-flow facts checked",
+    "evidence_chain_field": "Evidence chain complete",
+    "semantic_alignment_summary_field": "Semantic alignment summary",
+    "critical_assumptions_field": "Semantic alignment summary",
+    "task_brief_semantic_dimensions_field": "Semantic review dimensions",
+    "task_brief_source_of_truth_field": "Source-of-truth docs",
+    "task_brief_external_sources_field": "External sources required",
+    "task_brief_critical_assumptions_field": "Critical assumptions to prove or reject",
+    "task_brief_files_in_scope_field": "Files in scope",
+    "task_brief_default_writer_role_field": "Default writer role",
+    "task_brief_implementation_owner_field": "Implementation owner",
+    "task_brief_write_permissions_field": "Write permissions",
+    "task_brief_required_roles_field": "Required roles",
+    "task_brief_required_verifier_commands_field": "Required verifier commands",
+    "task_brief_dispatch_backend_field": "Writer dispatch backend",
+    "task_brief_dispatch_target_field": "Writer dispatch target",
+    "semantic_sensitive_patterns": [
+      "^src/.*\\.sol$",
+      "^script/.*\\.sol$"
+    ],
+    "codex_review_summary_field": "Codex review summary",
+    "codex_review_evidence_field": "Codex review evidence source",
+    "logic_review_summary_field": "Logic review summary",
+    "logic_review_risks_field": "Logic residual risks",
+    "logic_review_evidence_field": "Logic evidence source",
+    "freshness_source_fields": [
+      "Logic evidence source",
+      "Security evidence source",
+      "Gas evidence source",
+      "Verification evidence source"
+    ],
+    "review_note_must_postdate_agent_report": true,
+    "agent_report_must_postdate_changed_files": true
   },
   "pull_request": {
     "required_sections": [
@@ -142,26 +211,53 @@
   "agents": {
     "main_session_role": "main-orchestrator",
     "main_session_forbidden_write_patterns": [
+      "^AGENTS\\.md$",
+      "^docs/process/.*$",
+      "^docs/reviews/(README|TEMPLATE)\\.md$",
+      "^docs/agent-reports/README\\.md$",
+      "^docs/task-briefs/README\\.md$",
+      "^\\.codex/.*$",
+      "^\\.github/.*$",
+      "^\\.githooks/.*$",
+      "^package\\.json$",
+      "^package-lock\\.json$",
+      "^\\.gitignore$",
+      "^\\.solhint\\.json$",
+      "^\\.solhintignore$",
       "^src/.*\\.sol$",
       "^test/.*\\.sol$",
       "^test/.*\\.t\\.sol$",
-      "^script/.*\\.sh$"
+      "^script/.*\\.sol$",
+      "^script/.*\\.sh$",
+      "^script/process/.*$"
     ],
     "require_task_brief_before_write_patterns": [
       "^src/.*\\.sol$",
       "^test/.*\\.sol$",
-      "^test/.*\\.t\\.sol$"
+      "^test/.*\\.t\\.sol$",
+      "^script/.*\\.sol$",
+      "^AGENTS\\.md$",
+      "^docs/process/.*$",
+      "^\\.codex/.*$",
+      "^script/process/.*$",
+      "^package\\.json$",
+      "^package-lock\\.json$"
     ],
     "required_writer_for_patterns": {
       "^src/.*\\.sol$": "solidity-implementer",
       "^test/.*\\.sol$": "solidity-implementer",
       "^test/.*\\.t\\.sol$": "solidity-implementer",
-      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$": "process-implementer",
-      "^(script/.*\\.sh|\\.githooks/.*)$": "process-implementer"
+      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/README\\.md|docs/agent-reports/README\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/.*|\\.codex/.*|\\.gitignore|\\.solhint\\.json|\\.solhintignore)$": "process-implementer",
+      "^(script/.*\\.sh|\\.githooks/.*)$": "process-implementer",
+      "^script/process/.*$": "process-implementer",
+      "^package\\.json$": "process-implementer",
+      "^package-lock\\.json$": "process-implementer",
+      "^script/.*\\.sol$": "solidity-implementer"
     },
     "default_roles": [
       "solidity-implementer",
       "process-implementer",
+      "logic-reviewer",
       "security-reviewer",
       "gas-reviewer",
       "verifier"
@@ -174,7 +270,10 @@
     "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
-    "agent_directory": ".codex/agents"
+    "agent_directory": ".codex/agents",
+    "workflow_index": ".codex/workflows/solidity-subagent-workflow.json",
+    "role_delta_brief_template": ".codex/templates/role-delta-brief.md",
+    "follow_up_brief_template": ".codex/templates/follow-up-brief.md"
   },
   "quality_gate": {
     "swap_src_sol_pattern": "^src/swap/.*\\.sol$",
@@ -184,7 +283,7 @@
     "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
     "package_pattern": "^(package\\.json|package-lock\\.json)$",
     "lint_command": "npm run lint:sol",
-    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
+    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/.*|docs/agent-reports/.*|script/process/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.githooks/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
@@ -248,6 +347,7 @@
     },
     "src_default_roles": [
       "solidity-implementer",
+      "logic-reviewer",
       "security-reviewer",
       "gas-reviewer",
       "verifier"
@@ -258,11 +358,12 @@
     ],
     "test_default_roles": [
       "solidity-implementer",
+      "logic-reviewer",
       "verifier"
     ],
     "test_optional_roles": [
       "security-reviewer",
-      "gas-reviewer"
+      "security-test-writer"
     ],
     "shell_default_roles": [
       "process-implementer",
@@ -293,6 +394,295 @@
       "deferrable_simplification",
       "non_blocking_docs_follow_up",
       "pending_human_product_decision"
+    ],
+    "process_surface_pattern": "^(AGENTS\\.md|docs/process/.*|\\.codex/.*|script/process/.*|\\.github/.*|\\.githooks/.*|README\\.md|docs/reviews/(README|TEMPLATE)\\.md|docs/task-briefs/README\\.md|docs/agent-reports/README\\.md|\\.solhint\\.json|\\.solhintignore)$",
+    "process_js_pattern": "^script/process/.*\\.js$",
+    "process_selftest_patterns": [
+      "^script/process/.*$",
+      "^docs/process/.*$",
+      "^AGENTS\\.md$",
+      "^package\\.json$",
+      "^package-lock\\.json$",
+      "^\\.codex/.*$"
+    ],
+    "process_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "stale_evidence_remediation_command": "npm run stale-evidence:loop",
+    "stale_evidence_exit_code": 2,
+    "script_sol_pattern": "^script/.*\\.sol$",
+    "script_default_roles": [
+      "solidity-implementer",
+      "logic-reviewer",
+      "security-reviewer",
+      "gas-reviewer",
+      "verifier"
     ]
+  },
+  "workflow": {
+    "workflow_index": ".codex/workflows/solidity-subagent-workflow.json",
+    "runtime_index": ".codex/runtime/subagent-runtime.json",
+    "dispatch_backend": {
+      "type": "native-codex-subagents",
+      "role_manifests": ".codex/agents/*.toml",
+      "role_contracts": ".codex/agents/*.md",
+      "repo_local_dispatch_helpers": []
+    },
+    "artifact_sequences": {
+      "solidity": [
+        "Task Brief",
+        "Agent Report",
+        "review note",
+        "verifier evidence",
+        "quality:gate",
+        "CI"
+      ],
+      "process": [
+        "Task Brief",
+        "Agent Report",
+        "verifier evidence",
+        "docs:check",
+        "process:selftest"
+      ]
+    }
+  },
+  "task_brief": {
+    "required_fields": [
+      "Goal",
+      "Change type",
+      "Files in scope",
+      "Change classification",
+      "Change classification rationale",
+      "Out of scope",
+      "Known facts",
+      "Open questions / assumptions",
+      "Risks to check",
+      "Required roles",
+      "Optional roles",
+      "Verifier profile",
+      "Default writer role",
+      "Implementation owner",
+      "Write permissions",
+      "Writer dispatch backend",
+      "Writer dispatch target",
+      "Writer dispatch scope",
+      "Non-goals",
+      "Acceptance checks",
+      "Required verifier commands",
+      "Required artifacts",
+      "Review note required",
+      "Semantic review dimensions",
+      "Source-of-truth docs",
+      "External sources required",
+      "Critical assumptions to prove or reject",
+      "Required output fields",
+      "Review note impact",
+      "If blocked"
+    ],
+    "boolean_fields": [
+      "Review note required"
+    ],
+    "implementation_owner_field": "Implementation owner",
+    "dispatch_backend_field": "Writer dispatch backend",
+    "dispatch_target_field": "Writer dispatch target",
+    "dispatch_scope_field": "Writer dispatch scope",
+    "required_roles_field": "Required roles",
+    "required_verifier_commands_field": "Required verifier commands",
+    "review_note_required_field": "Review note required",
+    "files_in_scope_field": "Files in scope",
+    "default_writer_role_field": "Default writer role",
+    "write_permissions_field": "Write permissions",
+    "change_classification_field": "Change classification",
+    "verifier_profile_field": "Verifier profile"
+  },
+  "agent_report": {
+    "required_fields": [
+      "Role",
+      "Summary",
+      "Task Brief path",
+      "Scope / ownership respected",
+      "Files touched/reviewed",
+      "Residual risks"
+    ],
+    "boolean_fields": [
+      "Scope / ownership respected"
+    ],
+    "task_brief_field": "Task Brief path",
+    "scope_respected_field": "Scope / ownership respected",
+    "role_field": "Role",
+    "files_field": "Files touched/reviewed"
+  },
+  "verifier": {
+    "required_disciplines": [
+      "identify-required-commands-before-execution",
+      "check-task-brief-and-agent-report-chain",
+      "check-review-note-when-required",
+      "record-failure-attribution",
+      "emit-independent-pass-fail-verdict",
+      "run-codex-review-before-final-verdict"
+    ],
+    "failure_attribution_required": true,
+    "independent_verdict_required": true,
+    "surface_command_sets": {
+      "src_solidity": [
+        "npm run codex:review",
+        "bash ./script/process/check-rule-map.sh",
+        "forge fmt --check",
+        "bash ./script/process/check-natspec.sh",
+        "forge build",
+        "forge test -vvv",
+        "bash ./script/process/check-coverage.sh",
+        "bash ./script/process/check-slither.sh",
+        "bash ./script/process/check-gas-report.sh",
+        "bash ./script/process/check-solidity-review-note.sh",
+        "npm run docs:check"
+      ],
+      "test_solidity": [
+        "npm run codex:review",
+        "forge fmt --check",
+        "forge build",
+        "forge test -vvv",
+        "bash ./script/process/check-coverage.sh"
+      ],
+      "process_surface": [
+        "npm run codex:review",
+        "bash -n <changed-shell-scripts>",
+        "node --check <changed-process-js>",
+        "npm run docs:check",
+        "npm run process:selftest"
+      ],
+      "package_metadata": [
+        "npm run codex:review",
+        "npm ci",
+        "npm run docs:check",
+        "npm run process:selftest"
+      ],
+      "script_solidity": [
+        "npm run codex:review",
+        "forge fmt --check",
+        "forge build",
+        "forge test -vvv",
+        "bash ./script/process/check-solidity-review-note.sh",
+        "npm run docs:check"
+      ]
+    },
+    "codex_review": {
+      "wrapper_command": "npm run codex:review",
+      "cli_equivalent": "codex review --uncommitted",
+      "task_brief_token": "npm run codex:review",
+      "command_tokens": [
+        "npm run codex:review",
+        "bash ./script/process/run-codex-review.sh",
+        "codex review --uncommitted",
+        "codex review"
+      ],
+      "summary_field": "Codex review summary",
+      "evidence_field": "Codex review evidence source"
+    },
+    "auto_codex_review": {
+      "required_classifications": [
+        "prod-semantic",
+        "high-risk"
+      ],
+      "force_env": "FORCE_CODEX_REVIEW"
+    },
+    "profiles": {
+      "light": {
+        "description": "Use for non-semantic and test-semantic Solidity changes; skip specialist review and heavy static-analysis/gas gates unless the classifier escalates.",
+        "intended_for": [
+          "non-semantic",
+          "test-semantic"
+        ]
+      },
+      "full": {
+        "description": "Use for semantic production Solidity changes; require the full reviewer bundle and the complete finish gate.",
+        "intended_for": [
+          "prod-semantic",
+          "high-risk"
+        ]
+      }
+    }
+  },
+  "change_classifier": {
+    "entrypoint": "script/process/classify-change.js",
+    "classifications": [
+      "non-semantic",
+      "test-semantic",
+      "prod-semantic",
+      "high-risk"
+    ],
+    "high_risk_path_patterns": [
+      "^src/(router|position|yield|vault|lending|loan|oracle|oracles|integrations|markets|core|pool|pol|assets)/.*\\.sol$",
+      "^src/libraries/.*\\.sol$",
+      "^script/.*\\.sol$"
+    ],
+    "high_risk_token_patterns": [
+      "\\b(delegatecall|call\\(|staticcall|safeTransfer|transferFrom|approve|permit|mint|burn|deposit|withdraw|redeem|borrow|repay|liquidat|oracle|price|reward|fee|claim|settle|swap|rebalance|owner|admin|guardian|role|upgrade|initialize|share|asset|balance)\\b"
+    ],
+    "role_matrix": {
+      "non-semantic": {
+        "required_roles": [
+          "verifier"
+        ],
+        "optional_roles": [
+          "logic-reviewer"
+        ],
+        "verifier_profile": "light"
+      },
+      "test-semantic": {
+        "required_roles": [
+          "logic-reviewer",
+          "verifier"
+        ],
+        "optional_roles": [
+          "security-reviewer",
+          "security-test-writer"
+        ],
+        "verifier_profile": "light"
+      },
+      "prod-semantic": {
+        "required_roles": [
+          "logic-reviewer",
+          "security-reviewer",
+          "gas-reviewer",
+          "verifier"
+        ],
+        "optional_roles": [
+          "solidity-explorer",
+          "security-test-writer"
+        ],
+        "verifier_profile": "full"
+      },
+      "high-risk": {
+        "required_roles": [
+          "logic-reviewer",
+          "security-reviewer",
+          "gas-reviewer",
+          "verifier"
+        ],
+        "optional_roles": [
+          "solidity-explorer",
+          "security-test-writer"
+        ],
+        "verifier_profile": "full"
+      }
+    },
+    "verifier_profiles": {
+      "light": {
+        "description": "Use for non-semantic and test-semantic Solidity changes; skip specialist review and heavy static-analysis/gas gates unless the classifier escalates.",
+        "intended_for": [
+          "non-semantic",
+          "test-semantic"
+        ]
+      },
+      "full": {
+        "description": "Use for semantic production Solidity changes; require the full reviewer bundle and the complete finish gate.",
+        "intended_for": [
+          "prod-semantic",
+          "high-risk"
+        ]
+      }
+    }
   }
 }

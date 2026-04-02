@@ -30,6 +30,9 @@
 - Medium findings:
 - Low findings:
 - None: none
+- Logic review summary:
+- Logic residual risks:
+- Logic evidence source:
 - Security review summary:
 - Security residual risks:
 - Security evidence source:
@@ -37,6 +40,8 @@
 ## Simplification
 - Simplification:
 - Follow-up simplifications:
+
+## Gas
 - Gas-sensitive paths reviewed:
 - Gas changes applied:
 - Gas snapshot/result:
@@ -57,6 +62,8 @@
 > 在这里写明实际运行过的命令、结果，以及是否达到当前仓库 finish gate。
 - Commands run:
 - Results:
+- Codex review summary:
+- Codex review evidence source:
 - Verification evidence source:
 
 ## Decision

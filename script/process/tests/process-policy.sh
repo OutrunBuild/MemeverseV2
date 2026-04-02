@@ -53,7 +53,7 @@ cat > "$policy_file" <<EOF
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^docs/process/.*",
+    "docs_contract_pattern": "^(docs/process/.*|script/process/.*|[.]githooks/.*)$",
     "package_pattern": "^(package[.]json|package-lock[.]json)$"
   }
 }
@@ -336,7 +336,7 @@ cat > "$renamed_brief_policy_file" <<'EOF'
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$",
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|script/process/.*|[.]githooks/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$",
     "package_pattern": "^(package[.]json|package-lock[.]json)$"
   }
 }
@@ -366,7 +366,7 @@ cat > "$malformed_roles_policy_file" <<'EOF'
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|script/process/.*|[.]githooks/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -409,7 +409,7 @@ cat > "$check_docs_policy_file" <<'EOF'
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/README[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|script/process/.*|[.]githooks/.*|docs/reviews/README[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/spec/.*|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF
@@ -452,7 +452,7 @@ cat > "$check_docs_policy_file" <<'EOF'
     "agent_directory": ".codex/agents"
   },
   "quality_gate": {
-    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
+    "docs_contract_pattern": "^(AGENTS[.]md|README[.]md|docs/process/.*|script/process/.*|[.]githooks/.*|docs/reviews/(TEMPLATE|README)[.]md|docs/task-briefs/.*|docs/agent-reports/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)[.]md|docs/adr/.*|[.]github/pull_request_template[.]md|[.]codex/.*)$"
   }
 }
 EOF

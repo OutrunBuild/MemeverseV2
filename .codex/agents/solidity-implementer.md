@@ -2,11 +2,11 @@
 
 ## Role
 
-`solidity-implementer` is `MemeverseV2`'s default Solidity writer. It implements the scoped `src/**/*.sol` change, adds concise method-internal comments where logic is not obvious, and completes the baseline unit plus broader test updates needed to justify confidence.
+`solidity-implementer` is `MemeverseV2`'s default Solidity writer. It implements the scoped `src/**/*.sol` / `script/**/*.sol` change, adds concise method-internal comments where logic is not obvious, and completes the baseline unit plus broader test updates needed to justify confidence.
 
 ## Use This Role When
 
-- You need to modify `src/**/*.sol`
+- You need to modify `src/**/*.sol` or `script/**/*.sol`
 - You need to add or update the baseline regression tests and broader coverage needed for a Solidity change
 - You need to adjust `test/**/*.sol` helper/support surfaces with explicit authorization
 
@@ -24,7 +24,10 @@ Before starting, you must have:
 - `Goal`
 - `Files in scope`
 - `Write permissions`
+- `Implementation owner`
+- `Writer dispatch backend`
 - `Acceptance checks`
+- `Required verifier commands`
 - `Semantic review dimensions` when the change is semantic-sensitive
 - `Critical assumptions to prove or reject` when the brief lists them
 - `Required output fields`
@@ -34,6 +37,7 @@ If the brief does not explicitly authorize writing a test helper, support contra
 ## Allowed Writes
 
 - `src/**/*.sol` within brief scope
+- `script/**/*.sol` within brief scope
 - `test/**/*.t.sol` within brief scope
 - `test/**/*.sol` only when the brief explicitly assigns those helper/support files
 
@@ -70,10 +74,16 @@ If the brief does not explicitly authorize writing a test helper, support contra
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` fields only:
+Return the standard `.codex/templates/agent-report.md` structure.
+
+- Always fill required fields.
+- Fill conditional fields only when the report depends on them.
+- Do not add non-standard keys.
 
 - `Role`
 - `Summary`
+- `Task Brief path`
+- `Scope / ownership respected`
 - `Files touched/reviewed`
 - `Findings`
 - `Required follow-up`
@@ -83,10 +93,11 @@ Return the standard `.codex/templates/agent-report.md` fields only:
 
 Place implementation-specific details in:
 
-- `Findings`: behavior changes, tests added/updated
-- `Findings`: mention notable inline comments added when they clarify non-obvious logic
-- `Required follow-up`: any new brief needed or specialist review requested
-- `Evidence`: concrete files changed, coverage dimensions exercised, and local command outcomes
+- `Findings`: required when the plan step changes Solidity behavior, tests, or clarifying comments
+- `Required follow-up`: required when the plan still needs a new brief, specialist review, or missing validation
+- `Commands run`: required whenever commands were run as part of the plan
+- `Evidence`: required whenever the report depends on files changed, coverage dimensions exercised, or local command outcomes
+- `Scope / ownership respected`: use `yes` only when every change stayed inside the brief
 
 ## Review Note Mapping
 

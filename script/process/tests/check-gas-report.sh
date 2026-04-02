@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
+source "$(dirname "$0")/lib/common.sh"
 
-tmp_dir="$(mktemp -d)"
+selftest::enter_repo_root
+selftest::setup_tmpdir
 policy_file="$tmp_dir/policy.json"
 fake_forge="$tmp_dir/fake-forge.sh"
 fake_output="$tmp_dir/forge-output.txt"
 fake_snapshot="$tmp_dir/generated-snapshot.txt"
-
-cleanup() {
-    rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
 
 cat > "$policy_file" <<EOF
 {
@@ -63,23 +58,11 @@ EOF
 
 output="$(PROCESS_POLICY_FILE="$policy_file" FORGE_BIN="$fake_forge" FAKE_FORGE_OUTPUT="$fake_output" FAKE_FORGE_SNAPSHOT_SOURCE="$fake_snapshot" bash ./script/process/check-gas-report.sh 2>&1)"
 
-if ! grep -q -- "^snapshot --snap " "$fake_output"; then
-    echo "Expected check-gas-report to call forge snapshot with a temporary output file"
-    cat "$fake_output"
-    exit 1
-fi
+selftest::assert_file_contains "$fake_output" "^snapshot --snap " "Expected check-gas-report to call forge snapshot with a temporary output file"
 
-if printf '%s\n' "$output" | grep -q -- "--check"; then
-    echo "Expected check-gas-report output to avoid baseline comparisons"
-    printf '%s\n' "$output"
-    exit 1
-fi
+selftest::assert_text_lacks "$output" "--check" "Expected check-gas-report output to avoid baseline comparisons"
 
-if ! printf '%s\n' "$output" | grep -q "test:example() (gas: 12345)"; then
-    echo "Expected check-gas-report to print the generated gas report"
-    printf '%s\n' "$output"
-    exit 1
-fi
+selftest::assert_text_contains "$output" "test:example() (gas: 12345)" "Expected check-gas-report to print the generated gas report"
 
 set +e
 failure_output="$(PROCESS_POLICY_FILE="$policy_file" FORGE_BIN="$fake_forge" FAKE_FORGE_OUTPUT="$fake_output" FAKE_FORGE_SNAPSHOT_SOURCE="$fake_snapshot" FAKE_FORGE_EXIT_CODE=1 bash ./script/process/check-gas-report.sh 2>&1)"
@@ -91,11 +74,7 @@ if [ "$failure_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$failure_output" | grep -q "gas report generation failed"; then
-    echo "Expected gas report failure output"
-    printf '%s\n' "$failure_output"
-    exit 1
-fi
+selftest::assert_text_contains "$failure_output" "gas report generation failed" "Expected gas report failure output"
 
 set +e
 missing_output="$(PROCESS_POLICY_FILE="$policy_file" FORGE_BIN="$fake_forge" FAKE_FORGE_OUTPUT="$fake_output" FAKE_FORGE_SNAPSHOT_SOURCE="$fake_snapshot" FAKE_FORGE_WRITE_SNAPSHOT=0 bash ./script/process/check-gas-report.sh 2>&1)"
@@ -107,8 +86,4 @@ if [ "$missing_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$missing_output" | grep -q "gas report was not generated"; then
-    echo "Expected missing gas report output"
-    printf '%s\n' "$failure_output"
-    exit 1
-fi
+selftest::assert_text_contains "$missing_output" "gas report was not generated" "Expected missing gas report output"

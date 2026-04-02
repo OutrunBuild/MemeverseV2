@@ -60,8 +60,28 @@ cat > "$policy_file" <<EOF
     "test_tsol_pattern": "^test/.*\\\\.t\\\\.sol$",
     "test_sol_pattern": "^test/.*\\\\.sol$",
     "shell_pattern": "^(script/.*\\\\.sh|\\\\.githooks/.*)$",
+    "process_surface_pattern": "^(AGENTS\\\\.md|docs/process/.*|\\\\.codex/.*|script/process/.*|\\\\.github/.*|\\\\.githooks/.*|README\\\\.md|docs/reviews/(README|TEMPLATE)\\\\.md|docs/task-briefs/README\\\\.md|docs/agent-reports/README\\\\.md|\\\\.solhint\\\\.json|\\\\.solhintignore)$",
+    "process_js_pattern": "^script/process/.*\\\\.js$",
     "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
     "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\\\.md|docs/spec/.*|docs/adr/.*|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
+    "process_selftest_patterns": [
+      "^docs/process/.*$",
+      "^\\\\.codex/.*$",
+      "^script/process/.*$",
+      "^package(-lock)?\\\\.json$"
+    ],
+    "process_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "package_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
+    "docs_contract_default_roles": [
+      "process-implementer",
+      "verifier"
+    ],
     "review_note_directory": "$review_dir",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits",

@@ -19,20 +19,6 @@ read_policy_value() {
     printf '%s' "$default_value"
 }
 
-find_latest_review_note() {
-    local review_dir
-    review_dir="$(node ./script/process/read-process-config.js policy quality_gate.review_note_directory)"
-
-    if [ ! -d "$review_dir" ]; then
-        return 1
-    fi
-
-    find "$review_dir" -maxdepth 1 -type f -name '*.md' ! -name 'README.md' ! -name 'TEMPLATE.md' -printf '%T@ %p\n' \
-        | sort -nr \
-        | head -n 1 \
-        | cut -d' ' -f2-
-}
-
 load_changed_files_from_ci() {
     if [ -n "${QUALITY_GATE_FILE_LIST:-}" ] && [ -f "${QUALITY_GATE_FILE_LIST}" ]; then
         cat "${QUALITY_GATE_FILE_LIST}"
@@ -65,52 +51,95 @@ load_changed_files() {
     git diff --cached --name-only --diff-filter=ACMRD
 }
 
-review_note="${QUALITY_GATE_REVIEW_NOTE:-}"
+classification_json=""
+codex_auto_required_classifications_json='["prod-semantic","high-risk"]'
+codex_auto_force_env='FORCE_CODEX_REVIEW'
 
-if [ -z "$review_note" ]; then
-    review_note="$(find_latest_review_note || true)"
-fi
+validate_review_note() {
+    local review_note="$1"
+    local changed_files_tmp="$2"
+    local src_sol_pattern="$3"
+    local rule_map_path="$4"
+    local rule_map_evidence_field="$5"
+    local field_owners_json="$6"
+    local owner_prefixed_fields_json="$7"
+    local solidity_required_fields_json="$8"
+    local solidity_boolean_fields_json="$9"
+    local task_brief_field="${10}"
+    local agent_report_field="${11}"
+    local implementation_owner_field="${12}"
+    local writer_dispatch_confirmed_field="${13}"
+    local required_writer_patterns_json="${14}"
+    local task_brief_directory="${15}"
+    local agent_report_directory="${16}"
+    local main_session_role="${17}"
+    local main_session_forbidden_patterns_json="${18}"
+    local review_note_files_field="${19}"
+    local task_brief_semantic_dimensions_field="${20}"
+    local task_brief_source_of_truth_field="${21}"
+    local task_brief_external_sources_field="${22}"
+    local task_brief_critical_assumptions_field="${23}"
+    local task_brief_files_in_scope_field="${24}"
+    local task_brief_default_writer_role_field="${25}"
+    local task_brief_write_permissions_field="${26}"
+    local semantic_dimensions_field="${27}"
+    local source_of_truth_field="${28}"
+    local external_facts_field="${29}"
+    local semantic_alignment_summary_field="${30}"
+    local codex_review_task_brief_token="${31}"
+    local required_verifier_commands_field="${32}"
+    local freshness_source_fields_json="${33}"
+    local review_note_must_postdate_agent_report="${34}"
+    local agent_report_must_postdate_changed_files="${35}"
 
-if [ -z "$review_note" ] || [ ! -f "$review_note" ]; then
-    echo "[check-solidity-review-note] ERROR: review note not found. Set QUALITY_GATE_REVIEW_NOTE or add one under the configured review note directory."
-    exit 1
-fi
+    bash ./script/process/check-review-note.sh "$review_note"
 
-bash ./script/process/check-review-note.sh "$review_note"
-
-changed_files="$(load_changed_files)"
-
-if [ -z "$changed_files" ]; then
-    exit 0
-fi
-
-changed_files_tmp="$(mktemp)"
-trap 'rm -f "$changed_files_tmp"' EXIT
-printf '%s\n' "$changed_files" > "$changed_files_tmp"
-
-rule_map_path="$(node ./script/process/read-process-config.js rule-map __file__)"
-rule_map_evidence_field="$(read_policy_value rule_map.evidence_field 'Existing tests exercised')"
-field_owners_json="$(read_policy_value review_note.field_owners '{}')"
-owner_prefixed_fields_json="$(read_policy_value review_note.owner_prefixed_source_fields '[]')"
-solidity_required_fields_json="$(read_policy_value solidity_review_note.required_fields '[]')"
-solidity_boolean_fields_json="$(read_policy_value solidity_review_note.boolean_fields '[]')"
-task_brief_field="$(read_policy_value solidity_review_note.task_brief_field 'Task Brief path')"
-agent_report_field="$(read_policy_value solidity_review_note.agent_report_field 'Agent Report path')"
-implementation_owner_field="$(read_policy_value solidity_review_note.implementation_owner_field 'Implementation owner')"
-writer_dispatch_confirmed_field="$(read_policy_value solidity_review_note.writer_dispatch_confirmed_field 'Writer dispatch confirmed')"
-required_writer_patterns_json="$(read_policy_value agents.required_writer_for_patterns '{}')"
-task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/task-briefs')"
-agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
-main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
-main_session_forbidden_patterns_json="$(read_policy_value agents.main_session_forbidden_write_patterns '[]')"
-
-RULE_MAP_PATH="$rule_map_path" RULE_MAP_EVIDENCE_FIELD="$rule_map_evidence_field" REVIEW_FIELD_OWNERS="$field_owners_json" REVIEW_OWNER_PREFIXED_FIELDS="$owner_prefixed_fields_json" SOLIDITY_REQUIRED_FIELDS="$solidity_required_fields_json" SOLIDITY_BOOLEAN_FIELDS="$solidity_boolean_fields_json" TASK_BRIEF_FIELD="$task_brief_field" AGENT_REPORT_FIELD="$agent_report_field" IMPLEMENTATION_OWNER_FIELD="$implementation_owner_field" WRITER_DISPATCH_CONFIRMED_FIELD="$writer_dispatch_confirmed_field" REQUIRED_WRITER_PATTERNS="$required_writer_patterns_json" TASK_BRIEF_DIRECTORY="$task_brief_directory" AGENT_REPORT_DIRECTORY="$agent_report_directory" MAIN_SESSION_ROLE="$main_session_role" MAIN_SESSION_FORBIDDEN_PATTERNS="$main_session_forbidden_patterns_json" node - "$review_note" "$changed_files_tmp" <<'EOF'
+    RULE_MAP_PATH="$rule_map_path" \
+    RULE_MAP_EVIDENCE_FIELD="$rule_map_evidence_field" \
+    SRC_SOL_PATTERN="$src_sol_pattern" \
+    REVIEW_FIELD_OWNERS="$field_owners_json" \
+    REVIEW_OWNER_PREFIXED_FIELDS="$owner_prefixed_fields_json" \
+    SOLIDITY_REQUIRED_FIELDS="$solidity_required_fields_json" \
+    SOLIDITY_BOOLEAN_FIELDS="$solidity_boolean_fields_json" \
+    TASK_BRIEF_FIELD="$task_brief_field" \
+    AGENT_REPORT_FIELD="$agent_report_field" \
+    IMPLEMENTATION_OWNER_FIELD="$implementation_owner_field" \
+    WRITER_DISPATCH_CONFIRMED_FIELD="$writer_dispatch_confirmed_field" \
+    REQUIRED_WRITER_PATTERNS="$required_writer_patterns_json" \
+    TASK_BRIEF_DIRECTORY="$task_brief_directory" \
+    AGENT_REPORT_DIRECTORY="$agent_report_directory" \
+    MAIN_SESSION_ROLE="$main_session_role" \
+    MAIN_SESSION_FORBIDDEN_PATTERNS="$main_session_forbidden_patterns_json" \
+    REVIEW_NOTE_FILES_FIELD="$review_note_files_field" \
+    TASK_BRIEF_SEMANTIC_DIMENSIONS_FIELD="$task_brief_semantic_dimensions_field" \
+    TASK_BRIEF_SOURCE_OF_TRUTH_FIELD="$task_brief_source_of_truth_field" \
+    TASK_BRIEF_EXTERNAL_SOURCES_FIELD="$task_brief_external_sources_field" \
+    TASK_BRIEF_CRITICAL_ASSUMPTIONS_FIELD="$task_brief_critical_assumptions_field" \
+    TASK_BRIEF_FILES_IN_SCOPE_FIELD="$task_brief_files_in_scope_field" \
+    TASK_BRIEF_DEFAULT_WRITER_ROLE_FIELD="$task_brief_default_writer_role_field" \
+    TASK_BRIEF_WRITE_PERMISSIONS_FIELD="$task_brief_write_permissions_field" \
+    SEMANTIC_DIMENSIONS_FIELD="$semantic_dimensions_field" \
+    SOURCE_OF_TRUTH_FIELD="$source_of_truth_field" \
+    EXTERNAL_FACTS_FIELD="$external_facts_field" \
+    SEMANTIC_ALIGNMENT_SUMMARY_FIELD="$semantic_alignment_summary_field" \
+    CODEX_REVIEW_TASK_BRIEF_TOKEN="$codex_review_task_brief_token" \
+    REQUIRED_VERIFIER_COMMANDS_FIELD="$required_verifier_commands_field" \
+    FRESHNESS_SOURCE_FIELDS="$freshness_source_fields_json" \
+    REVIEW_NOTE_MUST_POSTDATE_AGENT_REPORT="$review_note_must_postdate_agent_report" \
+    AGENT_REPORT_MUST_POSTDATE_CHANGED_FILES="$agent_report_must_postdate_changed_files" \
+    CLASSIFICATION_RESULT="$classification_json" \
+    CODEX_AUTO_REQUIRED_CLASSIFICATIONS="$codex_auto_required_classifications_json" \
+    CODEX_AUTO_FORCE_ENV="$codex_auto_force_env" \
+    node - "$review_note" "$changed_files_tmp" <<'EOF'
 const fs = require('fs');
 const childProcess = require('child_process');
 const path = require('path');
 
 const [, , reviewNotePath, changedFilesPath] = process.argv;
 const reviewNote = fs.readFileSync(reviewNotePath, 'utf8');
+const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
+const srcSolPattern = new RegExp(process.env.SRC_SOL_PATTERN || '^src/.*\\.sol$');
+const changedSrcFiles = changedFiles.filter((file) => srcSolPattern.test(file));
 const evidenceField = process.env.RULE_MAP_EVIDENCE_FIELD || 'Existing tests exercised';
 const fieldOwners = JSON.parse(process.env.REVIEW_FIELD_OWNERS || '{}');
 const ownerPrefixedFields = JSON.parse(process.env.REVIEW_OWNER_PREFIXED_FIELDS || '[]');
@@ -120,27 +149,33 @@ const requiredWriterPatterns = JSON.parse(process.env.REQUIRED_WRITER_PATTERNS |
 const configuredTaskBriefDirectory = process.env.TASK_BRIEF_DIRECTORY || 'docs/task-briefs';
 const configuredAgentReportDirectory = process.env.AGENT_REPORT_DIRECTORY || 'docs/agent-reports';
 const mainSessionForbiddenPatterns = JSON.parse(process.env.MAIN_SESSION_FORBIDDEN_PATTERNS || '[]');
+const freshnessSourceFields = JSON.parse(process.env.FRESHNESS_SOURCE_FIELDS || '[]');
 const taskBriefField = process.env.TASK_BRIEF_FIELD || 'Task Brief path';
 const agentReportField = process.env.AGENT_REPORT_FIELD || 'Agent Report path';
 const implementationOwnerField = process.env.IMPLEMENTATION_OWNER_FIELD || 'Implementation owner';
 const writerDispatchConfirmedField = process.env.WRITER_DISPATCH_CONFIRMED_FIELD || 'Writer dispatch confirmed';
+const reviewNoteFilesField = process.env.REVIEW_NOTE_FILES_FIELD || 'Files reviewed';
+const taskBriefSemanticDimensionsField = process.env.TASK_BRIEF_SEMANTIC_DIMENSIONS_FIELD || 'Semantic review dimensions';
+const taskBriefSourceOfTruthField = process.env.TASK_BRIEF_SOURCE_OF_TRUTH_FIELD || 'Source-of-truth docs';
+const taskBriefExternalSourcesField = process.env.TASK_BRIEF_EXTERNAL_SOURCES_FIELD || 'External sources required';
+const taskBriefCriticalAssumptionsField = process.env.TASK_BRIEF_CRITICAL_ASSUMPTIONS_FIELD || 'Critical assumptions to prove or reject';
+const taskBriefFilesInScopeField = process.env.TASK_BRIEF_FILES_IN_SCOPE_FIELD || 'Files in scope';
+const taskBriefDefaultWriterRoleField = process.env.TASK_BRIEF_DEFAULT_WRITER_ROLE_FIELD || 'Default writer role';
+const taskBriefWritePermissionsField = process.env.TASK_BRIEF_WRITE_PERMISSIONS_FIELD || 'Write permissions';
+const semanticDimensionsField = process.env.SEMANTIC_DIMENSIONS_FIELD || 'Semantic dimensions reviewed';
+const sourceOfTruthField = process.env.SOURCE_OF_TRUTH_FIELD || 'Source-of-truth docs checked';
+const externalFactsField = process.env.EXTERNAL_FACTS_FIELD || 'External facts checked';
+const semanticAlignmentSummaryField = process.env.SEMANTIC_ALIGNMENT_SUMMARY_FIELD || 'Semantic alignment summary';
+const codexReviewTaskBriefToken = process.env.CODEX_REVIEW_TASK_BRIEF_TOKEN || 'npm run codex:review';
+const requiredVerifierCommandsField = process.env.REQUIRED_VERIFIER_COMMANDS_FIELD || 'Required verifier commands';
+const classificationResult = JSON.parse(process.env.CLASSIFICATION_RESULT || '{}');
+const codexAutoRequiredClassifications = JSON.parse(process.env.CODEX_AUTO_REQUIRED_CLASSIFICATIONS || '["prod-semantic","high-risk"]');
+const codexAutoForceEnv = process.env.CODEX_AUTO_FORCE_ENV || 'FORCE_CODEX_REVIEW';
 const mainSessionRole = process.env.MAIN_SESSION_ROLE || 'main-orchestrator';
-const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
-const evidenceRequirements = JSON.parse(
-  childProcess.execFileSync(
-    'node',
-    ['./script/process/read-process-config.js', 'rule-map', 'triggered.evidence.requirements'],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        PROCESS_CHANGED_FILES_FILE: changedFilesPath,
-        PROCESS_RULE_MAP_FILE: process.env.RULE_MAP_PATH
-      },
-      encoding: 'utf8'
-    }
-  )
-);
+const reviewNoteMustPostdateAgentReport = process.env.REVIEW_NOTE_MUST_POSTDATE_AGENT_REPORT === 'true';
+const agentReportMustPostdateChangedFiles = process.env.AGENT_REPORT_MUST_POSTDATE_CHANGED_FILES === 'true';
+const optionalOwnerPrefixedFields = new Set(['Rule-map evidence source']);
+const classifierClassification = classificationResult.classification || 'none';
 
 function extractField(document, field) {
   const prefix = `- ${field}:`;
@@ -152,6 +187,66 @@ function extractField(document, field) {
   return '';
 }
 
+function splitFieldValues(value) {
+  return value
+    .split(/[;\n]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeComparable(value) {
+  return value.trim().toLowerCase();
+}
+
+function isNoneLike(value) {
+  const normalized = normalizeComparable(value);
+  return normalized === '' || normalized === 'none' || normalized === 'n/a' || normalized === 'na';
+}
+
+function isTruthy(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function includesEveryExpected(actualValue, expectedValue) {
+  if (isNoneLike(expectedValue)) return true;
+
+  const actualEntries = splitFieldValues(actualValue).map(normalizeComparable);
+  const expectedEntries = splitFieldValues(expectedValue).map(normalizeComparable);
+  return expectedEntries.every((entry) => actualEntries.includes(entry));
+}
+
+function referencesChangedSrcPath(value) {
+  return changedSrcFiles.some((changedFile) => {
+    const escaped = changedFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(^|[\\s,;])${escaped}($|[\\s,;])`);
+    return pattern.test(value);
+  });
+}
+
+function ensureUnderDirectory(candidatePath, directoryPath) {
+  const resolvedCandidate = path.resolve(candidatePath);
+  const resolvedDirectory = path.resolve(directoryPath);
+  return (
+    resolvedCandidate === resolvedDirectory ||
+    resolvedCandidate.startsWith(`${resolvedDirectory}${path.sep}`)
+  );
+}
+
+function parseOwnerPrefixedEntries(value) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const separatorIndex = entry.indexOf(':');
+      return {
+        entry,
+        owner: separatorIndex > -1 ? entry.slice(0, separatorIndex).trim() : '',
+        source: separatorIndex > -1 ? entry.slice(separatorIndex + 1).trim() : '',
+      };
+    });
+}
+
 function evaluateEvidence(mode, candidates, evidenceValue) {
   if (mode === 'none') return true;
   if (candidates.length === 0) return true;
@@ -160,25 +255,54 @@ function evaluateEvidence(mode, candidates, evidenceValue) {
   throw new Error(`Unsupported evidence_requirement mode: ${mode}`);
 }
 
+function fileMtimeMs(filePath) {
+  return fs.statSync(filePath).mtimeMs;
+}
+
+function gatherEvidenceRequirements() {
+  try {
+    return JSON.parse(
+      childProcess.execFileSync(
+        'node',
+        ['./script/process/read-process-config.js', 'rule-map', 'triggered.evidence.requirements'],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            PROCESS_CHANGED_FILES_FILE: changedFilesPath,
+            PROCESS_RULE_MAP_FILE: process.env.RULE_MAP_PATH,
+          },
+          encoding: 'utf8',
+        }
+      )
+    );
+  } catch (error) {
+    return [];
+  }
+}
+
+const evidenceRequirements = gatherEvidenceRequirements();
+const failures = [];
+
+if (changedSrcFiles.length === 0) {
+  process.exit(0);
+}
+
 if (fieldOwners == null || typeof fieldOwners !== 'object' || Array.isArray(fieldOwners)) {
   throw new Error('review_note.field_owners must be a JSON object');
 }
-
 if (!Array.isArray(ownerPrefixedFields)) {
   throw new Error('review_note.owner_prefixed_source_fields must be an array');
 }
-
 if (!Array.isArray(solidityRequiredFields)) {
   throw new Error('solidity_review_note.required_fields must be an array');
 }
-
 if (!Array.isArray(solidityBooleanFields)) {
   throw new Error('solidity_review_note.boolean_fields must be an array');
 }
-
-const failures = [];
-const evidenceValue = extractField(reviewNote, evidenceField);
-const optionalOwnerPrefixedFields = new Set(['Rule-map evidence source']);
+if (!Array.isArray(freshnessSourceFields)) {
+  throw new Error('solidity_review_note.freshness_source_fields must be an array');
+}
 
 for (const field of solidityRequiredFields) {
   const value = extractField(reviewNote, field).trim();
@@ -192,51 +316,90 @@ for (const field of solidityRequiredFields) {
   }
 }
 
+const reviewNoteFiles = extractField(reviewNote, reviewNoteFilesField).trim();
+if (!referencesChangedSrcPath(reviewNoteFiles)) {
+  failures.push(
+    `${reviewNoteFilesField}: review note must reference at least one changed production Solidity paths entry: ${changedSrcFiles.join(', ')}`
+  );
+}
+
 const taskBriefPath = extractField(reviewNote, taskBriefField).trim();
+let taskBrief = '';
 if (taskBriefPath !== '') {
   const resolvedTaskBriefPath = path.resolve(taskBriefPath);
   if (!fs.existsSync(resolvedTaskBriefPath)) {
     failures.push(`${taskBriefField}: '${taskBriefPath}' does not exist.`);
+  } else if (!ensureUnderDirectory(resolvedTaskBriefPath, configuredTaskBriefDirectory)) {
+    failures.push(
+      `${taskBriefField}: '${taskBriefPath}' must live under the configured task-brief directory '${configuredTaskBriefDirectory}'.`
+    );
   } else {
-    const resolvedTaskBriefDirectory = path.resolve(configuredTaskBriefDirectory);
-    if (!(resolvedTaskBriefPath === resolvedTaskBriefDirectory || resolvedTaskBriefPath.startsWith(`${resolvedTaskBriefDirectory}${path.sep}`))) {
-      failures.push(`${taskBriefField}: '${taskBriefPath}' must live under the configured brief directory '${configuredTaskBriefDirectory}'.`);
+    taskBrief = fs.readFileSync(resolvedTaskBriefPath, 'utf8');
+    const taskBriefFilesInScope = extractField(taskBrief, taskBriefFilesInScopeField).trim();
+    if (!referencesChangedSrcPath(taskBriefFilesInScope)) {
+      failures.push(
+        `${taskBriefFilesInScopeField}: task brief must include at least one changed production Solidity path: ${changedSrcFiles.join(', ')}`
+      );
+    }
+
+    const taskBriefWritePermissions = extractField(taskBrief, taskBriefWritePermissionsField).trim();
+    if (!referencesChangedSrcPath(taskBriefWritePermissions)) {
+      failures.push(
+        `${taskBriefWritePermissionsField}: task brief must include at least one changed production Solidity path: ${changedSrcFiles.join(', ')}`
+      );
+    }
+
+    const taskBriefDefaultWriterRole = extractField(taskBrief, taskBriefDefaultWriterRoleField).trim();
+    if (taskBriefDefaultWriterRole === '') {
+      failures.push(`${taskBriefDefaultWriterRoleField}: task brief field must not be blank.`);
+    }
+
+    const requiredVerifierCommands = extractField(taskBrief, requiredVerifierCommandsField).trim();
+    const autoCodexReviewRequired =
+      (Array.isArray(codexAutoRequiredClassifications) && codexAutoRequiredClassifications.includes(classifierClassification)) ||
+      isTruthy(process.env[codexAutoForceEnv]);
+    if (autoCodexReviewRequired && !requiredVerifierCommands.includes(codexReviewTaskBriefToken)) {
+      failures.push(
+        `${requiredVerifierCommandsField}: must include '${codexReviewTaskBriefToken}' for Solidity changes.`
+      );
+    }
+
+    const expectedSemanticDimensions = extractField(taskBrief, taskBriefSemanticDimensionsField).trim();
+    const actualSemanticDimensions = extractField(reviewNote, semanticDimensionsField).trim();
+    if (!includesEveryExpected(actualSemanticDimensions, expectedSemanticDimensions)) {
+      failures.push(
+        `${semanticDimensionsField}: does not cover task brief ${taskBriefSemanticDimensionsField} '${expectedSemanticDimensions}'.`
+      );
+    }
+
+    const expectedSourceDocs = extractField(taskBrief, taskBriefSourceOfTruthField).trim();
+    const actualSourceDocs = extractField(reviewNote, sourceOfTruthField).trim();
+    if (!includesEveryExpected(actualSourceDocs, expectedSourceDocs)) {
+      failures.push(
+        `${sourceOfTruthField}: does not cover task brief ${taskBriefSourceOfTruthField} '${expectedSourceDocs}'.`
+      );
+    }
+
+    const expectedExternalSources = extractField(taskBrief, taskBriefExternalSourcesField).trim();
+    const actualExternalFacts = extractField(reviewNote, externalFactsField).trim();
+    if (!includesEveryExpected(actualExternalFacts, expectedExternalSources)) {
+      failures.push(
+        `${externalFactsField}: does not cover task brief ${taskBriefExternalSourcesField} '${expectedExternalSources}'.`
+      );
+    }
+
+    const expectedAssumptions = extractField(taskBrief, taskBriefCriticalAssumptionsField).trim();
+    const semanticAlignmentSummary = extractField(reviewNote, semanticAlignmentSummaryField).trim();
+    if (!includesEveryExpected(semanticAlignmentSummary, expectedAssumptions)) {
+      failures.push(
+        `${taskBriefCriticalAssumptionsField}: review note ${semanticAlignmentSummaryField} does not cover '${expectedAssumptions}'.`
+      );
     }
   }
 }
 
 const implementationOwner = extractField(reviewNote, implementationOwnerField).trim();
-const agentReportPath = extractField(reviewNote, agentReportField).trim();
-if (agentReportPath !== '') {
-  const resolvedAgentReportPath = path.resolve(agentReportPath);
-  const resolvedAgentReportDirectory = path.resolve(configuredAgentReportDirectory);
-  if (!fs.existsSync(resolvedAgentReportPath)) {
-    failures.push(`${agentReportField}: '${agentReportPath}' does not exist.`);
-  } else if (!(resolvedAgentReportPath === resolvedAgentReportDirectory || resolvedAgentReportPath.startsWith(`${resolvedAgentReportDirectory}${path.sep}`))) {
-    failures.push(`${agentReportField}: '${agentReportPath}' must live under the configured agent-report directory '${configuredAgentReportDirectory}'.`);
-  } else {
-    const agentReport = fs.readFileSync(resolvedAgentReportPath, 'utf8');
-    const agentReportRole = extractField(agentReport, 'Role').trim();
-    const agentReportFiles = extractField(agentReport, 'Files touched/reviewed').trim();
-
-    if (agentReportRole === '') {
-      failures.push(`${agentReportField}: missing '- Role:' in agent report.`);
-    } else if (implementationOwner !== '' && agentReportRole !== implementationOwner) {
-      failures.push(
-        `${agentReportField}: agent report role '${agentReportRole}' does not match ${implementationOwnerField} '${implementationOwner}'.`
-      );
-    }
-
-    if (agentReportFiles === '') {
-      failures.push(`${agentReportField}: missing '- Files touched/reviewed:' in agent report.`);
-    } else if (!changedFiles.some((changedFile) => agentReportFiles.includes(changedFile))) {
-      failures.push(`${agentReportField}: agent report files do not reference any changed Solidity path.`);
-    }
-  }
-}
-
 const writerDispatchConfirmed = extractField(reviewNote, writerDispatchConfirmedField).trim();
-
 if (writerDispatchConfirmed !== '' && writerDispatchConfirmed !== 'yes') {
   failures.push(`${writerDispatchConfirmedField}: must be 'yes' for Solidity changes.`);
 }
@@ -244,8 +407,7 @@ if (writerDispatchConfirmed !== '' && writerDispatchConfirmed !== 'yes') {
 const matchedRequiredOwners = new Set();
 for (const changedFile of changedFiles) {
   for (const [pattern, owner] of Object.entries(requiredWriterPatterns)) {
-    const regex = new RegExp(pattern);
-    if (regex.test(changedFile)) {
+    if (new RegExp(pattern).test(changedFile)) {
       matchedRequiredOwners.add(owner);
     }
   }
@@ -260,10 +422,63 @@ if (matchedRequiredOwners.size > 0 && implementationOwner !== '' && !matchedRequ
 for (const pattern of mainSessionForbiddenPatterns) {
   const regex = new RegExp(pattern);
   if (changedFiles.some((changedFile) => regex.test(changedFile)) && implementationOwner === mainSessionRole) {
-    failures.push(
-      `${implementationOwnerField}: '${mainSessionRole}' is forbidden for the current Solidity write paths.`
-    );
+    failures.push(`${implementationOwnerField}: '${mainSessionRole}' is forbidden for the current Solidity write paths.`);
     break;
+  }
+}
+
+const agentReportPath = extractField(reviewNote, agentReportField).trim();
+let agentReportMtime = null;
+if (agentReportPath !== '') {
+  const resolvedAgentReportPath = path.resolve(agentReportPath);
+  if (!fs.existsSync(resolvedAgentReportPath)) {
+    failures.push(`${agentReportField}: '${agentReportPath}' does not exist.`);
+  } else if (!ensureUnderDirectory(resolvedAgentReportPath, configuredAgentReportDirectory)) {
+    failures.push(
+      `${agentReportField}: '${agentReportPath}' must live under the configured agent-report directory '${configuredAgentReportDirectory}'.`
+    );
+  } else {
+    const agentReport = fs.readFileSync(resolvedAgentReportPath, 'utf8');
+    const agentReportRole = extractField(agentReport, 'Role').trim();
+    const agentReportFiles = extractField(agentReport, 'Files touched/reviewed').trim();
+    agentReportMtime = fileMtimeMs(resolvedAgentReportPath);
+
+    if (agentReportRole === '') {
+      failures.push(`${agentReportField}: missing '- Role:' in agent report.`);
+    } else if (implementationOwner !== '' && agentReportRole !== implementationOwner) {
+      failures.push(
+        `${agentReportField}: agent report role '${agentReportRole}' does not match ${implementationOwnerField} '${implementationOwner}'.`
+      );
+    }
+
+    if (agentReportFiles === '') {
+      failures.push(`${agentReportField}: missing '- Files touched/reviewed:' in agent report.`);
+    } else if (!referencesChangedSrcPath(agentReportFiles)) {
+      failures.push(
+        `${agentReportField}: agent report must reference at least one changed production Solidity paths entry: ${changedSrcFiles.join(', ')}`
+      );
+    }
+
+    if (agentReportMustPostdateChangedFiles) {
+      for (const changedSrcFile of changedSrcFiles) {
+        if (!fs.existsSync(changedSrcFile)) continue;
+        if (agentReportMtime <= fileMtimeMs(changedSrcFile)) {
+          failures.push(
+            `${agentReportField}: stale evidence. Agent Report must postdate changed production Solidity file '${changedSrcFile}'.`
+          );
+          break;
+        }
+      }
+    }
+
+    if (reviewNoteMustPostdateAgentReport) {
+      const reviewNoteMtime = fileMtimeMs(reviewNotePath);
+      if (reviewNoteMtime <= agentReportMtime) {
+        failures.push(
+          `${agentReportField}: stale evidence. Review note must postdate the current writer Agent Report.`
+        );
+      }
+    }
   }
 }
 
@@ -280,8 +495,7 @@ for (const field of ownerPrefixedFields) {
     continue;
   }
 
-  const normalized = value.toLowerCase();
-  if (normalized === 'none' || normalized === 'n/a' || normalized === 'na') continue;
+  if (isNoneLike(value)) continue;
 
   const rawAllowedOwners = fieldOwners?.[field];
   if (rawAllowedOwners !== undefined && typeof rawAllowedOwners !== 'string') {
@@ -292,33 +506,33 @@ for (const field of ownerPrefixedFields) {
     ? rawAllowedOwners.split('|').map((owner) => owner.trim()).filter(Boolean)
     : [];
 
-  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean);
-  for (const entry of entries) {
-    const separatorIndex = entry.indexOf(':');
-    if (separatorIndex <= 0 || separatorIndex >= entry.length - 1) {
-      failures.push(
-        `${field}: '${entry}' must use '<owner>:<source>' format.`
-      );
+  for (const parsedEntry of parseOwnerPrefixedEntries(value)) {
+    if (parsedEntry.owner === '' || parsedEntry.source === '') {
+      failures.push(`${field}: '${parsedEntry.entry}' must use '<owner>:<source>' format.`);
       continue;
     }
 
-    const owner = entry.slice(0, separatorIndex).trim();
-    const source = entry.slice(separatorIndex + 1).trim();
-    if (owner === '' || source === '') {
+    if (allowedOwners.length > 0 && !allowedOwners.includes(parsedEntry.owner)) {
       failures.push(
-        `${field}: '${entry}' must include both owner and source after ':'.`
+        `${field}: owner '${parsedEntry.owner}' is not allowed. Expected one of: ${allowedOwners.join(', ')}`
       );
-      continue;
     }
 
-    if (allowedOwners.length > 0 && !allowedOwners.includes(owner)) {
+    if (
+      agentReportMtime != null &&
+      freshnessSourceFields.includes(field) &&
+      fs.existsSync(parsedEntry.source) &&
+      fs.statSync(parsedEntry.source).isFile() &&
+      fileMtimeMs(parsedEntry.source) <= agentReportMtime
+    ) {
       failures.push(
-        `${field}: owner '${owner}' is not allowed. Expected one of: ${allowedOwners.join(', ')}`
+        `${field}: stale evidence. '${parsedEntry.source}' predates the current writer Agent Report.`
       );
     }
   }
-} 
+}
 
+const evidenceValue = extractField(reviewNote, evidenceField);
 for (const requirement of evidenceRequirements) {
   if (!evaluateEvidence(requirement.mode, requirement.tests, evidenceValue)) {
     failures.push(
@@ -334,3 +548,187 @@ if (failures.length > 0) {
   process.exit(1);
 }
 EOF
+}
+
+changed_files="$(load_changed_files)"
+if [ -z "$changed_files" ]; then
+    exit 0
+fi
+
+changed_files_tmp="$(mktemp)"
+trap 'rm -f "$changed_files_tmp"' EXIT
+printf '%s\n' "$changed_files" > "$changed_files_tmp"
+classification_json="$(QUALITY_GATE_MODE="$mode" QUALITY_GATE_FILE_LIST="$changed_files_tmp" CHANGE_CLASSIFIER_FORCE="${CHANGE_CLASSIFIER_FORCE:-}" CHANGE_CLASSIFIER_DIFF_FILE="${CHANGE_CLASSIFIER_DIFF_FILE:-}" node ./script/process/classify-change.js)"
+
+src_sol_pattern="$(read_policy_value quality_gate.src_sol_pattern '^src/.*\.sol$')"
+if ! node - "$changed_files_tmp" "$src_sol_pattern" <<'EOF'
+const fs = require('fs');
+const [changedFilesPath, patternText] = process.argv.slice(2);
+const pattern = new RegExp(patternText);
+const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
+process.exit(changedFiles.some((file) => pattern.test(file)) ? 0 : 1);
+EOF
+then
+    exit 0
+fi
+
+review_dir="$(read_policy_value quality_gate.review_note_directory 'docs/reviews')"
+rule_map_path="$(node ./script/process/read-process-config.js rule-map __file__)"
+rule_map_evidence_field="$(read_policy_value rule_map.evidence_field 'Existing tests exercised')"
+field_owners_json="$(read_policy_value review_note.field_owners '{}')"
+owner_prefixed_fields_json="$(read_policy_value review_note.owner_prefixed_source_fields '[]')"
+solidity_required_fields_json="$(read_policy_value solidity_review_note.required_fields '[]')"
+solidity_boolean_fields_json="$(read_policy_value solidity_review_note.boolean_fields '[]')"
+task_brief_field="$(read_policy_value solidity_review_note.task_brief_field 'Task Brief path')"
+agent_report_field="$(read_policy_value solidity_review_note.agent_report_field 'Agent Report path')"
+implementation_owner_field="$(read_policy_value solidity_review_note.implementation_owner_field 'Implementation owner')"
+writer_dispatch_confirmed_field="$(read_policy_value solidity_review_note.writer_dispatch_confirmed_field 'Writer dispatch confirmed')"
+required_writer_patterns_json="$(read_policy_value agents.required_writer_for_patterns '{}')"
+task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/task-briefs')"
+agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
+main_session_role="$(read_policy_value agents.main_session_role 'main-orchestrator')"
+main_session_forbidden_patterns_json="$(read_policy_value agents.main_session_forbidden_write_patterns '[]')"
+review_note_files_field="$(read_policy_value review_note.files_field 'Files reviewed')"
+task_brief_semantic_dimensions_field="$(read_policy_value solidity_review_note.task_brief_semantic_dimensions_field 'Semantic review dimensions')"
+task_brief_source_of_truth_field="$(read_policy_value solidity_review_note.task_brief_source_of_truth_field 'Source-of-truth docs')"
+task_brief_external_sources_field="$(read_policy_value solidity_review_note.task_brief_external_sources_field 'External sources required')"
+task_brief_critical_assumptions_field="$(read_policy_value solidity_review_note.task_brief_critical_assumptions_field 'Critical assumptions to prove or reject')"
+task_brief_files_in_scope_field="$(read_policy_value solidity_review_note.task_brief_files_in_scope_field 'Files in scope')"
+task_brief_default_writer_role_field="$(read_policy_value solidity_review_note.task_brief_default_writer_role_field 'Default writer role')"
+task_brief_write_permissions_field="$(read_policy_value solidity_review_note.task_brief_write_permissions_field 'Write permissions')"
+semantic_dimensions_field="$(read_policy_value solidity_review_note.semantic_dimensions_field 'Semantic dimensions reviewed')"
+source_of_truth_field="$(read_policy_value solidity_review_note.source_of_truth_field 'Source-of-truth docs checked')"
+external_facts_field="$(read_policy_value solidity_review_note.external_facts_field 'External facts checked')"
+semantic_alignment_summary_field="$(read_policy_value solidity_review_note.semantic_alignment_summary_field 'Semantic alignment summary')"
+required_verifier_commands_field="$(read_policy_value task_brief.required_verifier_commands_field 'Required verifier commands')"
+codex_review_task_brief_token="$(read_policy_value verifier.codex_review.task_brief_token 'npm run codex:review')"
+codex_auto_required_classifications_json="$(read_policy_value verifier.auto_codex_review.required_classifications '["prod-semantic","high-risk"]')"
+codex_auto_force_env="$(read_policy_value verifier.auto_codex_review.force_env 'FORCE_CODEX_REVIEW')"
+freshness_source_fields_json="$(read_policy_value solidity_review_note.freshness_source_fields '[]')"
+if [ "$freshness_source_fields_json" = '[]' ]; then
+    freshness_source_fields_json='["Logic evidence source","Security evidence source","Gas evidence source","Verification evidence source"]'
+fi
+review_note_must_postdate_agent_report="$(read_policy_value solidity_review_note.review_note_must_postdate_agent_report true)"
+agent_report_must_postdate_changed_files="$(read_policy_value solidity_review_note.agent_report_must_postdate_changed_files true)"
+
+review_note="${QUALITY_GATE_REVIEW_NOTE:-}"
+
+if [ -n "$review_note" ]; then
+    if [ ! -f "$review_note" ]; then
+        echo "[check-solidity-review-note] ERROR: review note not found. Set QUALITY_GATE_REVIEW_NOTE or add one under the configured review note directory."
+        exit 1
+    fi
+
+    validate_review_note \
+        "$review_note" \
+        "$changed_files_tmp" \
+        "$src_sol_pattern" \
+        "$rule_map_path" \
+        "$rule_map_evidence_field" \
+        "$field_owners_json" \
+        "$owner_prefixed_fields_json" \
+        "$solidity_required_fields_json" \
+        "$solidity_boolean_fields_json" \
+        "$task_brief_field" \
+        "$agent_report_field" \
+        "$implementation_owner_field" \
+        "$writer_dispatch_confirmed_field" \
+        "$required_writer_patterns_json" \
+        "$task_brief_directory" \
+        "$agent_report_directory" \
+        "$main_session_role" \
+        "$main_session_forbidden_patterns_json" \
+        "$review_note_files_field" \
+        "$task_brief_semantic_dimensions_field" \
+        "$task_brief_source_of_truth_field" \
+        "$task_brief_external_sources_field" \
+        "$task_brief_critical_assumptions_field" \
+        "$task_brief_files_in_scope_field" \
+        "$task_brief_default_writer_role_field" \
+        "$task_brief_write_permissions_field" \
+        "$semantic_dimensions_field" \
+        "$source_of_truth_field" \
+        "$external_facts_field" \
+        "$semantic_alignment_summary_field" \
+        "$codex_review_task_brief_token" \
+        "$required_verifier_commands_field" \
+        "$freshness_source_fields_json" \
+        "$review_note_must_postdate_agent_report" \
+        "$agent_report_must_postdate_changed_files"
+    exit 0
+fi
+
+if [ ! -d "$review_dir" ]; then
+    echo "[check-solidity-review-note] ERROR: review note not found. Set QUALITY_GATE_REVIEW_NOTE or add one under the configured review note directory."
+    exit 1
+fi
+
+mapfile -t review_notes < <(
+    find "$review_dir" -maxdepth 1 -type f -name '*.md' ! -name 'README.md' ! -name 'TEMPLATE.md' -printf '%T@ %p\n' \
+        | sort -nr \
+        | cut -d' ' -f2-
+)
+
+if [ "${#review_notes[@]}" -eq 0 ]; then
+    echo "[check-solidity-review-note] ERROR: review note not found. Set QUALITY_GATE_REVIEW_NOTE or add one under the configured review note directory."
+    exit 1
+fi
+
+first_failure=""
+for candidate in "${review_notes[@]}"; do
+    set +e
+    candidate_output="$(
+        validate_review_note \
+            "$candidate" \
+            "$changed_files_tmp" \
+            "$src_sol_pattern" \
+            "$rule_map_path" \
+            "$rule_map_evidence_field" \
+            "$field_owners_json" \
+            "$owner_prefixed_fields_json" \
+            "$solidity_required_fields_json" \
+            "$solidity_boolean_fields_json" \
+            "$task_brief_field" \
+            "$agent_report_field" \
+            "$implementation_owner_field" \
+            "$writer_dispatch_confirmed_field" \
+            "$required_writer_patterns_json" \
+            "$task_brief_directory" \
+            "$agent_report_directory" \
+            "$main_session_role" \
+            "$main_session_forbidden_patterns_json" \
+            "$review_note_files_field" \
+            "$task_brief_semantic_dimensions_field" \
+            "$task_brief_source_of_truth_field" \
+            "$task_brief_external_sources_field" \
+            "$task_brief_critical_assumptions_field" \
+            "$task_brief_files_in_scope_field" \
+            "$task_brief_default_writer_role_field" \
+            "$task_brief_write_permissions_field" \
+            "$semantic_dimensions_field" \
+            "$source_of_truth_field" \
+            "$external_facts_field" \
+            "$semantic_alignment_summary_field" \
+            "$codex_review_task_brief_token" \
+            "$required_verifier_commands_field" \
+            "$freshness_source_fields_json" \
+            "$review_note_must_postdate_agent_report" \
+            "$agent_report_must_postdate_changed_files" 2>&1
+    )"
+    candidate_status=$?
+    set -e
+
+    if [ "$candidate_status" -eq 0 ]; then
+        if [ -n "$candidate_output" ]; then
+            printf '%s\n' "$candidate_output"
+        fi
+        exit 0
+    fi
+
+    if [ -z "$first_failure" ]; then
+        first_failure="$candidate_output"
+    fi
+done
+
+printf '%s\n' "$first_failure"
+exit 1

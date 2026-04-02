@@ -25,7 +25,10 @@
     "quality:quick": "$npm_execpath run lint:sol && bash ./script/process/quality-quick.sh",
     "quality:gate": "$npm_execpath run lint:sol && bash ./script/process/quality-gate.sh",
     "test": "$npm_execpath run test:forge",
-    "test:forge": "forge test"
+    "test:forge": "forge test",
+    "codex:review": "bash ./script/process/run-codex-review.sh",
+    "stale-evidence:loop": "bash ./script/process/run-stale-evidence-loop.sh",
+    "classify:change": "node ./script/process/classify-change.js"
   },
   "devDependencies": {
     "@babel/core": "^7.23.9",

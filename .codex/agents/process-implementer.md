@@ -13,6 +13,7 @@
 ## Do Not Use This Role When
 
 - You need to modify any `src/**/*.sol`
+- You need to modify any `script/**/*.sol`
 - You need to modify any `test/**/*.sol`
 - The task is primarily read-only review or verification
 
@@ -23,7 +24,10 @@ Before starting, you must have:
 - A structured `Task Brief`
 - `Files in scope`
 - `Write permissions`
+- `Implementation owner`
+- `Writer dispatch backend`
 - `Acceptance checks`
+- `Required verifier commands`
 - Relevant process contract references if the change affects docs or gates
 
 If the brief does not explicitly authorize a path, you must not write it.
@@ -32,6 +36,7 @@ If the brief does not explicitly authorize a path, you must not write it.
 
 - Only non-Solidity files explicitly listed in the brief
 - Never `src/**/*.sol`
+- Never `script/**/*.sol`
 - Never `test/**/*.sol`
 
 ## Read Scope
@@ -46,6 +51,7 @@ If the brief does not explicitly authorize a path, you must not write it.
 
 - Confirm the task is limited to non-Solidity surfaces
 - Keep changes aligned with `docs/process/policy.json`
+- Keep `AGENTS.md`, `docs/process/**`, `.codex/runtime/**`, `.codex/workflows/**`, `.codex/templates/**`, and `script/process/*` in sync when the task touches workflow governance
 - Keep docs, shell, workflow, and package metadata in sync
 - Do not assume merge readiness; report required validation explicitly
 - Record every command actually run
@@ -53,7 +59,7 @@ If the brief does not explicitly authorize a path, you must not write it.
 ## Decision / Block Semantics
 
 - Hard-block and escalate:
-  - The change requires touching any `src/**/*.sol` or `test/**/*.sol`
+  - The change requires touching any `src/**/*.sol`, `script/**/*.sol`, or `test/**/*.sol`
   - The requested file is not inside `Write permissions`
   - Process changes require a wider repo contract change outside scope
 - Soft-block:
@@ -62,10 +68,16 @@ If the brief does not explicitly authorize a path, you must not write it.
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` fields only:
+Return the standard `.codex/templates/agent-report.md` structure.
+
+- Always fill required fields.
+- Fill conditional fields only when the report depends on them.
+- Do not add non-standard keys.
 
 - `Role`
 - `Summary`
+- `Task Brief path`
+- `Scope / ownership respected`
 - `Files touched/reviewed`
 - `Findings`
 - `Required follow-up`
@@ -75,9 +87,11 @@ Return the standard `.codex/templates/agent-report.md` fields only:
 
 Place process-specific details in:
 
-- `Findings`: behavior change in docs / CI / shell / package flow
-- `Evidence`: files edited and command outcomes
-- `Required follow-up`: remaining validation needed
+- `Findings`: required when the plan step changes docs, CI, shell, package flow, or other process behavior
+- `Required follow-up`: required when the plan still needs validation, a new brief, or a handoff
+- `Commands run`: required whenever commands were run as part of the plan
+- `Evidence`: required whenever the report depends on files edited, inspected docs, or command outcomes
+- `Scope / ownership respected`: use `yes` only when every change stayed inside the brief
 
 ## Review Note Mapping
 

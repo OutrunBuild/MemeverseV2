@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
+source "$(dirname "$0")/lib/common.sh"
 
-tmp_dir="$(mktemp -d)"
-
-cleanup() {
-    rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
+selftest::enter_repo_root
+selftest::setup_tmpdir
 
 missing_file="$tmp_dir/MissingNatSpec.sol"
 passing_file="$tmp_dir/PassingNatSpec.sol"
@@ -53,10 +48,6 @@ if [ "$missing_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$missing_output" | grep -q "missing"; then
-    echo "Expected missing NatSpec failure output"
-    printf '%s\n' "$missing_output"
-    exit 1
-fi
+selftest::assert_text_contains "$missing_output" "missing" "Expected missing NatSpec failure output"
 
 bash ./script/process/check-natspec.sh "$passing_file"

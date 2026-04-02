@@ -5,7 +5,6 @@
     "type": "solidity",
     "toolchain": "foundry"
   },
-  "workflow_index": ".codex/workflows/solidity-subagent-workflow.json",
   "dispatch_backend": {
     "type": "native-codex-subagents",
     "role_manifests": ".codex/agents/*.toml",
@@ -14,6 +13,11 @@
       "Dispatch is role-manifest based.",
       "Task Brief and Agent Report are required workflow artifacts."
     ]
+  },
+  "indexes": {
+    "runtime": ".codex/runtime/subagent-runtime.json",
+    "policy": "docs/process/policy.json",
+    "workflow_doc": "docs/process/subagent-workflow.md"
   },
   "artifacts": {
     "task_brief_directory": "docs/task-briefs",
@@ -37,8 +41,12 @@
       "security-test-writer"
     ]
   },
-  "path_triggered_defaults": {
-    "src_solidity": {
+  "surfaces": [
+    {
+      "name": "src_solidity",
+      "path_patterns": [
+        "^src/.*\\.sol$"
+      ],
       "default_writer_role": "solidity-implementer",
       "required_roles": [
         "logic-reviewer",
@@ -51,39 +59,11 @@
         "security-test-writer"
       ]
     },
-    "test_solidity": {
-      "default_writer_role": "solidity-implementer",
-      "required_roles": [
-        "logic-reviewer",
-        "verifier"
+    {
+      "name": "script_solidity",
+      "path_patterns": [
+        "^script/.*\\.sol$"
       ],
-      "optional_roles": [
-        "security-reviewer",
-        "security-test-writer"
-      ]
-    },
-    "process_surface": {
-      "default_writer_role": "process-implementer",
-      "required_roles": [
-        "verifier"
-      ],
-      "optional_roles": []
-    },
-    "shell_surface": {
-      "default_writer_role": "process-implementer",
-      "required_roles": [
-        "verifier"
-      ],
-      "optional_roles": []
-    },
-    "package_metadata": {
-      "default_writer_role": "process-implementer",
-      "required_roles": [
-        "verifier"
-      ],
-      "optional_roles": []
-    },
-    "script_solidity": {
       "default_writer_role": "solidity-implementer",
       "required_roles": [
         "logic-reviewer",
@@ -95,14 +75,75 @@
         "solidity-explorer",
         "security-test-writer"
       ]
+    },
+    {
+      "name": "test_solidity",
+      "path_patterns": [
+        "^test/.*\\.sol$"
+      ],
+      "default_writer_role": "solidity-implementer",
+      "required_roles": [
+        "logic-reviewer",
+        "verifier"
+      ],
+      "optional_roles": [
+        "security-reviewer",
+        "security-test-writer"
+      ]
+    },
+    {
+      "name": "process_surface",
+      "path_patterns": [
+        "^script/process/.*$",
+        "^docs/process/.*$",
+        "^\\.codex/.*$",
+        "^AGENTS\\.md$"
+      ],
+      "default_writer_role": "process-implementer",
+      "required_roles": [
+        "verifier"
+      ],
+      "optional_roles": []
+    },
+    {
+      "name": "shell_surface",
+      "path_patterns": [
+        "^(script/.*\\.sh|\\.githooks/.*)$"
+      ],
+      "default_writer_role": "process-implementer",
+      "required_roles": [
+        "verifier"
+      ],
+      "optional_roles": []
+    },
+    {
+      "name": "package_metadata",
+      "path_patterns": [
+        "^(package\\.json|package-lock\\.json)$"
+      ],
+      "default_writer_role": "process-implementer",
+      "required_roles": [
+        "verifier"
+      ],
+      "optional_roles": []
     }
-  },
-  "authoritative_sources": {
-    "process_contract": "AGENTS.md",
-    "process_workflow": "docs/process/subagent-workflow.md",
-    "process_policy": "docs/process/policy.json",
-    "process_scripts": "script/process/*",
-    "agent_runtime_contracts": ".codex/agents/*.md"
+  ],
+  "artifact_chain": {
+    "solidity": [
+      "Task Brief",
+      "Agent Report",
+      "review note",
+      "verifier evidence",
+      "quality:gate",
+      "CI"
+    ],
+    "process": [
+      "Task Brief",
+      "Agent Report",
+      "verifier evidence",
+      "docs:check",
+      "process:selftest"
+    ]
   },
   "agents": {
     "role_delta_brief_template": ".codex/templates/role-delta-brief.md",

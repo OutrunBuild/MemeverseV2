@@ -6,7 +6,7 @@
 
 ## Use This Role When
 
-- The change touches `src/**/*.sol`
+- The change touches `src/**/*.sol` or `script/**/*.sol`
 - You need to interpret a gas snapshot, hot-path deltas, or optimization opportunities
 - `main-orchestrator` needs to decide whether a gas recommendation justifies a bounded implementation follow-up
 
@@ -66,12 +66,22 @@ Return the standard `.codex/templates/agent-report.md` fields only:
 
 - `Role`
 - `Summary`
+- `Task Brief path`
+- `Scope / ownership respected`
 - `Files touched/reviewed`
 - `Findings`
 - `Required follow-up`
 - `Commands run`
 - `Evidence`
 - `Residual risks`
+
+Apply the standard Agent Report required/conditional semantics:
+
+- Fill every required field.
+- Fill any conditional field whenever the review judgment depends on it.
+- `Findings` is required whenever you report a non-empty review judgment or any confirmed issue.
+- `Evidence` is required whenever the judgment depends on local code-path facts, invariants, benchmark interpretation, or external verification.
+- `Required follow-up` is required whenever you request fixes, tests, or human decisions.
 
 Place gas-specific details in:
 

@@ -13,6 +13,7 @@ Rules:
 - `docs/plans/` 只保留设计、计划、阶段草案，不得混放 `Task Brief` 或 `Agent Report`。
 - `Existing tests exercised` 必须真实记录已执行测试；若仓库启用了 repo-specific 证据映射，也必须满足该映射约束。
 - `Security evidence source`、`Gas evidence source`、`Verification evidence source`、`Decision evidence source` 采用 `role: source` 格式。
+- `Commands run`、`Results`、`Verification evidence source` 仍归 `verifier` 负责；writer 侧字段轻量化不会减轻 `verifier` 对验证命令、验证 verdict 和相关证据的责任。
 - 不要保留 `TBD`、`<path>`、`<path>|none`、`<selectors or paths>`、`yes/no` 等占位值。
 - verification 必须记录同一工作树状态下实际执行过的命令和结果。
 - 目录默认被 `.gitignore` 忽略；如需共享，请显式转移到协作载体或手动取消忽略。
