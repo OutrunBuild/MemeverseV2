@@ -71,8 +71,6 @@ mapfile -t process_selftest_patterns < <(node ./script/process/read-process-conf
 mapfile -t process_default_roles < <(node ./script/process/read-process-config.js policy quality_gate.process_default_roles --lines)
 mapfile -t package_default_roles < <(node ./script/process/read-process-config.js policy quality_gate.package_default_roles --lines)
 mapfile -t docs_contract_default_roles < <(node ./script/process/read-process-config.js policy quality_gate.docs_contract_default_roles --lines)
-mapfile -t auto_codex_review_classifications < <(node ./script/process/read-process-config.js policy verifier.auto_codex_review.required_classifications --lines 2>/dev/null || printf '%s\n' 'prod-semantic' 'high-risk')
-auto_codex_review_force_env="$(node ./script/process/read-process-config.js policy verifier.auto_codex_review.force_env 2>/dev/null || printf '%s' 'FORCE_CODEX_REVIEW')"
 classification_json="$(QUALITY_GATE_MODE="$mode" QUALITY_GATE_FILE_LIST="$changed_files_tmp" CHANGE_CLASSIFIER_FORCE="${CHANGE_CLASSIFIER_FORCE:-}" CHANGE_CLASSIFIER_DIFF_FILE="${CHANGE_CLASSIFIER_DIFF_FILE:-}" node ./script/process/classify-change.js)"
 rule_map_path="$(node ./script/process/read-process-config.js rule-map __file__)"
 
@@ -280,23 +278,11 @@ if [ "$has_src_sol" -eq 1 ]; then
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_script_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
-    auto_codex_review_required=0
-    if is_truthy "${!auto_codex_review_force_env:-}"; then
-        auto_codex_review_required=1
-    elif array_contains "$classification" "${auto_codex_review_classifications[@]}"; then
-        auto_codex_review_required=1
-    fi
-
     echo "[quality-quick] change classification: $classification"
     echo "[quality-quick] classification rationale: $classification_rationale"
     echo "[quality-quick] default roles: $(join_by_semicolon "solidity-implementer" "${classifier_required_roles[@]}")"
     echo "[quality-quick] optional roles: $(join_by_semicolon "${classifier_optional_roles[@]}")"
     echo "[quality-quick] verifier profile: $verifier_profile"
-    if [ "$auto_codex_review_required" -eq 1 ]; then
-        echo "[quality-quick] auto codex review: required"
-    else
-        echo "[quality-quick] auto codex review: skipped"
-    fi
 
     if [ "${#solidity_files[@]}" -gt 0 ]; then
         echo "[quality-quick] forge fmt --check (changed Solidity files only)"

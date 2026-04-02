@@ -35,7 +35,7 @@
 - 每个工作副本只需执行一次：`npm install`
 - 每个工作副本只需执行一次：`npm run hooks:install`
 - 流程脚本自测：`npm run process:selftest`
-- 手动 / 高风险兜底 Codex 审查：`npm run codex:review`
+- 手动 / 本地 `pre-commit` 高风险 Codex 审查：`npm run codex:review`
 - 日常本地快速反馈：`npm run quality:quick`
 - 任意准备提交的变更，唯一 finish gate：`npm run quality:gate`
 - 文档链检查：`npm run docs:check`

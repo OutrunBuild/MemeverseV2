@@ -140,7 +140,7 @@
 - `verifier` 按 classifier 运行 `light` / `full` 两档验证
 - `verifier` 运行或汇总验证命令
 - `verifier` 必须先识别 required command set，再执行验证；不得把“只跑一个 gate 命令”伪装成完成验证
-- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol`、`script/**/*.sol` 变更，writer 与 logic review / specialist review 完成后、进入最终 verifier verdict 前，自动流程必须补跑一次 `npm run codex:review`；其他分类或流程面默认按需手动触发。若当前交互会话支持 `/review`，可视为同义入口，但落盘证据仍以 wrapper / CLI 命令为准
+- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol`、`script/**/*.sol` 变更，本地 `quality:gate`（含 `pre-commit`）会在进入 review-note / verifier verdict 前自动补跑一次 `npm run codex:review`；`pre-push` / CI 只校验证据链，不自动执行。其他分类或流程面默认按需手动触发。若当前交互会话支持 `/review`，可视为同义入口，但落盘证据仍以 wrapper / CLI 命令为准
 - `verifier` 必须独立检查 `Task Brief`、`Agent Report`、review note、required commands 与 failure attribution，不能由主会话口头替代
 - `verifier` 必须把早于当前 writer `Agent Report` 的 review note、reviewer evidence 与 verifier evidence 视为 stale，并阻断进入最终 verdict
 - 当 stale evidence 被 gate 检出时，`quality:gate` 会自动运行 `npm run stale-evidence:loop`（wrapper 为 `script/process/run-stale-evidence-loop.sh`）生成 follow-up brief；`main-orchestrator` 必须按其中的 rerun order 重新派发 writer / reviewer / verifier

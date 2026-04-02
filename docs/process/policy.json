@@ -539,21 +539,18 @@
         "npm run docs:check"
       ],
       "test_solidity": [
-        "npm run codex:review",
         "forge fmt --check",
         "forge build",
         "forge test -vvv",
         "bash ./script/process/check-coverage.sh"
       ],
       "process_surface": [
-        "npm run codex:review",
         "bash -n <changed-shell-scripts>",
         "node --check <changed-process-js>",
         "npm run docs:check",
         "npm run process:selftest"
       ],
       "package_metadata": [
-        "npm run codex:review",
         "npm ci",
         "npm run docs:check",
         "npm run process:selftest"
@@ -580,7 +577,7 @@
       "summary_field": "Codex review summary",
       "evidence_field": "Codex review evidence source"
     },
-    "auto_codex_review": {
+    "local_codex_review": {
       "required_classifications": [
         "prod-semantic",
         "high-risk"

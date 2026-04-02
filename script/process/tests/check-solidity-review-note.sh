@@ -285,7 +285,7 @@ cat > "$policy_file" <<EOF
     "codex_review": {
       "task_brief_token": "npm run codex:review"
     },
-    "auto_codex_review": {
+    "local_codex_review": {
       "required_classifications": [
         "prod-semantic",
         "high-risk"

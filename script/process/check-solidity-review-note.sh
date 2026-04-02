@@ -52,8 +52,8 @@ load_changed_files() {
 }
 
 classification_json=""
-codex_auto_required_classifications_json='["prod-semantic","high-risk"]'
-codex_auto_force_env='FORCE_CODEX_REVIEW'
+codex_local_required_classifications_json='["prod-semantic","high-risk"]'
+codex_local_force_env='FORCE_CODEX_REVIEW'
 
 validate_review_note() {
     local review_note="$1"
@@ -128,8 +128,8 @@ validate_review_note() {
     REVIEW_NOTE_MUST_POSTDATE_AGENT_REPORT="$review_note_must_postdate_agent_report" \
     AGENT_REPORT_MUST_POSTDATE_CHANGED_FILES="$agent_report_must_postdate_changed_files" \
     CLASSIFICATION_RESULT="$classification_json" \
-    CODEX_AUTO_REQUIRED_CLASSIFICATIONS="$codex_auto_required_classifications_json" \
-    CODEX_AUTO_FORCE_ENV="$codex_auto_force_env" \
+    CODEX_LOCAL_REQUIRED_CLASSIFICATIONS="$codex_local_required_classifications_json" \
+    CODEX_LOCAL_FORCE_ENV="$codex_local_force_env" \
     node - "$review_note" "$changed_files_tmp" <<'EOF'
 const fs = require('fs');
 const childProcess = require('child_process');
@@ -169,8 +169,8 @@ const semanticAlignmentSummaryField = process.env.SEMANTIC_ALIGNMENT_SUMMARY_FIE
 const codexReviewTaskBriefToken = process.env.CODEX_REVIEW_TASK_BRIEF_TOKEN || 'npm run codex:review';
 const requiredVerifierCommandsField = process.env.REQUIRED_VERIFIER_COMMANDS_FIELD || 'Required verifier commands';
 const classificationResult = JSON.parse(process.env.CLASSIFICATION_RESULT || '{}');
-const codexAutoRequiredClassifications = JSON.parse(process.env.CODEX_AUTO_REQUIRED_CLASSIFICATIONS || '["prod-semantic","high-risk"]');
-const codexAutoForceEnv = process.env.CODEX_AUTO_FORCE_ENV || 'FORCE_CODEX_REVIEW';
+const codexLocalRequiredClassifications = JSON.parse(process.env.CODEX_LOCAL_REQUIRED_CLASSIFICATIONS || '["prod-semantic","high-risk"]');
+const codexLocalForceEnv = process.env.CODEX_LOCAL_FORCE_ENV || 'FORCE_CODEX_REVIEW';
 const mainSessionRole = process.env.MAIN_SESSION_ROLE || 'main-orchestrator';
 const reviewNoteMustPostdateAgentReport = process.env.REVIEW_NOTE_MUST_POSTDATE_AGENT_REPORT === 'true';
 const agentReportMustPostdateChangedFiles = process.env.AGENT_REPORT_MUST_POSTDATE_CHANGED_FILES === 'true';
@@ -355,10 +355,10 @@ if (taskBriefPath !== '') {
     }
 
     const requiredVerifierCommands = extractField(taskBrief, requiredVerifierCommandsField).trim();
-    const autoCodexReviewRequired =
-      (Array.isArray(codexAutoRequiredClassifications) && codexAutoRequiredClassifications.includes(classifierClassification)) ||
-      isTruthy(process.env[codexAutoForceEnv]);
-    if (autoCodexReviewRequired && !requiredVerifierCommands.includes(codexReviewTaskBriefToken)) {
+    const localCodexReviewRequired =
+      (Array.isArray(codexLocalRequiredClassifications) && codexLocalRequiredClassifications.includes(classifierClassification)) ||
+      isTruthy(process.env[codexLocalForceEnv]);
+    if (localCodexReviewRequired && !requiredVerifierCommands.includes(codexReviewTaskBriefToken)) {
       failures.push(
         `${requiredVerifierCommandsField}: must include '${codexReviewTaskBriefToken}' for Solidity changes.`
       );
@@ -602,8 +602,8 @@ external_facts_field="$(read_policy_value solidity_review_note.external_facts_fi
 semantic_alignment_summary_field="$(read_policy_value solidity_review_note.semantic_alignment_summary_field 'Semantic alignment summary')"
 required_verifier_commands_field="$(read_policy_value task_brief.required_verifier_commands_field 'Required verifier commands')"
 codex_review_task_brief_token="$(read_policy_value verifier.codex_review.task_brief_token 'npm run codex:review')"
-codex_auto_required_classifications_json="$(read_policy_value verifier.auto_codex_review.required_classifications '["prod-semantic","high-risk"]')"
-codex_auto_force_env="$(read_policy_value verifier.auto_codex_review.force_env 'FORCE_CODEX_REVIEW')"
+codex_local_required_classifications_json="$(read_policy_value verifier.local_codex_review.required_classifications '["prod-semantic","high-risk"]')"
+codex_local_force_env="$(read_policy_value verifier.local_codex_review.force_env 'FORCE_CODEX_REVIEW')"
 freshness_source_fields_json="$(read_policy_value solidity_review_note.freshness_source_fields '[]')"
 if [ "$freshness_source_fields_json" = '[]' ]; then
     freshness_source_fields_json='["Logic evidence source","Security evidence source","Gas evidence source","Verification evidence source"]'

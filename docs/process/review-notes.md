@@ -110,7 +110,7 @@
 - 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，`External facts checked` 必须写明主来源；没有主来源时只能写成 `needs verification`、假设或待确认决策点。
 - `Evidence chain complete` 只有在“本地前提已复核”且“必要时外部主来源已核验”同时满足时才允许填写 `yes`。
 - 若某条结论只来自 subagent 摘要而主会话未复核关键代码行，该条结论不得在 review note 中写成已确认 finding。
-- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol`、`script/**/*.sol` 写面，writer 与 specialist review 完成后、进入最终 verifier verdict 前，自动流程必须再执行一次 `npm run codex:review`；`non-semantic` / `test-semantic` 与流程面默认按需手动触发。若当前交互会话支持 `/review`，可视为同义入口，但落盘 evidence 仍以 wrapper / CLI 命令为准。
+- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol`、`script/**/*.sol` 写面，本地 `quality:gate`（含 `pre-commit`）会在进入 review-note / verifier 校验前自动再执行一次 `npm run codex:review`；`pre-push` / CI 只校验证据链，不自动执行。`non-semantic` / `test-semantic` 与流程面默认按需手动触发。若当前交互会话支持 `/review`，可视为同义入口，但落盘 evidence 仍以 wrapper / CLI 命令为准。
 - 对 `src/**/*.sol`、`script/**/*.sol` 写面，`Logic evidence source`、`Security evidence source`、`Gas evidence source`、`Verification evidence source` 必须指向可落盘、可回溯的具体 artifact path；不能只写命令名、聊天结论或模糊描述。
 - 如果 `solidity-implementer` 在 review finding 之后再次写入受影响的 Solidity scope，上一轮 review note 与上述 reviewer / verifier evidence 都会被视为 stale；它们必须在最新 writer `Agent Report` 之后重新生成。
 - `Codex review evidence source` 可以继续记录 wrapper / CLI 命令，但承载该字段的 review note 必须晚于当前 writer `Agent Report`。

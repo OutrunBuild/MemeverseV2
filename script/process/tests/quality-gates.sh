@@ -59,6 +59,24 @@ printf 'forge %s\n' "\$*" >> "$command_log"
 EOF
 chmod +x "$bin_dir/forge"
 
+cat > "$bin_dir/git" <<EOF
+#!/bin/bash
+set -euo pipefail
+
+if [ "\${1:-}" = "rev-parse" ] && [ "\${2:-}" = "--show-toplevel" ]; then
+  printf '%s\n' "$repo_root"
+  exit 0
+fi
+
+if [ "\${1:-}" = "diff" ] && [ "\${2:-}" = "--cached" ] && [ "\${3:-}" = "--name-only" ] && [ "\${4:-}" = "--diff-filter=ACMRD" ]; then
+  cat "$changed_files_path"
+  exit 0
+fi
+
+exec /usr/bin/git "\$@"
+EOF
+chmod +x "$bin_dir/git"
+
 cat > "$bin_dir/bash" <<EOF
 #!/bin/bash
 set -euo pipefail
@@ -87,12 +105,19 @@ run_quality_script() {
     local output_file="$3"
     local forced_classification="${4:-}"
     local diff_content="${5:-}"
+    local gate_mode="${6:-ci}"
 
     : > "$npm_log"
     : > "$command_log"
     printf '%s\n' "$changed_file" > "$changed_files_path"
     printf '%s\n' "$diff_content" > "$diff_file"
-    PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
+    if [ "$gate_mode" = "ci" ]; then
+        PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
+            /bin/bash "./script/process/${script_name}" >"$output_file" 2>&1
+        return
+    fi
+
+    PATH="$bin_dir:$PATH" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
         /bin/bash "./script/process/${script_name}" >"$output_file" 2>&1
 }
 
@@ -139,7 +164,6 @@ run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "non-se
 -// old
 +// new"
 assert_contains "change classification: non-semantic" "$gate_output" "quality-gate output for non-semantic Solidity change"
-assert_contains "auto codex review: skipped" "$gate_output" "quality-gate output for non-semantic Solidity change"
 assert_contains "verifier profile: light" "$gate_output" "quality-gate output for non-semantic Solidity change"
 assert_contains "forge fmt --check $existing_src_file" "$command_log" "quality-gate command log for non-semantic Solidity change"
 assert_contains "forge build" "$command_log" "quality-gate command log for non-semantic Solidity change"
@@ -176,13 +200,25 @@ run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "prod-s
 +++ b/$existing_src_file
 @@ -10 +10 @@
 -        return amount;
-+        return amount + 1;"
++        return amount + 1;" "staged"
 assert_contains "change classification: prod-semantic" "$gate_output" "quality-gate output for prod-semantic Solidity change"
-assert_contains "auto codex review: required" "$gate_output" "quality-gate output for prod-semantic Solidity change"
 assert_contains "verifier profile: full" "$gate_output" "quality-gate output for prod-semantic Solidity change"
 assert_contains "forge test -vvv" "$command_log" "quality-gate command log for prod-semantic change"
 assert_contains "bash ./script/process/check-coverage.sh" "$command_log" "quality-gate command log for prod-semantic change"
 assert_contains "bash ./script/process/check-slither.sh" "$command_log" "quality-gate command log for prod-semantic change"
 assert_contains "bash ./script/process/check-gas-report.sh" "$command_log" "quality-gate command log for prod-semantic change"
+assert_contains "run codex:review" "$npm_log" "quality-gate npm log for staged prod-semantic change"
+
+run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "prod-semantic" "diff --git a/$existing_src_file b/$existing_src_file
+--- a/$existing_src_file
++++ b/$existing_src_file
+@@ -10 +10 @@
+-        return amount;
++        return amount + 1;"
+if grep -q "run codex:review" "$npm_log"; then
+    echo "Did not expect codex review for ci-mode quality-gate"
+    cat "$npm_log"
+    exit 1
+fi
 
 echo "quality-gates selftest: PASS"

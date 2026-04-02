@@ -73,8 +73,8 @@ mapfile -t process_selftest_patterns < <(node ./script/process/read-process-conf
 mapfile -t process_default_roles < <(node ./script/process/read-process-config.js policy quality_gate.process_default_roles --lines)
 mapfile -t package_default_roles < <(node ./script/process/read-process-config.js policy quality_gate.package_default_roles --lines)
 mapfile -t docs_contract_default_roles < <(node ./script/process/read-process-config.js policy quality_gate.docs_contract_default_roles --lines)
-mapfile -t auto_codex_review_classifications < <(node ./script/process/read-process-config.js policy verifier.auto_codex_review.required_classifications --lines 2>/dev/null || printf '%s\n' 'prod-semantic' 'high-risk')
-auto_codex_review_force_env="$(node ./script/process/read-process-config.js policy verifier.auto_codex_review.force_env 2>/dev/null || printf '%s' 'FORCE_CODEX_REVIEW')"
+mapfile -t local_codex_review_classifications < <(node ./script/process/read-process-config.js policy verifier.local_codex_review.required_classifications --lines 2>/dev/null || printf '%s\n' 'prod-semantic' 'high-risk')
+local_codex_review_force_env="$(node ./script/process/read-process-config.js policy verifier.local_codex_review.force_env 2>/dev/null || printf '%s' 'FORCE_CODEX_REVIEW')"
 classification_json="$(QUALITY_GATE_MODE="$mode" QUALITY_GATE_FILE_LIST="$changed_files_tmp" CHANGE_CLASSIFIER_FORCE="${CHANGE_CLASSIFIER_FORCE:-}" CHANGE_CLASSIFIER_DIFF_FILE="${CHANGE_CLASSIFIER_DIFF_FILE:-}" node ./script/process/classify-change.js)"
 
 read_classifier_field() {
@@ -299,23 +299,11 @@ if [ "$has_src_sol" -eq 1 ]; then
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_script_sol" -eq 1 ] || [ "$has_sol_tests" -eq 1 ]; then
-    auto_codex_review_required=0
-    if is_truthy "${!auto_codex_review_force_env:-}"; then
-        auto_codex_review_required=1
-    elif array_contains "$classification" "${auto_codex_review_classifications[@]}"; then
-        auto_codex_review_required=1
-    fi
-
     echo "[quality-gate] change classification: $classification"
     echo "[quality-gate] classification rationale: $classification_rationale"
     echo "[quality-gate] default roles: $(join_by_semicolon "solidity-implementer" "${classifier_required_roles[@]}")"
     echo "[quality-gate] optional roles: $(join_by_semicolon "${classifier_optional_roles[@]}")"
     echo "[quality-gate] verifier profile: $verifier_profile"
-    if [ "$auto_codex_review_required" -eq 1 ]; then
-        echo "[quality-gate] auto codex review: required"
-    else
-        echo "[quality-gate] auto codex review: skipped"
-    fi
 
     if [ "${#solidity_files[@]}" -gt 0 ]; then
         echo "[quality-gate] forge fmt --check (changed Solidity files only)"
@@ -373,8 +361,21 @@ elif [ "$has_src_sol" -eq 1 ]; then
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_script_sol" -eq 1 ]; then
+    local_codex_review_required=0
+    if [ "$mode" != "ci" ]; then
+        if is_truthy "${!local_codex_review_force_env:-}"; then
+            local_codex_review_required=1
+        elif array_contains "$classification" "${local_codex_review_classifications[@]}"; then
+            local_codex_review_required=1
+        fi
+    fi
+
     if [ "$has_src_sol" -eq 0 ]; then
         echo "[quality-gate] script Solidity surface routed through Solidity review-note gate"
+    fi
+    if [ "$local_codex_review_required" -eq 1 ]; then
+        echo "[quality-gate] npm run codex:review"
+        npm run codex:review
     fi
     echo "[quality-gate] bash ./script/process/check-solidity-review-note.sh"
     set +e

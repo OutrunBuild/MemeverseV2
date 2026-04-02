@@ -34,7 +34,7 @@
 - 必须先运行 classifier，再按分类决定是否派 `logic-reviewer` / `security-reviewer` / `gas-reviewer`；不再允许只按路径一刀切全派 reviewer。
 - 当分类为 `test-semantic`、`prod-semantic`、`high-risk` 时，`logic-reviewer` 必须在实现后先行。
 - 当分类为 `prod-semantic` 或 `high-risk` 时，`security-reviewer` / `gas-reviewer` 才是默认 required roles。
-- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol` 或 `script/**/*.sol` 变更，writer 与 specialist review 完成后、进入最终 verifier verdict 前，自动流程必须执行一次 `npm run codex:review`；其他分类或流程面默认按需手动触发，并把 findings 收口到 review note / verifier evidence。
+- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol` 或 `script/**/*.sol` 变更，本地 `quality:gate`（含 `pre-commit`）会在进入 review-note / verifier 校验前自动执行一次 `npm run codex:review`；`pre-push` / CI 只校验证据链，不自动执行；其他分类或流程面默认按需手动触发，并把 findings 收口到 review note / verifier evidence。
 - 需要通过当前仓库 `quality:gate` 所要求的全部检查；精确命令与阈值以 `docs/process/policy.json`、`script/process/*` 与 `AGENTS.md` 为准。
 
 额外说明：
