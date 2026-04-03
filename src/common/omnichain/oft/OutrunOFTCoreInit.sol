@@ -396,7 +396,9 @@ abstract contract OutrunOFTCoreInit is
      * @return amountSD The amount in shared decimals.
      */
     function _toSD(uint256 _amountLD) internal view virtual returns (uint64 amountSD) {
-        return uint64(_amountLD / decimalConversionRate);
+        uint256 amountSD256 = _amountLD / decimalConversionRate;
+        if (amountSD256 > type(uint64).max) revert AmountSDOverflowed(amountSD256);
+        return uint64(amountSD256);
     }
 
     /**

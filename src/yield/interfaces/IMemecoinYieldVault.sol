@@ -90,4 +90,6 @@ interface IMemecoinYieldVault is IERC20 {
     error ZeroRedeemRequest();
 
     error MaxRedeemRequestsReached();
+
+    error RedeemAmountOverflowed(uint256 assets);
 }

@@ -265,6 +265,27 @@ contract MemeverseLauncherViewsTest is Test {
         assertEq(genesisFund, 1 ether);
     }
 
+    /// @notice Verifies genesis rejects contributions that would overflow the packed uint128 genesis buckets.
+    /// @dev Seeds the memecoin-side bucket at the uint128 limit and confirms the next contribution reverts.
+    function testGenesisRevertsWhenGenesisFundBucketWouldOverflow() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setGenesisFundForTest(1, type(uint128).max, 0);
+
+        uptToken.mint(address(this), 1 ether);
+        uptToken.approve(address(launcher), type(uint256).max);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseLauncher.GenesisFundOverflowed.selector,
+                1,
+                uint256(type(uint128).max),
+                uint256(0.75 ether)
+            )
+        );
+        launcher.genesis(1, 1 ether, ALICE);
+    }
+
     /// @notice Test refund success marks user and transfers native fund.
     /// @dev Checks that refunds set the flag and return ETH when the verse is in Refund stage.
     function testRefundSuccessMarksUserAndTransfersNativeFund() external {

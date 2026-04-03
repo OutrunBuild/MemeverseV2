@@ -172,6 +172,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     function _requestWithdraw(address sender, address receiver, uint256 assets, uint256 shares) internal {
         uint256 requestCount = redeemRequestQueues[receiver].length;
         require(requestCount < MAX_REDEEM_REQUESTS, MaxRedeemRequestsReached());
+        require(assets <= type(uint192).max, RedeemAmountOverflowed(assets));
 
         _burn(sender, shares);
         // The queued asset amount stops participating in future yield immediately, so share price only reflects still-staked assets.

@@ -40,6 +40,16 @@ contract MockComposeAsset is MockERC20 {
     }
 }
 
+contract TestableMemecoinYieldVault is MemecoinYieldVault {
+    function setTotalAssetsForTest(uint256 totalAssets_) external {
+        totalAssets = totalAssets_;
+    }
+
+    function mintSharesForTest(address receiver, uint256 amount) external {
+        _mint(receiver, amount);
+    }
+}
+
 contract MemecoinYieldVaultTest is Test {
     address internal constant ATTACKER = address(0xA11CE);
     address internal constant VICTIM = address(0xB0B);
@@ -279,5 +289,25 @@ contract MemecoinYieldVaultTest is Test {
         vm.prank(ATTACKER);
         vm.expectRevert(IMemecoinYieldVault.MaxRedeemRequestsReached.selector);
         vault.requestRedeem(1, ATTACKER);
+    }
+
+    /// @notice Verifies redeem requests reject asset amounts that cannot fit in the packed uint192 queue entry.
+    /// @dev Seeds a large exchange rate state via a test harness so the request path reaches the narrowing conversion.
+    function testRequestRedeemRevertsWhenQueuedAssetsOverflowUint192() external {
+        TestableMemecoinYieldVault implementation = new TestableMemecoinYieldVault();
+        TestableMemecoinYieldVault overflowVault =
+            TestableMemecoinYieldVault(Clones.clone(address(implementation)));
+        overflowVault.initialize("Overflow Vault", "ovMEME", address(0xD15A7), address(asset), 99);
+
+        uint256 oversizedAssets = uint256(type(uint192).max) + uint256(type(uint128).max) + 1;
+        overflowVault.setTotalAssetsForTest(oversizedAssets);
+        overflowVault.mintSharesForTest(ATTACKER, type(uint128).max);
+
+        uint256 previewAssets = overflowVault.previewRedeem(type(uint128).max);
+        assertGt(previewAssets, uint256(type(uint192).max), "preview must exceed uint192");
+
+        vm.prank(ATTACKER);
+        vm.expectRevert(abi.encodeWithSelector(IMemecoinYieldVault.RedeemAmountOverflowed.selector, previewAssets));
+        overflowVault.requestRedeem(type(uint128).max, ATTACKER);
     }
 }

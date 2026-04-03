@@ -14,6 +14,8 @@ import {SendParam} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {OutrunOFTInit} from "../../../../src/common/omnichain/oft/OutrunOFTInit.sol";
 import {IOFTCompose} from "../../../../src/common/omnichain/oft/IOFTCompose.sol";
 
+error AmountSDOverflowed(uint256 amountSD);
+
 contract MockOFTEndpoint {
     address public delegate;
     address public lzToken;
@@ -199,6 +201,24 @@ contract OutrunOFTInitTest is Test {
 
         oft.send{value: 0.2 ether}(sendParam, fee, address(this));
         assertEq(oft.balanceOf(address(this)), 0);
+    }
+
+    /// @notice Test quoteSend reverts when the shared-decimal amount exceeds uint64 capacity.
+    function testQuoteSendRevertsWhenAmountSDOverflows() external {
+        uint256 overflowAmountLD = (uint256(type(uint64).max) + 1) * oft.decimalConversionRate();
+
+        SendParam memory sendParam = SendParam({
+            dstEid: DST_EID,
+            to: bytes32(uint256(uint160(address(0xBEEF)))),
+            amountLD: overflowAmountLD,
+            minAmountLD: 0,
+            extraOptions: bytes("opts"),
+            composeMsg: bytes(""),
+            oftCmd: bytes("")
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(AmountSDOverflowed.selector, uint256(type(uint64).max) + 1));
+        oft.quoteSend(sendParam, false);
     }
 
     /// @notice Test withdraw if not executed requires uboand transfers composer balance.

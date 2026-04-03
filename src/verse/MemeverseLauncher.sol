@@ -336,6 +336,14 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         }
 
         GenesisFund storage genesisFund = genesisFunds[verseId];
+        uint256 currentMemecoinFunds = genesisFund.totalMemecoinFunds;
+        uint256 currentLiquidProofFunds = genesisFund.totalLiquidProofFunds;
+        if (currentMemecoinFunds + increasedMemecoinFund > type(uint128).max) {
+            revert GenesisFundOverflowed(verseId, currentMemecoinFunds, increasedMemecoinFund);
+        }
+        if (currentLiquidProofFunds + increasedLiquidProofFund > type(uint128).max) {
+            revert GenesisFundOverflowed(verseId, currentLiquidProofFunds, increasedLiquidProofFund);
+        }
         unchecked {
             genesisFund.totalMemecoinFunds += increasedMemecoinFund;
             genesisFund.totalLiquidProofFunds += increasedLiquidProofFund;

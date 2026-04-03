@@ -360,6 +360,8 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     error FundBasedAmountTooHigh(uint256 fundBasedAmount, uint256 maxSupportedFundBasedAmount);
 
+    error GenesisFundOverflowed(uint256 verseId, uint256 currentTotal, uint256 amountToAdd);
+
     event Genesis(
         uint256 indexed verseId,
         address indexed depositer,
