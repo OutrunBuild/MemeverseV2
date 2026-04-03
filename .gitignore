@@ -25,6 +25,9 @@ docs/reviews/*.md
 # Dotenv file
 .env
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # LayerZero specific files
 .layerzero
 
