@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 1 ]; then
-    echo "Usage: $0 <solidity-file> [solidity-file ...]"
+if [ "$#" -ne 0 ]; then
+    echo "Usage: $0"
     exit 1
 fi
 
@@ -13,19 +13,6 @@ slither_bin="${SLITHER_BIN:-slither}"
 slither_target="${SLITHER_TARGET:-.}"
 filter_paths="$(node ./script/process/read-process-config.js policy quality_gate.slither_filter_paths)"
 exclude_detectors="$(node ./script/process/read-process-config.js policy quality_gate.slither_exclude_detectors)"
-
-has_solidity_file=0
-for file in "$@"; do
-    if [[ "$file" == *.sol ]]; then
-        has_solidity_file=1
-        break
-    fi
-done
-
-if [ "$has_solidity_file" -ne 1 ]; then
-    echo "[check-slither] ERROR: no Solidity files provided"
-    exit 1
-fi
 
 tmp_dir="$(mktemp -d)"
 slither_json="$tmp_dir/slither.json"

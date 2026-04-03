@@ -137,6 +137,14 @@ assert_contains() {
     fi
 }
 
+if [ ! -f "./script/process/lib/quality-common.sh" ]; then
+    echo "Expected shared helper ./script/process/lib/quality-common.sh"
+    exit 1
+fi
+
+assert_contains "source ./script/process/lib/quality-common.sh" "./script/process/quality-quick.sh" "quality-quick implementation"
+assert_contains "source ./script/process/lib/quality-common.sh" "./script/process/quality-gate.sh" "quality-gate implementation"
+
 run_quality_script "quality-quick.sh" "script/process/check-coverage.js" "$quick_output"
 assert_contains "[quality-quick] node --check (changed process JS files)" "$quick_output" "quality-quick output for process JS change"
 assert_contains "run docs:check" "$npm_log" "quality-quick npm log for process JS change"

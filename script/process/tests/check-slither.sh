@@ -78,23 +78,7 @@ pragma solidity ^0.8.20;
 contract Example {}
 EOF
 
-set +e
-usage_output="$(bash ./script/process/check-slither.sh 2>&1)"
-usage_status=$?
-set -e
-
-if [ "$usage_status" -eq 0 ]; then
-    echo "Expected check-slither to fail without Solidity file arguments"
-    exit 1
-fi
-
-if ! printf '%s\n' "$usage_output" | grep -q "Usage:"; then
-    echo "Expected check-slither usage output"
-    printf '%s\n' "$usage_output"
-    exit 1
-fi
-
-output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
+output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh 2>&1)"
 
 if ! grep -q "^\\. --filter-paths lib|test|script|node_modules --exclude-dependencies --exclude naming-convention,too-many-digits$" "$fake_output"; then
     echo "Expected check-slither to analyze the repository root with the configured slither arguments"
@@ -109,7 +93,23 @@ if ! printf '%s\n' "$output" | grep -q "normalized findings"; then
 fi
 
 set +e
-failure_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" FAKE_SLITHER_EXIT_CODE=1 SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
+usage_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
+usage_status=$?
+set -e
+
+if [ "$usage_status" -eq 0 ]; then
+    echo "Expected check-slither to reject unexpected Solidity file arguments"
+    exit 1
+fi
+
+if ! printf '%s\n' "$usage_output" | grep -q "Usage:"; then
+    echo "Expected check-slither usage output for unexpected arguments"
+    printf '%s\n' "$usage_output"
+    exit 1
+fi
+
+set +e
+failure_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" FAKE_SLITHER_EXIT_CODE=1 SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh 2>&1)"
 failure_status=$?
 set -e
 
@@ -134,7 +134,7 @@ EOF
 chmod +x "$fake_slither"
 
 set +e
-failure_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" FAKE_SLITHER_EXIT_CODE=1 SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh "$solidity_file" 2>&1)"
+failure_output="$(PROCESS_POLICY_FILE="$policy_file" FAKE_SLITHER_OUTPUT="$fake_output" FAKE_SLITHER_EXIT_CODE=1 SLITHER_BIN="$fake_slither" bash ./script/process/check-slither.sh 2>&1)"
 failure_status=$?
 set -e
 
