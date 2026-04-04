@@ -17,7 +17,15 @@
       "Bash(bash ./script/process/*)",
       "Bash(node ./script/process/*)",
       "Bash(bash -n *)",
-      "Bash(node --check *)"
+      "Bash(node --check *)",
+      "Agent(solidity-implementer*)",
+      "Agent(process-implementer*)",
+      "Agent(logic-reviewer*)",
+      "Agent(security-reviewer*)",
+      "Agent(gas-reviewer*)",
+      "Agent(verifier*)",
+      "Agent(solidity-explorer*)",
+      "Agent(security-test-writer*)"
     ],
     "deny": [
       "Bash(git push *)",
