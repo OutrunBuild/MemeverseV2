@@ -877,7 +877,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         internal
     {
         if (lpFeeAmount == 0) return;
-        uint256 totalSupply = UniswapLP(poolInfo[poolId].liquidityToken).totalSupply();
+        PoolInfo storage pool = poolInfo[poolId];
+        uint256 totalSupply = UniswapLP(pool.liquidityToken).totalSupply();
         if (totalSupply == 0) return;
 
         poolManager.take(feeCurrency, address(this), lpFeeAmount);
@@ -893,7 +894,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     ) internal {
         if (lpFeeInputAmount > 0) {
             if (ctx.currencyIn.isAddressZero()) revert InvalidNativeValue(lpFeeInputAmount, 0);
-            uint256 totalSupply = UniswapLP(poolInfo[poolId].liquidityToken).totalSupply();
+            // Cache storage pointer to avoid redundant SLOAD for liquidityToken access.
+            PoolInfo storage pool = poolInfo[poolId];
+            uint256 totalSupply = UniswapLP(pool.liquidityToken).totalSupply();
             // Launcher settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, address(this), lpFeeInputAmount)) {
                 revert ERC20TransferFailed();
@@ -976,7 +979,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     function _lpFeeBps(uint256 feeBps) internal pure returns (uint256) {
-        return feeBps - _protocolFeeBps(feeBps);
+        // Safe: PROTOCOL_FEE_RATIO_BPS = 3000 < BPS_BASE = 10000, so _protocolFeeBps(feeBps) <= feeBps * 3 / 10 < feeBps.
+        unchecked {
+            return feeBps - _protocolFeeBps(feeBps);
+        }
     }
 
     /// @notice Updates the user fee accounting snapshot for a pool.

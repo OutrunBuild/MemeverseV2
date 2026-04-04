@@ -665,6 +665,29 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(token0.balanceOf(address(router)), 0, "router should not retain input");
     }
 
+    /// @notice Verifies the regular ERC20 swap path stays below the current gas ceiling.
+    /// @dev This captures the router-only gas cleanup target without changing swap semantics.
+    function testSwap_RegularPathGasStaysBelowCeiling() external {
+        _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+
+        uint256 gasBefore = gasleft();
+        BalanceDelta delta = router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertLt(int256(delta.amount0()), 0, "delta0");
+        assertGt(int256(delta.amount1()), 0, "delta1");
+        assertLt(gasUsed, 312_200, "swap gas ceiling");
+    }
+
     /// @notice Verifies routed swaps do not pay for a redundant launch-fee quote round-trip.
     /// @dev A successful swap should read the pool slot0 storage once for quote math and once for state update.
     function testSwapPass_AntiSnipePathAvoidsRedundantFailureQuoteRead() external {

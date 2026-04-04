@@ -624,6 +624,34 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(token1.balanceOf(alice), balance1Before, "token1 received");
     }
 
+    /// @notice Verifies the Permit2 swap path stays below the current gas ceiling.
+    /// @dev This keeps the Permit2 witness and prefund flow from regressing after router-only refactors.
+    function testSwapWithPermit2_GasStaysBelowCeiling() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token0), 100 ether);
+        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        BalanceDelta delta = router.swapWithPermit2(
+            singlePermit,
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            alice,
+            block.timestamp,
+            40 ether,
+            100 ether,
+            ""
+        );
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertLt(int256(delta.amount0()), 0, "delta0");
+        assertGt(int256(delta.amount1()), 0, "delta1");
+        assertLt(gasUsed, 672_650, "swapWithPermit2 gas ceiling");
+    }
+
     /// @notice Verifies Permit2 swaps also respect the post-unlock protection window.
     /// @dev Uses hook-local pool protection while still funding the input through Permit2 first.
     function testSwapWithPermit2_RevertsDuringPostUnlockProtectionWindow() external {
