@@ -71,22 +71,7 @@ If there is no explicit threat model, do not expand test scope by guessing.
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` structure.
-
-- Always fill required fields.
-- Fill conditional fields only when the report depends on them.
-- Do not add non-standard keys.
-
-- `Role`
-- `Summary`
-- `Task Brief path`
-- `Scope / ownership respected`
-- `Files touched/reviewed`
-- `Findings`
-- `Required follow-up`
-- `Commands run`
-- `Evidence`
-- `Residual risks`
+Return the standard `.codex/templates/agent-report.md` structure with all 10 fields (`Role`, `Summary`, `Task Brief path`, `Scope / ownership respected`, `Files touched/reviewed`, `Findings`, `Required follow-up`, `Commands run`, `Evidence`, `Residual risks`); all required fields must be filled, conditional fields filled only when the report depends on them.
 
 Place test-hardening details in:
 

@@ -87,26 +87,7 @@ Pattern familiarity is not evidence. A classic bug shape is still only a hypothe
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` fields only:
-
-- `Role`
-- `Summary`
-- `Task Brief path`
-- `Scope / ownership respected`
-- `Files touched/reviewed`
-- `Findings`
-- `Required follow-up`
-- `Commands run`
-- `Evidence`
-- `Residual risks`
-
-Apply the standard Agent Report required/conditional semantics:
-
-- Fill every required field.
-- Fill any conditional field whenever the review judgment depends on it.
-- `Findings` is required whenever you report a non-empty review judgment or any confirmed issue.
-- `Evidence` is required whenever the judgment depends on local code-path facts, confirmed invariants, or external verification.
-- `Required follow-up` is required whenever you request fixes, tests, or human decisions.
+Return the standard `.codex/templates/agent-report.md` structure with all 10 fields (`Role`, `Summary`, `Task Brief path`, `Scope / ownership respected`, `Files touched/reviewed`, `Findings`, `Required follow-up`, `Commands run`, `Evidence`, `Residual risks`). `Findings` required for any confirmed issue, `Evidence` required when judgment depends on local code-path facts or external verification, `Required follow-up` required when requesting fixes/tests/human decisions.
 
 Place security-specific details in:
 

@@ -16,18 +16,23 @@
 - `docs/agent-reports/`：本地 `Agent Report` 工件（独立 workflow artifact，不并入 `docs/plans/`；字段真源以 `.codex/templates/agent-report.md` 和 `docs/process/policy.json` 为准）
 - `docs/reviews/`：本地 review 草稿模板与草稿
 - `docs/spec/`、`docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`：产品真相与支撑文档
-- `.codex/agents/`：项目级 subagent manifest（`*.toml`）与运行时契约（`*.md`）
-- `.codex/runtime/`：subagent runtime 入口索引
+- `.claude/agents/`：Claude Code subagent 定义（`.md`，含 YAML frontmatter）
+- `.claude/rules/`：Claude Code 路径触发规则（`paths:` frontmatter）
+- `.codex/agents/`：项目级 subagent manifest（`*.toml`）与运行时契约（`*.md`）（历史参考）
+- `.codex/runtime/`：subagent runtime 入口索引（历史参考）
+- `.codex/workflows/`：workflow index（历史参考）
 - `.codex/templates/`：`Task Brief` 与 `Agent Report` 模板
 
 ## 1.5 Subagent Runtime Entry
 
 - 原生 dispatch backend：平台原生 subagent 派发 + `.codex/agents/*.toml`
-- 角色运行时契约：`.codex/agents/*.md`
+- Claude Code dispatch：Claude Code Agent tool + `.claude/agents/*.md`（`.codex/agents/*.toml` 元数据和 `*.md` 运行时契约的合并版）
+- 角色运行时契约：`.codex/agents/*.md` / `.claude/agents/*.md`
 - workflow index：`.codex/workflows/solidity-subagent-workflow.json`
 - runtime index：`.codex/runtime/subagent-runtime.json`
 - `.codex/workflows/*.json` 与 `.codex/runtime/*.json` 只负责索引、角色目录与工件位置，不承载机器规则细节
-- 机器规则真源：`AGENTS.md`、`docs/process/subagent-workflow.md`、`docs/process/policy.json`、`script/process/*` 与 `.codex/agents/*.md`
+- `script/process/` 是 execution-plane 的验证与 gate 脚本，不是 subagent dispatch backend
+- 机器规则真源：`AGENTS.md`、`docs/process/subagent-workflow.md`、`docs/process/policy.json`、`script/process/*`、`.claude/agents/*.md`、`.codex/agents/*.md`
 
 ## 2. Required Commands
 
@@ -43,9 +48,9 @@
 
 ### Main Session
 
-- `main-orchestrator` 是默认主会话角色，负责 intake、拆任务、划定 file ownership、汇总证据、判定 block
+- `main-orchestrator` 是默认主会话角色（Claude Code 主会话直接承担），负责 intake、拆任务、划定 file ownership、汇总证据、判定 block
 - 不是 product / process / config surface 的默认写入者；除 orchestration artifact（如 `docs/task-briefs/*`）与 evidence aggregation 阶段的 review note 汇总外，不直接改仓库文件
-- 不写：`src/**/*.sol`、`script/**/*.sol`、`test/**/*.sol`、`script/**/*.sh`、`script/process/**`、`AGENTS.md`、`docs/process/**`、`.codex/**`、`.github/**`、`.githooks/*`、`package.json`、`package-lock.json`
+- 不写：`src/**/*.sol`、`script/**/*.sol`、`test/**/*.sol`、`script/**/*.sh`、`script/process/**`、`AGENTS.md`、`docs/process/**`、`.claude/**`、`.codex/**`、`.github/**`、`.githooks/*`、`package.json`、`package-lock.json`
 - 命中上述路径或其他流程面文件时，必须先派发对应 writer role；若派发失败，必须停止并请求人工决策，不能降级为直接实现者
 - 允许 native dispatch 时，只可通过 `.codex/agents/*.toml` 启动角色；不得虚构 repo-local helper backend
 - 自主委派仍必须遵守角色边界、单写 owner、证据链和 block 规则
@@ -68,7 +73,7 @@
 
 ### Required Review Order (Harness / Process Tasks)
 
-- 流程面变更（`AGENTS.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`.codex/**`、`script/process/**`）：`process-implementer` → `codex review` → `verifier`
+- 流程面变更（`AGENTS.md`、`docs/process/**`、`docs/reviews/TEMPLATE.md`、`.claude/**`、`.codex/**`、`script/process/**`）：`process-implementer` → `codex review` → `verifier`
 - Solidity 变更（`src/**/*.sol`、`script/**/*.sol`）：`solidity-implementer` → `logic-reviewer` → `security-reviewer` → `gas-reviewer` → `codex review` → `verifier`
 
 ## 4. Core Principles
@@ -97,6 +102,7 @@
 
 - 路径触发规则、默认角色、必跑命令与 gate 约束以 `docs/process/change-matrix.md` 为准
 - 机器可读真源以 `docs/process/policy.json`、`.codex/workflows/solidity-subagent-workflow.json`、`.codex/runtime/subagent-runtime.json`、`script/process/*` 为准
+- 路径触发规则同时已在 `.claude/rules/` 中以 `paths:` frontmatter rule 文件落地
 - `MemeverseV2` 的 `rule-map` 是 repo-specific 扩展，不被通用 Harness 文案替代
 
 ## 7. Pull Request Contract
@@ -110,40 +116,31 @@
 - 字段、布尔值约束、owner-prefixed source 规则以 `docs/process/review-notes.md` 和 `docs/process/policy.json` 为准
 - 若仓库启用了 repo-specific 证据映射或额外 gate 字段，review note 也必须同步满足
 
-## 9. Local-Only Files
+## 9. Local-Only Files & Documentation Language
 
-- `docs/plans/`：仅放设计文档、实现计划、阶段方案、拆分草案
-- `docs/task-briefs/`：仅放 `Task Brief`
-- `docs/agent-reports/`：仅放 `Agent Report`
-- `docs/reviews/`：review 草稿（是否提交由团队策略决定）
+- `docs/plans/`（设计）、`docs/task-briefs/`（Task Brief）、`docs/agent-reports/`（Agent Report）、`docs/reviews/`（review 草稿）为本地专用目录
+- 新增自然语言文档默认简体中文；固定字段 key、命令、路径、标识保持英文
+- 模块目录：Launcher（`src/verse/MemeverseLauncher.sol`）、Registration（`src/verse/registration/`）、Swap（`src/swap/`）、Token（`src/token/`）、Yield（`src/yield/`）、Governance（`src/governance/`）、Interoperation（`src/interoperation/`）
+- 产品真相文档：核心以 `docs/spec/*` 及 `docs/spec/upgradeability.md` 为准；补充以 `docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md` 为准
 
-## 10. Documentation Language
+## 13. Claude Code 适配说明
 
-新增自然语言文档默认简体中文；固定字段 key、命令、路径、代码标识、协议名、库名保持英文；review note 固定 key 与 `yes` / `no` 取值保持英文。
+- 原 `.codex/agents/*.toml` + `*.md` 已合并至 `.claude/agents/*.md`；Claude Code 用 Agent tool 调度，不需 `.toml` manifest
+- 路径触发规则已拆分至 `.claude/rules/*.md`（`paths:` frontmatter）
+- `.codex/templates/`、`.codex/workflows/`、`.codex/runtime/` 保留为参考
+- `main-orchestrator` 由主会话直接承担，不作为 subagent
 
-## 11. Repository Architecture Snapshot
-
-| 模块 | 目录 | 说明 |
+| 角色 | Agent 文件 | 类型 |
 |---|---|---|
-| Launcher | `src/verse/MemeverseLauncher.sol` | verse 创建、阶段推进、Genesis/Refund/Locked/Unlocked 状态与资金主编排 |
-| Registration | `src/verse/registration/` | 参数校验、symbol 占用、local/remote fan-out、launcher 落库调用 |
-| Swap | `src/swap/` | `MemeverseSwapRouter.sol`（用户入口）、`MemeverseUniswapHook.sol`（Hook 引擎） |
-| Token | `src/token/` | memecoin 与 POL 资产层 |
-| Yield | `src/yield/` | 收益相关合约 |
-| Governance | `src/governance/` | 治理与激励合约 |
-| Interoperation | `src/interoperation/` | 跨链 staking、治理链侧承接、launcher/OFT/endpoint 配置联动 |
+| `solidity-implementer` | `.claude/agents/solidity-implementer.md` | 可写 |
+| `process-implementer` | `.claude/agents/process-implementer.md` | 可写 |
+| `logic-reviewer` | `.claude/agents/logic-reviewer.md` | 只读 |
+| `security-reviewer` | `.claude/agents/security-reviewer.md` | 只读 |
+| `gas-reviewer` | `.claude/agents/gas-reviewer.md` | 只读 |
+| `verifier` | `.claude/agents/verifier.md` | 只读 |
+| `solidity-explorer` | `.claude/agents/solidity-explorer.md` | 按需只读 |
+| `security-test-writer` | `.claude/agents/security-test-writer.md` | 按需可写 |
 
-## 12. Source of Truth And Reading Order
-
-### Harness / Process Truth
-
-`AGENTS.md` → `docs/process/change-matrix.md` → `.codex/workflows/solidity-subagent-workflow.json` → `docs/process/review-notes.md` → `docs/process/policy.json` → `docs/process/rule-map.json`（若存在）→ `script/process/*` → `.codex/agents/*.md` → `.codex/agents/*.toml`
-
-### Product Truth
-
-- Core：`docs/spec/*`、`docs/spec/upgradeability.md`（升级性规则主文档；`implementation-map.md` 的升级性列记录代码事实，不替代主文档）
-- Support：`docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`、`docs/SECURITY_AND_APPROVALS.md`
-
-### Recommended Reading Order
-
-1. `AGENTS.md` → 2. `docs/ARCHITECTURE.md` → 3. `docs/spec/*` → 4. `docs/GLOSSARY.md` → 5. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md` → 6. `docs/process/subagent-workflow.md` + `docs/process/*`
+Agent Report 输出契约不变（`.codex/templates/agent-report.md`）：
+- Required：`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`
+- Conditional：`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`

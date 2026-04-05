@@ -83,25 +83,7 @@ If `Acceptance checks` are missing, you must first report incomplete inputs.
 
 ## Output Contract
 
-Return the standard `.codex/templates/agent-report.md` fields only:
-
-- `Role`
-- `Summary`
-- `Task Brief path`
-- `Scope / ownership respected`
-- `Files touched/reviewed`
-- `Findings`
-- `Required follow-up`
-- `Commands run`
-- `Evidence`
-- `Residual risks`
-
-Apply these verifier-specific Agent Report rules:
-
-- `Commands run`, `Findings`, and `Evidence` are always required.
-- `Commands run` must enumerate the required command set, what ran, and what was blocked, skipped, or not applicable.
-- `Required follow-up` is required whenever verification fails, is stale, or is blocked.
-- Preserve the stale-evidence, block, and required-command semantics above when populating the report.
+Return the standard `.codex/templates/agent-report.md` structure with all 10 fields (`Role`, `Summary`, `Task Brief path`, `Scope / ownership respected`, `Files touched/reviewed`, `Findings`, `Required follow-up`, `Commands run`, `Evidence`, `Residual risks`). `Commands run`, `Findings`, and `Evidence` are always required. `Commands run` must enumerate what ran and what was blocked/skipped. `Required follow-up` required when verification fails, is stale, or is blocked.
 
 Place verification-specific details in:
 
