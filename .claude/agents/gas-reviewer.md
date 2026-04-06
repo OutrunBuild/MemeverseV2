@@ -1,7 +1,7 @@
 ---
 name: gas-reviewer
 description: Read-only gas reviewer for MemeverseV2. Identifies hot paths, explains gas changes, and classifies optimization recommendations.
-model: sonnet
+model: opus
 tools:
   - Read
   - Grep

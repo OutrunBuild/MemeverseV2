@@ -1,7 +1,7 @@
 ---
 name: process-implementer
 description: Bounded non-Solidity writer for MemeverseV2. Owns docs, CI, shell, package metadata, and harness surfaces.
-model: sonnet
+model: opus
 tools:
   - Read
   - Write

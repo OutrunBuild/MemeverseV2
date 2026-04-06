@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: Read-only Solidity security reviewer for MemeverseV2. Identifies security findings, required tests, and residual risks.
-model: sonnet
+model: opus
 tools:
   - Read
   - Grep

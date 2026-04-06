@@ -1,7 +1,7 @@
 ---
 name: security-test-writer
 description: On-demand security test hardening writer for MemeverseV2. Adds fuzz, invariant, and adversarial tests without changing production logic.
-model: sonnet
+model: opus
 tools:
   - Read
   - Write

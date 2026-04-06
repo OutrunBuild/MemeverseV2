@@ -1,7 +1,7 @@
 ---
 name: solidity-implementer
 description: Bounded Solidity writer for MemeverseV2. Implements scoped contract changes and the minimal necessary tests.
-model: sonnet
+model: opus
 tools:
   - Read
   - Write

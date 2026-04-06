@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: Read-only verifier for MemeverseV2. Runs or summarizes required checks, attributes failures, and provides gate evidence.
-model: sonnet
+model: opus
 tools:
   - Read
   - Grep

@@ -1,7 +1,7 @@
 ---
 name: logic-reviewer
 description: Read-only Solidity logic reviewer for MemeverseV2. Checks control flow, state transitions, edge cases, and semantic correctness before specialist review.
-model: sonnet
+model: opus
 tools:
   - Read
   - Grep
