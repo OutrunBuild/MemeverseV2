@@ -97,6 +97,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint8 internal constant UNLOCK_ACTION_LAUNCH_SETTLEMENT = 1;
     address public treasury;
     address public launcher;
+    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 internal constant CLAIM_FEES_TYPEHASH =
+        keccak256("ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)");
     mapping(address => bool) public supportedProtocolFeeCurrencies;
     mapping(PoolId => PoolInfo) public poolInfo;
     mapping(PoolId => uint40) public poolLaunchTimestamp;
@@ -333,8 +337,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 lpFeeBps = _lpFeeBps(dynamicFeeBps);
         uint256 protocolFeeBps = _protocolFeeBps(dynamicFeeBps);
 
-        uint256 lpFeeInputAmount = 0;
-        uint256 protocolFeeInputAmount = 0;
+        uint256 lpFeeInputAmount;
+        uint256 protocolFeeInputAmount;
         if (params.amountSpecified < 0) {
             // Exact-input swaps can charge input-side fees immediately because the user's budget is already known up front.
             lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
@@ -460,8 +464,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     {
         PoolKey memory key = _poolKey(params.currency0, params.currency1);
         PoolId poolId = key.toId();
+        PoolInfo storage pool = poolInfo[poolId];
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        if (poolInfo[poolId].liquidityToken == address(0) || sqrtPriceX96 == 0) revert PoolNotInitialized();
+        if (pool.liquidityToken == address(0) || sqrtPriceX96 == 0) revert PoolNotInitialized();
 
         updateUserSnapshot(poolId, params.to);
 
@@ -471,7 +476,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         (liquidity, amount0Used, amount1Used) =
             LiquidityQuote.quote(sqrtPriceX96, params.amount0Desired, params.amount1Desired);
 
-        uint256 requiredNative = 0;
+        uint256 requiredNative;
         if (key.currency0.isAddressZero()) {
             requiredNative = amount0Used;
         } else if (key.currency1.isAddressZero()) {
@@ -489,7 +494,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             })
         );
 
-        PoolInfo storage pool = poolInfo[poolId];
         if (poolLiquidity == 0) {
             unchecked {
                 liquidity -= MINIMUM_LIQUIDITY;
@@ -689,7 +693,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             data.key.currency1.settle(poolManager, data.payer, uint256(uint128(-amount1)), false);
         }
 
-        uint256 protocolFeeOutputAmount = 0;
+        uint256 protocolFeeOutputAmount;
         if (!data.protocolFeeOnInput) {
             // When protocol fee is charged on output, the pool pays gross proceeds first and the hook skims treasury share before forwarding.
             uint256 grossOutputAmount = _actualOutputAmount(swapDelta, data.params.zeroForOne);
@@ -787,21 +791,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             abi.encodePacked(
                 "\x19\x01",
                 DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        keccak256(
-                            // solhint-disable-next-line gas-small-strings
-                            abi.encodePacked(
-                                "ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)"
-                            )
-                        ),
-                        params.owner,
-                        params.recipient,
-                        PoolId.unwrap(params.key.toId()),
-                        nonce,
-                        params.deadline
-                    )
-                )
+                keccak256(abi.encode(CLAIM_FEES_TYPEHASH, params.owner, params.recipient, PoolId.unwrap(params.key.toId()), nonce, params.deadline))
             )
         );
 
@@ -819,12 +809,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     function _computeDomainSeparator() internal view returns (bytes32) {
         return keccak256(
             abi.encode(
-                keccak256(
-                    // solhint-disable-next-line gas-small-strings
-                    abi.encodePacked(
-                        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-                    )
-                ),
+                EIP712_DOMAIN_TYPEHASH,
                 keccak256("MemeverseUniswapHook"),
                 keccak256("1"),
                 block.chainid,
