@@ -97,8 +97,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint8 internal constant UNLOCK_ACTION_LAUNCH_SETTLEMENT = 1;
     address public treasury;
     address public launcher;
+    // solhint-disable-next-line gas-small-strings
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    // solhint-disable-next-line gas-small-strings
     bytes32 internal constant CLAIM_FEES_TYPEHASH =
         keccak256("ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)");
     mapping(address => bool) public supportedProtocolFeeCurrencies;
