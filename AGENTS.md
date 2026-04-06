@@ -90,6 +90,7 @@
 ## 5. Workflow Summary
 
 - `npm run quality:gate` 是唯一 finish gate；`npm run quality:quick` 只用于本地快速反馈
+- 对 `src/**/*.sol` / `script/**/*.sol` 变更，必须先运行 `npm run classify:change`（或手动在 `Task Brief` 中记录 classification），并按分类选择审阅流程
 - Artifact chain：
   - Solidity：`Task Brief → Agent Report → codex review → review note → verifier evidence → quality:gate → CI`
   - Process：`Task Brief → Agent Report → codex review → verifier evidence → docs:check / process:selftest`
@@ -122,6 +123,21 @@
 - 新增自然语言文档默认简体中文；固定字段 key、命令、路径、标识保持英文
 - 模块目录：Launcher（`src/verse/MemeverseLauncher.sol`）、Registration（`src/verse/registration/`）、Swap（`src/swap/`）、Token（`src/token/`）、Yield（`src/yield/`）、Governance（`src/governance/`）、Interoperation（`src/interoperation/`）
 - 产品真相文档：核心以 `docs/spec/*` 及 `docs/spec/upgradeability.md` 为准；补充以 `docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md` 为准
+
+## 10. Source of Truth And Reading Order
+
+### Harness / Process Truth
+
+`AGENTS.md` → `docs/process/change-matrix.md` → `docs/process/review-notes.md` → `docs/process/policy.json` → `docs/process/rule-map.json`（若存在）→ `script/process/*` → `.claude/agents/*.md` → `.claude/rules/*.md` → `.codex/agents/*.md` → `.codex/agents/*.toml`（历史参考）
+
+### Product Truth
+
+- Core：`docs/spec/*`、`docs/spec/upgradeability.md`、`src/**`、`test/**`、`script/**`
+- Support：`docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`、`docs/reviews/TEMPLATE.md`、`docs/task-briefs/README.md`、`docs/agent-reports/README.md`
+
+### Recommended Reading Order
+
+1. `AGENTS.md` → 2. `docs/spec/*` → 3. `src/verse/`、`src/swap/`、`src/token/` → 4. `src/yield/`、`src/governance/`、`src/interoperation/` → 5. `test/`、`script/` → 6. `docs/process/subagent-workflow.md` + `docs/process/*`
 
 ## 13. Claude Code 适配说明
 

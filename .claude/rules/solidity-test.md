@@ -24,4 +24,5 @@ paths:
 ## Required Artifacts
 
 - Task Brief
-- Agent Report
+- Agent Report（必须包含 test 变更的行为证明与缺口声明）
+- 高风险测试变更（setup / mock / invariant / reward accounting 修改）需附简要 review note 或在 Agent Report 中以 findings 形式记录

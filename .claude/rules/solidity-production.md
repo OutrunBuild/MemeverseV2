@@ -20,6 +20,10 @@ paths:
 - `prod-semantic`：`solidity-implementer` → `logic-reviewer` → `security-reviewer` → `gas-reviewer` → `codex review` → `verifier(full)`
 - `high-risk`：同 `prod-semantic`，优先考虑 `security-test-writer` 补强测试
 
+## Classify:change
+
+对 `src/**/*.sol` / `script/**/*.sol` 变更，必须先运行 `npm run classify:change`（或手动在 `Task Brief` 中记录 `Change classification` + `Change classification rationale`），并按分类选择对应的 Required Review Order。分类结果必须与审阅流程和 verifier profile（light / full）一致。
+
 ## Required Commands
 
 - `forge build`
