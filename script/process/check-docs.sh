@@ -71,7 +71,6 @@ required_harness_support_files=(
     ".codex/runtime/subagent-runtime.json"
     ".codex/workflows/solidity-subagent-workflow.json"
     "README.md"
-    "docs/process/subagent-workflow.md"
     ".githooks/pre-commit"
     ".githooks/pre-push"
     "script/process/run-codex-review.sh"
