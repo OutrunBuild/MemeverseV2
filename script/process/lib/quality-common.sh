@@ -79,7 +79,9 @@ quality_initialize_runtime() {
 
     mode="${QUALITY_GATE_MODE:-staged}"
 
-    if [ "$mode" = "ci" ]; then
+    if [ -n "${QUALITY_GATE_FILE_LIST:-}" ] && [ -f "${QUALITY_GATE_FILE_LIST}" ]; then
+        changed_files="$(cat "${QUALITY_GATE_FILE_LIST}")"
+    elif [ "$mode" = "ci" ]; then
         changed_files="$(load_file_list_from_ci)"
     else
         changed_files="$(git diff --cached --name-only --diff-filter=ACMRD)"

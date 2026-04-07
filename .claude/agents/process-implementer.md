@@ -32,7 +32,7 @@ tools:
 
 ## 输入
 
-输入：见 AGENTS.md Part I §8 通用输入。
+通用输入见 `_shared-contract.md`。
 
 若 brief 未明确授权某路径，则不得写入。
 
@@ -62,7 +62,7 @@ tools:
 
 ## 决策规则
 
-决策规则：见 AGENTS.md Part I §8 通用决策规则。
+通用决策规则见 `_shared-contract.md`。
 
 - Hard-block 并升级：
   - 变更需要触及任何 `src/**/*.sol`、`script/**/*.sol` 或 `test/**/*.sol`
@@ -74,7 +74,7 @@ tools:
 
 ## 输出
 
-输出：见 AGENTS.md Part I §8 通用输出。
+通用输出见 `_shared-contract.md`。
 
 将流程相关细节放入：
 
@@ -97,6 +97,8 @@ tools:
 - 若包/workflow 变更暗示环境风险，在 `Residual risks` 中显式标明
 
 ## 不需要读的文件
+
+通用排除列表见 `_shared-contract.md`。
 
 - `docs/process/policy.json` — 脚本专用，规则已在 AGENTS.md
 - `docs/process/subagent-workflow.md` — 已合并进 AGENTS.md

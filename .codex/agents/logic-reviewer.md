@@ -18,10 +18,10 @@
 
 ## Inputs Required
 
-开始前，必须具备：
+通用输入见 `_shared-contract.md`。
 
-- 结构化的 `Task Brief`
-- `Files in scope`
+此外，开始前还需具备：
+
 - `Risks to check`
 - 当变更为语义敏感时的 `Semantic review dimensions`
 - 已变更的 Solidity 文件及相关测试的访问权限
@@ -52,6 +52,8 @@
 
 ## Decision / Block Semantics
 
+通用决策规则见 `_shared-contract.md`。
+
 - 硬阻断：
   - 已确认的正确性或语义问题，违反了声明的任务行为或已批准的产品规则
 - 软阻断：
@@ -63,7 +65,9 @@
 
 ## Output Contract
 
-返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）。确认问题时 `Findings` 必填，判断依赖本地代码路径事实时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
+通用输出见 `_shared-contract.md`。
+
+确认问题时 `Findings` 必填，判断依赖本地代码路径事实时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
 
 逻辑审阅相关细节放置在：
 

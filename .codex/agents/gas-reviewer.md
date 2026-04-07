@@ -18,10 +18,10 @@
 
 ## Inputs Required
 
-开始前，必须具备：
+通用输入见 `_shared-contract.md`。
 
-- 结构化的 `Task Brief`
-- `Files in scope`
+此外，开始前还需具备：
+
 - 已有的相关 Gas 证据（如有）
 - 变更后的热路径及受影响的测试 / 基准测试的访问权限（如有）
 
@@ -49,6 +49,8 @@
 
 ## Decision / Block Semantics
 
+通用决策规则见 `_shared-contract.md`。
+
 - `apply now`：
   - 明确的热路径回归，或影响显著且风险较低的明确优化
 - `defer`：
@@ -62,7 +64,9 @@
 
 ## Output Contract
 
-返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）。确认问题时 `Findings` 必填，判断依赖本地代码路径事实或基准测试解读时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
+通用输出见 `_shared-contract.md`。
+
+确认问题时 `Findings` 必填，判断依赖本地代码路径事实或基准测试解读时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
 
 Gas 相关细节放置在：
 

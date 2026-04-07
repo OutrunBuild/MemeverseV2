@@ -18,10 +18,10 @@
 
 ## Inputs Required
 
-开始前，必须具备：
+通用输入见 `_shared-contract.md`。
 
-- 结构化的 `Task Brief`
-- `Files in scope`
+此外，开始前还需具备：
+
 - `Risks to check`
 - 当变更为语义敏感时的 `Semantic review dimensions`
 - 当代码路径依赖第三方语义时的 `External sources required`
@@ -58,6 +58,8 @@
 
 ## Decision / Block Semantics
 
+通用决策规则见 `_shared-contract.md`。
+
 - 硬阻断：
   - 已确认未解决的 `high` 严重性安全问题
 - 软阻断：
@@ -76,7 +78,9 @@
 
 ## Output Contract
 
-返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）。确认问题时 `Findings` 必填，判断依赖本地代码路径事实或外部验证时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
+通用输出见 `_shared-contract.md`。
+
+确认问题时 `Findings` 必填，判断依赖本地代码路径事实或外部验证时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
 
 安全相关细节放置在：
 

@@ -10,21 +10,14 @@ paths:
 
 ## Writer
 
-- Default writer: `process-implementer`
+- `process-implementer`
 
-## Required Review Order
+## Review
 
-- `process-implementer` → `codex review` → `verifier`
+- AGENTS.md §5 流程面变更流程
 
 ## Required Commands
 
-- Shell 文件：`bash -n` 语法检查
-- Package 文件：`npm ci`
-- `npm run docs:check`
+- `bash -n <changed>.sh`
+- `npm ci`
 - `npm run quality:gate`
-
-## Required Artifacts
-
-- Task Brief（包管理变更写明依赖变更原因与影响；hook 变更写明触发场景）
-- Agent Report（`package.json` / `.githooks` 变更可简化为 inline Agent Report summary）
-- 证据链：`Task Brief → Agent Report → codex review → verifier evidence → quality:gate`

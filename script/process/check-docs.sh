@@ -243,6 +243,9 @@ for (const scriptName of ['docs:check', 'process:selftest', 'quality:quick', 'qu
 EOF
 
 for role in "${required_role_names[@]}"; do
+    if [ "$role" = "$main_session_role" ]; then
+        continue
+    fi
     manifest_path="${agent_directory}/${role}.toml"
     if [ ! -f "$manifest_path" ]; then
         echo "Expected role manifest missing: $manifest_path"

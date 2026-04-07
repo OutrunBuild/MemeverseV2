@@ -17,11 +17,10 @@
 
 ## Inputs Required
 
-开始前，必须具备：
+通用输入见 `_shared-contract.md`。
 
-- 结构化的 `Task Brief`
-- `Files in scope`
-- `Acceptance checks`
+此外，开始前还需具备：
+
 - 当变更为语义敏感时的 `Semantic review dimensions`
 - 当前工作树或 CI 工件的访问权限
 
@@ -59,6 +58,8 @@
 
 ## Decision / Block Semantics
 
+通用决策规则见 `_shared-contract.md`。
+
 - 硬阻断：
   - 任何必需命令失败
   - 缺少必需的工件或必需的审阅笔记
@@ -72,7 +73,9 @@
 
 ## Output Contract
 
-返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）。`Commands run`、`Findings` 和 `Evidence` 始终必填。`Commands run` 必须枚举已运行和已阻断/跳过的内容。`Required follow-up` 在验证失败、过期或被阻断时必填。
+通用输出见 `_shared-contract.md`。
+
+`Commands run`、`Findings` 和 `Evidence` 始终必填。`Commands run` 必须枚举已运行和已阻断/跳过的内容。`Required follow-up` 在验证失败、过期或被阻断时必填。
 
 验证相关细节放置在：
 

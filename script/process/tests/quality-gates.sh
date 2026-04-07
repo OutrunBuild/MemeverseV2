@@ -38,7 +38,7 @@ fi
 
 if [ -z "$existing_test_file" ]; then
     mkdir -p test
-    created_test_fixture="test/__quality_gates_selftest__.sol"
+    created_test_fixture="test/__quality_gates_selftest__.t.sol"
     printf '%s\n' 'pragma solidity ^0.8.20; contract QualityGateTestFixture {}' > "$created_test_fixture"
     existing_test_file="$created_test_fixture"
 fi
@@ -121,7 +121,7 @@ run_quality_script() {
         return
     fi
 
-    PATH="$bin_dir:$PATH" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" FAIL_RULE_MAP_GATE="${FAIL_RULE_MAP_GATE:-0}" \
+    PATH="$bin_dir:$PATH" QUALITY_GATE_FILE_LIST="$changed_files_path" CHANGE_CLASSIFIER_FORCE="$forced_classification" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" FAIL_RULE_MAP_GATE="${FAIL_RULE_MAP_GATE:-0}" \
         /bin/bash "./script/process/${script_name}" >"$output_file" 2>&1
 }
 

@@ -106,17 +106,15 @@
 
 ## 6. 防误报与证据链规则
 
+通用证据链定义与 hard-block / soft-block 规则见 AGENTS.md §10。以下为 review note 层面的补充约束：
+
 - `Local control-flow facts checked` 必须写清结论依赖的本地关键前提，例如状态更新顺序、条件分支、金额处理、索引推进、返回值处理或权限检查。
 - 若结论依赖第三方协议、外部合约、SDK、API 或系统行为，`External facts checked` 必须写明主来源；没有主来源时只能写成 `needs verification`、假设或待确认决策点。
-- `Evidence chain complete` 只有在“本地前提已复核”且“必要时外部主来源已核验”同时满足时才允许填写 `yes`。
+- `Evidence chain complete` 只有在"本地前提已复核"且"必要时外部主来源已核验"同时满足时才允许填写 `yes`。
 - 若某条结论只来自 subagent 摘要而主会话未复核关键代码行，该条结论不得在 review note 中写成已确认 finding。
-- 对 `prod-semantic` / `high-risk` 的 `src/**/*.sol`、`script/**/*.sol` 写面，本地 `quality:gate`（含 `pre-commit`）会在进入 review-note / verifier 校验前自动再执行一次 `npm run codex:review`；`pre-push` / CI 只校验证据链，不自动执行。`non-semantic` / `test-semantic` 与流程面默认按需手动触发。若当前交互会话支持 `/review`，可视为同义入口，但落盘 evidence 仍以 wrapper / CLI 命令为准。
 - 对 `src/**/*.sol`、`script/**/*.sol` 写面，`Logic evidence source`、`Security evidence source`、`Gas evidence source`、`Verification evidence source` 必须指向可落盘、可回溯的具体 artifact path；不能只写命令名、聊天结论或模糊描述。
-- 如果 `solidity-implementer` 在 review finding 之后再次写入受影响的 Solidity scope，上一轮 review note 与上述 reviewer / verifier evidence 都会被视为 stale；它们必须在最新 writer `Agent Report` 之后重新生成。
-- `Codex review evidence source` 可以继续记录 wrapper / CLI 命令，但承载该字段的 review note 必须晚于当前 writer `Agent Report`。
 - 当某个 reviewer 没有被 classifier 选中时，对应 review-note 字段应保留 owner-prefixed 说明，例如 `security-reviewer: skipped by classifier (non-semantic)`；不得伪造不存在的 reviewer artifact path。
-- stale-evidence freshness 只针对当前 classifier 选中的 reviewer / verifier evidence；未被 classifier 选中的 reviewer 字段不作为 freshness blocker。
-- 发现 stale evidence 后，`quality:gate` 会默认触发 `npm run stale-evidence:loop`；它会生成新的 follow-up brief，并给出 writer / reviewer / verifier 的 rerun order。
+
 
 ## 7. 禁止内容
 

@@ -31,7 +31,7 @@ tools:
 
 ## 输入
 
-输入：见 AGENTS.md Part I §8 通用输入。
+通用输入见 `_shared-contract.md`。
 
 若无显式威胁模型，不得通过猜测扩大测试范围。
 
@@ -58,7 +58,7 @@ tools:
 
 ## 决策规则
 
-决策规则：见 AGENTS.md Part I §8 通用决策规则。
+通用决策规则见 `_shared-contract.md`。
 
 - Hard-block 并升级：
   - 不修改生产逻辑则无法达成覆盖目标
@@ -68,7 +68,7 @@ tools:
 
 ## 输出
 
-输出：见 AGENTS.md Part I §8 通用输出。
+通用输出见 `_shared-contract.md`。
 
 将测试加固细节放入：
 
@@ -92,6 +92,8 @@ tools:
 - 若生产逻辑按构造不安全，升级至 `security-reviewer`
 
 ## 不需要读的文件
+
+通用排除列表见 `_shared-contract.md`。
 
 - `docs/process/policy.json` — 脚本专用，规则已在 AGENTS.md
 - `docs/process/subagent-workflow.md` — 已合并进 AGENTS.md

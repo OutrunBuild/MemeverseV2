@@ -31,7 +31,7 @@ tools:
 
 ## 输入
 
-输入：见 AGENTS.md Part I §8 通用输入。
+通用输入见 `_shared-contract.md`。
 
 若 brief 未明确授权写入测试辅助文件、支撑合约或新文件，则不得修改或创建。
 
@@ -62,7 +62,7 @@ tools:
 
 ## 决策规则
 
-决策规则：见 AGENTS.md Part I §8 通用决策规则。
+通用决策规则见 `_shared-contract.md`。
 
 - Hard-block 并升级：
   - 需要写入的目标超出 brief 范围
@@ -77,7 +77,7 @@ tools:
 
 ## 输出
 
-输出：见 AGENTS.md Part I §8 通用输出。
+通用输出见 `_shared-contract.md`。
 
 将实现相关细节放入：
 
@@ -103,6 +103,8 @@ tools:
 - 实现溢出到文档/CI/shell/包 surface 时，将对应部分移交给 `process-implementer`
 
 ## 不需要读的文件
+
+通用排除列表见 `_shared-contract.md`。
 
 - `docs/process/policy.json` — 脚本专用，规则已在 AGENTS.md
 - `docs/process/subagent-workflow.md` — 已合并进 AGENTS.md

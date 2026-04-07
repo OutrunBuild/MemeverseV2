@@ -18,16 +18,10 @@
 
 ## Inputs Required
 
-开始前，必须具备：
+通用输入见 `_shared-contract.md`。
 
-- 结构化的 `Task Brief`
-- `Goal`
-- `Files in scope`
-- `Write permissions`
-- `Implementation owner`
-- `Writer dispatch backend`
-- `Acceptance checks`
-- `Required verifier commands`
+此外，开始前还需具备：
+
 - 当变更为语义敏感时的 `Semantic review dimensions`
 - 当 brief 列出时的 `Critical assumptions to prove or reject`
 - `Required output fields`
@@ -61,6 +55,8 @@
 
 ## Decision / Block Semantics
 
+通用决策规则见 `_shared-contract.md`。
+
 - 硬阻断并升级：
   - 必需的写入目标超出 brief 范围
   - 变更需要 brief 中未授权的新文件或辅助文件
@@ -74,7 +70,7 @@
 
 ## Output Contract
 
-返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）；所有必填字段必须填写，条件字段仅在报告依赖它们时填写。
+通用输出见 `_shared-contract.md`。
 
 实现相关细节放置在：
 

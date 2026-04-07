@@ -28,7 +28,7 @@ tools:
 
 ## 输入
 
-输入：见 AGENTS.md Part I §8 通用输入。
+通用输入见 `_shared-contract.md`。
 
 若 `Acceptance checks` 缺失，必须先报告输入不完整。
 
@@ -64,7 +64,7 @@ tools:
 
 ## 决策规则
 
-决策规则：见 AGENTS.md Part I §8 通用决策规则。
+通用决策规则见 `_shared-contract.md`。
 
 - Hard-block：
   - 任一必需命令失败
@@ -79,7 +79,7 @@ tools:
 
 ## 输出
 
-输出：见 AGENTS.md Part I §8 通用输出。
+通用输出见 `_shared-contract.md`。
 
 将验证相关细节放入：
 
@@ -105,8 +105,5 @@ tools:
 
 ## 不需要读的文件
 
-- `docs/process/policy.json` — 脚本专用，规则已在 AGENTS.md
-- `docs/process/subagent-workflow.md` — 已合并进 AGENTS.md
-- `.codex/agents/*.toml` — Codex manifest
-- `.codex/workflows/*.json`、`.codex/runtime/*.json` — Codex 索引
+通用排除列表见 `_shared-contract.md`。
 - `.claude/` 目录下其他 agent 文件 — 只需读本角色的定义
