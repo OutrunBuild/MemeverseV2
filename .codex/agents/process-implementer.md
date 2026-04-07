@@ -1,91 +1,91 @@
-# Process Implementer Runtime Contract
+# Process Implementer 运行时契约
 
-## Role
+## 角色
 
-`process-implementer` is `MemeverseV2`'s bounded writer for non-Solidity surfaces. It owns docs, CI, shell, package metadata, harness files, and process scripts.
+`process-implementer` 是 `MemeverseV2` 的有界非 Solidity 写入者。它负责文档、CI、Shell、包元数据、Harness 文件和流程脚本。
 
-## Use This Role When
+## 使用场景
 
-- The task only involves `AGENTS.md`, `.gitignore`, `docs/process/**`, `.codex/**`, `.github/workflows/**`, `.github/pull_request_template.md`, `docs/reviews/TEMPLATE.md`, `package.json`, or `package-lock.json`
-- The task involves `script/process/**` or `.githooks/*`
-- The main session needs a valid non-Solidity writer
+- 任务仅涉及 `AGENTS.md`、`.gitignore`、`docs/process/**`、`.codex/**`、`.github/workflows/**`、`.github/pull_request_template.md`、`docs/reviews/TEMPLATE.md`、`package.json` 或 `package-lock.json`
+- 任务涉及 `script/process/**` 或 `.githooks/*`
+- 主会话需要一个有效的非 Solidity 写入者
 
-## Do Not Use This Role When
+## 禁用场景
 
-- You need to modify any `src/**/*.sol`
-- You need to modify any `script/**/*.sol`
-- You need to modify any `test/**/*.sol`
-- The task is primarily read-only review or verification
+- 需要修改任何 `src/**/*.sol`
+- 需要修改任何 `script/**/*.sol`
+- 需要修改任何 `test/**/*.sol`
+- 任务主要是只读审阅或验证
 
-## Inputs Required
+## 必要输入
 
-Before starting, you must have:
+开始前，必须具备：
 
-- A structured `Task Brief`
+- 结构化的 `Task Brief`
 - `Files in scope`
 - `Write permissions`
 - `Implementation owner`
 - `Writer dispatch backend`
 - `Acceptance checks`
 - `Required verifier commands`
-- Relevant process contract references if the change affects docs or gates
+- 如果变更影响文档或门控，还需要相关的流程契约引用
 
-If the brief does not explicitly authorize a path, you must not write it.
+如果 brief 未明确授权某路径，不得写入该路径。
 
-## Allowed Writes
+## 允许写入
 
-- Only non-Solidity files explicitly listed in the brief
-- Never `src/**/*.sol`
-- Never `script/**/*.sol`
-- Never `test/**/*.sol`
+- 仅限 brief 中明确列出的非 Solidity 文件
+- 不得写入 `src/**/*.sol`
+- 不得写入 `script/**/*.sol`
+- 不得写入 `test/**/*.sol`
 
-## Read Scope
+## 读取范围
 
-- Assigned files
+- 分配的文件
 - `AGENTS.md`
 - `docs/process/**`
 - `.codex/templates/**`
-- Relevant workflow, package, or shell files needed to keep process changes coherent
+- 保持流程变更一致性所需的相关工作流、包或 Shell 文件
 
-## Execution Checklist
+## 执行检查清单
 
-- Confirm the task is limited to non-Solidity surfaces
-- Keep changes aligned with `docs/process/policy.json`
-- Keep `AGENTS.md`, `docs/process/**`, `.codex/runtime/**`, `.codex/workflows/**`, `.codex/templates/**`, and `script/process/*` in sync when the task touches workflow governance
-- Keep docs, shell, workflow, and package metadata in sync
-- Do not assume merge readiness; report required validation explicitly
-- Record every command actually run
+- 确认任务仅限于非 Solidity 面
+- 保持变更与 `docs/process/policy.json` 一致
+- 当任务涉及工作流治理时，保持 `AGENTS.md`、`docs/process/**`、`.codex/runtime/**`、`.codex/workflows/**`、`.codex/templates/**` 和 `script/process/*` 同步
+- 保持文档、Shell、工作流和包元数据同步
+- 不要假设已准备好合并；明确报告所需的验证
+- 记录实际运行的每个命令
 
-## Decision / Block Semantics
+## 决策 / 阻断语义
 
-- Hard-block and escalate:
-  - The change requires touching any `src/**/*.sol`, `script/**/*.sol`, or `test/**/*.sol`
-  - The requested file is not inside `Write permissions`
-  - Process changes require a wider repo contract change outside scope
-- Soft-block:
-  - Additional docs alignment is advisable but non-blocking
-  - A follow-up validation command is needed but not yet run
+- 硬阻断并升级：
+  - 变更需要涉及任何 `src/**/*.sol`、`script/**/*.sol` 或 `test/**/*.sol`
+  - 请求的文件不在 `Write permissions` 内
+  - 流程变更需要超出范围的更广泛的仓库契约变更
+- 软阻断：
+  - 建议进行额外的文档对齐但不阻断
+  - 需要运行后续验证命令但尚未运行
 
-## Output Contract
+## 输出契约
 
-Return the standard `.codex/templates/agent-report.md` structure with all 10 fields (`Role`, `Summary`, `Task Brief path`, `Scope / ownership respected`, `Files touched/reviewed`, `Findings`, `Required follow-up`, `Commands run`, `Evidence`, `Residual risks`); all required fields must be filled, conditional fields filled only when the report depends on them.
+返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）；所有必填字段必须填写，条件字段仅在报告依赖它们时填写。
 
-Place process-specific details in:
+流程相关细节放置在：
 
-- `Findings`: required when the plan step changes docs, CI, shell, package flow, or other process behavior
-- `Required follow-up`: required when the plan still needs validation, a new brief, or a handoff
-- `Commands run`: required whenever commands were run as part of the plan
-- `Evidence`: required whenever the report depends on files edited, inspected docs, or command outcomes
-- `Scope / ownership respected`: use `yes` only when every change stayed inside the brief
+- `Findings`：当计划步骤变更文档、CI、Shell、包流程或其他流程行为时必填
+- `Required follow-up`：当计划仍需验证、新 brief 或交接时必填
+- `Commands run`：当命令作为计划的一部分运行时必填
+- `Evidence`：当报告依赖已编辑文件、已检查文档或命令结果时必填
+- `Scope / ownership respected`：仅当所有变更都在 brief 范围内时使用 `yes`
 
-## Review Note Mapping
+## 审阅笔记映射
 
-- May feed `Docs updated`
-- May feed process-side `Evidence` referenced by the review note
-- Must not fill security, gas, or verifier-owned fields
+- 可提供 `Docs updated`
+- 可提供审阅笔记引用的流程侧 `Evidence`
+- 不得填写安全、Gas 或验证者拥有的字段
 
-## Escalation Rules
+## 升级规则
 
-- If the task crosses into any Solidity or test surface, stop and hand that slice back to `main-orchestrator`
-- If a docs/process change implies a policy mismatch, require the policy or source-of-truth update in the same brief or a new one
-- If package/workflow changes imply environment risk, surface it in `Residual risks`
+- 如果任务涉及任何 Solidity 或测试面，停止并将该部分交回给 `main-orchestrator`
+- 如果文档/流程变更暗示策略不匹配，要求在同一 brief 或新 brief 中更新策略或真源
+- 如果包/工作流变更暗示环境风险，在 `Residual risks` 中揭示

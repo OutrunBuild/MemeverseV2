@@ -1,26 +1,31 @@
 # Task Brief
 
+## Non-semantic 分级（8 字段）
+
 - Goal:
-- Change classification:
-- Change classification rationale:
-- Change type:
+- Change classification: non-semantic
 - Files in scope:
-- Out of scope:
+- Implementation owner:
+- Write permissions:
+- Acceptance checks:
+- Required verifier commands:
+- If blocked:
+
+## Test-semantic 分级（追加 7 字段 = 15 字段）
+
+- Change classification rationale:
+- Required roles:
+- Verifier profile: light
+- Default writer role:
 - Known facts:
 - Open questions / assumptions:
 - Risks to check:
-- Required roles:
-- Optional roles:
-- Verifier profile:
-- Default writer role:
-- Implementation owner:
-- Write permissions:
-- Writer dispatch backend:
-- Writer dispatch target:
-- Writer dispatch scope:
+
+## Prod-semantic / High-risk 分级（追加 18 字段 = 33 字段）
+
+- Change type:
+- Out of scope:
 - Non-goals:
-- Acceptance checks:
-- Required verifier commands:
 - Required artifacts:
 - Review note required:
 - Semantic review dimensions:
@@ -29,4 +34,10 @@
 - Critical assumptions to prove or reject:
 - Required output fields:
 - Review note impact:
-- If blocked:
+- Writer dispatch backend:
+- Writer dispatch target:
+- Writer dispatch scope:
+- Optional roles:
+- Required roles: (expanded)
+- Verifier profile: full
+- Change classification rationale: (expanded)

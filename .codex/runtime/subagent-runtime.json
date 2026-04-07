@@ -1,25 +1,30 @@
 {
-  "version": 2,
+  "version": 3,
   "project": {
     "name": "MemeverseV2",
     "type": "solidity",
     "toolchain": "foundry"
   },
-  "workflow_index": ".codex/workflows/solidity-subagent-workflow.json",
   "dispatch_backend": {
     "type": "native-codex-subagents",
     "role_manifests": ".codex/agents/*.toml",
     "role_contracts": ".codex/agents/*.md",
     "notes": [
-      "Dispatch is role-manifest based.",
-      "Task Brief and Agent Report are required workflow artifacts."
+      "派发基于角色清单。",
+      "Task Brief 和 Agent Report 是必需的工作流工件。"
     ]
+  },
+  "indexes": {
+    "policy": "docs/process/policy.json",
+    "workflow_doc": "AGENTS.md (Part I §9-10, Part III)"
   },
   "artifacts": {
     "task_brief_directory": "docs/task-briefs",
     "agent_report_directory": "docs/agent-reports",
     "task_brief_template": ".codex/templates/task-brief.md",
     "agent_report_template": ".codex/templates/agent-report.md",
+    "role_delta_brief_template": ".codex/templates/role-delta-brief.md",
+    "follow_up_brief_template": ".codex/templates/follow-up-brief.md",
     "agent_directory": ".codex/agents"
   },
   "roles": {
@@ -37,176 +42,99 @@
       "security-test-writer"
     ]
   },
-  "path_triggered_defaults": {
-    "src_solidity": {
+  "surfaces": [
+    {
+      "name": "src_solidity",
+      "path_patterns": ["^src/.*\\.sol$"],
       "default_writer_role": "solidity-implementer",
-      "required_roles": [
-        "logic-reviewer",
-        "security-reviewer",
-        "gas-reviewer",
-        "verifier"
-      ],
-      "optional_roles": [
-        "solidity-explorer",
-        "security-test-writer"
-      ]
+      "required_roles": ["logic-reviewer", "security-reviewer", "gas-reviewer", "verifier"],
+      "optional_roles": ["solidity-explorer", "security-test-writer"]
     },
-    "test_solidity": {
+    {
+      "name": "script_solidity",
+      "path_patterns": ["^script/.*\\.sol$"],
       "default_writer_role": "solidity-implementer",
-      "required_roles": [
-        "logic-reviewer",
-        "verifier"
-      ],
-      "optional_roles": [
-        "security-reviewer",
-        "security-test-writer"
-      ]
+      "required_roles": ["logic-reviewer", "security-reviewer", "gas-reviewer", "verifier"],
+      "optional_roles": ["solidity-explorer", "security-test-writer"]
     },
-    "process_surface": {
+    {
+      "name": "test_solidity",
+      "path_patterns": ["^test/.*\\.sol$"],
+      "default_writer_role": "solidity-implementer",
+      "required_roles": ["logic-reviewer", "verifier"],
+      "optional_roles": ["security-reviewer", "security-test-writer"]
+    },
+    {
+      "name": "process_surface",
+      "path_patterns": ["^script/process/.*$", "^docs/process/.*$", "^\\.codex/.*$", "^AGENTS\\.md$"],
       "default_writer_role": "process-implementer",
-      "required_roles": [
-        "verifier"
-      ],
+      "required_roles": ["verifier"],
       "optional_roles": []
     },
-    "shell_surface": {
+    {
+      "name": "shell_surface",
+      "path_patterns": ["^(script/.*\\.sh|\\.githooks/.*)$"],
       "default_writer_role": "process-implementer",
-      "required_roles": [
-        "verifier"
-      ],
+      "required_roles": ["verifier"],
       "optional_roles": []
     },
-    "package_metadata": {
+    {
+      "name": "package_metadata",
+      "path_patterns": ["^(package\\.json|package-lock\\.json)$"],
       "default_writer_role": "process-implementer",
-      "required_roles": [
-        "verifier"
-      ],
+      "required_roles": ["verifier"],
       "optional_roles": []
-    },
-    "script_solidity": {
-      "default_writer_role": "solidity-implementer",
-      "required_roles": [
-        "logic-reviewer",
-        "security-reviewer",
-        "gas-reviewer",
-        "verifier"
-      ],
-      "optional_roles": [
-        "solidity-explorer",
-        "security-test-writer"
-      ]
     }
-  },
+  ],
   "authoritative_sources": {
     "process_contract": "AGENTS.md",
-    "process_workflow": "docs/process/subagent-workflow.md",
     "process_policy": "docs/process/policy.json",
     "process_scripts": "script/process/*",
     "agent_runtime_contracts": ".codex/agents/*.md"
   },
-  "agents": {
-    "role_delta_brief_template": ".codex/templates/role-delta-brief.md",
-    "follow_up_brief_template": ".codex/templates/follow-up-brief.md"
+  "artifact_chain": {
+    "solidity": ["Task Brief", "Agent Report", "review note", "verifier evidence", "quality:gate", "CI"],
+    "process": ["Task Brief", "Agent Report", "verifier evidence", "docs:check", "process:selftest"]
   },
   "change_classifier": {
     "entrypoint": "script/process/classify-change.js",
-    "classes": [
-      "non-semantic",
-      "test-semantic",
-      "prod-semantic",
-      "high-risk"
-    ],
+    "classes": ["non-semantic", "test-semantic", "prod-semantic", "high-risk"],
     "role_matrix": {
       "non-semantic": {
-        "required_roles": [
-          "verifier"
-        ],
-        "optional_roles": [
-          "logic-reviewer"
-        ],
+        "required_roles": ["verifier"],
+        "optional_roles": ["logic-reviewer"],
         "verifier_profile": "light"
       },
       "test-semantic": {
-        "required_roles": [
-          "logic-reviewer",
-          "verifier"
-        ],
-        "optional_roles": [
-          "security-reviewer",
-          "security-test-writer"
-        ],
+        "required_roles": ["logic-reviewer", "verifier"],
+        "optional_roles": ["security-reviewer", "security-test-writer"],
         "verifier_profile": "light"
       },
       "prod-semantic": {
-        "required_roles": [
-          "logic-reviewer",
-          "security-reviewer",
-          "gas-reviewer",
-          "verifier"
-        ],
-        "optional_roles": [
-          "solidity-explorer",
-          "security-test-writer"
-        ],
+        "required_roles": ["logic-reviewer", "security-reviewer", "gas-reviewer", "verifier"],
+        "optional_roles": ["solidity-explorer", "security-test-writer"],
         "verifier_profile": "full"
       },
       "high-risk": {
-        "required_roles": [
-          "logic-reviewer",
-          "security-reviewer",
-          "gas-reviewer",
-          "verifier"
-        ],
-        "optional_roles": [
-          "solidity-explorer",
-          "security-test-writer"
-        ],
+        "required_roles": ["logic-reviewer", "security-reviewer", "gas-reviewer", "verifier"],
+        "optional_roles": ["solidity-explorer", "security-test-writer"],
         "verifier_profile": "full"
       }
     },
     "review_order": {
-      "non-semantic": [
-        "solidity-implementer",
-        "codex review",
-        "verifier"
-      ],
-      "test-semantic": [
-        "solidity-implementer",
-        "logic-reviewer",
-        "codex review",
-        "verifier"
-      ],
-      "prod-semantic": [
-        "solidity-implementer",
-        "logic-reviewer",
-        "security-reviewer",
-        "gas-reviewer",
-        "codex review",
-        "verifier"
-      ],
-      "high-risk": [
-        "solidity-implementer",
-        "logic-reviewer",
-        "security-reviewer",
-        "gas-reviewer",
-        "codex review",
-        "verifier"
-      ]
+      "non-semantic": ["solidity-implementer", "codex review", "verifier"],
+      "test-semantic": ["solidity-implementer", "logic-reviewer", "codex review", "verifier"],
+      "prod-semantic": ["solidity-implementer", "logic-reviewer", "security-reviewer", "gas-reviewer", "codex review", "verifier"],
+      "high-risk": ["solidity-implementer", "logic-reviewer", "security-reviewer", "gas-reviewer", "codex review", "verifier"]
     },
     "verifier_profiles": {
       "light": {
-        "description": "Use for non-semantic and test-semantic Solidity changes; skip specialist review and heavy static-analysis/gas gates unless the classifier escalates.",
-        "intended_for": [
-          "non-semantic",
-          "test-semantic"
-        ]
+        "description": "用于非语义和测试语义的 Solidity 变更；跳过专家审阅和重型门控，除非分类器升级。",
+        "intended_for": ["non-semantic", "test-semantic"]
       },
       "full": {
-        "description": "Use for semantic production Solidity changes; require the full reviewer bundle and the complete finish gate.",
-        "intended_for": [
-          "prod-semantic",
-          "high-risk"
-        ]
+        "description": "用于语义生产 Solidity 变更；需要完整的审阅者组合和完整的完成门控。",
+        "intended_for": ["prod-semantic", "high-risk"]
       }
     }
   }

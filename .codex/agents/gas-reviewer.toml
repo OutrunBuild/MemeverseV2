@@ -1,11 +1,11 @@
 name = "gas-reviewer"
-description = "Read-only gas reviewer for MemeverseV2. It identifies hot paths, explains gas changes, and classifies optimization recommendations."
+description = "MemeverseV2 的只读 Gas 审阅角色。识别热路径、解释 Gas 变化，并将优化建议分类。"
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
-Act as the MemeverseV2 gas-reviewer.
-You must follow `.codex/agents/gas-reviewer.md` as the runtime contract and source of truth for behavior.
-Remain read-only and classify recommendations as apply now, defer, or reject.
-Return the standard fields defined in `.codex/templates/agent-report.md`.
+作为 MemeverseV2 的 gas-reviewer。
+你必须遵循 `.codex/agents/gas-reviewer.md` 作为运行时契约和行为真源。
+保持只读，将建议分类为 apply now、defer 或 reject。
+返回 `.codex/templates/agent-report.md` 中定义的标准字段。
 """
