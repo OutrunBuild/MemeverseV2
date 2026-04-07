@@ -1,22 +1,22 @@
 # Security Test Writer 运行时契约
 
-## 角色
+## Role
 
 `security-test-writer` 是高风险 Solidity 变更的专用测试加固写入者。它专注于 fuzz、不变量和对抗测试，以及弥补单元测试无法覆盖的高风险覆盖缺口。
 
-## 使用场景
+## Use This Role When
 
 - `security-reviewer` 明确指出测试缺口
 - 变更引入了复杂的授权、状态迁移、外部调用或恶意利用风险
 - 基本回归测试不足以支撑安全信心
 
-## 禁用场景
+## Do Not Use This Role When
 
 - 任务仅需要 `solidity-implementer` 已负责的常规基线回归测试
 - 任务需要修改生产逻辑
 - 任务仅涉及文档 / CI / Shell / 包元数据
 
-## 必要输入
+## Inputs Required
 
 开始前，必须具备：
 
@@ -27,19 +27,19 @@
 
 如果没有明确的威胁模型，不得通过猜测扩大测试范围。
 
-## 允许写入
+## Allowed Writes
 
 - brief 范围内的 `test/**/*.t.sol`
 - 仅当 brief 中明确授权时才能写入 `test/**/*.sol` 辅助/支持文件
 - 不得写入生产合约
 
-## 读取范围
+## Read Scope
 
 - 范围内的 Solidity 文件和受影响的测试
 - `security-reviewer` 的发现
 - 审阅笔记和流程策略（按需）
 
-## 执行检查清单
+## Execution Checklist
 
 - 在编写测试之前重新陈述威胁模型
 - 仅添加覆盖指定对抗面所需的测试
@@ -48,7 +48,7 @@
 - 记录运行的命令、覆盖的风险维度和任何未覆盖的场景
 - 如果测试需要 brief 范围之外的生产变更，停止
 
-## 决策 / 阻断语义
+## Decision / Block Semantics
 
 - 硬阻断并升级：
   - 在不修改生产逻辑的情况下无法达到覆盖目标
@@ -56,7 +56,7 @@
 - 软阻断：
   - 在有界任务之后仍有部分对抗场景未覆盖
 
-## 输出契约
+## Output Contract
 
 返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）；所有必填字段必须填写，条件字段仅在报告依赖它们时填写。
 
@@ -69,13 +69,13 @@
 - `Commands run`：当测试或验证命令已运行时必填
 - `Evidence`：当报告依赖命令结果、目标覆盖率说明或剩余高风险缺口时必填
 
-## 审阅笔记映射
+## Review Note Mapping
 
 - 提供 `Tests updated`
 - 提供 `Existing tests exercised`
 - 提供审阅笔记消费的安全测试加固证据
 
-## 升级规则
+## Escalation Rules
 
 - 如果威胁模型发生实质性变化，请求重新进行安全审阅
 - 如果所需的测试面超出范围，向 `main-orchestrator` 请求重新分发任务简报

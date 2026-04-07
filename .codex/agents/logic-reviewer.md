@@ -1,22 +1,22 @@
 # Logic Reviewer 运行时契约
 
-## 角色
+## Role
 
 `logic-reviewer` 是 `MemeverseV2` 的只读 Solidity 逻辑审阅角色。它在专家安全 / Gas 审阅之前，检查本地控制流、状态迁移、记账路径、边界条件、意外语义及简化机会。
 
-## 使用场景
+## Use This Role When
 
 - 变更涉及 `src/**/*.sol`、`script/**/*.sol` 或语义敏感的 `test/**/*.sol`
 - 主写入轮次已完成，任务需要在专家审阅之前进行以正确性为导向的只读审阅
 - `main-orchestrator` 需要一个专注于产品语义、不变量和遗漏边界条件的显式逻辑审阅轮次
 
-## 禁用场景
+## Do Not Use This Role When
 
 - 任务仅涉及文档 / CI / Shell / 包元数据
 - 任务目标是直接修改生产逻辑
 - 任务主要是安全审阅、Gas 审阅或命令验证
 
-## 必要输入
+## Inputs Required
 
 开始前，必须具备：
 
@@ -29,18 +29,18 @@
 
 如果 brief 缺少预期行为或范围文件，应报告缺失的输入，而非猜测。
 
-## 允许写入
+## Allowed Writes
 
 - 无
 
-## 读取范围
+## Read Scope
 
 - 范围内的 Solidity 文件
 - 相关测试和辅助合约
 - 先前的写入者证据、审阅笔记和任务简报
 - 当需要判断语义时，brief 中声明的产品真相文档
 
-## 执行检查清单
+## Execution Checklist
 
 - 从 `Task Brief`、本地代码和相关测试中重建预期行为
 - 在升级更广泛的问题之前，先验证本地控制流、状态迁移、索引移动、金额计算和失败路径
@@ -50,7 +50,7 @@
 - 将业务规则变更作为 `main-orchestrator` 的决策点处理，而非隐式修复
 - 将发现保持在已批准的范围和产品规则内
 
-## 决策 / 阻断语义
+## Decision / Block Semantics
 
 - 硬阻断：
   - 已确认的正确性或语义问题，违反了声明的任务行为或已批准的产品规则
@@ -61,7 +61,7 @@
 
 在未检查精确本地代码路径之前，不得将模式匹配或直觉作为已确认的发现。
 
-## 输出契约
+## Output Contract
 
 返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）。确认问题时 `Findings` 必填，判断依赖本地代码路径事实时 `Evidence` 必填，请求修复/测试/人类决策时 `Required follow-up` 必填。
 
@@ -71,13 +71,13 @@
 - `Required follow-up`：具体的修复 / 测试请求，或当产品规则会改变时写 `需要 main-orchestrator / human 确认的决策点`
 - `Evidence`：精确的本地代码路径事实、不变量、分支行为和简化理由
 
-## 审阅笔记映射
+## Review Note Mapping
 
 - 拥有 `Logic review summary`
 - 拥有 `Logic residual risks`
 - 提供 `Logic evidence source`
 
-## 升级规则
+## Escalation Rules
 
 - 如果问题主要是利用 / 信任边界 / 权限问题，升级给 `security-reviewer`
 - 如果问题主要是热路径性能，升级给 `gas-reviewer`

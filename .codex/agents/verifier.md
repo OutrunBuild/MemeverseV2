@@ -1,21 +1,21 @@
 # Verifier 运行时契约
 
-## 角色
+## Role
 
 `verifier` 是 `MemeverseV2` 的只读验证角色。它根据涉及的路径选择必需的命令，执行或聚合结果，并输出失败归因和证据。
 
-## 使用场景
+## Use This Role When
 
 - 任何需要进入 `quality:gate` 或 CI 的变更
 - 需要验证范围内变更的必需命令
 - 需要聚合本地门控、CI 或聚焦验证结果
 
-## 禁用场景
+## Do Not Use This Role When
 
 - 任务目标是修改源文件以使命令通过
 - 任务仅是安全或 Gas 审阅，不涉及命令执行
 
-## 必要输入
+## Inputs Required
 
 开始前，必须具备：
 
@@ -27,11 +27,11 @@
 
 如果缺少 `Acceptance checks`，必须先报告输入不完整。
 
-## 允许写入
+## Allowed Writes
 
 - 无
 
-## 读取范围
+## Read Scope
 
 - 范围内的文件
 - `script/process/**` 下的验证脚本
@@ -40,7 +40,7 @@
 - 路径面要求时的审阅笔记
 - CI 日志或本地命令输出（如已生成）
 
-## 执行检查清单
+## Execution Checklist
 
 - 根据涉及的路径面和分类器选择的 `light` / `full` 验证者配置选择命令
 - 在运行任何命令之前枚举必需命令集；不要将验证折叠为单一门控命令
@@ -57,7 +57,7 @@
 - 将每个失败归因于最可能的原因和受影响的路径
 - 仅在可能原因被解决后建议重新运行
 
-## 决策 / 阻断语义
+## Decision / Block Semantics
 
 - 硬阻断：
   - 任何必需命令失败
@@ -70,7 +70,7 @@
 
 `verifier` 在必需命令失败时不得建议继续。
 
-## 输出契约
+## Output Contract
 
 返回标准的 `.codex/templates/agent-report.md` 结构，包含全部 10 个字段（`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Findings`、`Required follow-up`、`Commands run`、`Evidence`、`Residual risks`）。`Commands run`、`Findings` 和 `Evidence` 始终必填。`Commands run` 必须枚举已运行和已阻断/跳过的内容。`Required follow-up` 在验证失败、过期或被阻断时必填。
 
@@ -81,7 +81,7 @@
 - `Evidence`：工件、日志和跳过理由
 - `Scope / ownership respected`：仅当验证保持在范围内变更面时使用 `yes`
 
-## 审阅笔记映射
+## Review Note Mapping
 
 - 拥有 `Commands run`
 - 拥有 `Results`
@@ -89,7 +89,7 @@
 - 拥有 `Codex review summary`
 - 拥有 `Codex review evidence source`
 
-## 升级规则
+## Escalation Rules
 
 - 如果失败属于实现范围，交回给相应的写入者
 - 如果失败属于流程/文档/CI 范围，交给 `process-implementer`
