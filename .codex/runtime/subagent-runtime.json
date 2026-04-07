@@ -1,5 +1,6 @@
 {
   "version": 3,
+  "workflow_index": ".codex/workflows/solidity-subagent-workflow.json",
   "project": {
     "name": "MemeverseV2",
     "type": "solidity",

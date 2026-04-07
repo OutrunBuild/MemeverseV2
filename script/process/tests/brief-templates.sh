@@ -80,8 +80,8 @@ if ! grep -q 'follow_up_brief_template' docs/process/policy.json; then
     exit 1
 fi
 
-if ! grep -q 'Role Delta Brief' docs/process/subagent-workflow.md; then
-    echo "Expected workflow doc to describe Role Delta Brief usage"
+if ! grep -q 'Role Delta Brief' AGENTS.md; then
+    echo "Expected AGENTS.md to describe Role Delta Brief usage"
     exit 1
 fi
 

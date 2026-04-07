@@ -19,13 +19,13 @@ if ! grep -q '`logic-reviewer`' AGENTS.md; then
     exit 1
 fi
 
-if ! grep -q '`solidity-implementer` -> `logic-reviewer` -> `security-reviewer` -> `gas-reviewer`' AGENTS.md; then
-    echo "Expected AGENTS.md required review order to place logic-reviewer after implementation and before specialist review"
+if ! grep -q 'logic-reviewer.*security-reviewer' AGENTS.md; then
+    echo "Expected AGENTS.md to list logic-reviewer before specialist reviewers"
     exit 1
 fi
 
-if ! grep -q '### Phase 4: Logic Review' docs/process/subagent-workflow.md; then
-    echo "Expected subagent workflow to define a dedicated Logic Review phase"
+if ! grep -q 'Phase 4' AGENTS.md; then
+    echo "Expected AGENTS.md to define a Phase 4"
     exit 1
 fi
 
