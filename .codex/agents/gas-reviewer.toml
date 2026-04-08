@@ -1,6 +1,6 @@
 name = "gas-reviewer"
 description = "MemeverseV2 的只读 Gas 审阅角色。识别热路径、解释 Gas 变化，并将优化建议分类。"
-model = "gpt-5.4"
+model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """

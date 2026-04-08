@@ -1,7 +1,7 @@
 ---
 name: process-implementer
 description: MemeverseV2 有界非 Solidity 写入者。负责文档、CI、shell、包元数据与 harness surface。
-model: opus
+model: sonnet
 tools:
   - Read
   - Write

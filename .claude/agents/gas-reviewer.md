@@ -1,7 +1,7 @@
 ---
 name: gas-reviewer
 description: MemeverseV2 只读 Gas 审阅者。识别热路径、解释 Gas 变化并分类优化建议。
-model: opus
+model: sonnet
 tools:
   - Read
   - Grep

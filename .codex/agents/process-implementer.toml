@@ -1,6 +1,6 @@
 name = "process-implementer"
 description = "MemeverseV2 的有界非 Solidity 写入者。负责文档、CI、Shell、包元数据和 Harness 面。"
-model = "gpt-5.4"
+model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """

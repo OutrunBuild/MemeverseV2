@@ -27,9 +27,9 @@
 
 常用命令：`forge build` | `forge test -vvv` | `forge fmt --check` | `npm run docs:check`
 
-本地 gate：`npm run quality:quick`（快速反馈）| `npm run quality:gate`（唯一 finish gate）
+本地 gate：`npm run quality:quick`（快速反馈）| `npm run quality:gate:fast`（agent workflow 默认 finish gate，按变更集）| `npm run quality:gate`（全仓全量严格 gate）
 
-`npm run quality:gate` 默认启用低噪声本地配置：`FORGE_TEST_VERBOSITY=-q`、`QUALITY_GATE_FAST=1`；`fast` 模式下默认先跑非 invariant，再按变更模块定向跑 `*Invariant*.t.sol`。CI 模式仍按脚本逻辑强制严格 gate。`gas report` 改为按需手动执行 `npm run gas:report`。
+`npm run quality:gate:fast` 默认启用低噪声配置：`QUALITY_GATE_ERRORS_ONLY=1`、`FORGE_TEST_VERBOSITY=-q`、`QUALITY_GATE_FAST=1`；fast 模式会先跑非 invariant，再按变更模块定向跑 `*Invariant*.t.sol`。`npm run quality:gate` 为全量严格门禁（`QUALITY_GATE_FAST=0`，运行全量 invariant）。CI 使用 `npm run quality:gate`。`gas report` 改为按需手动执行 `npm run gas:report`。
 
 其他：`npm run process:selftest` | `npm run codex:review`（手动高风险审查）| `bash ./script/process/check-coverage.sh` | `npm run quality:profile`
 
