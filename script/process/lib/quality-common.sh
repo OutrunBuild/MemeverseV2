@@ -238,6 +238,7 @@ quality_prepare_memeverse_context() {
     should_run_docs_check=0
     should_run_process_selftest=0
     src_solidity_candidates=()
+    script_solidity_candidates=()
     test_solidity_candidates=()
     solidity_files=()
     src_solidity_files=()
@@ -263,7 +264,7 @@ quality_prepare_memeverse_context() {
             src_solidity_candidates+=("$file")
         elif [[ "$file" =~ $script_sol_pattern ]]; then
             has_script_sol=1
-            src_solidity_candidates+=("$file")
+            script_solidity_candidates+=("$file")
         elif [[ "$file" =~ $test_tsol_pattern ]]; then
             has_sol_tests=1
             test_solidity_candidates+=("$file")
@@ -307,7 +308,7 @@ quality_prepare_memeverse_context() {
         done
     done <<< "$changed_files"
 
-    for file in "${src_solidity_candidates[@]}" "${test_solidity_candidates[@]}"; do
+    for file in "${src_solidity_candidates[@]}" "${script_solidity_candidates[@]}" "${test_solidity_candidates[@]}"; do
         [ -z "$file" ] && continue
         if [ -f "$file" ]; then
             solidity_files+=("$file")

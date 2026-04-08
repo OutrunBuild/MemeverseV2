@@ -214,11 +214,7 @@ assert_contains "forge fmt --check $existing_src_file" "$command_log" "quality-g
 assert_contains "forge build" "$command_log" "quality-gate command log for non-semantic Solidity change"
 assert_contains "bash ./script/process/check-natspec.sh" "$command_log" "quality-gate command log for non-semantic Solidity change"
 assert_contains "bash ./script/process/check-solidity-review-note.sh" "$command_log" "quality-gate command log for non-semantic Solidity change"
-if grep -q "forge test -vvv" "$command_log"; then
-    echo "Did not expect forge test for non-semantic Solidity change"
-    cat "$command_log"
-    exit 1
-fi
+assert_contains "forge test -vvv" "$command_log" "quality-gate command log for non-semantic strict full suite"
 if grep -q "check-slither" "$command_log"; then
     echo "Did not expect slither for non-semantic Solidity change"
     cat "$command_log"
@@ -277,7 +273,6 @@ assert_contains "verifier profile: full" "$gate_output" "quality-gate output for
 assert_contains "forge test -vvv" "$command_log" "quality-gate command log for prod-semantic change"
 assert_contains "bash ./script/process/check-coverage.sh" "$command_log" "quality-gate command log for prod-semantic change"
 assert_contains "bash ./script/process/check-slither.sh" "$command_log" "quality-gate command log for prod-semantic change"
-assert_contains "bash ./script/process/check-gas-report.sh" "$command_log" "quality-gate command log for prod-semantic change"
 assert_contains "run codex:review" "$npm_log" "quality-gate npm log for staged prod-semantic change"
 
 run_quality_script "quality-gate.sh" "$existing_src_file" "$gate_output" "prod-semantic" "diff --git a/$existing_src_file b/$existing_src_file

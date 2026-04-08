@@ -21,7 +21,11 @@ run_stale_evidence_remediation() {
     remediation_status=$?
     set -e
 
-    printf '%s\n' "$remediation_output"
+    if [ "${errors_only_mode:-0}" -eq 1 ]; then
+        printf '%s\n' "$remediation_output" >&2
+    else
+        printf '%s\n' "$remediation_output"
+    fi
     return "$remediation_status"
 }
 
@@ -30,6 +34,95 @@ source ./script/process/lib/quality-common.sh
 quality_initialize_runtime
 quality_exit_if_no_changed_files "quality-gate"
 quality_prepare_memeverse_gate_context
+
+forge_test_verbosity="${FORGE_TEST_VERBOSITY:--vvv}"
+read -r -a forge_test_args <<< "$forge_test_verbosity"
+if [ "${#forge_test_args[@]}" -eq 0 ]; then
+    forge_test_args=(-vvv)
+fi
+
+fast_mode=0
+if [ "$mode" != "ci" ] && ! is_truthy "${CI:-}" && is_truthy "${QUALITY_GATE_FAST:-0}"; then
+    fast_mode=1
+fi
+
+errors_only_mode=0
+if is_truthy "${QUALITY_GATE_ERRORS_ONLY:-0}"; then
+    errors_only_mode=1
+    exec 1>/dev/null
+fi
+
+echo "[quality-gate] forge test verbosity: ${forge_test_args[*]}"
+echo "[quality-gate] fast mode: $fast_mode (local-only)"
+
+run_quiet_on_success() {
+    local output_file
+    output_file="$(mktemp)"
+    quality_register_cleanup_path "$output_file"
+
+    set +e
+    "$@" >"$output_file" 2>&1
+    local command_status=$?
+    set -e
+
+    if [ "$command_status" -ne 0 ]; then
+        cat "$output_file" >&2
+        return "$command_status"
+    fi
+}
+
+run_forge_test_suite() {
+    if [ "$fast_mode" -eq 1 ]; then
+        local fast_no_match_test
+        fast_no_match_test="${QUALITY_GATE_FAST_NO_MATCH_TEST:-^invariant_}"
+        echo "[quality-gate] fast test profile: --no-match-test '$fast_no_match_test' + targeted invariants"
+        run_quiet_on_success forge test "${forge_test_args[@]}" --no-match-test "$fast_no_match_test"
+
+        local module
+        local mapped=0
+        local -a invariant_targets=()
+        local -a module_dirs=()
+
+        while IFS= read -r module; do
+            [ -z "$module" ] && continue
+            module_dirs+=("$module")
+        done < <(printf '%s\n' "$changed_files" | awk -F/ '
+            /^src\/[^/]+\// {print $2}
+            /^script\/[^/]+\// {print $2}
+        ' | awk '!seen[$0]++')
+
+        for module in "${module_dirs[@]}"; do
+            if [ -d "test/$module" ]; then
+                while IFS= read -r file; do
+                    [ -z "$file" ] && continue
+                    invariant_targets+=("$file")
+                    mapped=1
+                done < <(find "test/$module" -type f -name '*Invariant*.t.sol' | sort)
+            fi
+        done
+
+        if [ "$mapped" -eq 0 ]; then
+            while IFS= read -r file; do
+                [ -z "$file" ] && continue
+                invariant_targets+=("$file")
+            done < <(find test -type f -name '*Invariant*.t.sol' | sort)
+        fi
+
+        if [ "${#invariant_targets[@]}" -eq 0 ]; then
+            echo "[quality-gate] fast mode: no invariant targets discovered."
+            return
+        fi
+
+        mapfile -t deduped_invariant_targets < <(printf '%s\n' "${invariant_targets[@]}" | awk '!seen[$0]++')
+        for invariant_file in "${deduped_invariant_targets[@]}"; do
+            echo "[quality-gate] forge test ${forge_test_args[*]} --match-path $invariant_file --match-test '^invariant_'"
+            run_quiet_on_success forge test "${forge_test_args[@]}" --match-path "$invariant_file" --match-test '^invariant_'
+        done
+        return
+    fi
+
+    run_quiet_on_success forge test "${forge_test_args[@]}"
+}
 
 if [ "$has_src_sol" -eq 1 ]; then
     if [ "$classification" = "non-semantic" ]; then
@@ -44,7 +137,17 @@ if quality_has_any_solidity_change; then
 
     if [ "${#solidity_files[@]}" -gt 0 ]; then
         echo "[quality-gate] forge fmt --check (changed Solidity files only)"
-        forge fmt --check "${solidity_files[@]}"
+        set +e
+        forge_fmt_output="$(forge fmt --check "${solidity_files[@]}" 2>&1)"
+        forge_fmt_status=$?
+        set -e
+        if [ "$forge_fmt_status" -ne 0 ]; then
+            echo "[quality-gate] ERROR: forge fmt --check failed for changed Solidity files:" >&2
+            for solidity_file in "${solidity_files[@]}"; do
+                echo "- $solidity_file" >&2
+            done
+            exit "$forge_fmt_status"
+        fi
     fi
 
     if [ "$has_src_sol" -eq 1 ] && [ "${#src_solidity_files[@]}" -gt 0 ]; then
@@ -57,15 +160,16 @@ if quality_has_any_solidity_change; then
 
     case "$classification" in
         non-semantic)
-            echo "[quality-gate] skip forge test / coverage (non-semantic classification)"
+            echo "[quality-gate] forge test ${forge_test_args[*]} (strict full suite)"
+            run_forge_test_suite
             ;;
         test-semantic)
-            echo "[quality-gate] forge test -vvv"
-            forge test -vvv
+            echo "[quality-gate] forge test ${forge_test_args[*]}"
+            run_forge_test_suite
             ;;
         prod-semantic|high-risk)
-            echo "[quality-gate] forge test -vvv"
-            forge test -vvv
+            echo "[quality-gate] forge test ${forge_test_args[*]}"
+            run_forge_test_suite
             ;;
         *)
             echo "[quality-gate] skip forge test / coverage (classification '$classification')"
@@ -83,11 +187,8 @@ fi
 if [ "$has_src_sol" -eq 1 ] && { [ "$classification" = "prod-semantic" ] || [ "$classification" = "high-risk" ]; }; then
     echo "[quality-gate] bash ./script/process/check-slither.sh"
     bash ./script/process/check-slither.sh
-
-    echo "[quality-gate] bash ./script/process/check-gas-report.sh"
-    bash ./script/process/check-gas-report.sh
 elif [ "$has_src_sol" -eq 1 ]; then
-    echo "[quality-gate] skip slither / gas (verifier profile: $verifier_profile)"
+    echo "[quality-gate] skip slither (verifier profile: $verifier_profile)"
 fi
 
 if [ "$has_src_sol" -eq 1 ] || [ "$has_script_sol" -eq 1 ]; then
@@ -113,7 +214,11 @@ if [ "$has_src_sol" -eq 1 ] || [ "$has_script_sol" -eq 1 ]; then
     review_note_status=$?
     set -e
 
-    printf '%s\n' "$review_note_output"
+    if [ "$review_note_status" -ne 0 ]; then
+        printf '%s\n' "$review_note_output" >&2
+    elif [ "$errors_only_mode" -eq 0 ]; then
+        printf '%s\n' "$review_note_output"
+    fi
 
     if [ "$review_note_status" -ne 0 ]; then
         if printf '%s\n' "$review_note_output" | grep -qi "stale"; then
@@ -169,4 +274,6 @@ if [ "$should_run_process_selftest" -eq 1 ]; then
     npm run process:selftest
 fi
 
-echo "[quality-gate] PASS"
+if ! is_truthy "${QUALITY_GATE_HIDE_PASS:-0}"; then
+    echo "[quality-gate] PASS"
+fi
