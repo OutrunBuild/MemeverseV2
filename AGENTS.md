@@ -17,7 +17,7 @@
 - `script/`：部署与运维脚本
 - `script/process/`：开发流程脚本（execution-plane 验证与 gate，不是 dispatch backend）
 - `docs/process/`：流程文档
-- `docs/plans/`、`docs/task-briefs/`、`docs/agent-reports/`、`docs/reviews/`：本地工件目录
+- `docs/superpowers/`、`docs/task-briefs/`、`docs/agent-reports/`、`docs/reviews/`：本地工件目录
 - `docs/spec/`、`docs/ARCHITECTURE.md`、`docs/GLOSSARY.md`、`docs/TRACEABILITY.md`、`docs/VERIFICATION.md`：产品真相文档
 - `.codex/templates/`：Task Brief、Agent Report、Role Delta Brief、Follow-up Brief 模板（两平台共用）
 
@@ -29,7 +29,9 @@
 
 本地 gate：`npm run quality:quick`（快速反馈）| `npm run quality:gate`（唯一 finish gate）
 
-其他：`npm run process:selftest` | `npm run codex:review`（手动高风险审查）| `bash ./script/process/check-coverage.sh`
+`npm run quality:gate` 默认启用低噪声本地配置：`FORGE_TEST_VERBOSITY=-q`、`QUALITY_GATE_FAST=1`；`fast` 模式下默认先跑非 invariant，再按变更模块定向跑 `*Invariant*.t.sol`。CI 模式仍按脚本逻辑强制严格 gate。`gas report` 改为按需手动执行 `npm run gas:report`。
+
+其他：`npm run process:selftest` | `npm run codex:review`（手动高风险审查）| `bash ./script/process/check-coverage.sh` | `npm run quality:profile`
 
 ### 3. Core Principles
 
@@ -72,10 +74,12 @@
 
 按变更分类选择审阅流程（对 `src/**/*.sol` / `script/**/*.sol` 变更，必须先运行 `npm run classify:change`）：
 
-- `non-semantic`：writer → codex review → verifier(light)
-- `test-semantic`：writer → logic-reviewer → codex review → verifier(light)
-- `prod-semantic`：writer → logic-reviewer → security-reviewer → gas-reviewer → codex review → verifier(full)
+- `non-semantic`：solidity-implementer → codex review → verifier(light)
+- `test-semantic`：solidity-implementer → logic-reviewer → codex review → verifier(light)
+- `prod-semantic`：solidity-implementer → logic-reviewer → security-reviewer → gas-reviewer → codex review → verifier(full)
 - `high-risk`：同 `prod-semantic`，优先考虑 `security-test-writer`
+
+测试变更（`test/**/*.sol` / `test/**/*.t.sol`）：solidity-implementer → logic-reviewer → codex review → verifier；高风险可选加 security-reviewer
 
 流程面变更（`AGENTS.md`、`docs/process/**`、`.claude/**`、`.codex/**`、`script/process/**`）：process-implementer → codex review → verifier
 
@@ -144,7 +148,7 @@ Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 →
 
 ---
 
-## Part II: Claude Code 工作流
+## Part II: Claude Code 工作流（Codex 请忽略）
 
 ### CC-1. 派发机制
 
@@ -172,18 +176,9 @@ Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 →
 - 必须先 dispatch，派发失败必须停止
 - 自主委派仍必须遵守角色边界、单写 owner、证据链和 block 规则
 
-### CC-4. 不需要读的文件
-
-以下文件 CC agent 不需要读：
-
-- `docs/process/policy.json` — 脚本专用，规则已在本文档
-- `docs/process/subagent-workflow.md` — 已合并进本文档
-- `.codex/agents/*.toml` — Codex manifest
-- `.codex/workflows/*.json`、`.codex/runtime/*.json` — Codex 索引
-
 ---
 
-## Part III: Codex 工作流
+## Part III: Codex 工作流（Claude Code 请忽略）
 
 ### CX-1. 派发机制
 
@@ -211,13 +206,6 @@ Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 →
 - Runtime index：`.codex/runtime/subagent-runtime.json`
 - 两者定义 surfaces、角色集合、工件位置与 path-triggered defaults，不承载行为规则（行为规则在 `*.md` runtime contract 和本文档中）
 
-### CX-4. 不需要读的文件
-
-以下文件 Codex agent 不需要读：
-
-- `.claude/` 目录 — CC 专用
-- `docs/process/subagent-workflow.md` — 已合并进本文档
-
 ---
 
 ## Part IV: 项目特定配置
@@ -233,11 +221,11 @@ Launcher（`src/verse/MemeverseLauncher.sol`）、Registration（`src/verse/regi
 
 ### 本地专用目录
 
-`docs/plans/`（设计）、`docs/task-briefs/`（Task Brief）、`docs/agent-reports/`（Agent Report）、`docs/reviews/`（review 草稿）。新建文档前必须先校验目标目录是否符合仓库约定。
+`docs/superpowers/specs/`（规范）、`docs/superpowers/plans/`（设计）、`docs/task-briefs/`（Task Brief）、`docs/agent-reports/`（Agent Report）、`docs/reviews/`（review 草稿）。新建文档前必须先校验目标目录是否符合仓库约定。
 
-### 文档语言
+### 语言
 
-新增自然语言文档默认简体中文；固定字段 key、命令、路径、标识保持英文。
+与用户交流始终以及新增自然语言文档始终使用简体中文；固定字段 key、命令、路径、标识保持英文。
 
 ### 建议阅读顺序
 

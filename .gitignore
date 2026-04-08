@@ -13,7 +13,7 @@ typechain-types
 broadcast
 
 # Docs
-docs/plans/
+docs/superpowers
 docs/task-briefs/*.md
 !docs/task-briefs/README.md
 docs/agent-reports/*.md

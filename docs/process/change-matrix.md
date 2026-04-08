@@ -96,7 +96,6 @@
 
 ## 本地工件目录约束
 
-- `docs/plans/` 只保留 design doc、implementation plan、stage draft、split draft 等规划材料。
 - `docs/task-briefs/` 只存放 `Task Brief`。
 - `docs/agent-reports/` 只存放 `Agent Report`。
 - `docs/reviews/` 默认是本地 review 草稿目录；若仓库跟踪了特定 review note 文件，也必须与当前 gate 语义保持一致。
