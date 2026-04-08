@@ -103,6 +103,12 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @return claimableAmount Claimable POL amount for the caller.
     function claimablePOLToken(uint256 verseId) external view returns (uint256 claimableAmount);
 
+    /// @notice Quotes how much preorder memecoin the caller can unlock right now.
+    /// @dev Uses the caller's settled preorder share and the linear vesting schedule.
+    /// @param verseId Verse id to inspect.
+    /// @return amount Currently claimable preorder memecoin amount.
+    function claimablePreorderMemecoin(uint256 verseId) external view returns (uint256 amount);
+
     /// @notice Previews the launcher-owned maker fees currently available for distribution.
     /// @dev Aggregates fee claims across the verse's memecoin/UPT and POL/UPT pools.
     /// @param verseId Verse id to inspect.
@@ -153,12 +159,6 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param verseId Verse id being claimed.
     /// @return amount POL amount transferred to the caller.
     function claimPOLToken(uint256 verseId) external returns (uint256 amount);
-
-    /// @notice Quotes how much preorder memecoin the caller can unlock right now.
-    /// @dev Uses the caller's settled preorder share and the linear vesting schedule.
-    /// @param verseId Verse id to inspect.
-    /// @return amount Currently claimable preorder memecoin amount.
-    function claimablePreorderMemecoin(uint256 verseId) external view returns (uint256 amount);
 
     /// @notice Claims the caller's unlocked preorder memecoin allocation.
     /// @dev Transfers the caller's currently unlocked preorder memecoin amount.

@@ -229,6 +229,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         mockManager.initialize(key, SQRT_PRICE_1_1);
     }
 
+    /// @notice Calls the hook-local pair-based public-swap protection setter.
+    /// @dev Mirrors the launcher-side unlock-protection write path without depending on router helpers.
     function _setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime)
         internal
         returns (bool ok, bytes memory data)

@@ -97,12 +97,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint8 internal constant UNLOCK_ACTION_LAUNCH_SETTLEMENT = 1;
     address public treasury;
     address public launcher;
-    // solhint-disable-next-line gas-small-strings
+    // solhint-disable gas-small-strings
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    // solhint-disable-next-line gas-small-strings
     bytes32 internal constant CLAIM_FEES_TYPEHASH =
         keccak256("ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)");
+    // solhint-enable gas-small-strings
     mapping(address => bool) public supportedProtocolFeeCurrencies;
     mapping(PoolId => PoolInfo) public poolInfo;
     mapping(PoolId => uint40) public poolLaunchTimestamp;
@@ -793,7 +793,16 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             abi.encodePacked(
                 "\x19\x01",
                 DOMAIN_SEPARATOR(),
-                keccak256(abi.encode(CLAIM_FEES_TYPEHASH, params.owner, params.recipient, PoolId.unwrap(params.key.toId()), nonce, params.deadline))
+                keccak256(
+                    abi.encode(
+                        CLAIM_FEES_TYPEHASH,
+                        params.owner,
+                        params.recipient,
+                        PoolId.unwrap(params.key.toId()),
+                        nonce,
+                        params.deadline
+                    )
+                )
             )
         );
 
@@ -811,11 +820,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     function _computeDomainSeparator() internal view returns (bytes32) {
         return keccak256(
             abi.encode(
-                EIP712_DOMAIN_TYPEHASH,
-                keccak256("MemeverseUniswapHook"),
-                keccak256("1"),
-                block.chainid,
-                address(this)
+                EIP712_DOMAIN_TYPEHASH, keccak256("MemeverseUniswapHook"), keccak256("1"), block.chainid, address(this)
             )
         );
     }
