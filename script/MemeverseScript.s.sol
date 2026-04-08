@@ -424,9 +424,8 @@ contract MemeverseScript is BaseScript {
     function _deployYieldDispatcher(uint256 nonce) internal {
         address localEndpoint = endpoints[uint32(block.chainid)];
 
-        bytes memory creationCode = abi.encodePacked(
-            type(YieldDispatcher).creationCode, abi.encode(owner, localEndpoint, MEMEVERSE_LAUNCHER)
-        );
+        bytes memory creationCode =
+            abi.encodePacked(type(YieldDispatcher).creationCode, abi.encode(owner, localEndpoint, MEMEVERSE_LAUNCHER));
 
         bytes32 salt = keccak256(abi.encodePacked("YieldDispatcher", nonce));
         address memeverseOFTDispatcher = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(salt, creationCode);

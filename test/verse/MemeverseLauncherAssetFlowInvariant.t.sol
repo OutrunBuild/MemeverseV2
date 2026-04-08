@@ -316,7 +316,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
         verse.memecoin = address(memecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
@@ -437,7 +437,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
         verse.memecoin = address(memecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -528,7 +528,7 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
         verse.memecoin = address(memecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         launcher.setMemeverseForTest(VERSE_ID, verse);
 
@@ -634,7 +634,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;

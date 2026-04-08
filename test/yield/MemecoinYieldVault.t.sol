@@ -295,8 +295,7 @@ contract MemecoinYieldVaultTest is Test {
     /// @dev Seeds a large exchange rate state via a test harness so the request path reaches the narrowing conversion.
     function testRequestRedeemRevertsWhenQueuedAssetsOverflowUint192() external {
         TestableMemecoinYieldVault implementation = new TestableMemecoinYieldVault();
-        TestableMemecoinYieldVault overflowVault =
-            TestableMemecoinYieldVault(Clones.clone(address(implementation)));
+        TestableMemecoinYieldVault overflowVault = TestableMemecoinYieldVault(Clones.clone(address(implementation)));
         overflowVault.initialize("Overflow Vault", "ovMEME", address(0xD15A7), address(asset), 99);
 
         uint256 oversizedAssets = uint256(type(uint192).max) + uint256(type(uint128).max) + 1;

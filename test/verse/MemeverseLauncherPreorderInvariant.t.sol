@@ -364,13 +364,13 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
 
     /// @notice Test helper for invariant_genesisAccountingMatchesUserBalances.
     function invariant_genesisAccountingMatchesUserBalances() external view {
-        (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(VERSE_ID);
+        (uint128 totalMemecoinFunds, uint128 totalPolFunds) = launcher.genesisFunds(VERSE_ID);
         uint256 totalUserGenesisFunds;
         for (uint256 i; i < actors.length; ++i) {
             (uint256 genesisFund,,,) = launcher.userGenesisData(VERSE_ID, actors[i]);
             totalUserGenesisFunds += genesisFund;
         }
-        assertEq(totalUserGenesisFunds, uint256(totalMemecoinFunds) + uint256(totalLiquidProofFunds), "genesis sum");
+        assertEq(totalUserGenesisFunds, uint256(totalMemecoinFunds) + uint256(totalPolFunds), "genesis sum");
     }
 
     /// @notice Test helper for invariant_preorderCapacityNeverExceeded.
@@ -471,7 +471,7 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
 
     /// @notice Test helper for invariant_refundPathKeepsGenesisAccountingExact.
     function invariant_refundPathKeepsGenesisAccountingExact() external view {
-        (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(VERSE_ID);
+        (uint128 totalMemecoinFunds, uint128 totalPolFunds) = launcher.genesisFunds(VERSE_ID);
         uint256 outstandingGenesis;
         uint256 outstandingPreorder;
         uint256 historicalGenesis;
@@ -487,7 +487,7 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
             if (!isPreorderRefunded) outstandingPreorder += preorderFund;
         }
 
-        assertEq(historicalGenesis, uint256(totalMemecoinFunds) + uint256(totalLiquidProofFunds), "genesis history");
+        assertEq(historicalGenesis, uint256(totalMemecoinFunds) + uint256(totalPolFunds), "genesis history");
         (uint256 totalFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);
         assertEq(historicalPreorder, totalFunds, "preorder history");
         assertEq(upt.balanceOf(address(launcher)), outstandingGenesis + outstandingPreorder, "refund conservation");

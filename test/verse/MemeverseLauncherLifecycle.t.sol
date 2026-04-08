@@ -743,12 +743,9 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
     /// @dev Lets tests control redemption share math directly.
     /// @param verseId Verse id whose genesis totals should be set.
     /// @param totalMemecoinFunds Mock memecoin-side genesis total.
-    /// @param totalLiquidProofFunds Mock liquid-proof-side genesis total.
-    function setGenesisFundForTest(uint256 verseId, uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds)
-        external
-    {
-        genesisFunds[verseId] =
-            GenesisFund({totalMemecoinFunds: totalMemecoinFunds, totalLiquidProofFunds: totalLiquidProofFunds});
+    /// @param totalPolFunds Mock liquid-proof-side genesis total.
+    function setGenesisFundForTest(uint256 verseId, uint128 totalMemecoinFunds, uint128 totalPolFunds) external {
+        genesisFunds[verseId] = GenesisFund({totalMemecoinFunds: totalMemecoinFunds, totalPolFunds: totalPolFunds});
     }
 
     /// @notice Stores mock user genesis data for a verse id.
@@ -807,12 +804,12 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         totalClaimablePOL[verseId] = amount;
     }
 
-    /// @notice Stores mock liquid-proof to verse-id state for a verse.
+    /// @notice Stores mock pol to verse-id state for a verse.
     /// @dev Exposes the symmetric swap-gate index to unit tests without going through full registration.
-    /// @param liquidProofAddress Liquid-proof token address whose verse id should be set.
-    /// @param verseId Verse id to associate with the liquid-proof token.
-    function setVerseIdByLiquidProofForTest(address liquidProofAddress, uint256 verseId) external {
-        liquidProofToIds[liquidProofAddress] = verseId;
+    /// @param liquidProofAddress Pol token address whose verse id should be set.
+    /// @param verseId Verse id to associate with the pol token.
+    function setVerseIdByPolForTest(address liquidProofAddress, uint256 verseId) external {
+        polToIds[liquidProofAddress] = verseId;
     }
 }
 
@@ -876,7 +873,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
         verse.memecoin = address(memecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -900,7 +897,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
         verse.memecoin = address(memecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         verse.endTime = endTime;
         verse.flashGenesis = flashGenesis;
@@ -942,7 +939,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(upt);
         verse.memecoin = address(memecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         launcher.setMemeverseForTest(verseId, verse);
 
@@ -985,7 +982,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -1013,7 +1010,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -1040,7 +1037,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -1334,7 +1331,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -1373,7 +1370,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -1402,7 +1399,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
@@ -1431,7 +1428,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.UPT = address(remoteUpt);
         verse.memecoin = address(remoteMemecoin);
-        verse.liquidProof = address(liquidProof);
+        verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;

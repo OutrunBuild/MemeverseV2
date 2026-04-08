@@ -7,7 +7,7 @@ abstract contract BaseScript is Script {
     uint256 internal privateKey;
     address internal deployer;
     string internal mnemonic;
-    
+
     function setUp() public virtual {
         //mnemonic = vm.envString("MNEMONIC");
         privateKey = vm.envUint("PRIVATE_KEY");
@@ -18,7 +18,7 @@ abstract contract BaseScript is Script {
     //   string memory json1 = "key";
     //   string memory finalJson =  vm.serializeAddress(json1, "address", addr);
     //   string memory dirPath = string.concat(string.concat("output/", network), "/");
-    //   vm.writeJson(finalJson, string.concat(dirPath, string.concat(name, ".json"))); 
+    //   vm.writeJson(finalJson, string.concat(dirPath, string.concat(name, ".json")));
     // }
 
     modifier broadcaster() {

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {IMemeLiquidProof, PoolId} from "./interfaces/IMemeLiquidProof.sol";
+import {IPol, PoolId} from "./interfaces/IPol.sol";
 import {OutrunOFTInit} from "../common/omnichain/oft/OutrunOFTInit.sol";
 
 /**
  * @title Omnichain Memecoin Proof Of Liquidity(POL) Token
  */
-contract MemeLiquidProof is IMemeLiquidProof, OutrunOFTInit {
+contract MemeLiquidProof is IPol, OutrunOFTInit {
     address public memecoin;
     address public memeverseLauncher;
 

@@ -137,7 +137,9 @@ contract UniswapLP is Owned {
                         keccak256(
                             abi.encode(
                                 // solhint-disable-next-line gas-small-strings
-                                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                                keccak256(
+                                    "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
+                                ),
                                 owner,
                                 spender,
                                 value,

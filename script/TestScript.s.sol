@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
 import "./BaseScript.s.sol";
-import { IMemecoinDaoGovernor } from "../src/governance/interfaces/IMemecoinDaoGovernor.sol";
-import { IMemeverseRegistrar, IMemeverseRegistrationCenter } from "../src/verse/interfaces/IMemeverseRegistrar.sol";
+import {IMemecoinDaoGovernor} from "../src/governance/interfaces/IMemecoinDaoGovernor.sol";
+import {IMemeverseRegistrar, IMemeverseRegistrationCenter} from "../src/verse/interfaces/IMemeverseRegistrar.sol";
 
 contract TestScript is BaseScript {
     using OptionsBuilder for bytes;
@@ -46,14 +46,14 @@ contract TestScript is BaseScript {
         ids[0] = 421614;
         ids[1] = 84532;
         // ids[2] = 97;
-        
+
         param.omnichainIds = ids;
         param.UPT = UETH;
 
         // Center Chain - MemeverseRegistrarAtLocal
         // uint256 totalFee = IMemeverseRegistrar(MEMEVERSE_REGISTRAR).quoteRegister(param, 0);
         // console.log("totalFee=", totalFee);
-        
+
         uint256 totalFee = 0.00085 ether;
 
         // IMemeverseRegistrar(MEMEVERSE_REGISTRAR).registerAtCenter{value: totalFee}(param, uint128(totalFee));
@@ -66,11 +66,11 @@ contract TestScript is BaseScript {
         bytes memory initData = abi.encodeWithSelector(
             IMemecoinDaoGovernor.initialize.selector,
             string(abi.encodePacked("aaa", " DAO")),
-            IVotes(0x454c7b0b4dded6BC81f44737965d43AFC294b399),  // voting token
-            1 days,              // voting delay
-            1 weeks,             // voting period
-            10000e18,            // proposal threshold (10000 tokens)
-            30                   // quorum (30%)
+            IVotes(0x454c7b0b4dded6BC81f44737965d43AFC294b399), // voting token
+            1 days, // voting delay
+            1 weeks, // voting period
+            10000e18, // proposal threshold (10000 tokens)
+            30 // quorum (30%)
         );
 
         console.logBytes(initData);

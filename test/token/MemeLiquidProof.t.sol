@@ -6,7 +6,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {MemeLiquidProof} from "../../src/token/MemeLiquidProof.sol";
-import {IMemeLiquidProof} from "../../src/token/interfaces/IMemeLiquidProof.sol";
+import {IPol} from "../../src/token/interfaces/IPol.sol";
 import {IOFTCompose} from "../../src/common/omnichain/oft/IOFTCompose.sol";
 
 contract MockMemeLiquidProofEndpoint {
@@ -96,15 +96,15 @@ contract MemeLiquidProofTest is Test {
         liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 
         vm.prank(LAUNCHER);
-        vm.expectRevert(IMemeLiquidProof.ZeroInput.selector);
+        vm.expectRevert(IPol.ZeroInput.selector);
         liquidProof.mint(ALICE, 0);
 
         vm.prank(ALICE);
-        vm.expectRevert(IMemeLiquidProof.ZeroInput.selector);
+        vm.expectRevert(IPol.ZeroInput.selector);
         liquidProof.burn(0);
 
         vm.prank(ALICE);
-        vm.expectRevert(IMemeLiquidProof.ZeroInput.selector);
+        vm.expectRevert(IPol.ZeroInput.selector);
         liquidProof.burn(ALICE, 0);
     }
 }

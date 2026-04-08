@@ -57,12 +57,9 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     /// @dev Populates `genesisFunds` so view helpers can report specific totals.
     /// @param verseId See implementation.
     /// @param totalMemecoinFunds See implementation.
-    /// @param totalLiquidProofFunds See implementation.
-    function setGenesisFundForTest(uint256 verseId, uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds)
-        external
-    {
-        genesisFunds[verseId] =
-            GenesisFund({totalMemecoinFunds: totalMemecoinFunds, totalLiquidProofFunds: totalLiquidProofFunds});
+    /// @param totalPolFunds See implementation.
+    function setGenesisFundForTest(uint256 verseId, uint128 totalMemecoinFunds, uint128 totalPolFunds) external {
+        genesisFunds[verseId] = GenesisFund({totalMemecoinFunds: totalMemecoinFunds, totalPolFunds: totalPolFunds});
     }
 
     /// @notice Set user genesis data for test.
@@ -258,10 +255,10 @@ contract MemeverseLauncherViewsTest is Test {
         uptToken.approve(address(launcher), type(uint256).max);
         launcher.genesis(1, 1 ether, ALICE);
 
-        (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(1);
+        (uint128 totalMemecoinFunds, uint128 totalPolFunds) = launcher.genesisFunds(1);
         (uint256 genesisFund,,,) = launcher.userGenesisData(1, ALICE);
         assertEq(totalMemecoinFunds, 0.75 ether);
-        assertEq(totalLiquidProofFunds, 0.25 ether);
+        assertEq(totalPolFunds, 0.25 ether);
         assertEq(genesisFund, 1 ether);
     }
 
@@ -277,10 +274,7 @@ contract MemeverseLauncherViewsTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IMemeverseLauncher.GenesisFundOverflowed.selector,
-                1,
-                uint256(type(uint128).max),
-                uint256(0.75 ether)
+                IMemeverseLauncher.GenesisFundOverflowed.selector, 1, uint256(type(uint128).max), uint256(0.75 ether)
             )
         );
         launcher.genesis(1, 1 ether, ALICE);
@@ -308,7 +302,7 @@ contract MemeverseLauncherViewsTest is Test {
     /// @dev Ensures claimPOLToken enforces pause and zero-output guards, relying on Pausable semantics.
     function testClaimPOLTokenRevertsWhenNoClaimableAndPauseBlocksLifecycleActions() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
-        verse.liquidProof = POL;
+        verse.pol = POL;
         launcher.setMemeverseForTest(1, verse);
         launcher.setGenesisFundForTest(1, 90 ether, 30 ether);
         launcher.setUserGenesisDataForTest(1, ALICE, 0, false, false, false);

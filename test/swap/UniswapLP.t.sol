@@ -43,11 +43,13 @@ contract UniswapLPTest is Test {
         token.permit(OWNER, SPENDER, 7 ether, deadline, v, r, s);
     }
 
-    function _permitDigest(address owner, address spender, uint256 value, uint256 deadline) internal view returns (bytes32)
+    function _permitDigest(address owner, address spender, uint256 value, uint256 deadline)
+        internal
+        view
+        returns (bytes32)
     {
-        bytes32 structHash = keccak256(
-            abi.encode(PERMIT_TYPEHASH, owner, spender, value, token.nonces(owner), deadline)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(PERMIT_TYPEHASH, owner, spender, value, token.nonces(owner), deadline));
         return keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), structHash));
     }
 }

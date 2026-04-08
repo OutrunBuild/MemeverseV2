@@ -231,7 +231,7 @@ contract MemeverseLauncherRegistrationTest is Test {
         assertEq(verse.symbol, "MEME");
         assertEq(verse.UPT, address(0x7777));
         assertEq(verse.memecoin, address(memecoin));
-        assertEq(verse.liquidProof, address(pol));
+        assertEq(verse.pol, address(pol));
         assertEq(launcher.getVerseIdByMemecoin(address(memecoin)), uniqueId);
 
         assertEq(memecoin.memeverseLauncher(), address(launcher));

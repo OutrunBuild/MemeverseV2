@@ -356,7 +356,7 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for invariant_endToEndGenesisAccountingMatchesUserBalances.
     function invariant_endToEndGenesisAccountingMatchesUserBalances() external view {
-        (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(VERSE_ID);
+        (uint128 totalMemecoinFunds, uint128 totalPolFunds) = launcher.genesisFunds(VERSE_ID);
         uint256 totalUserGenesisFunds;
 
         for (uint256 i; i < actors.length; ++i) {
@@ -364,7 +364,7 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
             totalUserGenesisFunds += genesisFund;
         }
 
-        assertEq(totalUserGenesisFunds, uint256(totalMemecoinFunds) + uint256(totalLiquidProofFunds), "genesis sum");
+        assertEq(totalUserGenesisFunds, uint256(totalMemecoinFunds) + uint256(totalPolFunds), "genesis sum");
     }
 
     /// @notice Test helper for invariant_endToEndPreorderAccountingMatchesState.
@@ -566,10 +566,10 @@ contract MemeverseLauncherRefundEndToEndInvariantTest is StdInvariant, Test {
             if (!isPreorderRefunded) outstandingPreorder += preorderFund;
         }
 
-        (uint128 totalMemecoinFunds, uint128 totalLiquidProofFunds) = launcher.genesisFunds(VERSE_ID);
+        (uint128 totalMemecoinFunds, uint128 totalPolFunds) = launcher.genesisFunds(VERSE_ID);
         (uint256 totalPreorderFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);
 
-        assertEq(historicalGenesis, uint256(totalMemecoinFunds) + uint256(totalLiquidProofFunds), "genesis history");
+        assertEq(historicalGenesis, uint256(totalMemecoinFunds) + uint256(totalPolFunds), "genesis history");
         assertEq(historicalPreorder, totalPreorderFunds, "preorder history");
         assertEq(upt.balanceOf(address(launcher)), outstandingGenesis + outstandingPreorder, "launcher liability");
     }

@@ -96,9 +96,7 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
     function _eip712DomainTypeHash() private pure returns (bytes32) {
         return keccak256(
             abi.encodePacked(
-                "EIP712Domain(string name,string ",
-                "version,uint256 chainId,address ",
-                "verifyingContract)"
+                "EIP712Domain(string name,string ", "version,uint256 chainId,address ", "verifyingContract)"
             )
         );
     }

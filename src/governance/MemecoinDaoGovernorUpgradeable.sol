@@ -205,7 +205,7 @@ contract MemecoinDaoGovernorUpgradeable is
      */
     function receiveTreasuryIncome(address _token, uint256 _amount) external override {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
-            _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
+        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
         IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
         _governanceCycleIncentivizer.recordTreasuryIncome(_token, _amount);
     }
@@ -219,7 +219,7 @@ contract MemecoinDaoGovernorUpgradeable is
      */
     function sendTreasuryAssets(address _token, address _to, uint256 _amount) external override onlyGovernance {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
-            _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
+        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
         _governanceCycleIncentivizer.recordTreasuryAssetSpend(_token, _to, _amount);
 
         IERC20(_token).safeTransfer(_to, _amount);
@@ -233,7 +233,10 @@ contract MemecoinDaoGovernorUpgradeable is
      * @param _amount Reward amount.
      */
     function disburseReward(address _token, address _to, uint256 _amount) external override {
-        require(msg.sender == address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer), UnauthorizedRewardPayout());
+        require(
+            msg.sender == address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer),
+            UnauthorizedRewardPayout()
+        );
 
         IERC20(_token).safeTransfer(_to, _amount);
     }
