@@ -21,9 +21,12 @@
     "lint:sol:test": "solhint -c solhint-test.config.js 'test/**/*.sol' --max-warnings 0",
     "lint:sol:test:fix": "solhint -c solhint-test.config.js 'test/**/*.sol' --fix --noPrompt",
     "docs:check": "bash ./script/process/check-docs.sh",
+    "gas:report": "bash ./script/process/check-gas-report.sh",
     "process:selftest": "bash ./script/process/tests/run-all.sh",
     "quality:quick": "$npm_execpath run lint:sol && bash ./script/process/quality-quick.sh",
-    "quality:gate": "$npm_execpath run lint:sol && bash ./script/process/quality-gate.sh",
+    "quality:gate": "$npm_execpath run lint:sol && bash ./script/process/run-quality-gate-full.sh",
+    "quality:gate:fast": "$npm_execpath run lint:sol && QUALITY_GATE_ERRORS_ONLY=1 FORGE_TEST_VERBOSITY=-q QUALITY_GATE_FAST=1 bash ./script/process/quality-gate.sh",
+    "quality:profile": "$npm_execpath run lint:sol && bash ./script/process/profile-invariants.sh",
     "test": "$npm_execpath run test:forge",
     "test:forge": "forge test",
     "codex:review": "bash ./script/process/run-codex-review.sh",
@@ -50,7 +53,7 @@
     "chai": "^4.4.1",
     "dotenv": "^16.4.1",
     "mocha": "^10.2.0",
-    "solhint": "^6.1.0",
+    "solhint": "^6.2.1",
     "solidity-bytes-utils": "^0.8.2"
   },
   "engines": {
