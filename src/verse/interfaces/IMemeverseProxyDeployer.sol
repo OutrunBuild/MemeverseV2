@@ -5,16 +5,63 @@ pragma solidity ^0.8.28;
  * @dev Interface for the Memeverse Proxy Contract Deployer.
  */
 interface IMemeverseProxyDeployer {
+    /**
+     * @notice Predicts the deterministic yield vault proxy address for a verse id.
+     * @dev Uses the deployer's CREATE2 scheme without mutating state.
+     * @param uniqueId Verse unique identifier.
+     * @return Predicted yield vault proxy address.
+     */
     function predictYieldVaultAddress(uint256 uniqueId) external view returns (address);
 
-    function computeGovernorAndIncentivizerAddress(uint256 uniqueId) external view returns (address governor, address incentivizer);
-    
+    /**
+     * @notice Computes deterministic governor and incentivizer addresses for a verse id.
+     * @dev Pure address derivation helper used before deploying governance components.
+     * @param uniqueId Verse unique identifier.
+     * @return governor Predicted governor proxy address.
+     * @return incentivizer Predicted incentivizer proxy address.
+     */
+    function computeGovernorAndIncentivizerAddress(uint256 uniqueId)
+        external
+        view
+        returns (address governor, address incentivizer);
+
+    /**
+     * @notice Deploys the memecoin proxy for a verse.
+     * @dev Reverts if the verse id is invalid or already consumed by deployment flow.
+     * @param uniqueId Verse unique identifier.
+     * @return memecoin Deployed memecoin proxy address.
+     */
     function deployMemecoin(uint256 uniqueId) external returns (address memecoin);
 
+    /**
+     * @notice Deploys the POL proxy for a verse.
+     * @dev Reverts if required dependencies for the verse are not ready.
+     * @param uniqueId Verse unique identifier.
+     * @return pol Deployed POL proxy address.
+     */
     function deployPOL(uint256 uniqueId) external returns (address pol);
 
+    /**
+     * @notice Deploys the yield vault proxy for a verse.
+     * @dev Deployment follows deterministic proxy salts keyed by verse id.
+     * @param uniqueId Verse unique identifier.
+     * @return yieldVault Deployed yield vault proxy address.
+     */
     function deployYieldVault(uint256 uniqueId) external returns (address yieldVault);
 
+    /**
+     * @notice Deploys governor and incentivizer proxies for a verse.
+     * @dev Wires token addresses and governance thresholds into deployment payload.
+     * @param memecoinName Governance display name derived from memecoin metadata.
+     * @param UPT Verse quote asset address.
+     * @param memecoin Deployed memecoin proxy address.
+     * @param pol Deployed POL proxy address.
+     * @param yieldVault Deployed yield vault proxy address.
+     * @param uniqueId Verse unique identifier.
+     * @param proposalThreshold Governor proposal threshold.
+     * @return governor Deployed governor proxy address.
+     * @return incentivizer Deployed incentivizer proxy address.
+     */
     function deployGovernorAndIncentivizer(
         string calldata memecoinName,
         address UPT,
@@ -25,6 +72,11 @@ interface IMemeverseProxyDeployer {
         uint256 proposalThreshold
     ) external returns (address governor, address incentivizer);
 
+    /**
+     * @notice Updates quorum numerator used for subsequent governor deployments.
+     * @dev Affects deployment-time governor config, not already deployed instances.
+     * @param quorumNumerator New quorum numerator value.
+     */
     function setQuorumNumerator(uint256 quorumNumerator) external;
 
     event DeployMemecoin(uint256 indexed uniqueId, address memecoin);
@@ -38,6 +90,6 @@ interface IMemeverseProxyDeployer {
     event SetQuorumNumerator(uint256 quorumNumerator);
 
     error ZeroInput();
-    
+
     error PermissionDenied();
 }

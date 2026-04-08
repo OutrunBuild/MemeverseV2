@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title Memecoin interface
@@ -9,34 +9,34 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 interface IMemecoin is IERC20 {
     /**
      * @notice Get the memeverse launcher.
-     * @return memeverseLauncher - The address of the memeverse launcher.
+     * @dev Launcher is the privileged controller for issuance and lifecycle operations.
+     * @return memeverseLauncher The address of the memeverse launcher.
      */
     function memeverseLauncher() external view returns (address);
 
     /**
-     * @notice Initialize the memecoin.
-     * @param name_ - The name of the memecoin.
-     * @param symbol_ - The symbol of the memecoin.
-     * @param _memeverseLauncher - The address of the memeverse launcher.
-     * @param _delegate - The address of the delegate.
+     * @notice Initializes memecoin metadata and omnichain delegate wiring.
+     * @dev Must be called once during verse deployment before minting.
+     * @param name_ ERC20 name.
+     * @param symbol_ ERC20 symbol.
+     * @param _memeverseLauncher Authorized launcher address.
+     * @param _delegate LayerZero delegate used for OFT configuration.
      */
-    function initialize(
-        string calldata name_,
-        string calldata symbol_,
-        address _memeverseLauncher,
-        address _delegate
-    ) external;
+    function initialize(string calldata name_, string calldata symbol_, address _memeverseLauncher, address _delegate)
+        external;
 
     /**
-     * @notice Mint the memecoin.
-     * @param account - The address of the account.
-     * @param amount - The amount of the memecoin.
+     * @notice Mints memecoin to a target account.
+     * @dev Access should be restricted to launcher-controlled issuance paths.
+     * @param account Recipient account.
+     * @param amount Amount to mint.
      */
     function mint(address account, uint256 amount) external;
 
     /**
-     * @notice Burn the memecoin.
-     * @param amount - The amount of the memecoin.
+     * @notice Burns memecoin from caller-controlled supply.
+     * @dev Used by settlement and redemption flows to retire supply.
+     * @param amount Amount to burn.
      */
     function burn(uint256 amount) external;
 
