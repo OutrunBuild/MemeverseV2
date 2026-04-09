@@ -18,7 +18,7 @@
 | Surface | 机制 | 初始化入口 | 升级授权 | 证据 |
 | --- | --- | --- | --- | --- |
 | Launcher / Router / Hook / RegistrationCenter / Registrar / Dispatcher / Interoperation / Staker / LzEndpointRegistry / ProxyDeployer | 构造函数部署；无 UUPS/Transparent proxy 入口 | constructor | 不适用（按代码不可升级） | `src/verse/MemeverseLauncher.sol:69`; `src/swap/MemeverseSwapRouter.sol:75`; `src/swap/MemeverseUniswapHook.sol:158`; `src/verse/registration/MemeverseRegistrationCenter.sol:46`; `src/verse/registration/MemeverseRegistrarAtLocal.sol:16`; `src/verse/registration/MemeverseRegistrarOmnichain.sol:33`; `src/verse/YieldDispatcher.sol:26`; `src/interoperation/MemeverseOmnichainInteroperation.sol:36`; `src/interoperation/OmnichainMemecoinStaker.sol:19`; `src/common/omnichain/LzEndpointRegistry.sol:14`; `src/verse/deployment/MemeverseProxyDeployer.sol:38` |
-| `Memecoin` / `MemeLiquidProof` / `MemecoinYieldVault` | clone + `initialize(...)` | 外部 `initialize`（单次） | 无实现内升级入口 | `src/verse/deployment/MemeverseProxyDeployer.sol:93-117`; `src/token/Memecoin.sol:24`; `src/token/MemeLiquidProof.sol:37`; `src/yield/MemecoinYieldVault.sol:37` |
+| `Memecoin` / `MemePol` / `MemecoinYieldVault` | clone + `initialize(...)` | 外部 `initialize`（单次） | 无实现内升级入口 | `src/verse/deployment/MemeverseProxyDeployer.sol:93-117`; `src/token/Memecoin.sol:24`; `src/token/MemePol.sol:37`; `src/yield/MemecoinYieldVault.sol:37` |
 | `MemecoinDaoGovernorUpgradeable` / `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:141-150`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:76`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:83`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:252`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:640` |
 
 ## 3. 初始化约束（当前代码实际支持）
@@ -35,7 +35,7 @@
 - launcher 在注册时通过 deployer 克隆 `memecoin`/`POL` 并立即 `initialize`。
   - 证据：`src/verse/MemeverseLauncher.sol:1087-1097`
 - 初始化时把 delegate 与 owner 初始化为 `address(this)`（launcher），这是源码层可见行为，不代表线上部署 owner 一定未再迁移。
-  - 证据：`src/verse/MemeverseLauncher.sol:1089-1097`; `src/token/Memecoin.sol:29-33`; `src/token/MemeLiquidProof.sol:44-49`
+  - 证据：`src/verse/MemeverseLauncher.sol:1089-1097`; `src/token/Memecoin.sol:29-33`; `src/token/MemePol.sol:44-49`
 
 ### 3.3 governance 组件仅在治理链本地部署初始化
 

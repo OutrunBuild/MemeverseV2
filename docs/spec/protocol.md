@@ -24,7 +24,7 @@
 | `MemeverseLauncher` | verse 状态机与资金主编排 | Genesis/Refund/Locked/Unlocked 行为、领取/退款/赎回/分发 | 当前规则（代码已证） |
 | `MemeverseProxyDeployer` | memecoin/POL/vault/governor/incentivizer 部署或地址预测 | Locked 时治理与收益组件是否就绪 | 当前规则（代码已证） |
 | `MemeverseSwapRouter` + `MemeverseUniswapHook` | swap/liquidity 统一入口与费用引擎 | 交易费率、LP 记账、启动期费用曲线、launch settlement 特权路径 | 当前规则（代码已证） |
-| `Memecoin` / `MemeLiquidProof` | 发行与销毁权限边界 | 谁可 mint、如何 burn、POL 与 LP 的关系 | 当前规则（代码已证） |
+| `Memecoin` / `MemePol` | 发行与销毁权限边界 | 谁可 mint、如何 burn、POL 与 LP 的关系 | 当前规则（代码已证） |
 | `MemecoinYieldVault` | memecoin 收益累积、份额化与延迟赎回 | 质押收益、请求赎回与延迟执行 | 当前规则（代码已证） |
 | `MemecoinDaoGovernorUpgradeable` + `GovernanceCycleIncentivizerUpgradeable` | DAO treasury 与投票激励周期 | 国库收入记录、周期奖励结算 | 当前规则（代码已证） |
 | `YieldDispatcher` / `MemeverseOmnichainInteroperation` / `OmnichainMemecoinStaker` | 跨链收益与跨链 staking 路径 | 异链 fee 要求、到帐目标（Governor / Vault） | 当前规则（代码已证） |

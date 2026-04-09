@@ -15,7 +15,7 @@
  - `MemeverseRegistrarOmnichain`（异链向中心链注册）
  - `OutrunOApp*` 初始化基类（peer/delegate）
 - OFT 路径：
- - `Memecoin`、`MemeLiquidProof`（基于 `OutrunOFTInit`）
+ - `Memecoin`、`MemePol`（基于 `OutrunOFTInit`）
  - `MemeverseLauncher`（`IOFT.quoteSend/send` 分发 fee）
  - `MemeverseOmnichainInteroperation`（跨链 staking）
  - `YieldDispatcher`、`OmnichainMemecoinStaker`（compose 接收处理）

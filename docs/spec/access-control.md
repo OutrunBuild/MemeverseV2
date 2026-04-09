@@ -46,7 +46,7 @@
 | `MemeverseSwapRouter` | 主路由入口纯 permissionless；不承载 launch-settlement 特权授权；launcher 配置时需校验其 `hook` 绑定 | `src/swap/MemeverseSwapRouter.sol:74-77`, `:174-240`, `:264`, `:365`, `:422`, `:446` |
 | `MemeverseUniswapHook` | 核心 `addLiquidityCore/removeLiquidityCore/claimFeesCore` 对外开放；配置项 `onlyOwner`；`executeLaunchSettlement(...)` 与 pair-based `setPublicSwapResumeTime(address,address,uint40)` 仅当前 launcher；`beforeSwap` 读取 pool-level resume time 执行公开 swap 保护 | `src/swap/MemeverseUniswapHook.sol:309-377`, `:440`, `:510`, `:550`, `:577-627`, `:1038-1055` |
 | `Memecoin` | `mint` 仅 launcher；`burn` 自主 | `src/token/Memecoin.sol:39-43`, `:48-51` |
-| `MemeLiquidProof` | `setPoolId` 与 `mint` 仅 launcher；`burn` 为持币人或 allowance 授权方 | `src/token/MemeLiquidProof.sol:54`, `:62`, `:72-75` |
+| `MemePol` | `setPoolId` 与 `mint` 仅 launcher；`burn` 为持币人或 allowance 授权方 | `src/token/MemePol.sol:54`, `:62`, `:72-75` |
 | `MemecoinYieldVault` | `accumulateYields` / `deposit` / `requestRedeem` / `executeRedeem` 为 permissionless 业务入口（非 owner 门禁） | `src/yield/MemecoinYieldVault.sol:86`, `:120`, `:132`, `:146` |
 | `YieldDispatcher` | `lzCompose` 仅 `localEndpoint` 或 `memeverseLauncher` | `src/verse/YieldDispatcher.sol:39-47` |
 | `OmnichainMemecoinStaker` | `lzCompose` 仅 `localEndpoint` | `src/interoperation/OmnichainMemecoinStaker.sol:30-40` |

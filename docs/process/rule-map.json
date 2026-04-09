@@ -292,23 +292,23 @@
       "triggers": {
         "any_of": [
           "src/token/Memecoin.sol",
-          "src/token/MemeLiquidProof.sol",
+          "src/token/MemePol.sol",
           "src/token/interfaces/IMemecoin.sol",
-          "src/token/interfaces/IMemeLiquidProof.sol"
+          "src/token/interfaces/IPol.sol"
         ]
       },
       "change_requirement": {
         "mode": "any",
         "tests": [
           "test/token/Memecoin.t.sol",
-          "test/token/MemeLiquidProof.t.sol"
+          "test/token/MemePol.t.sol"
         ]
       },
       "evidence_requirement": {
         "mode": "any",
         "tests": [
           "test/token/Memecoin.t.sol",
-          "test/token/MemeLiquidProof.t.sol"
+          "test/token/MemePol.t.sol"
         ]
       }
     },

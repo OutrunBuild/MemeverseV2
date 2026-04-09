@@ -12,7 +12,7 @@ import {
 import "./BaseScript.s.sol";
 import {Memecoin} from "../src/token/Memecoin.sol";
 import {IOutrunDeployer} from "./IOutrunDeployer.sol";
-import {MemeLiquidProof} from "../src/token/MemeLiquidProof.sol";
+import {MemePol} from "../src/token/MemePol.sol";
 import {MemecoinYieldVault} from "../src/yield/MemecoinYieldVault.sol";
 import {MemeverseProxyDeployer} from "../src/verse/deployment/MemeverseProxyDeployer.sol";
 import {YieldDispatcher} from "../src/verse/YieldDispatcher.sol";
@@ -250,7 +250,7 @@ contract MemeverseScript is BaseScript {
     function _deployMemecoinPOLImplementation(uint256 nonce) internal {
         bytes32 memecoinPOLSalt = keccak256(abi.encodePacked("MemecoinPOLImplementation", nonce));
         bytes memory memecoinPOLCreationCode =
-            abi.encodePacked(type(MemeLiquidProof).creationCode, abi.encode(endpoints[uint32(block.chainid)]));
+            abi.encodePacked(type(MemePol).creationCode, abi.encode(endpoints[uint32(block.chainid)]));
         address memecoinPOLImplementation =
             IOutrunDeployer(OUTRUN_DEPLOYER).deploy(memecoinPOLSalt, memecoinPOLCreationCode);
 

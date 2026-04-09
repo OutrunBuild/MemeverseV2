@@ -5,11 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
-import {MemeLiquidProof} from "../../src/token/MemeLiquidProof.sol";
+import {MemePol} from "../../src/token/MemePol.sol";
 import {IPol} from "../../src/token/interfaces/IPol.sol";
 import {IOFTCompose} from "../../src/common/omnichain/oft/IOFTCompose.sol";
 
-contract MockMemeLiquidProofEndpoint {
+contract MockMemePolEndpoint {
     address public delegate;
 
     /// @notice Set delegate.
@@ -19,7 +19,7 @@ contract MockMemeLiquidProofEndpoint {
     }
 }
 
-contract MemeLiquidProofTest is Test {
+contract MemePolTest is Test {
     using Clones for address;
 
     address internal constant MEMECOIN = address(0xABCD);
@@ -28,83 +28,83 @@ contract MemeLiquidProofTest is Test {
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
 
-    MockMemeLiquidProofEndpoint internal endpoint;
-    MemeLiquidProof internal implementation;
-    MemeLiquidProof internal liquidProof;
+    MockMemePolEndpoint internal endpoint;
+    MemePol internal implementation;
+    MemePol internal memePol;
 
     /// @notice Set up.
     function setUp() external {
-        endpoint = new MockMemeLiquidProofEndpoint();
-        implementation = new MemeLiquidProof(address(endpoint));
-        liquidProof = MemeLiquidProof(address(implementation).clone());
+        endpoint = new MockMemePolEndpoint();
+        implementation = new MemePol(address(endpoint));
+        memePol = MemePol(address(implementation).clone());
     }
 
     /// @notice Test initialize sets config and owner.
     function testInitializeSetsConfigAndOwner() external {
-        liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
+        memePol.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 
-        assertEq(liquidProof.name(), "POL-MEME");
-        assertEq(liquidProof.symbol(), "POLM");
-        assertEq(liquidProof.memecoin(), MEMECOIN);
-        assertEq(liquidProof.memeverseLauncher(), LAUNCHER);
-        assertEq(liquidProof.owner(), DELEGATE);
+        assertEq(memePol.name(), "POL-MEME");
+        assertEq(memePol.symbol(), "POLM");
+        assertEq(memePol.memecoin(), MEMECOIN);
+        assertEq(memePol.memeverseLauncher(), LAUNCHER);
+        assertEq(memePol.owner(), DELEGATE);
         assertEq(endpoint.delegate(), DELEGATE);
     }
 
     /// @notice Test only launcher can set pool id and mint.
     function testOnlyLauncherCanSetPoolIdAndMint() external {
-        liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
+        memePol.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
         PoolId poolId = PoolId.wrap(bytes32(uint256(1234)));
 
         vm.expectRevert(IOFTCompose.PermissionDenied.selector);
-        liquidProof.setPoolId(poolId);
+        memePol.setPoolId(poolId);
 
         vm.expectRevert(IOFTCompose.PermissionDenied.selector);
-        liquidProof.mint(ALICE, 1 ether);
+        memePol.mint(ALICE, 1 ether);
 
         vm.prank(LAUNCHER);
-        liquidProof.setPoolId(poolId);
-        assertEq(PoolId.unwrap(liquidProof.poolId()), PoolId.unwrap(poolId));
+        memePol.setPoolId(poolId);
+        assertEq(PoolId.unwrap(memePol.poolId()), PoolId.unwrap(poolId));
 
         vm.prank(LAUNCHER);
-        liquidProof.mint(ALICE, 2 ether);
-        assertEq(liquidProof.balanceOf(ALICE), 2 ether);
+        memePol.mint(ALICE, 2 ether);
+        assertEq(memePol.balanceOf(ALICE), 2 ether);
     }
 
     /// @notice Test burn supports direct holder and approved spender.
     function testBurnSupportsDirectHolderAndApprovedSpender() external {
-        liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
+        memePol.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 
         vm.prank(LAUNCHER);
-        liquidProof.mint(ALICE, 3 ether);
+        memePol.mint(ALICE, 3 ether);
 
         vm.prank(ALICE);
-        liquidProof.burn(1 ether);
-        assertEq(liquidProof.balanceOf(ALICE), 2 ether);
+        memePol.burn(1 ether);
+        assertEq(memePol.balanceOf(ALICE), 2 ether);
 
         vm.prank(ALICE);
-        liquidProof.approve(BOB, 1 ether);
+        memePol.approve(BOB, 1 ether);
 
         vm.prank(BOB);
-        liquidProof.burn(ALICE, 1 ether);
-        assertEq(liquidProof.balanceOf(ALICE), 1 ether);
-        assertEq(liquidProof.allowance(ALICE, BOB), 0);
+        memePol.burn(ALICE, 1 ether);
+        assertEq(memePol.balanceOf(ALICE), 1 ether);
+        assertEq(memePol.allowance(ALICE, BOB), 0);
     }
 
     /// @notice Test mint and burn reject zero amount.
     function testMintAndBurnRejectZeroAmount() external {
-        liquidProof.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
+        memePol.initialize("POL-MEME", "POLM", MEMECOIN, LAUNCHER, DELEGATE);
 
         vm.prank(LAUNCHER);
         vm.expectRevert(IPol.ZeroInput.selector);
-        liquidProof.mint(ALICE, 0);
+        memePol.mint(ALICE, 0);
 
         vm.prank(ALICE);
         vm.expectRevert(IPol.ZeroInput.selector);
-        liquidProof.burn(0);
+        memePol.burn(0);
 
         vm.prank(ALICE);
         vm.expectRevert(IPol.ZeroInput.selector);
-        liquidProof.burn(ALICE, 0);
+        memePol.burn(ALICE, 0);
     }
 }

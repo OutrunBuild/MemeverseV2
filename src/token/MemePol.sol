@@ -7,7 +7,7 @@ import {OutrunOFTInit} from "../common/omnichain/oft/OutrunOFTInit.sol";
 /**
  * @title Omnichain Memecoin Proof Of Liquidity(POL) Token
  */
-contract MemeLiquidProof is IPol, OutrunOFTInit {
+contract MemePol is IPol, OutrunOFTInit {
     address public memecoin;
     address public memeverseLauncher;
 

@@ -24,7 +24,7 @@
 ### 2.2 实现合约与按 verse 实例化组件
 
 - 实现合约（模板）：
- - `Memecoin`、`MemeLiquidProof`、`MemecoinYieldVault`
+ - `Memecoin`、`MemePol`、`MemecoinYieldVault`
  - `MemecoinDaoGovernorUpgradeable`、`GovernanceCycleIncentivizerUpgradeable`
 - 按 `verseId(uniqueId)` 实例化：
  - memecoin/POL/yieldVault：最小代理（cloneDeterministic）

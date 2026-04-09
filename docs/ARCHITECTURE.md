@@ -23,7 +23,7 @@
 ### 1.4 资产层
 
 - `src/token/Memecoin.sol`
-- `src/token/MemeLiquidProof.sol`
+- `src/token/MemePol.sol`
 - 负责 memecoin 与 POL 的铸造/销毁权限边界。
 
 ### 1.5 收益与治理

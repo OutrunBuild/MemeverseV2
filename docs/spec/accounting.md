@@ -11,9 +11,9 @@
 
 - 每笔 `genesis(amountInUPT)` 拆分为：
   - `memecoinFund = amountInUPT * 3/4`
-  - `liquidProofFund = amountInUPT * 1/4`
+  - `polFund = amountInUPT * 1/4`
 - `userGenesisData[verseId][user].genesisFund` 按用户累计，不是覆盖。
-- 全局累计在 `genesisFunds.totalMemecoinFunds/totalLiquidProofFunds`。
+- 全局累计在 `genesisFunds.totalMemecoinFunds/totalPolFunds`。
 
 ### 2.2 Preorder 入账
 
@@ -48,7 +48,7 @@
 ### 4.1 POL 领取
 
 - 可领 POL（未领取时）：
-`claimable = totalClaimablePOL * userGenesisFund / (totalMemecoinFunds + totalLiquidProofFunds)`
+`claimable = totalClaimablePOL * userGenesisFund / (totalMemecoinFunds + totalPolFunds)`
 
 ### 4.2 preorder 线性解锁
 

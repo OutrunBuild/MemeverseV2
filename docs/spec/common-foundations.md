@@ -51,7 +51,7 @@
 这套规则支撑：
 
 - `Memecoin`
-- `MemeLiquidProof`
+- `MemePol`
 - `MemecoinYieldVault`
 
 也解释了为什么这些模块在部署文档里表现为“clone + initialize”，而不是普通 constructor 初始化。
