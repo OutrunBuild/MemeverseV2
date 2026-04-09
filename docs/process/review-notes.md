@@ -55,11 +55,9 @@
 - `Existing tests exercised`
 - `Commands run`
 - `Results`
-- `Codex review summary`
 - `Logic evidence source`
 - `Security evidence source`
 - `Gas evidence source`
-- `Codex review evidence source`
 - `Verification evidence source`
 - `Decision evidence source`
 - `Ready to commit`
@@ -101,6 +99,7 @@
   - `Results` 必须包含 required commands 的通过/失败结论与 failure attribution，不能只写“已跑 gate”。
 - `Codex review summary`、`Codex review evidence source`
   - 默认由 `verifier` 提供，用于记录 writer 完成后的一次独立 Codex 审查与 findings 收口。
+  - 仅在 classification 要求本地 `codex:review`，或 review note 显式记录该审查证据时才需要填写并参与校验。
 - `Ready to commit`、`Decision evidence source`
   - 只能由 `main-orchestrator` 最终判定。
 
@@ -134,4 +133,5 @@
 - 命中 `src/**/*.sol`、`script/**/*.sol` 变更且准备运行本地或 CI `quality:gate` 时，必须先准备好一份可通过校验的 review note。
 - 仅检查草稿结构可运行：`bash ./script/process/check-review-note.sh <review-note>`
 - 需要在 Solidity gate 中联动检查时，可运行：`bash ./script/process/check-solidity-review-note.sh`
+- 若未显式设置 `QUALITY_GATE_REVIEW_NOTE`，Solidity gate 只会自动选择一份 `Files reviewed` 能唯一覆盖当前变更 production Solidity path set 的 review note；若存在歧义或没有匹配，必须显式指定。
 - 若仓库跟踪了特定 review note 文件（例如 `docs/reviews/CI_REVIEW_NOTE.md`），它也必须与当前改动、当前 gate 语义保持一致。

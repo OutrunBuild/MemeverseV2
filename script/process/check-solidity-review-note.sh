@@ -51,6 +51,61 @@ load_changed_files() {
     git diff --cached --name-only --diff-filter=ACMRD
 }
 
+discover_review_note() {
+    local changed_files_file="$1"
+    local src_sol_pattern="$2"
+    shift 2
+    local candidates=("$@")
+
+    if [ "${#candidates[@]}" -eq 0 ]; then
+        return 1
+    fi
+
+    SRC_SOL_PATTERN="$src_sol_pattern" node - "$changed_files_file" "${candidates[@]}" <<'EOF'
+const fs = require('fs');
+
+const [, , changedFilesPath, ...candidates] = process.argv;
+const srcSolPattern = new RegExp(process.env.SRC_SOL_PATTERN || '^src/.*\\.sol$');
+const changedSrcFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter((file) => srcSolPattern.test(file));
+
+function extractField(document, field) {
+  const prefix = `- ${field}:`;
+  for (const line of document.split(/\r?\n/)) {
+    if (line.startsWith(prefix)) {
+      return line.slice(prefix.length).trim();
+    }
+  }
+  return '';
+}
+
+function extractPathTokens(value) {
+  const matches = value.match(/(?:^|[\s,;()[\]{}])((?:\/|(?:\.\.\/)+|\.\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+)(?=$|[\s,;()[\]{}:])/g) || [];
+  return matches
+    .map((entry) => entry.trim().replace(/^[\s,;()[\]{}]+/, '').replace(/[\s,;()[\]{}:]+$/, ''))
+    .filter(Boolean);
+}
+
+const matching = candidates.filter((candidate) => {
+  const document = fs.readFileSync(candidate, 'utf8');
+  const reviewedTokens = new Set(extractPathTokens(extractField(document, 'Files reviewed')));
+  return changedSrcFiles.every((changedFile) => reviewedTokens.has(changedFile));
+});
+
+if (matching.length === 1) {
+  process.stdout.write(matching[0]);
+  process.exit(0);
+}
+
+if (matching.length === 0) {
+  console.error('[check-solidity-review-note] ERROR: review note discovery found no candidate whose Files reviewed field fully references the changed production Solidity path set. Set QUALITY_GATE_REVIEW_NOTE explicitly.');
+  process.exit(2);
+}
+
+console.error(`[check-solidity-review-note] ERROR: review note discovery matched multiple candidates that each fully reference the changed production Solidity path set (${matching.join(', ')}). Set QUALITY_GATE_REVIEW_NOTE explicitly.`);
+process.exit(2);
+EOF
+}
+
 classification_json=""
 codex_local_required_classifications_json='["prod-semantic","high-risk"]'
 codex_local_force_env='FORCE_CODEX_REVIEW'
@@ -215,12 +270,16 @@ function includesEveryExpected(actualValue, expectedValue) {
   return expectedEntries.every((entry) => actualEntries.includes(entry));
 }
 
-function referencesChangedSrcPath(value) {
-  return changedSrcFiles.some((changedFile) => {
-    const escaped = changedFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`(^|[\\s,;])${escaped}($|[\\s,;])`);
-    return pattern.test(value);
-  });
+function extractPathTokens(value) {
+  const matches = value.match(/(?:^|[\s,;()[\]{}])((?:\/|(?:\.\.\/)+|\.\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+)(?=$|[\s,;()[\]{}:])/g) || [];
+  return matches
+    .map((entry) => entry.trim().replace(/^[\s,;()[\]{}]+/, '').replace(/[\s,;()[\]{}:]+$/, ''))
+    .filter(Boolean);
+}
+
+function referencesAllChangedSrcPaths(value) {
+  const reviewedTokens = new Set(extractPathTokens(value));
+  return changedSrcFiles.every((changedFile) => reviewedTokens.has(changedFile));
 }
 
 function ensureUnderDirectory(candidatePath, directoryPath) {
@@ -317,9 +376,9 @@ for (const field of solidityRequiredFields) {
 }
 
 const reviewNoteFiles = extractField(reviewNote, reviewNoteFilesField).trim();
-if (!referencesChangedSrcPath(reviewNoteFiles)) {
+if (!referencesAllChangedSrcPaths(reviewNoteFiles)) {
   failures.push(
-    `${reviewNoteFilesField}: review note must reference at least one changed production Solidity paths entry: ${changedSrcFiles.join(', ')}`
+    `${reviewNoteFilesField}: review note must reference the full changed production Solidity path set: ${changedSrcFiles.join(', ')}`
   );
 }
 
@@ -336,16 +395,16 @@ if (taskBriefPath !== '') {
   } else {
     taskBrief = fs.readFileSync(resolvedTaskBriefPath, 'utf8');
     const taskBriefFilesInScope = extractField(taskBrief, taskBriefFilesInScopeField).trim();
-    if (!referencesChangedSrcPath(taskBriefFilesInScope)) {
+    if (!referencesAllChangedSrcPaths(taskBriefFilesInScope)) {
       failures.push(
-        `${taskBriefFilesInScopeField}: task brief must include at least one changed production Solidity path: ${changedSrcFiles.join(', ')}`
+        `${taskBriefFilesInScopeField}: task brief must include the full changed production Solidity path set: ${changedSrcFiles.join(', ')}`
       );
     }
 
     const taskBriefWritePermissions = extractField(taskBrief, taskBriefWritePermissionsField).trim();
-    if (!referencesChangedSrcPath(taskBriefWritePermissions)) {
+    if (!referencesAllChangedSrcPaths(taskBriefWritePermissions)) {
       failures.push(
-        `${taskBriefWritePermissionsField}: task brief must include at least one changed production Solidity path: ${changedSrcFiles.join(', ')}`
+        `${taskBriefWritePermissionsField}: task brief must include the full changed production Solidity path set: ${changedSrcFiles.join(', ')}`
       );
     }
 
@@ -453,9 +512,9 @@ if (agentReportPath !== '') {
 
     if (agentReportFiles === '') {
       failures.push(`${agentReportField}: missing '- Files touched/reviewed:' in agent report.`);
-    } else if (!referencesChangedSrcPath(agentReportFiles)) {
+    } else if (!referencesAllChangedSrcPaths(agentReportFiles)) {
       failures.push(
-        `${agentReportField}: agent report must reference at least one changed production Solidity paths entry: ${changedSrcFiles.join(', ')}`
+        `${agentReportField}: agent report must reference the full changed production Solidity path set: ${changedSrcFiles.join(', ')}`
       );
     }
 
@@ -676,61 +735,45 @@ if [ "${#review_notes[@]}" -eq 0 ]; then
     exit 1
 fi
 
-first_failure=""
-for candidate in "${review_notes[@]}"; do
-    set +e
-    candidate_output="$(
-        validate_review_note \
-            "$candidate" \
-            "$changed_files_tmp" \
-            "$src_sol_pattern" \
-            "$rule_map_path" \
-            "$rule_map_evidence_field" \
-            "$field_owners_json" \
-            "$owner_prefixed_fields_json" \
-            "$solidity_required_fields_json" \
-            "$solidity_boolean_fields_json" \
-            "$task_brief_field" \
-            "$agent_report_field" \
-            "$implementation_owner_field" \
-            "$writer_dispatch_confirmed_field" \
-            "$required_writer_patterns_json" \
-            "$task_brief_directory" \
-            "$agent_report_directory" \
-            "$main_session_role" \
-            "$main_session_forbidden_patterns_json" \
-            "$review_note_files_field" \
-            "$task_brief_semantic_dimensions_field" \
-            "$task_brief_source_of_truth_field" \
-            "$task_brief_external_sources_field" \
-            "$task_brief_critical_assumptions_field" \
-            "$task_brief_files_in_scope_field" \
-            "$task_brief_default_writer_role_field" \
-            "$task_brief_write_permissions_field" \
-            "$semantic_dimensions_field" \
-            "$source_of_truth_field" \
-            "$external_facts_field" \
-            "$semantic_alignment_summary_field" \
-            "$codex_review_task_brief_token" \
-            "$required_verifier_commands_field" \
-            "$freshness_source_fields_json" \
-            "$review_note_must_postdate_agent_report" \
-            "$agent_report_must_postdate_changed_files" 2>&1
-    )"
-    candidate_status=$?
-    set -e
+review_note="$(discover_review_note "$changed_files_tmp" "$src_sol_pattern" "${review_notes[@]}" || true)"
+if [ -z "$review_note" ] || [ ! -f "$review_note" ]; then
+    echo "[check-solidity-review-note] ERROR: review note not found. Set QUALITY_GATE_REVIEW_NOTE or add one under the configured review note directory."
+    exit 1
+fi
 
-    if [ "$candidate_status" -eq 0 ]; then
-        if [ -n "$candidate_output" ]; then
-            printf '%s\n' "$candidate_output"
-        fi
-        exit 0
-    fi
-
-    if [ -z "$first_failure" ]; then
-        first_failure="$candidate_output"
-    fi
-done
-
-printf '%s\n' "$first_failure"
-exit 1
+validate_review_note \
+    "$review_note" \
+    "$changed_files_tmp" \
+    "$src_sol_pattern" \
+    "$rule_map_path" \
+    "$rule_map_evidence_field" \
+    "$field_owners_json" \
+    "$owner_prefixed_fields_json" \
+    "$solidity_required_fields_json" \
+    "$solidity_boolean_fields_json" \
+    "$task_brief_field" \
+    "$agent_report_field" \
+    "$implementation_owner_field" \
+    "$writer_dispatch_confirmed_field" \
+    "$required_writer_patterns_json" \
+    "$task_brief_directory" \
+    "$agent_report_directory" \
+    "$main_session_role" \
+    "$main_session_forbidden_patterns_json" \
+    "$review_note_files_field" \
+    "$task_brief_semantic_dimensions_field" \
+    "$task_brief_source_of_truth_field" \
+    "$task_brief_external_sources_field" \
+    "$task_brief_critical_assumptions_field" \
+    "$task_brief_files_in_scope_field" \
+    "$task_brief_default_writer_role_field" \
+    "$task_brief_write_permissions_field" \
+    "$semantic_dimensions_field" \
+    "$source_of_truth_field" \
+    "$external_facts_field" \
+    "$semantic_alignment_summary_field" \
+    "$codex_review_task_brief_token" \
+    "$required_verifier_commands_field" \
+    "$freshness_source_fields_json" \
+    "$review_note_must_postdate_agent_report" \
+    "$agent_report_must_postdate_changed_files"

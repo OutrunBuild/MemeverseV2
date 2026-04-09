@@ -137,9 +137,7 @@
       "Semantic alignment summary",
       "Logic review summary",
       "Logic residual risks",
-      "Logic evidence source",
-      "Codex review summary",
-      "Codex review evidence source"
+      "Logic evidence source"
     ],
     "boolean_fields": [
       "Writer dispatch confirmed",

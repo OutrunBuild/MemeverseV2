@@ -12,6 +12,7 @@ policy_file="$tmp_dir/policy.json"
 changed_files_path="$tmp_dir/changed-files.txt"
 script_changed_files_path="$tmp_dir/script-changed-files.txt"
 mixed_changed_files_path="$tmp_dir/mixed-changed-files.txt"
+multi_changed_files_path="$tmp_dir/multi-changed-files.txt"
 review_file="$review_dir/2026-03-27-example-review.md"
 unrelated_review_file="$review_dir/2026-03-28-unrelated-review.md"
 agent_report_file="$agent_report_dir/2026-03-27-example-implementer-report.md"
@@ -310,6 +311,11 @@ src/Example.sol
 test/Example.t.sol
 EOF
 
+cat > "$multi_changed_files_path" <<'EOF'
+src/Example.sol
+src/OtherExample.sol
+EOF
+
 write_task_brief() {
     local semantic_dimensions="${1:-none}"
     local source_docs="${2:-none}"
@@ -404,6 +410,7 @@ write_review_note() {
     local implementation_owner="$1"
     local writer_dispatch="$2"
     local output_file="${3:-$review_file}"
+    local files_reviewed="${4:-src/Example.sol}"
 
     write_review_evidence_files
 
@@ -412,7 +419,7 @@ write_review_note() {
 
 ## Scope
 - Change summary: ok
-- Files reviewed: src/Example.sol
+- Files reviewed: __FILES_REVIEWED__
 - Task Brief path: __TASK_BRIEF_PATH__
 - Agent Report path: __AGENT_REPORT_PATH__
 - Implementation owner: __IMPLEMENTATION_OWNER__
@@ -481,6 +488,7 @@ EOF
     sed -i "s|__TASK_BRIEF_PATH__|$task_brief_file|g" "$output_file"
     sed -i "s|__IMPLEMENTATION_OWNER__|$implementation_owner|g" "$output_file"
     sed -i "s|__WRITER_DISPATCH__|$writer_dispatch|g" "$output_file"
+    sed -i "s|__FILES_REVIEWED__|$files_reviewed|g" "$output_file"
     sed -i "s|__LOGIC_EVIDENCE_PATH__|$logic_evidence_file|g" "$output_file"
     sed -i "s|__SECURITY_EVIDENCE_PATH__|$security_evidence_file|g" "$output_file"
     sed -i "s|__GAS_EVIDENCE_PATH__|$gas_evidence_file|g" "$output_file"
@@ -665,8 +673,8 @@ if [ "$mixed_discovery_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$mixed_discovery_output" | grep -q "changed production Solidity paths"; then
-    echo "Expected mixed src+test discovery output to reference changed production Solidity paths"
+if ! printf '%s\n' "$mixed_discovery_output" | grep -q "changed production Solidity path set"; then
+    echo "Expected mixed src+test discovery output to reference the changed production Solidity path set"
     printf '%s\n' "$mixed_discovery_output"
     exit 1
 fi
@@ -705,8 +713,8 @@ if [ "$bak_discovery_status" -eq 0 ]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$bak_discovery_output" | grep -q "changed production Solidity paths"; then
-    echo "Expected .bak discovery output to reference changed production Solidity paths"
+if ! printf '%s\n' "$bak_discovery_output" | grep -q "changed production Solidity path set"; then
+    echo "Expected .bak discovery output to reference the changed production Solidity path set"
     printf '%s\n' "$bak_discovery_output"
     exit 1
 fi
@@ -847,6 +855,49 @@ sed -i "s|Files reviewed: src/Example.sol|Files reviewed: src/OtherExample.sol|g
 sleep 1
 touch "$unrelated_review_file"
 CHANGE_CLASSIFIER_FORCE=prod-semantic PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/check-solidity-review-note.sh
+
+write_task_brief "reward/accounting; external integration" "AGENTS.md; docs/process/review-notes.md" "docs/upstream/external-source.md" "reward index must update after balance deltas; external adapter must preserve share accounting"
+sed -i 's|Files in scope: src/Example.sol|Files in scope: src/Example.sol, src/OtherExample.sol|g' "$task_brief_file"
+sed -i 's|Write permissions: src/Example.sol|Write permissions: src/Example.sol, src/OtherExample.sol|g' "$task_brief_file"
+sed -i 's|Writer dispatch scope: src/Example.sol|Writer dispatch scope: src/Example.sol, src/OtherExample.sol|g' "$task_brief_file"
+write_agent_report "solidity-implementer" "src/Example.sol, src/OtherExample.sol"
+write_agent_report "solidity-implementer" "src/Example.sol, src/OtherExample.sol" "$unrelated_agent_report_file"
+write_review_note "solidity-implementer" "yes" "$review_file" "src/Example.sol"
+write_review_note "solidity-implementer" "yes" "$unrelated_review_file" "src/OtherExample.sol"
+set +e
+missing_full_coverage_output="$(CHANGE_CLASSIFIER_FORCE=prod-semantic PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$multi_changed_files_path" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+missing_full_coverage_status=$?
+set -e
+
+if [ "$missing_full_coverage_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note discovery to fail when no review note fully covers every changed production Solidity path"
+    exit 1
+fi
+
+if ! printf '%s\n' "$missing_full_coverage_output" | grep -qi "fully references the changed production Solidity path set"; then
+    echo "Expected partial-coverage discovery failure to mention full changed path coverage"
+    printf '%s\n' "$missing_full_coverage_output"
+    exit 1
+fi
+
+write_review_note "solidity-implementer" "yes" "$review_file" "src/Example.sol, src/OtherExample.sol"
+write_review_note "solidity-implementer" "yes" "$unrelated_review_file" "src/Example.sol, src/OtherExample.sol"
+sed -i "s|$agent_report_file|$unrelated_agent_report_file|g" "$unrelated_review_file"
+set +e
+ambiguous_full_coverage_output="$(CHANGE_CLASSIFIER_FORCE=prod-semantic PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$multi_changed_files_path" bash ./script/process/check-solidity-review-note.sh 2>&1)"
+ambiguous_full_coverage_status=$?
+set -e
+
+if [ "$ambiguous_full_coverage_status" -eq 0 ]; then
+    echo "Expected check-solidity-review-note discovery to fail when multiple review notes fully cover the changed production Solidity path set"
+    exit 1
+fi
+
+if ! printf '%s\n' "$ambiguous_full_coverage_output" | grep -qi "matched multiple candidates"; then
+    echo "Expected ambiguous full-coverage discovery failure to mention multiple candidates"
+    printf '%s\n' "$ambiguous_full_coverage_output"
+    exit 1
+fi
 
 write_task_brief
 write_agent_report "solidity-implementer" "src/Example.sol"
