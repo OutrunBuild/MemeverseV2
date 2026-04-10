@@ -103,7 +103,16 @@
 - `Ready to commit`、`Decision evidence source`
   - 只能由 `main-orchestrator` 最终判定。
 
-## 6. 防误报与证据链规则
+## 6. Spec Surface 特例
+
+- 以下规则描述 spec surface 的当前契约；`spec-reviewer` evidence、stale remediation 与 selftest coverage 已接入当前 execution-plane。
+- `docs/spec/**`、`docs/superpowers/specs/**`、或后续 brief 接入后声明 `Artifact type: spec` 的变更，不以 review note 作为 spec review 的主证据。
+- spec review evidence 作为这类 surface 的 reviewer artifact。
+- writer 再次写入同一 spec scope 后，旧的 spec review evidence 视为 stale，不能复用；自动化 stale remediation 会生成新的 follow-up brief 和 rerun order。
+- 当前顺序是 `process-implementer → spec-reviewer → verifier`。
+- `docs/reviews/*.md` 若存在，只作为后续汇总或补充证据，不替代 spec review evidence。
+
+## 7. 防误报与证据链规则
 
 通用证据链定义与 hard-block / soft-block 规则见 AGENTS.md §10。以下为 review note 层面的补充约束：
 
@@ -114,8 +123,7 @@
 - 对 `src/**/*.sol`、`script/**/*.sol` 写面，`Logic evidence source`、`Security evidence source`、`Gas evidence source`、`Verification evidence source` 必须指向可落盘、可回溯的具体 artifact path；不能只写命令名、聊天结论或模糊描述。
 - 当某个 reviewer 没有被 classifier 选中时，对应 review-note 字段应保留 owner-prefixed 说明，例如 `security-reviewer: skipped by classifier (non-semantic)`；不得伪造不存在的 reviewer artifact path。
 
-
-## 7. 禁止内容
+## 8. 禁止内容
 
 以下内容会被脚本视为无效或高风险信号：
 
@@ -127,7 +135,7 @@
 - `yes/no`
 - 其他仍保留在模板状态、不能形成证据的占位值
 
-## 8. 使用方式
+## 9. 使用方式
 
 - 需要本地记录审阅结论时，可基于 `docs/reviews/TEMPLATE.md` 新建草稿。
 - 命中 `src/**/*.sol`、`script/**/*.sol` 变更且准备运行本地或 CI `quality:gate` 时，必须先准备好一份可通过校验的 review note。

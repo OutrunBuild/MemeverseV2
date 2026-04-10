@@ -27,9 +27,9 @@
 
 常用命令：`forge build` | `forge test -vvv` | `forge fmt --check` | `npm run docs:check`
 
-本地 gate：`npm run quality:quick`（快速反馈）| `npm run quality:gate:fast`（agent workflow 默认 finish gate，按变更集）| `npm run quality:gate`（全仓全量严格 gate）
+本地 gate：`npm run quality:quick`（快速反馈）| `npm run quality:gate:fast`（agent workflow 常用的本地默认收尾 gate，按变更集）| `npm run quality:gate`（最终严格 finish gate）
 
-`npm run quality:gate:fast` 默认启用低噪声配置：`QUALITY_GATE_ERRORS_ONLY=1`、`FORGE_TEST_VERBOSITY=-q`、`QUALITY_GATE_FAST=1`；fast 模式会先跑非 invariant，再按变更模块定向跑 `*Invariant*.t.sol`。`npm run quality:gate` 为全量严格门禁（`QUALITY_GATE_FAST=0`，运行全量 invariant）。CI 使用 `npm run quality:gate`。`gas report` 改为按需手动执行 `npm run gas:report`。
+`npm run quality:gate:fast` 默认启用低噪声配置：`QUALITY_GATE_ERRORS_ONLY=1`、`FORGE_TEST_VERBOSITY=-q`、`QUALITY_GATE_FAST=1`；fast 模式会先跑非 invariant，再按变更模块定向跑 `*Invariant*.t.sol`，作为 agent workflow 常用的本地默认收尾 gate。`npm run quality:gate` 为全量严格门禁（`QUALITY_GATE_FAST=0`，运行全量 invariant），也是最终 finish gate。`docs:check` / `process:selftest` 只收敛 spec/process surface 的局部验证证据，不替代上述收尾 gate。CI 使用 `npm run quality:gate`。`gas report` 改为按需手动执行 `npm run gas:report`。
 
 其他：`npm run process:selftest` | `npm run codex:review`（手动高风险审查）| `bash ./script/process/check-coverage.sh` | `npm run quality:profile`
 
@@ -42,7 +42,7 @@
 - **测试充分性优先于"有测试就行"**：高风险路径除单元测试外还必须补充 fuzz、invariant、adversarial、integration 或 upgrade tests
 - **本地前提先于外部事实**：先逐行核实本地控制流与状态更新，再核验第三方行为
 - **CI 不编排 agent**：CI 只验证证据与最终 gate
-- **review 边界**：review 结论只输出风险、后果、证据与可选方案；改变产品规则的结论必须升级为 `需要 main-orchestrator / human 确认的决策点`
+- **review 边界**：review 结论只输出风险、后果、证据与可选方案；改变产品规则的结论必须升级为 `需要 human 确认的决策点`
 
 ### 4. Role Model
 
@@ -57,9 +57,11 @@
 #### 默认角色
 
 | 角色 | 权限 | 职责 | 启用条件 |
+
 |---|---|---|---|
 | `solidity-implementer` | 可写 | Solidity surface 唯一默认写入者，负责 `src/**/*.sol`、`script/**/*.sol`、方法内注释与风险匹配的测试 | 始终 |
 | `process-implementer` | 可写 | 非 Solidity surface 默认写入者，负责流程、文档、CI、`script/process/**`、shell、`.githooks/*`、package metadata 与 Harness 文件 | 始终 |
+| `spec-reviewer` | 只读 | spec 产物的事实、逻辑、范围与可执行性审阅；输出 spec review evidence | 当前适用 `docs/spec/**`、`docs/superpowers/specs/**`、以及声明 `Artifact type: spec` 的 brief |
 | `logic-reviewer` | 只读 | 控制流、状态迁移、边界条件、语义偏差与可简化点 | `test-semantic`+ |
 | `security-reviewer` | 只读 | findings、测试缺口与残余风险 | `prod-semantic`+ |
 | `gas-reviewer` | 只读 | 热路径、Gas diff、优化建议与残余风险 | `prod-semantic`+ |
@@ -81,6 +83,8 @@
 
 测试变更（`test/**/*.sol` / `test/**/*.t.sol`）：solidity-implementer → logic-reviewer → codex review → verifier；高风险可选加 security-reviewer
 
+spec surface（`docs/spec/**`、`docs/superpowers/specs/**`、或声明 `Artifact type: spec`、`Spec review required: yes`、`Spec artifact paths` 的 brief）：writer 先产出 spec，再由 `spec-reviewer` 做 spec review；不通过就回派原 writer 修，修后重审；通过后才进入其他动作
+
 流程面变更（`AGENTS.md`、`docs/process/**`、`.claude/**`、`.codex/**`、`script/process/**`）：process-implementer → codex review → verifier
 
 ### 6. Change Surfaces
@@ -93,7 +97,7 @@
 
 PR 模板：`.github/pull_request_template.md`，必须包含：`## Summary`、`## Impact`、`## Docs`、`## Tests`、`## Verification`、`## Risks`、`## Security`、`## Simplification`、`## Gas`
 
-Review note 规则：`docs/process/review-notes.md`。命中 `src/**/*.sol`、`script/**/*.sol` 变更时必须有有效 review note。
+Review note 规则：`docs/process/review-notes.md`。命中 `src/**/*.sol`、`script/**/*.sol` 变更时必须有有效 review note；process surface 继续以 `codex review` 结论作为 reviewer artifact，不新增专用 review note；spec surface 以 spec review evidence 作为 reviewer artifact，不新增专用 spec review note。
 
 ### 8. Shared Agent Contract
 
@@ -103,18 +107,22 @@ Review note 规则：`docs/process/review-notes.md`。命中 `src/**/*.sol`、`s
 
 ### 9. Workflow Phases
 
-Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 → Phase 4: 逻辑审阅 → Phase 5: 专家审阅 → Phase 6: 测试加固 → Phase 7: 验证 → Phase 8: 决策。
+通用主线：Phase 1 接收 / 划定范围 → Phase 2 基线分析 → Phase 3 实现 → Phase 8 后续验证动作 → Phase 9 验证 → Phase 10 决策。
+spec surface 前置分支：Phase 4 Spec Review；适用于 `docs/spec/**`、`docs/superpowers/specs/**`、或声明 `Artifact type: spec` 的产物。`spec-reviewer`、policy、runtime、workflow 与 agent mapping 均已接入。
+Solidity 语义前置分支：Phase 5 逻辑审阅 → Phase 6 专家审阅 → Phase 7 测试加固；按 `AGENTS.md §5` 的 review order 与分类结果按需启用。
+各 surface 在进入各自后续动作之前，先完成各自前置审阅：spec surface 先过 Phase 4；Solidity 语义变更按分类进入 Phase 5 / 6 / 7；process surface 默认从 Phase 3 直接进入后续验证。
 各 Phase 完整准入/准出条件与角色职责见 `docs/process/agents-detail.md §B`。
-关键约束：Phase 3 中 main-orchestrator 不得降级为直接实现者；Phase 7 中 stale evidence 必须阻断。
+关键约束：Phase 3 中 main-orchestrator 不得降级为直接实现者；spec surface 在 Phase 4 产出 spec review evidence；writer 改写同一 spec scope 后，旧 reviewer evidence 立即 stale；Phase 9 的 stale evidence 会阻断并生成 remediation follow-up brief。
 
 ### 10. 证据链与阻断规则
 
 #### 证据链
 
 - Solidity：`Task Brief → Agent Report → codex review → review note → verifier evidence → quality:gate → CI`
-- Process：`Task Brief → Agent Report → codex review → verifier evidence → docs:check / process:selftest`
+- Process：`Task Brief → Agent Report → codex review → verifier evidence → docs:check / process:selftest → quality:gate:fast / quality:gate → CI`
+- Spec surface：`Task Brief → writer evidence → spec review evidence → verifier evidence → docs:check / process:selftest → quality:gate:fast / quality:gate → CI`
 
-`review note` 是唯一统一审阅记录。`quality:gate` 是唯一 finish gate。CI 只验证不编排。
+Solidity surface 使用 `review note` 作为 reviewer artifact；process surface 继续使用 `codex review` 结论；spec surface 只使用 spec review evidence 作为 reviewer artifact，不新增专用 spec review note，也不把 `codex review` 绑进 spec review 契约。`quality:quick` / `quality:gate` 会校验 spec brief 元数据、spec review evidence freshness 与 scope coverage；`docs:check / process:selftest` 继续收敛 spec/process surface 的局部验证证据。agent workflow 常用本地默认收尾 gate 是 `quality:gate:fast`，最终严格 finish gate 仍统一归于 `quality:gate`。CI 只验证不编排。
 
 #### Hard-block（硬阻断）
 
@@ -126,8 +134,10 @@ Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 →
 - Solidity 变更但缺对应 reviewer 结论
 - coverage 或 required checks 未达标
 - finding 缺少本地前提证据或外部主来源证据
-- review note 或 evidence 早于当前 writer Agent Report
+- review note 或 evidence 早于当前 writer evidence
 - review note 缺字段、缺 ownership / Agent Report 工件链，或仍为占位值
+
+spec surface 的 spec review evidence freshness、brief/runtime 字段与重审顺序约束由已落盘的 policy、runtime、workflow 真源约束。
 
 #### Soft-block（软阻断）
 
@@ -160,7 +170,9 @@ Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 →
 ### CC-2. Agent 映射
 
 | 角色 | Agent 文件 | 类型 |
+
 |---|---|---|
+| `spec-reviewer` | `.claude/agents/spec-reviewer.md` | 只读 |
 | `solidity-implementer` | `.claude/agents/solidity-implementer.md` | 可写 |
 | `process-implementer` | `.claude/agents/process-implementer.md` | 可写 |
 | `logic-reviewer` | `.claude/agents/logic-reviewer.md` | 只读 |
@@ -191,6 +203,7 @@ Phase 1: 接收 / 划定范围 → Phase 2: 基线分析 → Phase 3: 实现 →
 | 角色 | Manifest | Runtime Contract |
 
 |---|---|---|
+| `spec-reviewer` | `.codex/agents/spec-reviewer.toml` | `.codex/agents/spec-reviewer.md` |
 | `solidity-implementer` | `.codex/agents/solidity-implementer.toml` | `.codex/agents/solidity-implementer.md` |
 | `process-implementer` | `.codex/agents/process-implementer.toml` | `.codex/agents/process-implementer.md` |
 | `logic-reviewer` | `.codex/agents/logic-reviewer.toml` | `.codex/agents/logic-reviewer.md` |
@@ -221,7 +234,7 @@ Launcher（`src/verse/MemeverseLauncher.sol`）、Registration（`src/verse/regi
 
 ### 本地专用目录
 
-`docs/superpowers/specs/`（规范）、`docs/superpowers/plans/`（设计）、`docs/task-briefs/`（Task Brief）、`docs/agent-reports/`（Agent Report）、`docs/reviews/`（review 草稿）。新建文档前必须先校验目标目录是否符合仓库约定。
+`docs/superpowers/specs/`（设计规范）、`docs/superpowers/plans/`（设计）、`docs/task-briefs/`（Task Brief）、`docs/agent-reports/`（Agent Report）、`docs/reviews/`（review 草稿）。新建文档前必须先校验目标目录是否符合仓库约定。
 
 ### 语言
 

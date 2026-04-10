@@ -23,6 +23,7 @@
     "default_roles": [
       "solidity-implementer",
       "process-implementer",
+      "spec-reviewer",
       "logic-reviewer",
       "security-reviewer",
       "gas-reviewer",
@@ -53,6 +54,13 @@
       "default_writer_role": "process-implementer",
       "required_roles": ["verifier"],
       "optional_roles": []
+    },
+    "spec_surface": {
+      "brief_activation_fields": ["Artifact type", "Spec review required", "Spec artifact paths"],
+      "default_writer_role": "process-implementer",
+      "required_roles": ["spec-reviewer", "verifier"],
+      "optional_roles": [],
+      "artifact_chain": ["Task Brief", "writer evidence", "spec review evidence", "verifier evidence", "docs:check", "process:selftest"]
     },
     "shell_surface": {
       "default_writer_role": "process-implementer",

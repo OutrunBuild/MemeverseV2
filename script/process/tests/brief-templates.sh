@@ -50,6 +50,21 @@ if ! grep -q '^- Verifier profile:' .codex/templates/task-brief.md; then
     exit 1
 fi
 
+if ! grep -q '^- Artifact type:' .codex/templates/task-brief.md; then
+    echo "Expected Task Brief template to require Artifact type"
+    exit 1
+fi
+
+if ! grep -q '^- Spec review required:' .codex/templates/task-brief.md; then
+    echo "Expected Task Brief template to require Spec review required"
+    exit 1
+fi
+
+if ! grep -q '^- Spec artifact paths:' .codex/templates/task-brief.md; then
+    echo "Expected Task Brief template to require Spec artifact paths"
+    exit 1
+fi
+
 if ! grep -q '^- Parent Task Brief path:' .codex/templates/role-delta-brief.md; then
     echo "Expected Role Delta Brief template to reference the parent task brief"
     exit 1
@@ -67,6 +82,21 @@ fi
 
 if ! grep -q '^- Required rerun roles:' .codex/templates/follow-up-brief.md; then
     echo "Expected Follow-up Brief template to require rerun roles"
+    exit 1
+fi
+
+if ! grep -q '^- Artifact type:' .codex/templates/follow-up-brief.md; then
+    echo "Expected Follow-up Brief template to require Artifact type"
+    exit 1
+fi
+
+if ! grep -q '^- Spec review required:' .codex/templates/follow-up-brief.md; then
+    echo "Expected Follow-up Brief template to require Spec review required"
+    exit 1
+fi
+
+if ! grep -q '^- Spec artifact paths:' .codex/templates/follow-up-brief.md; then
+    echo "Expected Follow-up Brief template to require Spec artifact paths"
     exit 1
 fi
 

@@ -14,6 +14,8 @@ slither_log="$tmp_dir/slither.log"
 review_dir="$tmp_dir/reviews"
 review_file="$review_dir/2026-03-26-coverage-review.md"
 src_file="src/CoverageGateTemp.sol"
+changed_files_path="$tmp_dir/changed-files.txt"
+spec_command_output="$tmp_dir/spec-quality-gate.out"
 
 cleanup() {
     rm -rf "$tmp_dir"
@@ -54,7 +56,7 @@ cat > "$policy_file" <<EOF
     "path": "$rule_map_file",
     "evidence_field": "Existing tests exercised"
   },
-  "quality_gate": {
+    "quality_gate": {
     "swap_src_sol_pattern": "^src/swap/.*\\\\.sol$",
     "src_sol_pattern": "^src/.*\\\\.sol$",
     "test_tsol_pattern": "^test/.*\\\\.t\\\\.sol$",
@@ -64,6 +66,7 @@ cat > "$policy_file" <<EOF
     "process_js_pattern": "^script/process/.*\\\\.js$",
     "package_pattern": "^(package\\\\.json|package-lock\\\\.json)$",
     "docs_contract_pattern": "^(AGENTS\\\\.md|README\\\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\\\.md|docs/spec/.*|docs/adr/.*|\\\\.github/pull_request_template\\\\.md|\\\\.codex/.*)$",
+    "spec_surface_pattern": "^(docs/spec/.*|docs/superpowers/specs/.*)$",
     "process_selftest_patterns": [
       "^docs/process/.*$",
       "^\\\\.codex/.*$",
@@ -80,6 +83,11 @@ cat > "$policy_file" <<EOF
     ],
     "docs_contract_default_roles": [
       "process-implementer",
+      "verifier"
+    ],
+    "spec_default_roles": [
+      "process-implementer",
+      "spec-reviewer",
       "verifier"
     ],
     "review_note_directory": "$review_dir",
@@ -266,5 +274,45 @@ fi
 if ! grep -q -- "--ir-minimum" "$forge_log"; then
     echo "Expected quality-gate coverage command to include --ir-minimum"
     cat "$forge_log"
+    exit 1
+fi
+
+cat > "$changed_files_path" <<'EOF'
+docs/spec/protocol.md
+EOF
+
+: > "$forge_log"
+: > "$npm_log"
+: > "$slither_log"
+: > "$spec_command_output"
+PATH="$fake_bin_dir:$PATH" PROCESS_POLICY_FILE="$policy_file" QUALITY_GATE_REVIEW_NOTE="$review_file" FORGE_LOG="$forge_log" NPM_LOG="$npm_log" SLITHER_LOG="$slither_log" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" bash ./script/process/quality-gate.sh > "$spec_command_output" 2>&1
+
+if ! grep -q 'default roles: process-implementer; spec-reviewer; verifier' "$spec_command_output"; then
+    echo "Expected quality-gate to print spec surface default roles"
+    cat "$spec_command_output"
+    exit 1
+fi
+
+if ! grep -q '^run docs:check$' "$npm_log"; then
+    echo "Expected quality-gate to run docs:check for spec surface changes"
+    cat "$npm_log"
+    exit 1
+fi
+
+if ! grep -q '^run process:selftest$' "$npm_log"; then
+    echo "Expected quality-gate to run process:selftest for spec surface changes"
+    cat "$npm_log"
+    exit 1
+fi
+
+if [ -s "$forge_log" ]; then
+    echo "Did not expect forge coverage commands for spec surface changes"
+    cat "$forge_log"
+    exit 1
+fi
+
+if [ -s "$slither_log" ]; then
+    echo "Did not expect slither commands for spec surface changes"
+    cat "$slither_log"
     exit 1
 fi

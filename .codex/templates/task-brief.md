@@ -21,19 +21,25 @@
 - Open questions / assumptions:
 - Risks to check:
 
-## Prod-semantic / High-risk 分级（追加 18 字段 = 33 字段）
+## Spec Surface 补充字段（追加 9 字段 = 24 字段）
 
-- Change type:
-- Out of scope:
-- Non-goals:
-- Required artifacts:
-- Review note required:
+- Artifact type:
+- Spec review required:
+- Spec artifact paths:
 - Semantic review dimensions:
 - Source-of-truth docs:
 - External sources required:
 - Critical assumptions to prove or reject:
 - Required output fields:
 - Review note impact:
+
+## Prod-semantic / High-risk 分级（追加 12 字段 = 36 字段）
+
+- Change type:
+- Out of scope:
+- Non-goals:
+- Required artifacts:
+- Review note required:
 - Writer dispatch backend:
 - Writer dispatch target:
 - Writer dispatch scope:

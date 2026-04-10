@@ -6,6 +6,7 @@ source ./script/process/lib/quality-common.sh
 quality_initialize_runtime
 quality_exit_if_no_changed_files "quality-quick"
 quality_prepare_memeverse_context
+quality_validate_spec_surface_brief_contract
 
 if [ "$has_src_sol" -eq 1 ]; then
     if [ "$classification" = "non-semantic" ]; then
@@ -85,16 +86,25 @@ if [ "${#package_files[@]}" -gt 0 ]; then
     echo "[quality-quick] default roles: $(join_by_semicolon "${package_default_roles[@]}")"
 fi
 
+if [ "$has_spec_surface" -eq 1 ]; then
+    echo "[quality-quick] default roles: $(join_by_semicolon "${spec_default_roles[@]}")"
+    echo "[quality-quick] bash ./script/process/check-spec-reviewer-report.sh"
+    bash ./script/process/check-spec-reviewer-report.sh
+fi
+
+if [ "${#docs_contract_files[@]}" -gt 0 ] && [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ] && [ "$has_spec_surface" -eq 0 ]; then
+    echo "[quality-quick] default roles: $(join_by_semicolon "${docs_contract_default_roles[@]}")"
+fi
+
 if [ "$should_run_docs_check" -eq 1 ]; then
-    if [ "${#docs_contract_files[@]}" -gt 0 ] && [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
-        echo "[quality-quick] default roles: $(join_by_semicolon "${docs_contract_default_roles[@]}")"
-    fi
     echo "[quality-quick] npm run docs:check"
     npm run docs:check
 fi
 
 if [ "$should_run_process_selftest" -eq 1 ]; then
-    if [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
+    if [ "$has_spec_surface" -eq 1 ] && [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
+        echo "[quality-quick] default roles: $(join_by_semicolon "${spec_default_roles[@]}")"
+    elif [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
         echo "[quality-quick] default roles: $(join_by_semicolon "${process_default_roles[@]}")"
     fi
     echo "[quality-quick] npm run process:selftest"

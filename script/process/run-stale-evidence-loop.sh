@@ -20,6 +20,8 @@ read_policy_value() {
 }
 
 codex_review_task_brief_token="$(read_policy_value verifier.codex_review.task_brief_token 'npm run codex:review')"
+task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/task-briefs')"
+agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
 
 load_changed_files_from_ci() {
     if [ -n "${QUALITY_GATE_FILE_LIST:-}" ] && [ -f "${QUALITY_GATE_FILE_LIST}" ]; then
@@ -104,6 +106,93 @@ process.exit(1);
 EOF
 }
 
+discover_spec_review_report() {
+    local changed_files_file="$1"
+    shift
+    local candidates=("$@")
+
+    if [ "${#candidates[@]}" -eq 0 ]; then
+        return 1
+    fi
+
+    TASK_BRIEF_DIRECTORY="$task_brief_directory" node - "$changed_files_file" "${candidates[@]}" <<'EOF'
+const fs = require('fs');
+
+const [, , changedFilesPath, ...candidates] = process.argv;
+const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
+const taskBriefDirectory = process.env.TASK_BRIEF_DIRECTORY || 'docs/task-briefs';
+const changedSpecFiles = changedFiles.filter((file) => /^(docs\/spec\/.*|docs\/superpowers\/specs\/.*)$/.test(file));
+const changedSet = new Set(changedFiles);
+const changedTaskBriefFiles = changedFiles.filter((file) => file.startsWith(`${taskBriefDirectory}/`) && fs.existsSync(file));
+
+function extractField(document, field) {
+  const prefix = `- ${field}:`;
+  for (const line of document.split(/\r?\n/)) {
+    if (line.startsWith(prefix)) {
+      return line.slice(prefix.length).trim();
+    }
+  }
+  return '';
+}
+
+function extractPathTokens(value) {
+  const matches = value.match(/(?:^|[\s,;()[\]{}])((?:\/|(?:\.\.\/)+|\.\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+)(?=$|[\s,;()[\]{}:])/g) || [];
+  return matches
+    .map((entry) => entry.trim().replace(/^[\s,;()[\]{}]+/, '').replace(/[\s,;()[\]{}:]+$/, ''))
+    .filter(Boolean);
+}
+
+function isTruthy(value) {
+  return /^(yes|true|1)$/i.test(String(value || '').trim());
+}
+
+const briefDeclaredSpecPaths = [];
+for (const briefPath of changedTaskBriefFiles) {
+  const brief = fs.readFileSync(briefPath, 'utf8');
+  if (
+    extractField(brief, 'Artifact type').trim() === 'spec'
+    || isTruthy(extractField(brief, 'Spec review required'))
+  ) {
+    for (const artifactPath of extractPathTokens(extractField(brief, 'Spec artifact paths'))) {
+      briefDeclaredSpecPaths.push(artifactPath);
+    }
+  }
+}
+
+const matching = candidates.filter((candidate) => {
+  const document = fs.readFileSync(candidate, 'utf8');
+  if (!document.startsWith('# Agent Report')) return false;
+  if (extractField(document, 'Role').trim() !== 'spec-reviewer') return false;
+
+  const taskBriefPath = extractField(document, 'Task Brief path');
+  const taskBrief = taskBriefPath && fs.existsSync(taskBriefPath) ? fs.readFileSync(taskBriefPath, 'utf8') : '';
+  const declaredSpecPaths = taskBrief && (
+    extractField(taskBrief, 'Artifact type').trim() === 'spec'
+    || isTruthy(extractField(taskBrief, 'Spec review required'))
+  )
+    ? extractPathTokens(extractField(taskBrief, 'Spec artifact paths'))
+    : [];
+  const filesReviewed = new Set(extractPathTokens(extractField(document, 'Files touched/reviewed')));
+  const targetSpecFiles = [...new Set([
+    ...changedSpecFiles,
+    ...briefDeclaredSpecPaths,
+    ...(changedSet.has(taskBriefPath) ? declaredSpecPaths : []),
+    ...declaredSpecPaths.filter((artifactPath) => changedSet.has(artifactPath)),
+    ...declaredSpecPaths.filter((artifactPath) => briefDeclaredSpecPaths.includes(artifactPath))
+  ])];
+  return targetSpecFiles.some((changedFile) => filesReviewed.has(changedFile));
+});
+
+if (matching.length > 0) {
+  matching.sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+  process.stdout.write(matching[0]);
+  process.exit(0);
+}
+
+process.exit(1);
+EOF
+}
+
 changed_files="$(load_changed_files)"
 
 if [ -z "$changed_files" ]; then
@@ -115,6 +204,257 @@ changed_files_tmp="$(mktemp)"
 metadata_tmp="$(mktemp)"
 trap 'rm -f "$changed_files_tmp" "$metadata_tmp"' EXIT
 printf '%s\n' "$changed_files" > "$changed_files_tmp"
+
+spec_review_report="${QUALITY_GATE_SPEC_REVIEWER_REPORT:-}"
+if [ -z "$spec_review_report" ] && [ -d "$agent_report_directory" ]; then
+    mapfile -t spec_review_candidates < <(find "$agent_report_directory" -maxdepth 1 -type f -name '*.md' ! -name 'README.md' ! -name 'TEMPLATE.md' | sort)
+    spec_review_report="$(discover_spec_review_report "$changed_files_tmp" "${spec_review_candidates[@]}" || true)"
+fi
+if [ -n "$spec_review_report" ]; then
+    if [ ! -f "$spec_review_report" ]; then
+        echo "[stale-evidence-loop] ERROR: spec-reviewer Agent Report not found. Set QUALITY_GATE_SPEC_REVIEWER_REPORT to a valid report path." >&2
+        exit 1
+    fi
+
+    spec_surface_pattern="$(read_policy_value quality_gate.spec_surface_pattern '^(docs/spec/.*|docs/superpowers/specs/.*)$')"
+    follow_up_dir="${FOLLOW_UP_BRIEF_OUTPUT_DIR:-$(read_policy_value agents.task_brief_directory 'docs/task-briefs')}"
+    agent_report_directory="$(read_policy_value agents.agent_report_directory 'docs/agent-reports')"
+    spec_output_file="$(mktemp)"
+    mkdir -p "$follow_up_dir"
+
+    set +e
+    FOLLOW_UP_DIR="$follow_up_dir" \
+    REMEDIATION_METADATA_FILE="$metadata_tmp" \
+    REMEDIATION_LOOP_DATE="${REMEDIATION_LOOP_DATE:-$(date +%F)}" \
+    AGENT_REPORT_DIRECTORY="$agent_report_directory" \
+    SPEC_SURFACE_PATTERN="$spec_surface_pattern" \
+    node - "$spec_review_report" "$changed_files_tmp" >"$spec_output_file" 2>&1 <<'EOF'
+const fs = require('fs');
+const path = require('path');
+
+const [, , specReviewReportPath, changedFilesPath] = process.argv;
+const specReviewReport = fs.readFileSync(specReviewReportPath, 'utf8');
+const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
+const followUpDir = process.env.FOLLOW_UP_DIR;
+const metadataFile = process.env.REMEDIATION_METADATA_FILE;
+const loopDate = process.env.REMEDIATION_LOOP_DATE || new Date().toISOString().slice(0, 10);
+const agentReportDirectory = path.resolve(process.env.AGENT_REPORT_DIRECTORY || 'docs/agent-reports');
+const specSurfacePattern = new RegExp(process.env.SPEC_SURFACE_PATTERN || '^(docs/spec/.*|docs/superpowers/specs/.*)$');
+
+function extractField(document, field) {
+  const prefix = `- ${field}:`;
+  for (const line of document.split(/\r?\n/)) {
+    if (line.startsWith(prefix)) {
+      return line.slice(prefix.length).trim();
+    }
+  }
+  return '';
+}
+
+function extractPathTokens(value) {
+  const matches = value.match(/(?:^|[\s,;()[\]{}])((?:\/|(?:\.\.\/)+|\.\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+)(?=$|[\s,;()[\]{}:])/g) || [];
+  return matches
+    .map((entry) => entry.trim().replace(/^[\s,;()[\]{}]+/, '').replace(/[\s,;()[\]{}:]+$/, ''))
+    .filter(Boolean);
+}
+
+function dedupe(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+}
+
+function resolveUniqueOutput(basePath) {
+  if (!fs.existsSync(basePath)) return basePath;
+  const ext = path.extname(basePath);
+  const stem = basePath.slice(0, -ext.length);
+  let counter = 2;
+  while (true) {
+    const candidate = `${stem}-${counter}${ext}`;
+    if (!fs.existsSync(candidate)) return candidate;
+    counter += 1;
+  }
+}
+
+function findLatestReport(directory, role, taskBriefPath) {
+  if (!fs.existsSync(directory)) return '';
+
+  const candidates = fs
+    .readdirSync(directory)
+    .filter((entry) => entry.endsWith('.md') && entry !== 'README.md' && entry !== 'TEMPLATE.md')
+    .map((entry) => path.join(directory, entry))
+    .filter((candidate) => {
+      const document = fs.readFileSync(candidate, 'utf8');
+      return extractField(document, 'Role').trim() === role && extractField(document, 'Task Brief path').trim() === taskBriefPath;
+    });
+
+  if (candidates.length === 0) return '';
+  candidates.sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+  return candidates[0];
+}
+
+const taskBriefPath = extractField(specReviewReport, 'Task Brief path');
+const implementationOwner = extractField(specReviewReport, 'Implementation owner') || 'process-implementer';
+const reportMtime = fs.statSync(specReviewReportPath).mtimeMs;
+const taskBrief = taskBriefPath && fs.existsSync(taskBriefPath) ? fs.readFileSync(taskBriefPath, 'utf8') : '';
+const defaultWriterRole = extractField(taskBrief, 'Default writer role') || implementationOwner;
+const declaredSpecFiles = dedupe(extractPathTokens(extractField(taskBrief, 'Spec artifact paths')));
+const specFiles = dedupe([
+  ...changedFiles.filter((file) => specSurfacePattern.test(file)),
+  ...declaredSpecFiles
+]);
+const specArtifactPaths = extractField(taskBrief, 'Spec artifact paths') || specFiles.join(', ');
+const artifactType = extractField(taskBrief, 'Artifact type') || 'spec';
+const specReviewRequired = extractField(taskBrief, 'Spec review required') || 'yes';
+const changeClassification = extractField(taskBrief, 'Change classification') || 'non-semantic';
+const requiredVerifierCommands = extractField(taskBrief, 'Required verifier commands') || 'npm run docs:check; npm run process:selftest';
+const sourceOfTruthDocs = extractField(taskBrief, 'Source-of-truth docs') || 'none';
+const externalSources = extractField(taskBrief, 'External sources required') || 'none';
+const criticalAssumptions = extractField(taskBrief, 'Critical assumptions to prove or reject') || 'none';
+const requiredOutputFields = extractField(taskBrief, 'Required output fields') || 'none';
+const reviewNoteImpact = extractField(taskBrief, 'Review note impact') || 'no';
+const specFilesReviewed = extractPathTokens(extractField(specReviewReport, 'Files touched/reviewed'));
+const writerReportPath = findLatestReport(agentReportDirectory, defaultWriterRole, taskBriefPath);
+const staleLines = [];
+
+if (extractField(specReviewReport, 'Role').trim() !== 'spec-reviewer') {
+  staleLines.push('spec-reviewer Agent Report must be written by spec-reviewer');
+}
+
+if (!taskBriefPath || !fs.existsSync(taskBriefPath)) {
+  staleLines.push('spec-reviewer Agent Report must reference a valid Task Brief path');
+}
+
+if (specFiles.length === 0) {
+  staleLines.push('spec surface changed files were not detected');
+}
+
+if (!specFiles.every((file) => specFilesReviewed.includes(file))) {
+  staleLines.push('spec-reviewer Agent Report must cover the current spec scope');
+}
+
+if (artifactType !== 'spec') {
+  staleLines.push('Task Brief artifact type must be spec');
+}
+
+if (!/^(yes|true|1)$/i.test(String(specReviewRequired).trim())) {
+  staleLines.push('Spec review required must be yes');
+}
+
+for (const specFile of specFiles) {
+  if (fs.existsSync(specFile) && fs.statSync(specFile).mtimeMs >= reportMtime) {
+    staleLines.push(`spec-reviewer Agent Report must postdate spec artifact '${specFile}'`);
+  }
+}
+
+if (writerReportPath) {
+  if (fs.statSync(writerReportPath).mtimeMs >= reportMtime) {
+    staleLines.push('spec-reviewer Agent Report must postdate the current writer Agent Report');
+  }
+} else {
+  staleLines.push('current writer Agent Report not found for spec surface');
+}
+
+if (staleLines.length === 0) {
+  process.exit(0);
+}
+
+const requiredRerunRoles = dedupe([defaultWriterRole, 'spec-reviewer', 'verifier']);
+const dispatchOrder = dedupe([defaultWriterRole, 'spec-reviewer', 'verifier']);
+const outputPath = resolveUniqueOutput(path.join(followUpDir, `${loopDate}-${path.basename(taskBriefPath || 'spec-task-brief', path.extname(taskBriefPath || '.md'))}-stale-evidence-remediation.md`));
+
+const followUpLines = [
+  '# Follow-up Brief',
+  '',
+  '- Goal: Regenerate fresh reviewer and verifier evidence after stale evidence was detected for the current spec scope.',
+  `- Change classification: ${changeClassification}`,
+  `- Artifact type: ${artifactType}`,
+  '- Spec review required: yes',
+  `- Spec artifact paths: ${specArtifactPaths}`,
+  `- Files in scope: ${specFiles.join(', ')}`,
+  `- Known facts: parent task brief: ${taskBriefPath || '(missing)'}; parent spec-reviewer Agent Report: ${specReviewReportPath}${writerReportPath ? `; parent writer Agent Report: ${writerReportPath}` : ''}`,
+  '- Open questions / assumptions: none',
+  `- Risks to check: ${staleLines.join('; ')}`,
+  `- Acceptance checks: rerun ${defaultWriterRole} -> spec-reviewer -> verifier against the latest spec scope`,
+  '- Required artifacts: Task Brief, Agent Report, spec-reviewer Agent Report, verifier evidence',
+  `- Parent Task Brief path: ${taskBriefPath || '(missing)'}`,
+  `- Parent Agent Report path: ${writerReportPath || '(missing)'}`,
+  `- Trigger review note: ${specReviewReportPath}`,
+  `- Trigger stale findings: ${staleLines.join(' | ')}`,
+  `- Required rerun roles: ${requiredRerunRoles.join(', ')}`,
+  `- Dispatch order: ${dispatchOrder.join(' -> ')}`,
+  '- If blocked: stop and return the spec freshness blocker',
+  '',
+  '> Carry-over fields from the parent brief',
+  '',
+  `- Default writer role: ${defaultWriterRole}`,
+  `- Implementation owner: ${defaultWriterRole}`,
+  `- Write permissions: ${specFiles.join(', ')}`,
+  '- Writer dispatch backend: native-codex-subagents',
+  `- Writer dispatch target: .codex/agents/${defaultWriterRole}.toml`,
+  `- Writer dispatch scope: ${specFiles.join(', ')}`,
+  '- Non-goals: reuse stale spec-reviewer evidence',
+  `- Required verifier commands: ${requiredVerifierCommands}`,
+  '- Review note required: no',
+  `- Semantic review dimensions: ${extractField(taskBrief, 'Semantic review dimensions') || 'none'}`,
+  `- Source-of-truth docs: ${sourceOfTruthDocs}`,
+  `- External sources required: ${externalSources}`,
+  `- Critical assumptions to prove or reject: ${criticalAssumptions}`,
+  `- Required output fields: ${requiredOutputFields}`,
+  `- Review note impact: ${reviewNoteImpact}`,
+  '- Generated by: script/process/run-stale-evidence-loop.sh'
+];
+
+fs.writeFileSync(outputPath, `${followUpLines.join('\n')}\n`);
+fs.writeFileSync(
+  metadataFile,
+  JSON.stringify(
+    {
+      follow_up_brief_path: outputPath,
+      parent_task_brief_path: taskBriefPath,
+      parent_agent_report_path: writerReportPath || '',
+      review_note_path: specReviewReportPath,
+      required_rerun_roles: requiredRerunRoles,
+      dispatch_order: dispatchOrder,
+      stale_findings: staleLines
+    },
+    null,
+    2
+  ) + '\n'
+);
+
+console.log(`[stale-evidence-loop] stale evidence detected.`);
+console.log(`[stale-evidence-loop] follow-up brief written: ${outputPath}`);
+console.log(`[stale-evidence-loop] parent task brief: ${taskBriefPath || '(missing)'}`);
+console.log(`[stale-evidence-loop] parent agent report: ${writerReportPath || '(missing)'}`);
+console.log(`[stale-evidence-loop] trigger review note: ${specReviewReportPath}`);
+console.log(`[stale-evidence-loop] re-dispatch order: ${dispatchOrder.join(' -> ')}`);
+if (staleLines.length > 0) {
+  console.log(`[stale-evidence-loop] stale findings: ${staleLines.join(' | ')}`);
+}
+process.exit(2);
+EOF
+    spec_status=$?
+    set -e
+    spec_output="$(cat "$spec_output_file")"
+    rm -f "$spec_output_file"
+
+    if [ "$spec_status" -eq 0 ]; then
+        echo "[stale-evidence-loop] no stale evidence detected."
+        exit 0
+    fi
+
+    if [ "$spec_status" -ne 2 ]; then
+        printf '%s\n' "$spec_output" >&2
+        exit "$spec_status"
+    fi
+
+    printf '%s\n' "$spec_output"
+    exit 2
+fi
 
 review_note="${QUALITY_GATE_REVIEW_NOTE:-}"
 if [ -z "$review_note" ]; then
@@ -395,7 +735,6 @@ fs.writeFileSync(
   ) + '\n'
 );
 EOF
-
 node - "$metadata_tmp" <<'EOF'
 const fs = require('fs');
 

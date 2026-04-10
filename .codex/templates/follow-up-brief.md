@@ -6,6 +6,9 @@
 - Parent Agent Report path:
 - Trigger review note:
 - Trigger findings:
+- Artifact type:
+- Spec review required:
+- Spec artifact paths:
 - Files in scope:
 - Out of scope:
 - Known facts:

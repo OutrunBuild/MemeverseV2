@@ -56,6 +56,7 @@ else
         "ci-workflow.sh"
         "codex-review.sh"
         "logic-reviewer-contract.sh"
+        "spec-reviewer-contract.sh"
         "pre-push-quality-gate.sh"
         "process-policy.sh"
         "quality-gate-coverage.sh"

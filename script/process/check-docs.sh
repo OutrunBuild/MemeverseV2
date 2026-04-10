@@ -75,6 +75,7 @@ required_harness_support_files=(
     ".githooks/pre-push"
     "script/process/run-codex-review.sh"
     "script/process/run-stale-evidence-loop.sh"
+    "script/process/check-spec-reviewer-report.sh"
     "script/process/run-pre-push-quality-gate.sh"
     "docs/reviews/README.md"
     "docs/reviews/TEMPLATE.md"
@@ -84,6 +85,12 @@ required_harness_support_files=(
     "$role_delta_brief_template"
     "$follow_up_brief_template"
     "$agent_report_template"
+)
+
+required_spec_surface_support_files=(
+    ".claude/rules/process-surface.md"
+    ".claude/rules/spec-surface.md"
+    ".claude/agents/spec-reviewer.md"
 )
 
 required_product_truth_support_files=(
@@ -239,6 +246,52 @@ for (const scriptName of ['docs:check', 'process:selftest', 'quality:quick', 'qu
     fail(`package.json is missing required npm script '${scriptName}'`);
   }
 }
+
+const processSurfaceRule = fs.readFileSync('.claude/rules/process-surface.md', 'utf8');
+const specSurfaceRule = fs.readFileSync('.claude/rules/spec-surface.md', 'utf8');
+const specClaudeContract = fs.readFileSync('.claude/agents/spec-reviewer.md', 'utf8');
+const specCodexContract = fs.readFileSync('.codex/agents/spec-reviewer.md', 'utf8');
+const specCodexManifest = fs.readFileSync('.codex/agents/spec-reviewer.toml', 'utf8');
+
+if (policy.quality_gate.spec_surface_pattern !== '^(docs/spec/.*|docs/superpowers/specs/.*)$') {
+  fail(`policy quality_gate.spec_surface_pattern must cover docs/spec and docs/superpowers/specs`);
+}
+
+if (!Array.isArray(policy.quality_gate.spec_default_roles) || policy.quality_gate.spec_default_roles.join(';') !== 'process-implementer;spec-reviewer;verifier') {
+  fail(`policy quality_gate.spec_default_roles must be process-implementer, spec-reviewer, verifier`);
+}
+
+const runtimeSpecSurface = runtime.surfaces.find((surface) => surface.name === 'spec_surface');
+const workflowSpecSurface = workflow.path_triggered_defaults.spec_surface;
+if (!runtimeSpecSurface || JSON.stringify(runtimeSpecSurface.brief_activation_fields) !== JSON.stringify(['Artifact type', 'Spec review required', 'Spec artifact paths'])) {
+  fail(`runtime spec_surface must declare brief_activation_fields for Artifact type, Spec review required, Spec artifact paths`);
+}
+if (!workflowSpecSurface || JSON.stringify(workflowSpecSurface.brief_activation_fields) !== JSON.stringify(['Artifact type', 'Spec review required', 'Spec artifact paths'])) {
+  fail(`workflow spec_surface must declare brief_activation_fields for Artifact type, Spec review required, Spec artifact paths`);
+}
+
+if (!processSurfaceRule.includes('spec-surface.md')) {
+  fail(`.claude/rules/process-surface.md must reference the spec-surface rule`);
+}
+
+for (const requiredSnippet of ['spec-reviewer', 'docs/spec/**', 'docs/superpowers/specs/**', 'npm run docs:check', 'npm run process:selftest', 'npm run quality:gate']) {
+  if (!specSurfaceRule.includes(requiredSnippet)) {
+    fail(`.claude/rules/spec-surface.md is missing required snippet '${requiredSnippet}'`);
+  }
+}
+
+for (const requiredSnippet of ['spec-reviewer']) {
+  if (!specClaudeContract.includes(requiredSnippet)) {
+    fail(`.claude/agents/spec-reviewer.md is missing required snippet '${requiredSnippet}'`);
+  }
+  if (!specCodexContract.includes(requiredSnippet)) {
+    fail(`.codex/agents/spec-reviewer.md is missing required snippet '${requiredSnippet}'`);
+  }
+}
+
+if (!specCodexManifest.includes('name = "spec-reviewer"')) {
+  fail(`.codex/agents/spec-reviewer.toml must declare the spec-reviewer role`);
+}
 EOF
 
 for role in "${required_role_names[@]}"; do
@@ -285,5 +338,12 @@ while IFS= read -r misplaced_report; do
         exit 1
     fi
 done < <(find_misplaced_artifacts '# Agent Report' "$plan_dir")
+
+for path in "${required_spec_surface_support_files[@]}"; do
+    if [ ! -f "$path" ]; then
+        echo "Expected spec surface support file missing: $path"
+        exit 1
+    fi
+done
 
 echo "[check-docs] PASS"

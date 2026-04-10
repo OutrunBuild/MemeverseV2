@@ -17,6 +17,7 @@ paths:
 ## Review
 
 - AGENTS.md §5 流程面变更流程
+- `docs/spec/**` 与 `docs/superpowers/specs/**` 由 `.claude/rules/spec-surface.md` 覆盖
 
 ## Required Commands
 

@@ -14,6 +14,9 @@ changed_files_path="$tmp_dir/changed-files.txt"
 diff_file="$tmp_dir/change.diff"
 created_src_fixture=""
 created_test_fixture=""
+path_spec_brief_file="docs/task-briefs/2026-04-10-quality-gates-path-spec-brief.md"
+spec_brief_file="docs/task-briefs/2026-04-10-quality-gates-spec-brief.md"
+custom_spec_output="docs/designs/quality-gates-spec-output.md"
 
 cleanup() {
     if [ -n "$created_src_fixture" ] && [ -f "$created_src_fixture" ]; then
@@ -22,6 +25,7 @@ cleanup() {
     if [ -n "$created_test_fixture" ] && [ -f "$created_test_fixture" ]; then
         rm -f "$created_test_fixture"
     fi
+    rm -f "$path_spec_brief_file" "$spec_brief_file" "$custom_spec_output"
     rm -rf "$tmp_dir"
 }
 trap cleanup EXIT
@@ -42,6 +46,46 @@ if [ -z "$existing_test_file" ]; then
     printf '%s\n' 'pragma solidity ^0.8.20; contract QualityGateTestFixture {}' > "$created_test_fixture"
     existing_test_file="$created_test_fixture"
 fi
+
+mkdir -p "$(dirname "$path_spec_brief_file")" "$(dirname "$spec_brief_file")" "$(dirname "$custom_spec_output")"
+
+cat > "$path_spec_brief_file" <<'EOF'
+# Task Brief
+
+- Goal: quality gates path-based spec routing selftest
+- Change classification: non-semantic
+- Change type: docs
+- Files in scope: docs/spec/protocol.md
+- Change classification rationale: path-based spec artifact under docs/spec
+- Out of scope: none
+- Known facts: this brief anchors docs/spec/protocol.md to the spec surface
+- Open questions / assumptions: none
+- Risks to check: missing spec-surface contract enforcement
+- Required roles: process-implementer, spec-reviewer, verifier
+- Optional roles: none
+- Verifier profile: n/a
+- Default writer role: process-implementer
+- Implementation owner: process-implementer
+- Write permissions: docs/spec/protocol.md
+- Writer dispatch backend: native-codex-subagents
+- Writer dispatch target: .codex/agents/process-implementer.toml
+- Writer dispatch scope: docs/spec/protocol.md
+- Non-goals: none
+- Acceptance checks: rerun process-implementer -> spec-reviewer -> verifier for the latest spec scope
+- Required verifier commands: npm run docs:check; npm run process:selftest
+- Required artifacts: Task Brief, writer evidence, spec review evidence, verifier evidence
+- Review note required: no
+- Artifact type: spec
+- Spec review required: yes
+- Spec artifact paths: docs/spec/protocol.md
+- Semantic review dimensions: none
+- Source-of-truth docs: none
+- External sources required: none
+- Critical assumptions to prove or reject: none
+- Required output fields: none
+- Review note impact: no
+- If blocked: stop and return the spec-surface blocker
+EOF
 
 mkdir -p "$bin_dir"
 
@@ -86,7 +130,7 @@ if [ "\${1:-}" = "-n" ]; then
 fi
 
 case "\${1:-}" in
-  ./script/process/check-natspec.sh|./script/process/check-coverage.sh|./script/process/check-slither.sh|./script/process/check-gas-report.sh|./script/process/check-solidity-review-note.sh|./script/process/run-stale-evidence-loop.sh|./script/process/check-rule-map.sh)
+  ./script/process/check-natspec.sh|./script/process/check-coverage.sh|./script/process/check-slither.sh|./script/process/check-gas-report.sh|./script/process/check-solidity-review-note.sh|./script/process/check-spec-reviewer-report.sh|./script/process/run-stale-evidence-loop.sh|./script/process/check-rule-map.sh)
     printf 'bash %s\n' "\$1" >> "$command_log"
     if [ "\$1" = "./script/process/check-rule-map.sh" ] && [ "\${FAIL_RULE_MAP_GATE:-0}" = "1" ]; then
       printf '[check-rule-map] simulated failure\n' >&2
@@ -94,6 +138,8 @@ case "\${1:-}" in
     fi
     if [ "\$1" = "./script/process/check-solidity-review-note.sh" ]; then
       printf '[check-solidity-review-note] PASS\n'
+    elif [ "\$1" = "./script/process/check-spec-reviewer-report.sh" ]; then
+      printf '[check-spec-reviewer-report] PASS\n'
     fi
     exit 0
     ;;
@@ -168,6 +214,144 @@ run_quality_script "quality-gate.sh" "package.json" "$gate_output"
 assert_contains "ci" "$npm_log" "quality-gate npm log for package change"
 assert_contains "run docs:check" "$npm_log" "quality-gate npm log for package change"
 assert_contains "run process:selftest" "$npm_log" "quality-gate npm log for package change"
+
+printf '%s\n' "$path_spec_brief_file" "docs/spec/protocol.md" > "$changed_files_path"
+: > "$npm_log"
+: > "$command_log"
+PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" /bin/bash ./script/process/quality-quick.sh >"$quick_output" 2>&1
+assert_contains "default roles: process-implementer; spec-reviewer; verifier" "$quick_output" "quality-quick output for spec surface change"
+assert_contains "run docs:check" "$npm_log" "quality-quick npm log for spec surface change"
+assert_contains "run process:selftest" "$npm_log" "quality-quick npm log for spec surface change"
+
+: > "$npm_log"
+: > "$command_log"
+PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" /bin/bash ./script/process/quality-gate.sh >"$gate_output" 2>&1
+assert_contains "default roles: process-implementer; spec-reviewer; verifier" "$gate_output" "quality-gate output for spec surface change"
+assert_contains "run docs:check" "$npm_log" "quality-gate npm log for spec surface change"
+assert_contains "run process:selftest" "$npm_log" "quality-gate npm log for spec surface change"
+
+cat > "$custom_spec_output" <<'EOF'
+# Quality Gates Spec Output
+
+Custom spec output fixture for brief-declared quality gate routing.
+EOF
+
+cat > "$spec_brief_file" <<EOF
+# Task Brief
+
+- Goal: quality gates spec routing selftest
+- Change classification: spec-surface
+- Change classification: non-semantic
+- Change type: docs
+- Files in scope: $custom_spec_output
+- Change classification rationale: current task emits a spec artifact outside docs/spec
+- Out of scope: none
+- Known facts: this brief declares a custom spec output
+- Open questions / assumptions: none
+- Risks to check: missing spec-surface contract enforcement
+- Required roles: process-implementer, spec-reviewer, verifier
+- Optional roles: none
+- Verifier profile: n/a
+- Default writer role: process-implementer
+- Implementation owner: process-implementer
+- Write permissions: $spec_brief_file, $custom_spec_output
+- Writer dispatch backend: native-codex-subagents
+- Writer dispatch target: .codex/agents/process-implementer.toml
+- Writer dispatch scope: $custom_spec_output
+- Non-goals: none
+- Acceptance checks: rerun process-implementer -> spec-reviewer -> verifier for the latest spec scope
+- Required verifier commands: npm run docs:check; npm run process:selftest
+- Required artifacts: Task Brief, writer evidence, spec review evidence, verifier evidence
+- Review note required: no
+- Artifact type: spec
+- Spec review required: yes
+- Spec artifact paths: $custom_spec_output
+- Semantic review dimensions: none
+- Source-of-truth docs: none
+- External sources required: none
+- Critical assumptions to prove or reject: none
+- Required output fields: none
+- Review note impact: no
+- If blocked: stop and return the spec-surface blocker
+EOF
+
+printf '%s\n' "$spec_brief_file" "$custom_spec_output" > "$changed_files_path"
+: > "$npm_log"
+: > "$command_log"
+PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" /bin/bash ./script/process/quality-quick.sh >"$quick_output" 2>&1
+assert_contains "default roles: process-implementer; spec-reviewer; verifier" "$quick_output" "quality-quick output for brief-declared spec surface change"
+assert_contains "run docs:check" "$npm_log" "quality-quick npm log for brief-declared spec surface change"
+assert_contains "run process:selftest" "$npm_log" "quality-quick npm log for brief-declared spec surface change"
+
+: > "$npm_log"
+: > "$command_log"
+PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" /bin/bash ./script/process/quality-gate.sh >"$gate_output" 2>&1
+assert_contains "default roles: process-implementer; spec-reviewer; verifier" "$gate_output" "quality-gate output for brief-declared spec surface change"
+assert_contains "run docs:check" "$npm_log" "quality-gate npm log for brief-declared spec surface change"
+assert_contains "run process:selftest" "$npm_log" "quality-gate npm log for brief-declared spec surface change"
+
+sed -i 's|- Required artifacts: Task Brief, writer evidence, spec review evidence, verifier evidence|- Required artifacts: Task Brief, writer evidence|' "$spec_brief_file"
+set +e
+PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" /bin/bash ./script/process/quality-quick.sh >"$quick_output" 2>&1
+status=$?
+set -e
+if [ "$status" -eq 0 ]; then
+    echo "Expected quality-quick to fail when spec-surface Required artifacts metadata is incomplete"
+    cat "$quick_output"
+    exit 1
+fi
+assert_contains "Required artifacts" "$quick_output" "quality-quick output for incomplete spec-surface artifacts metadata"
+
+cat > "$spec_brief_file" <<EOF
+# Task Brief
+
+- Goal: quality gates spec routing selftest
+- Change classification: spec-surface
+- Change classification: non-semantic
+- Change type: docs
+- Files in scope: $custom_spec_output
+- Change classification rationale: current task emits a spec artifact outside docs/spec
+- Out of scope: none
+- Known facts: this brief declares a custom spec output
+- Open questions / assumptions: none
+- Risks to check: missing spec-surface contract enforcement
+- Required roles: process-implementer, spec-reviewer, verifier
+- Optional roles: none
+- Verifier profile: n/a
+- Default writer role: process-implementer
+- Implementation owner: process-implementer
+- Write permissions: $spec_brief_file, $custom_spec_output
+- Writer dispatch backend: native-codex-subagents
+- Writer dispatch target: .codex/agents/process-implementer.toml
+- Writer dispatch scope: $custom_spec_output
+- Non-goals: none
+- Acceptance checks: rerun process-implementer -> spec-reviewer -> verifier for the latest spec scope
+- Required verifier commands: npm run docs:check; npm run process:selftest
+- Required artifacts: Task Brief, writer evidence, spec review evidence, verifier evidence
+- Review note required: no
+- Artifact type: spec
+- Spec review required: yes
+- Spec artifact paths: $custom_spec_output
+- Semantic review dimensions: none
+- Source-of-truth docs: none
+- External sources required: none
+- Critical assumptions to prove or reject: none
+- Required output fields: none
+- Review note impact: no
+- If blocked: stop and return the spec-surface blocker
+EOF
+
+sed -i 's|- Required verifier commands: npm run docs:check; npm run process:selftest|- Required verifier commands: npm run docs:check|' "$spec_brief_file"
+set +e
+PATH="$bin_dir:$PATH" QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST="$changed_files_path" /bin/bash ./script/process/quality-gate.sh >"$gate_output" 2>&1
+status=$?
+set -e
+if [ "$status" -eq 0 ]; then
+    echo "Expected quality-gate to fail when spec-surface Required verifier commands metadata is incomplete"
+    cat "$gate_output"
+    exit 1
+fi
+assert_contains "Required verifier commands" "$gate_output" "quality-gate output for incomplete spec-surface verifier command metadata"
 
 : > "$command_log"
 FAIL_RULE_MAP_GATE=1 run_quality_script "quality-quick.sh" "$existing_src_file" "$quick_output" "non-semantic" "diff --git a/$existing_src_file b/$existing_src_file

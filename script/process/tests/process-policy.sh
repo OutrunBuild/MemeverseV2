@@ -55,7 +55,54 @@ cat > "$policy_file" <<EOF
   },
   "quality_gate": {
     "docs_contract_pattern": "^(docs/process/.*|script/process/.*|[.]githooks/.*)$",
-    "package_pattern": "^(package[.]json|package-lock[.]json)$"
+    "package_pattern": "^(package[.]json|package-lock[.]json)$",
+    "spec_surface_pattern": "^(docs/spec/.*|docs/superpowers/specs/.*)$",
+    "spec_default_roles": [
+      "process-implementer",
+      "spec-reviewer",
+      "verifier"
+    ],
+    "spec_surface_contract": {
+      "artifact_type": "spec",
+      "spec_review_required": "yes",
+      "required_roles": [
+        "spec-reviewer",
+        "verifier"
+      ],
+      "required_artifacts": [
+        "spec review evidence",
+        "verifier evidence"
+      ],
+      "required_verifier_commands": [
+        "npm run docs:check",
+        "npm run process:selftest"
+      ],
+      "acceptance_checks_tokens": [
+        "spec-reviewer",
+        "verifier"
+      ]
+    }
+  },
+  "workflow": {
+    "artifact_sequences": {
+      "spec_surface": [
+        "Task Brief",
+        "writer evidence",
+        "spec review evidence",
+        "verifier evidence",
+        "docs:check",
+        "process:selftest"
+      ]
+    }
+  },
+  "task_brief": {
+    "spec_surface": {
+      "required_fields": [
+        "Artifact type",
+        "Spec review required",
+        "Spec artifact paths"
+      ]
+    }
   }
 }
 EOF
@@ -69,6 +116,49 @@ fi
 agent_report_directory="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy agents.agent_report_directory)"
 if [ "$agent_report_directory" != "docs/agent-reports" ]; then
     echo "Expected read-process-config to resolve agents.agent_report_directory"
+    exit 1
+fi
+
+spec_surface_pattern="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy quality_gate.spec_surface_pattern)"
+if [ "$spec_surface_pattern" != '^(docs/spec/.*|docs/superpowers/specs/.*)$' ]; then
+    echo "Expected policy to expose the spec surface pattern"
+    exit 1
+fi
+
+spec_default_roles="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy quality_gate.spec_default_roles --lines)"
+if [ "$(printf '%s\n' "$spec_default_roles" | paste -sd ';' -)" != 'process-implementer;spec-reviewer;verifier' ]; then
+    echo "Expected policy quality_gate.spec_default_roles to match the spec surface order"
+    printf '%s\n' "$spec_default_roles"
+    exit 1
+fi
+
+task_brief_spec_fields="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy task_brief.spec_surface.required_fields --lines)"
+for required_field in 'Artifact type' 'Spec review required' 'Spec artifact paths'; do
+    if ! printf '%s\n' "$task_brief_spec_fields" | grep -qx "$required_field"; then
+        echo "Expected policy task_brief.spec_surface.required_fields to include $required_field"
+        printf '%s\n' "$task_brief_spec_fields"
+        exit 1
+    fi
+done
+
+workflow_spec_sequence="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy workflow.artifact_sequences.spec_surface --lines)"
+if [ "$(printf '%s\n' "$workflow_spec_sequence" | paste -sd ';' -)" != 'Task Brief;writer evidence;spec review evidence;verifier evidence;docs:check;process:selftest' ]; then
+    echo "Expected policy workflow.artifact_sequences.spec to match the spec surface order"
+    printf '%s\n' "$workflow_spec_sequence"
+    exit 1
+fi
+
+spec_required_artifacts="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy quality_gate.spec_surface_contract.required_artifacts --lines)"
+if [ "$(printf '%s\n' "$spec_required_artifacts" | paste -sd ';' -)" != 'spec review evidence;verifier evidence' ]; then
+    echo "Expected policy quality_gate.spec_surface_contract.required_artifacts to match the spec evidence chain"
+    printf '%s\n' "$spec_required_artifacts"
+    exit 1
+fi
+
+spec_required_verifier_commands="$(PROCESS_POLICY_FILE="$policy_file" node ./script/process/read-process-config.js policy quality_gate.spec_surface_contract.required_verifier_commands --lines)"
+if [ "$(printf '%s\n' "$spec_required_verifier_commands" | paste -sd ';' -)" != 'npm run docs:check;npm run process:selftest' ]; then
+    echo "Expected policy quality_gate.spec_surface_contract.required_verifier_commands to match the spec verifier command chain"
+    printf '%s\n' "$spec_required_verifier_commands"
     exit 1
 fi
 

@@ -13,7 +13,9 @@ run_stale_evidence_remediation() {
         env \
             QUALITY_GATE_MODE="$mode" \
             QUALITY_GATE_FILE_LIST="${QUALITY_GATE_FILE_LIST:-}" \
+            QUALITY_GATE_CHANGESET_FILE_LIST="${QUALITY_GATE_CHANGESET_FILE_LIST:-}" \
             QUALITY_GATE_REVIEW_NOTE="${QUALITY_GATE_REVIEW_NOTE:-}" \
+            QUALITY_GATE_SPEC_REVIEWER_REPORT="${QUALITY_GATE_SPEC_REVIEWER_REPORT:-}" \
             FOLLOW_UP_BRIEF_OUTPUT_DIR="${FOLLOW_UP_BRIEF_OUTPUT_DIR:-}" \
             REMEDIATION_LOOP_DATE="${REMEDIATION_LOOP_DATE:-}" \
             bash -lc "$remediation_command" 2>&1
@@ -34,6 +36,7 @@ source ./script/process/lib/quality-common.sh
 quality_initialize_runtime
 quality_exit_if_no_changed_files "quality-gate"
 quality_prepare_memeverse_gate_context
+quality_validate_spec_surface_brief_contract
 
 forge_test_verbosity="${FORGE_TEST_VERBOSITY:--vvv}"
 read -r -a forge_test_args <<< "$forge_test_verbosity"
@@ -258,16 +261,49 @@ if [ "${#package_files[@]}" -gt 0 ]; then
     npm ci
 fi
 
-if [ "$should_run_docs_check" -eq 1 ] || [ "$has_src_sol" -eq 1 ]; then
-    if [ "${#docs_contract_files[@]}" -gt 0 ] && [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ] && [ "$has_src_sol" -eq 0 ]; then
-        echo "[quality-gate] default roles: $(join_by_semicolon "${docs_contract_default_roles[@]}")"
+if [ "$has_spec_surface" -eq 1 ]; then
+    echo "[quality-gate] default roles: $(join_by_semicolon "${spec_default_roles[@]}")"
+    echo "[quality-gate] bash ./script/process/check-spec-reviewer-report.sh"
+    set +e
+    spec_review_output="$(bash ./script/process/check-spec-reviewer-report.sh 2>&1)"
+    spec_review_status=$?
+    set -e
+
+    if [ "$spec_review_status" -ne 0 ]; then
+        printf '%s\n' "$spec_review_output" >&2
+    elif [ "$errors_only_mode" -eq 0 ]; then
+        printf '%s\n' "$spec_review_output"
     fi
+
+    if [ "$spec_review_status" -ne 0 ]; then
+        if printf '%s\n' "$spec_review_output" | grep -qi "stale"; then
+            set +e
+            run_stale_evidence_remediation "$stale_evidence_remediation_command"
+            remediation_status=$?
+            set -e
+
+            if [ "$remediation_status" -eq 0 ]; then
+                exit "$stale_evidence_exit_code"
+            fi
+
+            exit "$remediation_status"
+        fi
+
+        exit "$spec_review_status"
+    fi
+elif [ "${#docs_contract_files[@]}" -gt 0 ] && [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ] && [ "$has_src_sol" -eq 0 ]; then
+    echo "[quality-gate] default roles: $(join_by_semicolon "${docs_contract_default_roles[@]}")"
+fi
+
+if [ "$should_run_docs_check" -eq 1 ] || [ "$has_src_sol" -eq 1 ]; then
     echo "[quality-gate] npm run docs:check"
     npm run docs:check
 fi
 
 if [ "$should_run_process_selftest" -eq 1 ]; then
-    if [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
+    if [ "$has_spec_surface" -eq 1 ] && [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
+        echo "[quality-gate] default roles: $(join_by_semicolon "${spec_default_roles[@]}")"
+    elif [ "$has_process_surface" -eq 0 ] && [ "${#package_files[@]}" -eq 0 ]; then
         echo "[quality-gate] default roles: $(join_by_semicolon "${process_default_roles[@]}")"
     fi
     echo "[quality-gate] npm run process:selftest"

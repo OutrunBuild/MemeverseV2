@@ -211,6 +211,8 @@
     "main_session_forbidden_write_patterns": [
       "^AGENTS\\.md$",
       "^docs/process/.*$",
+      "^docs/spec/.*$",
+      "^docs/superpowers/specs/.*$",
       "^docs/reviews/(README|TEMPLATE)\\.md$",
       "^docs/agent-reports/README\\.md$",
       "^docs/task-briefs/README\\.md$",
@@ -236,6 +238,8 @@
       "^script/.*\\.sol$",
       "^AGENTS\\.md$",
       "^docs/process/.*$",
+      "^docs/spec/.*$",
+      "^docs/superpowers/specs/.*$",
       "^\\.codex/.*$",
       "^script/process/.*$",
       "^package\\.json$",
@@ -245,7 +249,7 @@
       "^src/.*\\.sol$": "solidity-implementer",
       "^test/.*\\.sol$": "solidity-implementer",
       "^test/.*\\.t\\.sol$": "solidity-implementer",
-      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/README\\.md|docs/agent-reports/README\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/.*|\\.codex/.*|\\.gitignore|\\.solhint\\.json|\\.solhintignore)$": "process-implementer",
+      "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/README\\.md|docs/agent-reports/README\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/superpowers/specs/.*|docs/adr/.*|\\.github/.*|\\.codex/.*|\\.gitignore|\\.solhint\\.json|\\.solhintignore)$": "process-implementer",
       "^(script/.*\\.sh|\\.githooks/.*)$": "process-implementer",
       "^script/process/.*$": "process-implementer",
       "^package\\.json$": "process-implementer",
@@ -255,6 +259,7 @@
     "default_roles": [
       "solidity-implementer",
       "process-implementer",
+      "spec-reviewer",
       "logic-reviewer",
       "security-reviewer",
       "gas-reviewer",
@@ -281,7 +286,7 @@
     "shell_pattern": "^(script/.*\\.sh|\\.githooks/.*)$",
     "package_pattern": "^(package\\.json|package-lock\\.json)$",
     "lint_command": "npm run lint:sol",
-    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/.*|docs/agent-reports/.*|script/process/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.githooks/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
+    "docs_contract_pattern": "^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/task-briefs/.*|docs/agent-reports/.*|script/process/.*|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/superpowers/specs/.*|docs/adr/.*|\\.githooks/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$",
     "review_note_directory": "docs/reviews",
     "slither_filter_paths": "lib|test|script|node_modules",
     "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
@@ -407,6 +412,32 @@
       "process-implementer",
       "verifier"
     ],
+    "spec_surface_pattern": "^(docs/spec/.*|docs/superpowers/specs/.*)$",
+    "spec_default_roles": [
+      "process-implementer",
+      "spec-reviewer",
+      "verifier"
+    ],
+    "spec_surface_contract": {
+      "artifact_type": "spec",
+      "spec_review_required": "yes",
+      "required_roles": [
+        "spec-reviewer",
+        "verifier"
+      ],
+      "required_artifacts": [
+        "spec review evidence",
+        "verifier evidence"
+      ],
+      "required_verifier_commands": [
+        "npm run docs:check",
+        "npm run process:selftest"
+      ],
+      "acceptance_checks_tokens": [
+        "spec-reviewer",
+        "verifier"
+      ]
+    },
     "stale_evidence_remediation_command": "npm run stale-evidence:loop",
     "stale_evidence_exit_code": 2,
     "script_sol_pattern": "^script/.*\\.sol$",
@@ -442,6 +473,14 @@
         "verifier evidence",
         "docs:check",
         "process:selftest"
+      ],
+      "spec_surface": [
+        "Task Brief",
+        "writer evidence",
+        "spec review evidence",
+        "verifier evidence",
+        "docs:check",
+        "process:selftest"
       ]
     }
   },
@@ -470,6 +509,9 @@
       "Required verifier commands",
       "Required artifacts",
       "Review note required",
+      "Artifact type",
+      "Spec review required",
+      "Spec artifact paths",
       "Semantic review dimensions",
       "Source-of-truth docs",
       "External sources required",
@@ -478,8 +520,22 @@
       "Review note impact",
       "If blocked"
     ],
+    "spec_surface": {
+      "required_fields": [
+        "Artifact type",
+        "Spec review required",
+        "Spec artifact paths",
+        "Semantic review dimensions",
+        "Source-of-truth docs",
+        "External sources required",
+        "Critical assumptions to prove or reject",
+        "Required output fields",
+        "Review note impact"
+      ]
+    },
     "boolean_fields": [
-      "Review note required"
+      "Review note required",
+      "Spec review required"
     ],
     "implementation_owner_field": "Implementation owner",
     "dispatch_backend_field": "Writer dispatch backend",
@@ -488,6 +544,9 @@
     "required_roles_field": "Required roles",
     "required_verifier_commands_field": "Required verifier commands",
     "review_note_required_field": "Review note required",
+    "artifact_type_field": "Artifact type",
+    "spec_review_required_field": "Spec review required",
+    "spec_artifact_paths_field": "Spec artifact paths",
     "files_in_scope_field": "Files in scope",
     "default_writer_role_field": "Default writer role",
     "write_permissions_field": "Write permissions",

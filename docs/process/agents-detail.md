@@ -21,6 +21,10 @@
 - Required：`Role`、`Summary`、`Task Brief path`、`Scope / ownership respected`、`Files touched/reviewed`、`Residual risks`
 - Conditional：`Findings`、`Required follow-up`、`Commands run`、`Evidence`
 
+### Surface-specific Evidence Policy
+
+- spec surface 使用 spec review evidence 作为 reviewer artifact，不新增专用 spec review note；这是一条 evidence policy，不是新增 Agent Report 字段
+
 ### 通用决策规则
 
 - 超出 brief scope 的写入 → hard-block，升级给 main-orchestrator
@@ -29,6 +33,8 @@
 - 回修轮次改用 Follow-up Brief（`.codex/templates/follow-up-brief.md`），明确 remediation scope、已失效 evidence 与 rerun order
 
 ## §B: Workflow Phases（完整版）
+
+通用主线是 Phase 1、Phase 2、Phase 3、Phase 8、Phase 9、Phase 10。Phase 4 仅适用于 spec surface；Phase 5、Phase 6、Phase 7 是按 surface / classification 启用的前置审阅与测试加固分支，Solidity 语义分支默认最常使用。spec surface 在进入后续动作前先过 Phase 4；Solidity 语义变更按分类进入 Phase 5 / 6 / 7；process surface 默认从 Phase 3 直接进入后续验证。`spec-reviewer`、policy、runtime、workflow 与 agent mapping 已接入。
 
 ### Phase 1: 接收 / 划定范围
 
@@ -47,27 +53,42 @@
 - `main-orchestrator` 不得降级为直接实现者；派发失败只能停止并请求人工决策
 - 不得未经派发扩大文件边界
 
-### Phase 4: 逻辑审阅（`test-semantic`+）
+### Phase 4: Spec Review（仅 spec surface）
+
+- `spec-reviewer` 只读审阅 spec 产物，覆盖事实、逻辑、范围与可执行性
+- spec review evidence 是唯一 reviewer artifact
+- writer 再次改写同一 spec scope 后，上一轮 spec review evidence 视为 stale，必须重跑；自动化 stale remediation 会生成 follow-up brief 并给出 rerun order
+
+### Phase 5: 逻辑审阅（`test-semantic`+）
 
 - `logic-reviewer` 做只读逻辑审阅，覆盖控制流、状态迁移、边界条件
 - 若 writer 再次改写同一 scope，上一轮证据自动失效，必须重跑
 
-### Phase 5: 专家审阅（`prod-semantic`+）
+### Phase 6: 专家审阅（`prod-semantic`+）
 
 - `security-reviewer` 与 `gas-reviewer` 输出只读结论
 - review 必须先核本地前提（关键控制流、状态更新、金额处理、权限检查），再核验外部来源
 
-### Phase 6: 测试加固（`high-risk` 或 security-reviewer 指出缺口）
+### Phase 7: 测试加固（`high-risk` 或 security-reviewer 指出缺口）
 
 - `security-test-writer` 只修改测试，不修改生产逻辑
 
-### Phase 7: 验证
+### Phase 8: Follow-up Actions（通用阶段）
+
+- Solidity / process surface 在进入验证前都要经过 `codex review`
+- spec surface 必须先完成 Phase 4 的 spec review evidence，再进入后续动作
+- Solidity 语义变更按分类先完成 Phase 5 / 6 / 7，再进入 `codex review`
+- process surface 默认从 Phase 3 直接进入 `codex review`
+
+### Phase 9: 验证
 
 - `verifier` 按 light / full 两档执行验证命令
-- 必须独立检查 Task Brief、Agent Report、review note 与 failure attribution
+- 必须独立检查 Task Brief、writer `Agent Report`、当前 surface 对应的 reviewer artifact 与 failure attribution
+- Solidity surface 的 reviewer artifact 是 review note；process surface 的 reviewer artifact 是 `codex review` 结论；spec surface 的 reviewer artifact 是 spec review evidence；不把 `docs/reviews/*.md` 升级为主证据
+- spec surface 在 Phase 9 中，`verifier` 重点检查 spec review evidence freshness、scope coverage 与 writer/report 链条；machine-checked spec-reviewer evidence 与 selftest coverage 已由当前 gate / selftest 消费
 - stale evidence（早于当前 writer Agent Report）必须阻断
 - stale evidence 被 gate 检出时，自动生成 follow-up brief，`main-orchestrator` 按 rerun order 重新派发
 
-### Phase 8: 决策
+### Phase 10: 决策
 
-- `main-orchestrator` 汇总全部证据，仅在证据链完整时允许进入 finish gate
+- `main-orchestrator` 汇总全部证据；`docs:check / process:selftest` 先收敛 spec/process surface 的局部验证证据；`quality:gate` 本身就是最终严格 finish gate

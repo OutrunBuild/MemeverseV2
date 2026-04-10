@@ -103,6 +103,255 @@ quality_prepare_changed_files_tmp() {
     printf '%s\n' "$changed_files" > "$changed_files_tmp"
 }
 
+quality_collect_spec_brief_context() {
+    local spec_context_output
+
+    spec_context_output="$(
+        TASK_BRIEF_DIRECTORY="$task_brief_directory" \
+        SPEC_SURFACE_PATTERN="$spec_surface_pattern" \
+        node - "$changed_files_tmp" <<'EOF'
+const fs = require('fs');
+const path = require('path');
+
+const [, , changedFilesPath] = process.argv;
+const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split(/\r?\n/).filter(Boolean);
+const taskBriefDirectory = process.env.TASK_BRIEF_DIRECTORY || 'docs/task-briefs';
+const specSurfacePattern = new RegExp(process.env.SPEC_SURFACE_PATTERN || '^(docs/spec/.*|docs/superpowers/specs/.*)$');
+
+function extractField(document, field) {
+  const prefix = `- ${field}:`;
+  for (const line of document.split(/\r?\n/)) {
+    if (line.startsWith(prefix)) {
+      return line.slice(prefix.length).trim();
+    }
+  }
+  return '';
+}
+
+function extractPathTokens(value) {
+  const matches = value.match(/(?:^|[\s,;()[\]{}])((?:\/|(?:\.\.\/)+|\.\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+)(?=$|[\s,;()[\]{}:])/g) || [];
+  return matches
+    .map((entry) => entry.trim().replace(/^[\s,;()[\]{}]+/, '').replace(/[\s,;()[\]{}:]+$/, ''))
+    .filter(Boolean);
+}
+
+function isTruthy(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function dedupe(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+}
+
+function isTaskBriefCandidate(file) {
+  if (!file.startsWith(`${taskBriefDirectory}/`)) return false;
+  if (!file.endsWith('.md')) return false;
+  const base = path.basename(file);
+  return base !== 'README.md' && base !== 'TEMPLATE.md';
+}
+
+function readBrief(briefPath) {
+  if (!fs.existsSync(briefPath)) return null;
+  const document = fs.readFileSync(briefPath, 'utf8');
+  const artifactType = extractField(document, 'Artifact type').trim();
+  const specReviewRequired = extractField(document, 'Spec review required').trim();
+  const specArtifactPaths = extractPathTokens(extractField(document, 'Spec artifact paths'));
+  const filesInScope = extractPathTokens(extractField(document, 'Files in scope'));
+
+  return {
+    path: briefPath,
+    artifactType,
+    specReviewRequired,
+    specArtifactPaths,
+    filesInScope,
+    isSpecSurface: artifactType.toLowerCase() === 'spec' || isTruthy(specReviewRequired)
+  };
+}
+
+const changedBriefs = changedFiles.filter(isTaskBriefCandidate).filter((briefPath) => fs.existsSync(briefPath));
+let candidateBriefs = changedBriefs;
+
+if (candidateBriefs.length === 0 && fs.existsSync(taskBriefDirectory)) {
+  candidateBriefs = fs
+    .readdirSync(taskBriefDirectory)
+    .filter((entry) => entry.endsWith('.md') && entry !== 'README.md' && entry !== 'TEMPLATE.md')
+    .map((entry) => path.join(taskBriefDirectory, entry))
+    .filter((briefPath) => {
+      const brief = readBrief(briefPath);
+      if (!brief || !brief.isSpecSurface) return false;
+      return [...brief.specArtifactPaths, ...brief.filesInScope].some((file) => changedFiles.includes(file));
+    })
+    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)
+    .slice(0, 1);
+}
+
+const matchedBriefs = [];
+const declaredSpecFiles = [];
+
+for (const briefPath of candidateBriefs) {
+  const brief = readBrief(briefPath);
+  if (!brief || !brief.isSpecSurface) continue;
+
+  const touchesCurrentScope =
+    changedBriefs.includes(briefPath) ||
+    brief.specArtifactPaths.some((file) => changedFiles.includes(file)) ||
+    brief.filesInScope.some((file) => changedFiles.includes(file));
+
+  if (!touchesCurrentScope) continue;
+
+  matchedBriefs.push(briefPath);
+  declaredSpecFiles.push(...brief.specArtifactPaths);
+}
+
+const specSurfaceFiles = dedupe([
+  ...changedFiles.filter((file) => specSurfacePattern.test(file)),
+  ...declaredSpecFiles
+]);
+
+process.stdout.write(`HAS_BRIEF_DECLARED_SPEC_SURFACE=${matchedBriefs.length > 0 ? '1' : '0'}\n`);
+for (const briefPath of dedupe(matchedBriefs)) {
+  process.stdout.write(`BRIEF=${briefPath}\n`);
+}
+for (const file of dedupe(declaredSpecFiles)) {
+  process.stdout.write(`DECLARED_FILE=${file}\n`);
+}
+for (const file of specSurfaceFiles) {
+  process.stdout.write(`SPEC_FILE=${file}\n`);
+}
+EOF
+    )"
+
+    has_brief_declared_spec_surface=0
+    spec_brief_files=()
+    spec_brief_declared_files=()
+    spec_surface_files=()
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        case "$line" in
+            HAS_BRIEF_DECLARED_SPEC_SURFACE=*)
+                has_brief_declared_spec_surface="${line#*=}"
+                ;;
+            BRIEF=*)
+                spec_brief_files+=("${line#BRIEF=}")
+                ;;
+            DECLARED_FILE=*)
+                spec_brief_declared_files+=("${line#DECLARED_FILE=}")
+                ;;
+            SPEC_FILE=*)
+                spec_surface_files+=("${line#SPEC_FILE=}")
+                ;;
+        esac
+    done <<< "$spec_context_output"
+}
+
+quality_validate_spec_surface_brief_contract() {
+    local required_artifact_type
+    local required_spec_review_required
+    local brief
+    local line
+    local -a errors=()
+    local -a required_roles=()
+    local -a required_artifacts=()
+    local -a required_verifier_commands=()
+    local -a acceptance_checks_tokens=()
+    local -a uncovered_spec_files=()
+
+    [ "${quality_spec_surface_validated:-0}" -eq 1 ] && return 0
+    quality_spec_surface_validated=1
+
+    if [ "$has_spec_surface" -eq 0 ]; then
+        return 0
+    fi
+
+    required_artifact_type="$(read_policy_value quality_gate.spec_surface_contract.artifact_type 'spec')"
+    required_spec_review_required="$(read_policy_value quality_gate.spec_surface_contract.spec_review_required 'yes')"
+    mapfile -t required_roles < <(read_policy_lines_or_default quality_gate.spec_surface_contract.required_roles 'spec-reviewer' 'verifier')
+    mapfile -t required_artifacts < <(read_policy_lines_or_default quality_gate.spec_surface_contract.required_artifacts \
+        'spec-reviewer Agent Report' \
+        'verifier evidence')
+    mapfile -t required_verifier_commands < <(read_policy_lines_or_default quality_gate.spec_surface_contract.required_verifier_commands \
+        'npm run docs:check' \
+        'npm run process:selftest')
+    mapfile -t acceptance_checks_tokens < <(read_policy_lines_or_default quality_gate.spec_surface_contract.acceptance_checks_tokens \
+        'spec-reviewer' \
+        'verifier')
+
+    if [ "${#spec_brief_files[@]}" -eq 0 ]; then
+        errors+=("current spec scope is missing a Task Brief or Follow-up Brief with spec-surface metadata")
+    fi
+
+    for brief in "${spec_brief_files[@]}"; do
+        if [ ! -f "$brief" ]; then
+            errors+=("$brief: matching Task Brief path does not exist")
+            continue
+        fi
+
+        if ! grep -Eiq "^-[[:space:]]+Artifact type:[[:space:]]*${required_artifact_type}[[:space:]]*$" "$brief"; then
+            errors+=("$brief: Artifact type must be ${required_artifact_type}")
+        fi
+
+        if ! grep -Eiq "^-[[:space:]]+Spec review required:[[:space:]]*${required_spec_review_required}[[:space:]]*$" "$brief"; then
+            errors+=("$brief: Spec review required must be ${required_spec_review_required}")
+        fi
+
+        line="$(grep -Ei "^-[[:space:]]+Spec artifact paths:" "$brief" | head -n 1 || true)"
+        if [ -z "$line" ]; then
+            errors+=("$brief: Spec artifact paths must not be blank")
+        fi
+
+        for token in "${required_roles[@]}"; do
+            if ! grep -Ei "^-[[:space:]]+Required roles:" "$brief" | grep -Fqi "$token"; then
+                errors+=("$brief: Required roles must include ${token}")
+            fi
+        done
+
+        for token in "${required_artifacts[@]}"; do
+            if ! grep -Ei "^-[[:space:]]+Required artifacts:" "$brief" | grep -Fqi "$token"; then
+                errors+=("$brief: Required artifacts must include ${token}")
+            fi
+        done
+
+        for token in "${required_verifier_commands[@]}"; do
+            if ! grep -Ei "^-[[:space:]]+Required verifier commands:" "$brief" | grep -Fqi "$token"; then
+                errors+=("$brief: Required verifier commands must include ${token}")
+            fi
+        done
+
+        for token in "${acceptance_checks_tokens[@]}"; do
+            if ! grep -Ei "^-[[:space:]]+Acceptance checks:" "$brief" | grep -Fqi "$token"; then
+                errors+=("$brief: Acceptance checks must include ${token}")
+            fi
+        done
+    done
+
+    for file in "${spec_surface_files[@]}"; do
+        if ! array_contains "$file" "${spec_brief_declared_files[@]}"; then
+            uncovered_spec_files+=("$file")
+        fi
+    done
+
+    if [ "${#uncovered_spec_files[@]}" -gt 0 ]; then
+        errors+=("Spec artifact paths must cover the current spec scope: $(join_by_semicolon "${uncovered_spec_files[@]}")")
+    fi
+
+    if [ "${#errors[@]}" -gt 0 ]; then
+        echo "[quality] ERROR: spec-surface brief contract validation failed:" >&2
+        local error
+        for error in "${errors[@]}"; do
+            echo "- $error" >&2
+        done
+        return 1
+    fi
+
+    return 0
+}
+
 read_classifier_field() {
     local field="$1"
     CLASSIFICATION_JSON="$classification_json" node -e '
@@ -215,8 +464,14 @@ quality_prepare_memeverse_context() {
     process_js_pattern="$(read_policy_value quality_gate.process_js_pattern '^script/process/.*\\.js$')"
     package_pattern="$(read_policy_value quality_gate.package_pattern '^(package\\.json|package-lock\\.json)$')"
     docs_contract_pattern="$(read_policy_value quality_gate.docs_contract_pattern '^(AGENTS\\.md|README\\.md|docs/process/.*|docs/reviews/(TEMPLATE|README)\\.md|docs/(ARCHITECTURE|GLOSSARY|TRACEABILITY|VERIFICATION)\\.md|docs/spec/.*|docs/adr/.*|\\.github/pull_request_template\\.md|\\.codex/.*)$')"
+    spec_surface_pattern="$(read_policy_value quality_gate.spec_surface_pattern '^(docs/spec/.*|docs/superpowers/specs/.*)$')"
+    task_brief_directory="$(read_policy_value agents.task_brief_directory 'docs/task-briefs')"
     mapfile -t process_selftest_patterns < <(read_policy_lines quality_gate.process_selftest_patterns)
     mapfile -t process_default_roles < <(read_policy_lines quality_gate.process_default_roles)
+    mapfile -t spec_default_roles < <(read_policy_lines_or_default quality_gate.spec_default_roles \
+        'process-implementer' \
+        'spec-reviewer' \
+        'verifier')
     mapfile -t package_default_roles < <(read_policy_lines quality_gate.package_default_roles)
     mapfile -t docs_contract_default_roles < <(read_policy_lines quality_gate.docs_contract_default_roles)
 
@@ -235,6 +490,7 @@ quality_prepare_memeverse_context() {
     has_swap_src_sol=0
     has_sol_tests=0
     has_process_surface=0
+    has_spec_surface=0
     should_run_docs_check=0
     should_run_process_selftest=0
     src_solidity_candidates=()
@@ -251,6 +507,11 @@ quality_prepare_memeverse_context() {
     package_files=()
     docs_contract_candidates=()
     docs_contract_files=()
+    has_brief_declared_spec_surface=0
+    spec_brief_files=()
+    spec_brief_declared_files=()
+    spec_surface_files=()
+    quality_spec_surface_validated=0
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -276,6 +537,12 @@ quality_prepare_memeverse_context() {
         if [[ "$file" =~ $process_surface_pattern ]]; then
             has_process_surface=1
             should_run_docs_check=1
+        fi
+
+        if [[ "$file" =~ $spec_surface_pattern ]]; then
+            has_spec_surface=1
+            should_run_docs_check=1
+            should_run_process_selftest=1
         fi
 
         if [[ "$file" =~ $shell_pattern ]]; then
@@ -307,6 +574,14 @@ quality_prepare_memeverse_context() {
             fi
         done
     done <<< "$changed_files"
+
+    quality_collect_spec_brief_context
+
+    if [ "$has_brief_declared_spec_surface" -eq 1 ]; then
+        has_spec_surface=1
+        should_run_docs_check=1
+        should_run_process_selftest=1
+    fi
 
     for file in "${src_solidity_candidates[@]}" "${script_solidity_candidates[@]}" "${test_solidity_candidates[@]}"; do
         [ -z "$file" ] && continue
