@@ -8,6 +8,7 @@
 - `npm run quality:gate:fast` 是 agent workflow 常用的本地默认收尾 gate。
 - `npm run quality:quick` 不能替代 `npm run quality:gate:fast` 或 `npm run quality:gate`。
 - `npm run quality:gate` 是最终严格 finish gate。
+- `npm run spec:ready` 是 spec surface 进入 planning / implementation 前的 transition gate，不是 finish gate；该命令通过 `script/process/spec-ready.sh` 覆盖当前工作区 staged + unstaged + untracked 变更。
 - `docs:check` / `process:selftest` 只负责收敛 spec/process surface 的局部验证证据，不替代 `quality:gate:fast` 或最终 `quality:gate`。
 - 如果仓库启用了额外流程真源（例如 `docs/process/rule-map.json`），`quality:quick` / `quality:gate:fast` / `quality:gate` 的证据要求也要一并满足。
 
@@ -19,11 +20,12 @@
 
 - `Task Brief` 在后续 brief 接入完成后将以 `Artifact type: spec` 标识该 surface；其余 spec 专用 schema 以后续模板 / policy 真源为准。
 - `spec surface` 的当前顺序是 `process-implementer → spec-reviewer → verifier`。
+- 若当前任务由 `docs/spec/**` 或 `docs/superpowers/specs/**` 的变更 spec 驱动，进入 `writing-plans`、`subagent-driven-development`、`executing-plans` 前必须先通过 `npm run spec:ready`。
 - spec review evidence 作为该 surface 的 reviewer artifact，不新增专用 spec review note。
 - writer 再次写入同一 spec scope 后，上一轮 spec review evidence 视为 stale，不应复用；stale remediation 会按当前 brief / spec scope 自动生成 follow-up brief。
 - `docs/reviews/*.md` 若存在，只作为后续汇总或补充证据，不替代 spec review evidence。
 - `spec-reviewer` 通过后才进入后续动作，不把 spec review 主消费面扩到 `docs/reviews/*.md`。
-- `docs:check` / `process:selftest` 先收敛该 surface 的局部验证证据；machine-checked spec-reviewer evidence、brief contract 与 stale remediation 已接入当前 execution-plane，agent workflow 常用本地默认收尾 gate 是 `quality:gate:fast`，最终严格 finish gate 仍统一归于 `quality:gate`。
+- `docs:check` / `process:selftest` 先收敛该 surface 的局部验证证据；machine-checked spec-reviewer evidence、brief contract 与 stale remediation 已接入当前 execution-plane；`npm run spec:ready` 仅承担 transition 阻断，不替代收尾 gate；agent workflow 常用本地默认收尾 gate 是 `quality:gate:fast`，最终严格 finish gate 仍统一归于 `quality:gate`。
 - `docs/process/policy.json`、`docs/process/rule-map.json` 与相关 gate 脚本对该 surface 的 repo-specific 约束，在 `quality:gate:fast` 与 `quality:gate` 中都应保持一致。
 
 ## `src/**/*.sol`、`script/**/*.sol`

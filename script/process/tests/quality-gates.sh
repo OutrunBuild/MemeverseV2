@@ -188,6 +188,24 @@ if [ ! -f "./script/process/lib/quality-common.sh" ]; then
     exit 1
 fi
 
+if ! grep -q '"spec:ready"[[:space:]]*:[[:space:]]*"bash ./script/process/spec-ready.sh"' package.json; then
+    echo "Expected package.json to expose npm run spec:ready via script/process/spec-ready.sh"
+    exit 1
+fi
+
+if [ ! -f "./script/process/spec-ready.sh" ]; then
+    echo "Expected script/process/spec-ready.sh to exist"
+    exit 1
+fi
+
+if ! grep -q "git diff --cached --name-only --diff-filter=ACMRD" "./script/process/spec-ready.sh" \
+    || ! grep -q "git diff --name-only --diff-filter=ACMRD" "./script/process/spec-ready.sh" \
+    || ! grep -q "git ls-files --others --exclude-standard" "./script/process/spec-ready.sh" \
+    || ! grep -q "QUALITY_GATE_MODE=ci QUALITY_GATE_FILE_LIST=" "./script/process/spec-ready.sh"; then
+    echo "Expected spec-ready wrapper to collect staged + unstaged + untracked files and pass QUALITY_GATE_FILE_LIST"
+    exit 1
+fi
+
 assert_contains "source ./script/process/lib/quality-common.sh" "./script/process/quality-quick.sh" "quality-quick implementation"
 assert_contains "source ./script/process/lib/quality-common.sh" "./script/process/quality-gate.sh" "quality-gate implementation"
 

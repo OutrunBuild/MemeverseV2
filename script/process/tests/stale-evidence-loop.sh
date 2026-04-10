@@ -289,7 +289,7 @@ cat > "$spec_task_brief_file" <<EOF
 - Writer dispatch scope: $spec_changed_file
 - Non-goals: none
 - Acceptance checks: rerun spec-reviewer after a follow-up writer pass
-- Required verifier commands: npm run docs:check; npm run process:selftest
+- Required verifier commands: npm run spec:ready; npm run docs:check; npm run process:selftest
 - Required artifacts: Task Brief, writer evidence, spec review evidence
 - Review note required: no
 - Semantic review dimensions: none
@@ -394,6 +394,12 @@ if ! grep -q "Dispatch order: process-implementer -> spec-reviewer -> verifier" 
     exit 1
 fi
 
+if ! grep -q "Required verifier commands: npm run spec:ready; npm run docs:check; npm run process:selftest" "$spec_follow_up_file"; then
+    echo "Expected spec follow-up brief to require npm run spec:ready before downstream verification"
+    cat "$spec_follow_up_file"
+    exit 1
+fi
+
 cat > "$spec_task_brief_file" <<EOF
 # Task Brief
 
@@ -419,7 +425,7 @@ cat > "$spec_task_brief_file" <<EOF
 - Writer dispatch scope: $brief_declared_spec_file
 - Non-goals: none
 - Acceptance checks: rerun spec-reviewer after a follow-up writer pass
-- Required verifier commands: npm run docs:check; npm run process:selftest
+- Required verifier commands: npm run spec:ready; npm run docs:check; npm run process:selftest
 - Required artifacts: Task Brief, writer evidence, spec review evidence
 - Review note required: no
 - Semantic review dimensions: none

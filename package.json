@@ -20,6 +20,7 @@
     "lint:sol:src:fix": "solhint -c solhint.config.js 'src/**/*.sol' --fix --noPrompt",
     "lint:sol:test": "solhint -c solhint-test.config.js 'test/**/*.sol' --max-warnings 0",
     "lint:sol:test:fix": "solhint -c solhint-test.config.js 'test/**/*.sol' --fix --noPrompt",
+    "spec:ready": "bash ./script/process/spec-ready.sh",
     "docs:check": "bash ./script/process/check-docs.sh",
     "gas:report": "bash ./script/process/check-gas-report.sh",
     "process:selftest": "bash ./script/process/tests/run-all.sh",

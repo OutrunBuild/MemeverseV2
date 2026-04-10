@@ -43,6 +43,8 @@
 ## Execution Checklist
 
 - 确认任务仅限于非 Solidity 面
+- 若当前任务由 `docs/spec/**` 或 `docs/superpowers/specs/**` 的变更 spec 驱动，在进入 `writing-plans`、`subagent-driven-development`、`executing-plans` 前必须先运行 `npm run spec:ready`（通过 `script/process/spec-ready.sh` 覆盖 staged + unstaged + untracked）
+- `npm run spec:ready` 是 transition gate，不替代 `quality:quick` / `quality:gate:fast` / `quality:gate` 收尾 gate
 - 保持变更与 `docs/process/policy.json` 一致
 - 当任务涉及工作流治理时，保持 `AGENTS.md`、`docs/process/**`、`.codex/runtime/**`、`.codex/workflows/**`、`.codex/templates/**` 和 `script/process/*` 同步
 - 保持文档、Shell、工作流和包元数据同步
@@ -60,6 +62,7 @@
 - 软阻断：
   - 建议进行额外的文档对齐但不阻断
   - 需要运行后续验证命令但尚未运行
+  - spec 驱动任务在进入 planning / implementation 前未通过 `npm run spec:ready`
 
 ## Output Contract
 

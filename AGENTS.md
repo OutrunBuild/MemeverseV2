@@ -25,7 +25,9 @@
 
 初次设置：`git submodule update --init --recursive` → `npm install` → `npm run hooks:install`
 
-常用命令：`forge build` | `forge test -vvv` | `forge fmt --check` | `npm run docs:check`
+常用命令：`forge build` | `forge test -vvv` | `forge fmt --check` | `npm run docs:check` | `npm run spec:ready`
+
+`npm run spec:ready` 是 spec surface 从 review 进入 planning / implementation 的轻量 transition gate，通过 `script/process/spec-ready.sh` 汇总当前工作区 staged + unstaged + untracked 变更，再复用 `script/process/check-spec-reviewer-report.sh` 做真源检查；它不替代 `quality:quick` / `quality:gate:fast` / `quality:gate` 的收尾 gate 职责。
 
 本地 gate：`npm run quality:quick`（快速反馈）| `npm run quality:gate:fast`（agent workflow 常用的本地默认收尾 gate，按变更集）| `npm run quality:gate`（最终严格 finish gate）
 
@@ -84,6 +86,7 @@
 测试变更（`test/**/*.sol` / `test/**/*.t.sol`）：solidity-implementer → logic-reviewer → codex review → verifier；高风险可选加 security-reviewer
 
 spec surface（`docs/spec/**`、`docs/superpowers/specs/**`、或声明 `Artifact type: spec`、`Spec review required: yes`、`Spec artifact paths` 的 brief）：writer 先产出 spec，再由 `spec-reviewer` 做 spec review；不通过就回派原 writer 修，修后重审；通过后才进入其他动作
+若当前任务由 `docs/spec/**` 或 `docs/superpowers/specs/**` 的变更 spec 驱动，进入 `writing-plans`、`subagent-driven-development`、`executing-plans` 前必须先通过 `npm run spec:ready`
 
 流程面变更（`AGENTS.md`、`docs/process/**`、`.claude/**`、`.codex/**`、`script/process/**`）：process-implementer → codex review → verifier
 
@@ -110,7 +113,7 @@ Review note 规则：`docs/process/review-notes.md`。命中 `src/**/*.sol`、`s
 通用主线：Phase 1 接收 / 划定范围 → Phase 2 基线分析 → Phase 3 实现 → Phase 8 后续验证动作 → Phase 9 验证 → Phase 10 决策。
 spec surface 前置分支：Phase 4 Spec Review；适用于 `docs/spec/**`、`docs/superpowers/specs/**`、或声明 `Artifact type: spec` 的产物。`spec-reviewer`、policy、runtime、workflow 与 agent mapping 均已接入。
 Solidity 语义前置分支：Phase 5 逻辑审阅 → Phase 6 专家审阅 → Phase 7 测试加固；按 `AGENTS.md §5` 的 review order 与分类结果按需启用。
-各 surface 在进入各自后续动作之前，先完成各自前置审阅：spec surface 先过 Phase 4；Solidity 语义变更按分类进入 Phase 5 / 6 / 7；process surface 默认从 Phase 3 直接进入后续验证。
+各 surface 在进入各自后续动作之前，先完成各自前置审阅：spec surface 先过 Phase 4；若当前任务由变更 spec 驱动，进入 `writing-plans` / `subagent-driven-development` / `executing-plans` 前必须先通过 `npm run spec:ready`；Solidity 语义变更按分类进入 Phase 5 / 6 / 7；process surface 默认从 Phase 3 直接进入后续验证。
 各 Phase 完整准入/准出条件与角色职责见 `docs/process/agents-detail.md §B`。
 关键约束：Phase 3 中 main-orchestrator 不得降级为直接实现者；spec surface 在 Phase 4 产出 spec review evidence；writer 改写同一 spec scope 后，旧 reviewer evidence 立即 stale；Phase 9 的 stale evidence 会阻断并生成 remediation follow-up brief。
 
@@ -122,7 +125,7 @@ Solidity 语义前置分支：Phase 5 逻辑审阅 → Phase 6 专家审阅 → 
 - Process：`Task Brief → Agent Report → codex review → verifier evidence → docs:check / process:selftest → quality:gate:fast / quality:gate → CI`
 - Spec surface：`Task Brief → writer evidence → spec review evidence → verifier evidence → docs:check / process:selftest → quality:gate:fast / quality:gate → CI`
 
-Solidity surface 使用 `review note` 作为 reviewer artifact；process surface 继续使用 `codex review` 结论；spec surface 只使用 spec review evidence 作为 reviewer artifact，不新增专用 spec review note，也不把 `codex review` 绑进 spec review 契约。`quality:quick` / `quality:gate` 会校验 spec brief 元数据、spec review evidence freshness 与 scope coverage；`docs:check / process:selftest` 继续收敛 spec/process surface 的局部验证证据。agent workflow 常用本地默认收尾 gate 是 `quality:gate:fast`，最终严格 finish gate 仍统一归于 `quality:gate`。CI 只验证不编排。
+Solidity surface 使用 `review note` 作为 reviewer artifact；process surface 继续使用 `codex review` 结论；spec surface 只使用 spec review evidence 作为 reviewer artifact，不新增专用 spec review note，也不把 `codex review` 绑进 spec review 契约。`npm run spec:ready` 仅承担 spec→planning/implementation 的 transition 阻断；`quality:quick` / `quality:gate` 会校验 spec brief 元数据、spec review evidence freshness 与 scope coverage；`docs:check / process:selftest` 继续收敛 spec/process surface 的局部验证证据。agent workflow 常用本地默认收尾 gate 是 `quality:gate:fast`，最终严格 finish gate 仍统一归于 `quality:gate`。CI 只验证不编排。
 
 #### Hard-block（硬阻断）
 

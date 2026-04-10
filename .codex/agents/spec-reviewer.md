@@ -34,6 +34,7 @@
 
 ## 执行清单
 
+- 若当前任务由 `docs/spec/**` 或 `docs/superpowers/specs/**` 的变更 spec 驱动，进入 `writing-plans`、`subagent-driven-development`、`executing-plans` 前需要已有一次通过的 `npm run spec:ready` 证据（通过 `script/process/spec-ready.sh` 覆盖 staged + unstaged + untracked）
 - 从 spec 文档和支持文档重建预期行为与范围
 - 检查事实是否与产品真相文档一致
 - 检查定义、范围、术语和可执行步骤是否互相矛盾
@@ -47,6 +48,7 @@
 
 - Hard-block：
   - 确认的事实错误、逻辑矛盾、范围漂移或不可执行 spec
+  - spec 驱动任务未通过 `npm run spec:ready` 就尝试进入 planning / implementation
 - Soft-block：
   - 需要补充澄清、缺失边界条件、术语不一致或证据不足
 - 信息性：

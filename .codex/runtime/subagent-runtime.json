@@ -19,6 +19,22 @@
     "policy": "docs/process/policy.json",
     "workflow_doc": "AGENTS.md (Part I §9-10, Part III)"
   },
+  "transition_gates": {
+    "spec_ready_before_plan_or_execution": {
+      "command": "npm run spec:ready",
+      "when": "current task is driven by changed spec artifacts under docs/spec/** or docs/superpowers/specs/**",
+      "before": [
+        "writing-plans",
+        "subagent-driven-development",
+        "executing-plans"
+      ],
+      "notes": [
+        "spec:ready uses script/process/spec-ready.sh to evaluate workspace changes (staged + unstaged + untracked).",
+        "This is a transition gate only.",
+        "It does not replace finish gates (quality:quick / quality:gate:fast / quality:gate)."
+      ]
+    }
+  },
   "artifacts": {
     "task_brief_directory": "docs/task-briefs",
     "agent_report_directory": "docs/agent-reports",

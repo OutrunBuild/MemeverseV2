@@ -43,6 +43,7 @@
 
 - 根据涉及的路径面和分类器选择的 `light` / `full` 验证者配置选择命令
 - 在运行任何命令之前枚举必需命令集；不要将验证折叠为单一门控命令
+- 若当前任务由 `docs/spec/**` 或 `docs/superpowers/specs/**` 的变更 spec 驱动，进入 `writing-plans`、`subagent-driven-development`、`executing-plans` 前必须先验证 `npm run spec:ready` 已通过（通过 `script/process/spec-ready.sh` 覆盖 staged + unstaged + untracked）
 - 确保在写入者完成之后、任何写入者面的最终验证者裁定之前，已执行 `npm run codex:review`（或等效的 `codex review --uncommitted`）
 - 运行每个必需命令或解释为何某命令不适用
 - `verifier(light)` 在分类器将变更保持在 `prod-semantic` 以下时可跳过重型覆盖率/静态分析/Gas 命令；`verifier(full)` 必须运行完整的 Solidity 门控
@@ -62,6 +63,7 @@
 
 - 硬阻断：
   - 任何必需命令失败
+  - spec 驱动任务在 planning / implementation 过渡前缺少通过的 `npm run spec:ready` 证据
   - 缺少必需的工件或必需的审阅笔记
   - 语义敏感变更缺少 brief 中声明的必需语义对齐证据
   - 必需的审阅者或验证者证据工件相对于当前写入者 `Agent Report` 已过期
