@@ -33,7 +33,7 @@
 
 `npm run quality:gate:fast` 默认启用低噪声配置：`QUALITY_GATE_ERRORS_ONLY=1`、`FORGE_TEST_VERBOSITY=-q`、`QUALITY_GATE_FAST=1`；fast 模式会先跑非 invariant，再按变更模块定向跑 `*Invariant*.t.sol`，作为 agent workflow 常用的本地默认收尾 gate。`npm run quality:gate` 为全量严格门禁（`QUALITY_GATE_FAST=0`，运行全量 invariant），也是最终 finish gate。`docs:check` / `process:selftest` 只收敛 spec/process surface 的局部验证证据，不替代上述收尾 gate。CI 使用 `npm run quality:gate`。`gas report` 改为按需手动执行 `npm run gas:report`。
 
-其他：`npm run process:selftest` | `npm run codex:review`（手动高风险审查）| `bash ./script/process/check-coverage.sh` | `npm run quality:profile`
+其他：`npm run process:selftest` | `npm run codex:review`（手动高风险审查；agent 工作流中必须使用 `npm run codex:review -- --files path1,path2,...` 限定范围，避免并行会话交叉审查）| `bash ./script/process/check-coverage.sh` | `npm run quality:profile`
 
 ### 3. Core Principles
 

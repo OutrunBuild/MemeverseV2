@@ -49,7 +49,7 @@ tools:
 
 - 根据触及的路径 surface 和分类器选择的 `light` / `full` verifier 配置选择命令
 - 在运行任何命令前列举必需命令集；不得将验证压缩为单个 gate 命令
-- 对任何写入者 surface，确保 `npm run codex:review`（或等效的 `codex review --uncommitted`）已在写入者完成后且最终 verifier 结论前执行
+- 对任何写入者 surface，确保 `npm run codex:review`（或等效的 `codex review --uncommitted`）已在写入者完成后且最终 verifier 结论前执行；agent 工作流中必须使用 `npm run codex:review -- --files path1,path2,...` 限定范围（避免并行会话交叉审查），不带 `--files` 仅限人工手动全量审查
 - 运行每条必需命令或解释为何命令不适用
 - `verifier(light)` 在分类器将变更保持在 `prod-semantic` 以下时可跳过重度覆盖/静态分析/Gas 命令；`verifier(full)` 必须运行完整 Solidity gate
 - 在接受 `Task Brief` 和 `Agent Report` 作为证据前，验证两者均存在且满足当前策略契约
