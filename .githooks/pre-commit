@@ -4,5 +4,4 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-echo "Running local quality gate for staged changes..."
-npm run quality:gate
+npm run gate:fast

@@ -12,15 +12,11 @@ typechain-types
 # Ignores development broadcast logs
 broadcast
 
+# Harness run records
+.harness/.runs/
+
 # Docs
 docs/superpowers
-docs/task-briefs/*.md
-!docs/task-briefs/README.md
-docs/agent-reports/*.md
-!docs/agent-reports/README.md
-docs/reviews/*.md
-!docs/reviews/README.md
-!docs/reviews/TEMPLATE.md
 
 # Dotenv file
 .env

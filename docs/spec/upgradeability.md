@@ -58,8 +58,7 @@
 ## 5. 与文档链的关系
 
 - deployer + governance proxy 属于 launcher 生命周期编排的一部分，与上述代码路径一致。
-- 流程层对 `src/**/*.sol` 的 gate/证据要求以 `policy.json + rule-map.json` 为真源；governance 升级路径已由 governance / deployment 相关测试和 rule-map 覆盖。
-  - 证据：`docs/process/change-matrix.md:41-49`; `docs/process/rule-map.json`
+- Harness 层对 `src/**/*.sol` 的 gate、review 与测试映射要求以 `.harness/policy.json` 为真源；governance 升级路径已由 governance / deployment 相关测试与 policy 内的测试映射覆盖。
 
 ## 6. 确定性与未知项
 

@@ -1,0 +1,654 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/skills/solidity-subagent-harness/schemas/policy.schema.json",
+  "title": "Solidity Subagent Harness Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "repo",
+    "retained_harness_files",
+    "deleted_legacy_roots",
+    "surfaces",
+    "write_roles",
+    "risk_rules",
+    "review_matrix",
+    "verification_profiles",
+    "hard_blocks",
+    "soft_blocks",
+    "testing_gaps",
+    "run_record",
+    "test_mapping"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retained_harness_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "deleted_legacy_roots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "changed_file_modes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "added",
+          "copied",
+          "modified",
+          "renamed",
+          "deleted",
+          "type-changed",
+          "unmerged",
+          "unknown"
+        ]
+      }
+    },
+    "surfaces": {
+      "$ref": "#/$defs/surfacePatternsMap"
+    },
+    "write_roles": {
+      "$ref": "#/$defs/surfaceOwnerMap"
+    },
+    "risk_rules": {
+      "type": "object",
+      "required": [
+        "high_risk_paths"
+      ],
+      "properties": {
+        "high_risk_paths": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "high_risk_tokens": {
+          "$ref": "#/$defs/stringArray"
+        }
+      },
+      "additionalProperties": true
+    },
+    "review_matrix": {
+      "type": "object",
+      "required": [
+        "non-semantic",
+        "test-semantic",
+        "prod-semantic",
+        "high-risk"
+      ],
+      "properties": {
+        "non-semantic": {
+          "$ref": "#/$defs/reviewRoleArray"
+        },
+        "test-semantic": {
+          "$ref": "#/$defs/reviewRoleArray"
+        },
+        "prod-semantic": {
+          "$ref": "#/$defs/reviewRoleArray"
+        },
+        "high-risk": {
+          "$ref": "#/$defs/reviewRoleArray"
+        }
+      },
+      "additionalProperties": false
+    },
+    "verification_profiles": {
+      "type": "object",
+      "required": [
+        "fast",
+        "full",
+        "ci"
+      ],
+      "properties": {
+        "fast": {
+          "$ref": "#/$defs/fastVerificationProfile"
+        },
+        "full": {
+          "$ref": "#/$defs/fullVerificationProfile"
+        },
+        "ci": {
+          "$ref": "#/$defs/ciVerificationProfile"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hard_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/blockRule"
+      },
+      "uniqueItems": true
+    },
+    "soft_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/blockRule"
+      },
+      "uniqueItems": true
+    },
+    "testing_gaps": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/testingGap"
+        },
+        "uniqueItems": true
+      }
+    },
+    "run_record": {
+      "type": "object",
+      "required": [
+        "schema",
+        "default_output_dir",
+        "file_name_template"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default_output_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_name_template": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ci_output_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "emit_on_noop": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "test_mapping": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/testMappingEntry"
+      }
+    }
+  },
+  "$defs": {
+    "surfaceName": {
+      "type": "string",
+      "enum": [
+        "solidity_prod",
+        "solidity_test",
+        "harness_control"
+      ]
+    },
+    "surfaceNameArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/surfaceName"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "surfaceSet": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/surfaceName"
+      },
+      "minItems": 2,
+      "uniqueItems": true
+    },
+    "surfacePatternsMap": {
+      "type": "object",
+      "required": [
+        "solidity_prod",
+        "solidity_test",
+        "harness_control"
+      ],
+      "properties": {
+        "solidity_prod": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "solidity_test": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "harness_control": {
+          "$ref": "#/$defs/stringArray"
+        }
+      },
+      "additionalProperties": false
+    },
+    "surfaceOwnerMap": {
+      "type": "object",
+      "required": [
+        "solidity_prod",
+        "solidity_test",
+        "harness_control"
+      ],
+      "properties": {
+        "solidity_prod": {
+          "$ref": "#/$defs/writeRoleName"
+        },
+        "solidity_test": {
+          "$ref": "#/$defs/writeRoleName"
+        },
+        "harness_control": {
+          "$ref": "#/$defs/writeRoleName"
+        }
+      },
+      "additionalProperties": false
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "writeRoleName": {
+      "type": "string",
+      "enum": [
+        "solidity-implementer",
+        "process-implementer"
+      ]
+    },
+    "reviewRoleName": {
+      "type": "string",
+      "enum": [
+        "spec-reviewer",
+        "logic-reviewer",
+        "security-reviewer",
+        "gas-reviewer"
+      ]
+    },
+    "reviewRoleArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reviewRoleName"
+      },
+      "uniqueItems": true
+    },
+    "commandId": {
+      "type": "string",
+      "enum": [
+        "fmt_changed_solidity",
+        "lint_changed_solidity",
+        "forge_build",
+        "targeted_tests",
+        "forge_test_full",
+        "coverage_when_required",
+        "slither_when_required",
+        "bash_syntax_changed_shell",
+        "node_syntax_changed_js",
+        "npm_ci_when_package_changes"
+      ]
+    },
+    "commandIdArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/commandId"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "fastRequiredCommands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/commandId"
+      },
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": {
+            "const": "fmt_changed_solidity"
+          }
+        },
+        {
+          "contains": {
+            "const": "lint_changed_solidity"
+          }
+        },
+        {
+          "contains": {
+            "const": "forge_build"
+          }
+        },
+        {
+          "contains": {
+            "const": "targeted_tests"
+          }
+        },
+        {
+          "contains": {
+            "const": "bash_syntax_changed_shell"
+          }
+        },
+        {
+          "contains": {
+            "const": "node_syntax_changed_js"
+          }
+        },
+        {
+          "contains": {
+            "const": "npm_ci_when_package_changes"
+          }
+        }
+      ]
+    },
+    "fullRequiredCommands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/commandId"
+      },
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": {
+            "const": "fmt_changed_solidity"
+          }
+        },
+        {
+          "contains": {
+            "const": "lint_changed_solidity"
+          }
+        },
+        {
+          "contains": {
+            "const": "forge_build"
+          }
+        },
+        {
+          "contains": {
+            "const": "forge_test_full"
+          }
+        },
+        {
+          "contains": {
+            "const": "coverage_when_required"
+          }
+        },
+        {
+          "contains": {
+            "const": "slither_when_required"
+          }
+        },
+        {
+          "contains": {
+            "const": "bash_syntax_changed_shell"
+          }
+        },
+        {
+          "contains": {
+            "const": "node_syntax_changed_js"
+          }
+        },
+        {
+          "contains": {
+            "const": "npm_ci_when_package_changes"
+          }
+        }
+      ]
+    },
+    "verificationProfileBase": {
+      "type": "object",
+      "required": [
+        "required_commands"
+      ],
+      "properties": {},
+      "additionalProperties": true
+    },
+    "fastVerificationProfile": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/verificationProfileBase"
+        },
+        {
+          "properties": {
+            "required_commands": {
+              "$ref": "#/$defs/fastRequiredCommands"
+            }
+          }
+        }
+      ]
+    },
+    "fullVerificationProfile": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/verificationProfileBase"
+        },
+        {
+          "properties": {
+            "required_commands": {
+              "$ref": "#/$defs/fullRequiredCommands"
+            }
+          }
+        }
+      ]
+    },
+    "ciVerificationProfile": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/verificationProfileBase"
+        },
+        {
+          "properties": {
+            "required_commands": {
+              "$ref": "#/$defs/fullRequiredCommands"
+            }
+          }
+        }
+      ]
+    },
+    "verificationProfile": {
+      "properties": {
+        "required_commands": {
+          "$ref": "#/$defs/commandIdArray"
+        }
+      },
+      "additionalProperties": true
+    },
+    "blockRule": {
+      "type": "object",
+      "required": [
+        "id",
+        "message"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "tokens": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "commands": {
+          "$ref": "#/$defs/commandIdArray"
+        },
+        "surfaces": {
+          "$ref": "#/$defs/surfaceNameArray"
+        },
+        "writer_roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeRoleName"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "mixed_surface_sets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/surfaceSet"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "legacy_roots": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "paths"
+          ]
+        },
+        {
+          "required": [
+            "tokens"
+          ]
+        },
+        {
+          "required": [
+            "commands"
+          ]
+        },
+        {
+          "required": [
+            "surfaces"
+          ]
+        },
+        {
+          "required": [
+            "writer_roles"
+          ]
+        },
+        {
+          "required": [
+            "mixed_surface_sets"
+          ]
+        },
+        {
+          "required": [
+            "legacy_roots"
+          ]
+        }
+      ]
+    },
+    "testingGap": {
+      "type": "object",
+      "required": [
+        "id",
+        "paths",
+        "status",
+        "enforcement"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": [
+            "residual-risk",
+            "risk-upgrade"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "mappedRule": {
+      "type": "object",
+      "required": [
+        "id",
+        "paths",
+        "change_tests",
+        "evidence_tests"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "change_tests": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "evidence_tests": {
+          "$ref": "#/$defs/stringArray"
+        }
+      },
+      "additionalProperties": false
+    },
+    "testMappingEntry": {
+      "type": "object",
+      "properties": {
+        "tests": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mappedRule"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "tests"
+          ]
+        },
+        {
+          "required": [
+            "rules"
+          ]
+        }
+      ]
+    }
+  }
+}

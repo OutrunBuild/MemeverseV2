@@ -1,0 +1,1225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex.local/skills/solidity-subagent-harness/schemas/run-record.schema.json",
+  "title": "Solidity Subagent Harness Run Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "repo",
+    "changed_files",
+    "surface",
+    "risk_tier",
+    "writer_role",
+    "review_roles",
+    "verification_profile",
+    "profile_required_commands",
+    "commands_run",
+    "command_results",
+    "delegated_remediations",
+    "blocking_findings",
+    "residual_risks",
+    "final_verdict"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "surface": {
+      "oneOf": [
+        {
+          "const": "no-op"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "policy.schema.json#/$defs/surfaceName"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        {
+          "$ref": "policy.schema.json#/$defs/surfaceName"
+        }
+      ]
+    },
+    "risk_tier": {
+      "type": "string",
+      "enum": [
+        "none",
+        "non-semantic",
+        "test-semantic",
+        "prod-semantic",
+        "high-risk"
+      ]
+    },
+    "writer_role": {
+      "type": "string",
+      "enum": [
+        "none",
+        "solidity-implementer",
+        "process-implementer"
+      ]
+    },
+    "review_roles": {
+      "type": "array",
+      "items": {
+        "$ref": "policy.schema.json#/$defs/reviewRoleName"
+      },
+      "uniqueItems": true
+    },
+    "verification_profile": {
+      "type": "string",
+      "enum": [
+        "none",
+        "fast",
+        "full",
+        "ci"
+      ]
+    },
+    "profile_required_commands": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/noopRequiredCommands"
+        },
+        {
+          "$ref": "policy.schema.json#/$defs/fastRequiredCommands"
+        },
+        {
+          "$ref": "policy.schema.json#/$defs/fullRequiredCommands"
+        }
+      ]
+    },
+    "commands_run": {
+      "$ref": "#/$defs/commandRunMap"
+    },
+    "command_results": {
+      "$ref": "#/$defs/commandResultMap"
+    },
+    "delegated_remediations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/delegatedRemediation"
+      }
+    },
+    "blocking_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "residual_risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "final_verdict": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "blocked",
+        "no-op"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "final_verdict": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "$ref": "#/$defs/allPassedCommandResultMap"
+          },
+          "blocking_findings": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "final_verdict": {
+            "const": "no-op"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "surface": {
+            "const": "no-op"
+          },
+          "risk_tier": {
+            "const": "none"
+          },
+          "writer_role": {
+            "const": "none"
+          },
+          "review_roles": {
+            "maxItems": 0
+          },
+          "verification_profile": {
+            "const": "none"
+          },
+          "profile_required_commands": {
+            "$ref": "#/$defs/noopRequiredCommands"
+          },
+          "commands_run": {
+            "maxProperties": 0
+          },
+          "command_results": {
+            "maxProperties": 0
+          },
+          "delegated_remediations": {
+            "maxItems": 0
+          },
+          "blocking_findings": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "writer_role": {
+            "const": "none"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "delegated_remediations": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "writer_role": {
+            "const": "solidity-implementer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "delegated_remediations": {
+            "items": {
+              "properties": {
+                "primary_writer_role": {
+                  "const": "solidity-implementer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "writer_role": {
+            "const": "process-implementer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "delegated_remediations": {
+            "items": {
+              "properties": {
+                "primary_writer_role": {
+                  "const": "process-implementer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verification_profile": {
+            "const": "none"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "surface": {
+            "const": "no-op"
+          },
+          "changed_files": {
+            "maxItems": 0
+          },
+          "risk_tier": {
+            "const": "none"
+          },
+          "writer_role": {
+            "const": "none"
+          },
+          "review_roles": {
+            "maxItems": 0
+          },
+          "final_verdict": {
+            "const": "no-op"
+          },
+          "profile_required_commands": {
+            "$ref": "#/$defs/noopRequiredCommands"
+          },
+          "commands_run": {
+            "maxProperties": 0
+          },
+          "command_results": {
+            "maxProperties": 0
+          },
+          "delegated_remediations": {
+            "maxItems": 0
+          },
+          "blocking_findings": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verification_profile": {
+            "const": "fast"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "profile_required_commands": {
+            "$ref": "policy.schema.json#/$defs/fastRequiredCommands"
+          },
+          "commands_run": {
+            "$ref": "#/$defs/fastRequiredCommandRuns"
+          },
+          "command_results": {
+            "$ref": "#/$defs/fastRequiredCommandResults"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verification_profile": {
+            "const": "full"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "profile_required_commands": {
+            "$ref": "policy.schema.json#/$defs/fullRequiredCommands"
+          },
+          "commands_run": {
+            "$ref": "#/$defs/fullRequiredCommandRuns"
+          },
+          "command_results": {
+            "$ref": "#/$defs/fullRequiredCommandResults"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verification_profile": {
+            "const": "ci"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "profile_required_commands": {
+            "$ref": "policy.schema.json#/$defs/fullRequiredCommands"
+          },
+          "commands_run": {
+            "$ref": "#/$defs/fullRequiredCommandRuns"
+          },
+          "command_results": {
+            "$ref": "#/$defs/fullRequiredCommandResults"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "delegated_remediations": {
+            "minItems": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "surface": {
+            "oneOf": [
+              {
+                "const": "solidity_test"
+              },
+              {
+                "type": "array",
+                "contains": {
+                  "const": "solidity_test"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "fmt_changed_solidity"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "fmt_changed_solidity"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "fmt_changed_solidity"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "fmt_changed_solidity"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "lint_changed_solidity"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "lint_changed_solidity"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "lint_changed_solidity"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "lint_changed_solidity"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "forge_build"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "forge_build"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "forge_build"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "forge_build"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "targeted_tests"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "targeted_tests"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "targeted_tests"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "targeted_tests"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "forge_test_full"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "forge_test_full"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "forge_test_full"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "forge_test_full"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "coverage_when_required"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "coverage_when_required"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "coverage_when_required"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "coverage_when_required"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "slither_when_required"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "slither_when_required"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "slither_when_required"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "slither_when_required"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "bash_syntax_changed_shell"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "bash_syntax_changed_shell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "bash_syntax_changed_shell"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "bash_syntax_changed_shell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "node_syntax_changed_js"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "node_syntax_changed_js"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "node_syntax_changed_js"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "node_syntax_changed_js"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "npm_ci_when_package_changes"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "npm_ci_when_package_changes"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_results": {
+            "required": [
+              "npm_ci_when_package_changes"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "commands_run": {
+            "required": [
+              "npm_ci_when_package_changes"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "noopRequiredCommands": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "commandRun": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "commandResult": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "skipped",
+            "not-applicable"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "attribution": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "executedCommandResult": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "attribution": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "passedCommandResult": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "const": "passed"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "attribution": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fastRequiredCommandRuns": {
+      "type": "object",
+      "required": [
+        "fmt_changed_solidity",
+        "lint_changed_solidity",
+        "forge_build",
+        "targeted_tests",
+        "bash_syntax_changed_shell",
+        "node_syntax_changed_js",
+        "npm_ci_when_package_changes"
+      ]
+    },
+    "fastRequiredCommandResults": {
+      "type": "object",
+      "required": [
+        "fmt_changed_solidity",
+        "lint_changed_solidity",
+        "forge_build",
+        "targeted_tests",
+        "bash_syntax_changed_shell",
+        "node_syntax_changed_js",
+        "npm_ci_when_package_changes"
+      ],
+      "properties": {
+        "fmt_changed_solidity": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "lint_changed_solidity": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "forge_build": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "targeted_tests": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "bash_syntax_changed_shell": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "node_syntax_changed_js": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "npm_ci_when_package_changes": {
+          "$ref": "#/$defs/executedCommandResult"
+        }
+      }
+    },
+    "fullRequiredCommandRuns": {
+      "type": "object",
+      "required": [
+        "fmt_changed_solidity",
+        "lint_changed_solidity",
+        "forge_build",
+        "forge_test_full",
+        "coverage_when_required",
+        "slither_when_required",
+        "bash_syntax_changed_shell",
+        "node_syntax_changed_js",
+        "npm_ci_when_package_changes"
+      ]
+    },
+    "fullRequiredCommandResults": {
+      "type": "object",
+      "required": [
+        "fmt_changed_solidity",
+        "lint_changed_solidity",
+        "forge_build",
+        "forge_test_full",
+        "coverage_when_required",
+        "slither_when_required",
+        "bash_syntax_changed_shell",
+        "node_syntax_changed_js",
+        "npm_ci_when_package_changes"
+      ],
+      "properties": {
+        "fmt_changed_solidity": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "lint_changed_solidity": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "forge_build": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "forge_test_full": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "coverage_when_required": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "slither_when_required": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "bash_syntax_changed_shell": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "node_syntax_changed_js": {
+          "$ref": "#/$defs/executedCommandResult"
+        },
+        "npm_ci_when_package_changes": {
+          "$ref": "#/$defs/executedCommandResult"
+        }
+      }
+    },
+    "commandRunMap": {
+      "type": "object",
+      "properties": {
+        "fmt_changed_solidity": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "lint_changed_solidity": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "forge_build": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "targeted_tests": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "forge_test_full": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "coverage_when_required": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "slither_when_required": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "bash_syntax_changed_shell": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "node_syntax_changed_js": {
+          "$ref": "#/$defs/commandRun"
+        },
+        "npm_ci_when_package_changes": {
+          "$ref": "#/$defs/commandRun"
+        }
+      },
+      "additionalProperties": false
+    },
+    "commandResultMap": {
+      "type": "object",
+      "properties": {
+        "fmt_changed_solidity": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "lint_changed_solidity": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "forge_build": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "targeted_tests": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "forge_test_full": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "coverage_when_required": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "slither_when_required": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "bash_syntax_changed_shell": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "node_syntax_changed_js": {
+          "$ref": "#/$defs/commandResult"
+        },
+        "npm_ci_when_package_changes": {
+          "$ref": "#/$defs/commandResult"
+        }
+      },
+      "additionalProperties": false
+    },
+    "allPassedCommandResultMap": {
+      "type": "object",
+      "properties": {
+        "fmt_changed_solidity": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "lint_changed_solidity": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "forge_build": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "targeted_tests": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "forge_test_full": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "coverage_when_required": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "slither_when_required": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "bash_syntax_changed_shell": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "node_syntax_changed_js": {
+          "$ref": "#/$defs/passedCommandResult"
+        },
+        "npm_ci_when_package_changes": {
+          "$ref": "#/$defs/passedCommandResult"
+        }
+      },
+      "additionalProperties": false
+    },
+    "delegatedRemediation": {
+      "type": "object",
+      "required": [
+        "role",
+        "relationship",
+        "primary_writer_role",
+        "delegated_surface",
+        "delegated_scope",
+        "changed_files",
+        "triggered_by"
+      ],
+      "properties": {
+        "role": {
+          "const": "security-test-writer"
+        },
+        "relationship": {
+          "const": "delegated-remediation"
+        },
+        "primary_writer_role": {
+          "type": "string",
+          "enum": [
+            "solidity-implementer",
+            "process-implementer"
+          ]
+        },
+        "delegated_surface": {
+          "const": "solidity_test"
+        },
+        "delegated_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "triggered_by": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "main-orchestrator",
+              "spec-reviewer",
+              "logic-reviewer",
+              "security-reviewer",
+              "gas-reviewer",
+              "verifier"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "source_role",
+        "summary"
+      ],
+      "properties": {
+        "source_role": {
+          "type": "string",
+          "enum": [
+            "main-orchestrator",
+            "solidity-implementer",
+            "process-implementer",
+            "solidity-explorer",
+            "spec-reviewer",
+            "logic-reviewer",
+            "security-reviewer",
+            "gas-reviewer",
+            "verifier",
+            "security-test-writer"
+          ]
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

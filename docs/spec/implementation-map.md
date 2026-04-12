@@ -25,9 +25,9 @@
 | `src/common/omnichain/LzEndpointRegistry.sol` | chainId -> endpointId 注册表 | `setLzEndpointIds` onlyOwner | 构造部署，不走 proxy | `docs/spec/state-machines.md`; `src/common/omnichain/LzEndpointRegistry.sol:11-31` | 已实现 |
 | `src/common/access/*` + `src/common/omnichain/*`（与本任务相关子集） | 最小代理初始化、owner、peer/delegate 与 OFT/OApp 基础边界 | `initializer` 一次性、`onlyOwner` peer/delegate/msgInspector | 基础能力层 | `docs/spec/access-control.md`; `src/common/access/Initializable.sol:27-41`; `src/common/omnichain/oapp/OutrunOAppCoreInit.sol:68-92`; `src/common/omnichain/oft/OutrunOFTCoreInit.sol:143` | 已实现 |
 
-## 3. 测试与流程映射状态
+## 3. 测试与 Harness 映射状态
 
-- 已有 rule-map 正式覆盖：
+- 当前 `.harness/policy.json` 已覆盖：
   - swap / launcher 主面
   - registration / dispatcher / deployment
   - governance
@@ -36,9 +36,9 @@
   - common 的已测子集（registry、token initializer、OApp initializer、OFT initializer、governance token extension）
 - 仍保留 residual testing gap：
   - `src/common/**` 中少量仍未被 targeted rule 单独建模的基础层子集（如 `ReentrancyGuard`、`IBurnable`、`OutrunOAppPreCrimeSimulatorInit`、`TokenHelper`）
-  - 证据：`docs/process/rule-map.json`
+  - 证据：`.harness/policy.json`
 - 结论
-  - 产品实现面是完整的；流程层“规则 -> 测试映射”已覆盖主要业务域，残余缺口已收敛到少量 common 基础件。
+  - 产品实现面是完整的；Harness 层“规则 -> 测试映射”已覆盖主要业务域，残余缺口已收敛到少量 common 基础件。
 
 ## 4. 后续业务解释事项（不影响“已实现”状态）
 

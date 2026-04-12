@@ -4,5 +4,4 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-echo "Running push-diff quality gate..."
-bash ./script/process/run-pre-push-quality-gate.sh "$@"
+npm run gate
