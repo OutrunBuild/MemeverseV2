@@ -120,20 +120,21 @@ center 当前负责检查：
 
 因此一次注册成功，不只是参数合法，还要求所有目标链的 fan-out 前提成立。
 
-## 10. 对 launcher 的副作用顺序
+## 10. launcher 侧执行顺序
 
-注册成功后，launcher 侧副作用的理解顺序应是：
+注册成功后，launcher 侧执行顺序应是：
 
-1. 记录 verse 基础信息
-2. 通过 deployer 部署 memecoin / POL
-3. 初始化资产合约
-4. 按 `omnichainIds` 配置 peer
-5. 再写入 `uri/desc/communities`
+1. 通过 deployer 部署 memecoin / POL
+2. 初始化资产合约
+3. 按 `omnichainIds` 配置 peer
+4. 记录 verse 基础信息、反向索引并发出 `RegisterMemeverse`
+5. registrar 再单独调用 `setExternalInfo` 写入 `uri/desc/communities`
 
 这样设计意味着：
 
 - 注册并不是“只写一个数据库记录”
 - 它会同时完成资产层初始化
+- `external info` 不在 `registerMemeverse(...)` 同一次函数体内写入，而是由 registrar 在后续调用中补写
 
 ## 11. 当前实现提醒
 
