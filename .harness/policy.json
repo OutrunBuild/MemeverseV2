@@ -57,6 +57,7 @@
       "^docs/VERIFICATION\\.md$",
       "^docs/GLOSSARY\\.md$",
       "^docs/SECURITY_AND_APPROVALS\\.md$",
+      "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
       "^docs/spec/implementation-map\\.md$",
       "^docs/spec/upgradeability\\.md$",
       "^docs/process/.*$",
@@ -106,6 +107,18 @@
       "gas-reviewer"
     ]
   },
+  "review_triggers": [
+    {
+      "id": "spec-doc-review",
+      "reviewer_role": "spec-reviewer",
+      "paths": [
+        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
+      ],
+      "surfaces": [
+        "harness_control"
+      ]
+    }
+  ],
   "verification_profiles": {
     "fast": {
       "required_commands": [

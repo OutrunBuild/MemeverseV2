@@ -23,6 +23,13 @@
 
 若 `AGENTS.md` 与 machine truth 冲突，以 machine truth 为准；不要用自然语言覆盖 policy 或 gate。
 
+## Handoff Rules
+
+- 新会话必须先读 `AGENTS.md`，再进入 `solidity-subagent-harness`，再读 `.harness/policy.json`；不要先根据 `package.json` 或 `script/harness/gate.sh` 自行脑补 runtime 语义。
+- `main-orchestrator` 只能留在主会话，不能作为 subagent 派发。
+- `review_roles` 只允许包含 reviewer；不得把 `verifier` 或 `security-test-writer` 塞进 `review_roles`。
+- 平台差异只允许存在于 `solidity-subagent-harness` 的 adapter；不得为了适配 Claude Code 或 Codex，在仓库内重新长出平行控制面。
+
 ## Agent Rules
 
 - 只要仓库存在 `.harness/policy.json`，主会话就必须使用 `solidity-subagent-harness`，不得自行发明 repo-local harness flow。
