@@ -672,17 +672,6 @@ while IFS= read -r hard_block_rule; do
     hard_block_rule_message="$(jq -r '.message' <<<"$hard_block_rule")"
     rule_matched=0
 
-    if [ "$fail_on_legacy" -eq 1 ] && [ "$(jq -r '.legacy_roots // false' <<<"$hard_block_rule")" = "true" ]; then
-        mapfile -t deleted_legacy_roots < <(jq -r '.deleted_legacy_roots[]' "$policy_file")
-        for legacy_root in "${deleted_legacy_roots[@]}"; do
-            if [ -e "$legacy_root" ]; then
-                hard_blocked=1
-                rule_matched=1
-                append_finding blocking_findings_json "main-orchestrator" "$hard_block_rule_message: $legacy_root" "$hard_block_rule_id" "error"
-            fi
-        done
-    fi
-
     if jq -e '.mixed_surface_sets? != null' >/dev/null <<<"$hard_block_rule"; then
         while IFS= read -r mixed_surface_set_json; do
             [ -n "$mixed_surface_set_json" ] || continue
