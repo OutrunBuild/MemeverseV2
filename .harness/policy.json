@@ -14,18 +14,6 @@
     "README.md",
     ".claude/settings.json"
   ],
-  "deleted_legacy_roots": [
-    "docs/process",
-    "docs/task-briefs",
-    "docs/agent-reports",
-    "docs/reviews",
-    ".github/pull_request_template.md",
-    ".github/workflows/pr-template-check.yml",
-    ".claude/agents",
-    ".claude/rules",
-    ".codex",
-    "script/process"
-  ],
   "surfaces": {
     "solidity_prod": [
       "^lib/.*$",
@@ -46,12 +34,8 @@
       "^\\.github/workflows/pr-template-check\\.yml$",
       "^\\.githooks/.*$",
       "^script/harness/.*$",
-      "^script/process/.*$",
       "^\\.harness/.*$",
       "^\\.claude/settings\\.json$",
-      "^\\.claude/agents/.*$",
-      "^\\.claude/rules/.*$",
-      "^\\.codex/.*$",
       "^docs/ARCHITECTURE\\.md$",
       "^docs/TRACEABILITY\\.md$",
       "^docs/VERIFICATION\\.md$",
@@ -59,11 +43,7 @@
       "^docs/SECURITY_AND_APPROVALS\\.md$",
       "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
       "^docs/spec/implementation-map\\.md$",
-      "^docs/spec/upgradeability\\.md$",
-      "^docs/process/.*$",
-      "^docs/task-briefs/.*$",
-      "^docs/agent-reports/.*$",
-      "^docs/reviews/.*$"
+      "^docs/spec/upgradeability\\.md$"
     ]
   },
   "write_roles": {
@@ -171,39 +151,6 @@
           "harness_control",
           "solidity_test"
         ]
-      ]
-    },
-    {
-      "id": "legacy-harness-roots-present",
-      "message": "legacy harness roots or terminology are still present",
-      "legacy_roots": true
-    },
-    {
-      "id": "legacy-harness-terminology",
-      "message": "legacy harness terminology must not appear in retained harness files",
-      "paths": [
-        "^AGENTS\\.md$",
-        "^README\\.md$",
-        "^CLAUDE\\.md$",
-        "^package\\.json$",
-        "^\\.github/workflows/.*$",
-        "^\\.githooks/.*$",
-        "^script/harness/.*$",
-        "^\\.claude/settings\\.json$"
-      ],
-      "tokens": [
-        "quality:gate",
-        "quality:quick",
-        "script/process/",
-        "docs/process",
-        "QUALITY_GATE_",
-        "task-brief",
-        "agent-report",
-        "review note",
-        "spec:ready",
-        "rule-map",
-        "codex:review",
-        "stale-evidence"
       ]
     }
   ],

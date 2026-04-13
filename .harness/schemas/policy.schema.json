@@ -8,7 +8,6 @@
     "version",
     "repo",
     "retained_harness_files",
-    "deleted_legacy_roots",
     "surfaces",
     "write_roles",
     "risk_rules",
@@ -31,14 +30,6 @@
       "minLength": 1
     },
     "retained_harness_files": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "uniqueItems": true
-    },
-    "deleted_legacy_roots": {
       "type": "array",
       "items": {
         "type": "string",
