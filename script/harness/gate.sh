@@ -546,7 +546,8 @@ for selected_surface in "${selected_surfaces[@]}"; do
     fi
 done
 
-patch_file="$(mktemp)"
+mkdir -p "$repo_root/.harness/tmp"
+patch_file="$(mktemp "$repo_root/.harness/tmp/gate.XXXXXX")"
 register_cleanup "$patch_file"
 classification_requires_diff=0
 diff_evidence_error=0
