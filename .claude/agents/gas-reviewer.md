@@ -9,7 +9,7 @@ tools:
 disallowedTools:
   - Write
   - Edit
-model: claude-sonnet-4-6
+model: sonnet
 permissionMode: default
 maxTurns: 25
 ---

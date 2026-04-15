@@ -8,7 +8,7 @@ tools:
   - Write
   - Edit
   - Bash
-model: claude-sonnet-4-6
+model: opus
 permissionMode: bypassPermissions
 maxTurns: 30
 ---
