@@ -1,22 +1,8 @@
 {
   "version": 1,
   "repo": "MemeverseV2",
-  "retained_harness_files": [
-    "AGENTS.md",
-    "CLAUDE.md",
-    ".harness/policy.json",
-    "script/harness/gate.sh",
-    "package.json",
-    ".gitignore",
-    ".githooks/pre-commit",
-    ".githooks/pre-push",
-    ".github/workflows/test.yml",
-    "README.md",
-    ".claude/settings.json"
-  ],
   "surfaces": {
     "solidity_prod": [
-      "^lib/.*$",
       "^src/.*\\.sol$",
       "^script/.*\\.sol$"
     ],
@@ -34,16 +20,23 @@
       "^\\.github/workflows/pr-template-check\\.yml$",
       "^\\.githooks/.*$",
       "^script/harness/.*$",
-      "^\\.harness/.*$",
+      "^\\.harness/policy\\.json$",
+      "^\\.harness/runtime/main-session-contract\\.md$",
+      "^\\.harness/schemas/.*$",
       "^\\.claude/settings\\.json$",
+      "^\\.claude/agents/.*$",
+      "^\\.codex/agents/.*$",
       "^docs/ARCHITECTURE\\.md$",
       "^docs/TRACEABILITY\\.md$",
       "^docs/VERIFICATION\\.md$",
       "^docs/GLOSSARY\\.md$",
       "^docs/SECURITY_AND_APPROVALS\\.md$",
       "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
-      "^docs/spec/implementation-map\\.md$",
-      "^docs/spec/upgradeability\\.md$"
+      "^solhint.*\\.config\\.js$",
+      "^foundry\\.toml$",
+      "^remappings\\.txt$",
+      "^package-lock\\.json$",
+      "^npm-shrinkwrap\\.json$"
     ]
   },
   "write_roles": {
@@ -99,6 +92,15 @@
       ]
     }
   ],
+  "security_test_writer_trigger": {
+    "risk_tiers": ["high-risk"],
+    "reviewer_finding_severity_to_activate": "critical"
+  },
+  "remediation_policy": {
+    "max_cycles": 5,
+    "conflict_priority": ["security-reviewer", "gas-reviewer", "logic-reviewer"],
+    "escalation": "user"
+  },
   "verification_profiles": {
     "fast": {
       "required_commands": [
@@ -154,7 +156,6 @@
       ]
     }
   ],
-  "soft_blocks": [],
   "testing_gaps": {
     "memeverse": [
       {
@@ -179,12 +180,6 @@
         "enforcement": "risk-upgrade"
       }
     ]
-  },
-  "run_record": {
-    "schema": "schemas/run-record.schema.json",
-    "default_output_dir": ".harness/.runs",
-    "file_name_template": "{timestamp}-{profile}.json",
-    "emit_on_noop": false
   },
   "test_mapping": {
     "memeverse": {

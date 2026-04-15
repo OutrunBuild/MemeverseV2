@@ -1,13 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codex.local/skills/solidity-subagent-harness/schemas/policy.schema.json",
-  "title": "Solidity Subagent Harness Policy",
+  "$id": "https://local.harness/policy.schema.json",
+  "title": "Repo-Owned Solidity Harness Policy",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "version",
     "repo",
-    "retained_harness_files",
     "surfaces",
     "write_roles",
     "risk_rules",
@@ -15,9 +14,7 @@
     "review_triggers",
     "verification_profiles",
     "hard_blocks",
-    "soft_blocks",
     "testing_gaps",
-    "run_record",
     "test_mapping"
   ],
   "properties": {
@@ -28,14 +25,6 @@
     "repo": {
       "type": "string",
       "minLength": 1
-    },
-    "retained_harness_files": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "uniqueItems": true
     },
     "changed_file_modes": {
       "type": "object",
@@ -109,6 +98,48 @@
       },
       "uniqueItems": true
     },
+    "security_test_writer_trigger": {
+      "type": "object",
+      "required": ["risk_tiers"],
+      "properties": {
+        "risk_tiers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["high-risk", "prod-semantic"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "reviewer_finding_severity_to_activate": {
+          "type": "string",
+          "enum": ["critical", "major", "any"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "remediation_policy": {
+      "type": "object",
+      "required": ["max_cycles", "conflict_priority", "escalation"],
+      "properties": {
+        "max_cycles": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "conflict_priority": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reviewRoleName"
+          },
+          "uniqueItems": true
+        },
+        "escalation": {
+          "type": "string",
+          "enum": ["user"]
+        }
+      },
+      "additionalProperties": false
+    },
     "verification_profiles": {
       "type": "object",
       "required": [
@@ -136,13 +167,6 @@
       },
       "uniqueItems": true
     },
-    "soft_blocks": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/blockRule"
-      },
-      "uniqueItems": true
-    },
     "testing_gaps": {
       "type": "object",
       "propertyNames": {
@@ -156,36 +180,6 @@
         },
         "uniqueItems": true
       }
-    },
-    "run_record": {
-      "type": "object",
-      "required": [
-        "schema",
-        "default_output_dir",
-        "file_name_template"
-      ],
-      "properties": {
-        "schema": {
-          "type": "string",
-          "minLength": 1
-        },
-        "default_output_dir": {
-          "type": "string",
-          "minLength": 1
-        },
-        "file_name_template": {
-          "type": "string",
-          "minLength": 1
-        },
-        "ci_output_path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "emit_on_noop": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
     },
     "test_mapping": {
       "type": "object",

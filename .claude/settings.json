@@ -26,5 +26,18 @@
       "Read(.env)",
       "Read(.env.*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ./script/harness/pre-edit-check.sh"
+          }
+        ]
+      }
+    ]
   }
 }

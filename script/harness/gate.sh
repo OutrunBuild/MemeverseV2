@@ -3,14 +3,12 @@ set -euo pipefail
 
 profile="full"
 changed_files_arg=""
-emit_run_record=""
-fail_on_legacy=0
 
 declare -a cleanup_paths=()
 
 usage() {
     cat >&2 <<'EOF'
-Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>] [--emit-run-record <path>] [--fail-on-legacy]
+Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>]
 EOF
 }
 
@@ -109,10 +107,6 @@ append_finding() {
         ')"
 
     printf -v "$target_name" '%s' "$updated"
-}
-
-json_length() {
-    jq 'length' <<<"$1"
 }
 
 record_command_run() {
@@ -264,50 +258,41 @@ match_path_against_patterns() {
     return 1
 }
 
-resolve_run_record_path() {
-    local default_dir
-    local template
-    local timestamp
-    local relative_path
+expand_repo_glob() {
+    local pattern="$1"
+    local absolute_pattern="${repo_root}/${pattern}"
+    local expanded_path
+    local -a matches=()
 
-    if [ -n "$emit_run_record" ]; then
-        case "$emit_run_record" in
-            /*) printf '%s' "$emit_run_record" ;;
-            *) printf '%s/%s' "$repo_root" "$emit_run_record" ;;
-        esac
+    if [[ "$pattern" != *'*'* && "$pattern" != *'?'* && "$pattern" != *'['* ]]; then
+        if [ -f "$absolute_pattern" ]; then
+            printf '%s\n' "$pattern"
+        fi
         return
     fi
 
-    default_dir="$(jq -r '.run_record.default_output_dir' "$policy_file")"
-    template="$(jq -r '.run_record.file_name_template' "$policy_file")"
-    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-    relative_path="${template//\{timestamp\}/$timestamp}"
-    relative_path="${relative_path//\{profile\}/$profile}"
+    while IFS= read -r expanded_path; do
+        [ -f "$expanded_path" ] || continue
+        expanded_path="${expanded_path#"${repo_root}/"}"
+        matches+=("$expanded_path")
+    done < <(compgen -G "$absolute_pattern" || true)
 
-    printf '%s/%s/%s' "$repo_root" "$default_dir" "$relative_path"
+    if [ "${#matches[@]}" -eq 0 ]; then
+        return
+    fi
+
+    printf '%s\n' "${matches[@]}"
 }
 
 resolve_harness_schema_root() {
-    local -a candidates=()
-    local candidate
+    local candidate="${repo_root}/.harness"
 
-    candidates+=("${repo_root}/.harness")
-    if [ -n "${SOLIDITY_SUBAGENT_HARNESS_ROOT:-}" ]; then
-        candidates+=("${SOLIDITY_SUBAGENT_HARNESS_ROOT}")
+    if [ -f "$candidate/schemas/policy.schema.json" ]; then
+        printf '%s' "$candidate"
+        return
     fi
-    if [ -n "${CODEX_HOME:-}" ]; then
-        candidates+=("${CODEX_HOME}/skills/solidity-subagent-harness")
-    fi
-    candidates+=("${HOME}/.codex/skills/solidity-subagent-harness")
 
-    for candidate in "${candidates[@]}"; do
-        if [ -f "$candidate/schemas/policy.schema.json" ] && [ -f "$candidate/schemas/run-record.schema.json" ]; then
-            printf '%s' "$candidate"
-            return
-        fi
-    done
-
-    die "unable to locate solidity-subagent-harness schemas"
+    die "unable to locate local .harness schemas"
 }
 
 resolve_schema_path() {
@@ -337,46 +322,6 @@ with schema_path.open("r", encoding="utf-8") as fh:
     schema = json.load(fh)
 with instance_path.open("r", encoding="utf-8") as fh:
     instance = json.load(fh)
-
-store = {}
-policy_schema_path = schema_path.parent / "policy.schema.json"
-if policy_schema_path.exists():
-    with policy_schema_path.open("r", encoding="utf-8") as fh:
-        policy_schema = json.load(fh)
-    store["policy.schema.json"] = policy_schema
-    store[str(policy_schema_path)] = policy_schema
-    store[policy_schema_path.as_uri()] = policy_schema
-    if "$id" in policy_schema:
-        store[policy_schema["$id"]] = policy_schema
-
-resolver = RefResolver(base_uri=schema_path.as_uri(), referrer=schema, store=store)
-validator = Draft202012Validator(schema, resolver=resolver)
-errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.path))
-
-if errors:
-    for error in errors:
-        path = ".".join(str(part) for part in error.path) or "<root>"
-        print(f"{path}: {error.message}", file=sys.stderr)
-    sys.exit(1)
-PY
-}
-
-validate_json_string_against_schema() {
-    local instance_json="$1"
-    local schema_file="$2"
-
-    INSTANCE_JSON="$instance_json" python3 - "$schema_file" <<'PY'
-import json
-import os
-import pathlib
-import sys
-
-from jsonschema import Draft202012Validator, RefResolver
-
-schema_path = pathlib.Path(sys.argv[1]).resolve()
-instance = json.loads(os.environ["INSTANCE_JSON"])
-with schema_path.open("r", encoding="utf-8") as fh:
-    schema = json.load(fh)
 
 store = {}
 policy_schema_path = schema_path.parent / "policy.schema.json"
@@ -452,18 +397,6 @@ while [ "$#" -gt 0 ]; do
             changed_files_arg="$2"
             shift 2
             ;;
-        --emit-run-record)
-            if [ "$#" -lt 2 ]; then
-                usage
-                exit 1
-            fi
-            emit_run_record="$2"
-            shift 2
-            ;;
-        --fail-on-legacy)
-            fail_on_legacy=1
-            shift
-            ;;
         -h|--help)
             usage
             exit 0
@@ -498,9 +431,6 @@ policy_schema_file="$harness_schema_root/schemas/policy.schema.json"
 if ! validate_json_file_against_schema "$policy_file" "$policy_schema_file"; then
     die "policy schema validation failed"
 fi
-
-run_record_schema_file="$(resolve_schema_path "$(jq -r '.run_record.schema' "$policy_file")")"
-[ -f "$run_record_schema_file" ] || die "run-record schema not found: $run_record_schema_file"
 
 mapfile -t solidity_prod_patterns < <(jq -r '.surfaces.solidity_prod[]' "$policy_file")
 mapfile -t solidity_test_patterns < <(jq -r '.surfaces.solidity_test[]' "$policy_file")
@@ -727,28 +657,6 @@ while IFS= read -r hard_block_rule; do
             fi
         done
     fi
-
-    if [ "$fail_on_legacy" -eq 1 ] && jq -e '.tokens? != null' >/dev/null <<<"$hard_block_rule"; then
-        mapfile -t retained_harness_files < <(jq -r '.retained_harness_files[]' "$policy_file")
-        mapfile -t hard_block_token_patterns < <(jq -r '.tokens[]' <<<"$hard_block_rule")
-        mapfile -t hard_block_scan_paths < <(jq -r '.paths[]? // empty' <<<"$hard_block_rule")
-
-        for retained_harness_file in "${retained_harness_files[@]}"; do
-            [ -f "$retained_harness_file" ] || continue
-            if [ "${#hard_block_scan_paths[@]}" -gt 0 ] && ! match_path_against_patterns "$retained_harness_file" "${hard_block_scan_paths[@]}"; then
-                continue
-            fi
-
-            for hard_block_token_pattern in "${hard_block_token_patterns[@]}"; do
-                if grep -qiE "$hard_block_token_pattern" "$retained_harness_file"; then
-                    hard_blocked=1
-                    rule_matched=1
-                    append_finding blocking_findings_json "main-orchestrator" "$hard_block_rule_message: $retained_harness_file matched /$hard_block_token_pattern/" "$hard_block_rule_id" "error"
-                    break 2
-                fi
-            done
-        done
-    fi
 done < <(jq -c '.hard_blocks[]' "$policy_file")
 
 if [ -n "$changed_files_arg" ] && { [ "${#solidity_prod_files[@]}" -gt 0 ] || [ "${#solidity_test_files[@]}" -gt 0 ]; } && [ "$classification_requires_diff" -eq 1 ]; then
@@ -923,7 +831,7 @@ if [ "${#unmatched_files[@]}" -gt 0 ]; then
 fi
 
 writer_role="none"
-if [ "$hard_blocked" -eq 0 ] && [ "${#selected_writer_roles[@]}" -eq 1 ]; then
+if [ "${#selected_writer_roles[@]}" -eq 1 ]; then
     writer_role="${selected_writer_roles[0]}"
 fi
 
@@ -944,12 +852,53 @@ else
 
     verification_profile="$profile"
 
-    if [ "$hard_blocked" -eq 0 ] && [[ " ${selected_surfaces[*]:-} " == *" solidity_prod "* || " ${selected_surfaces[*]:-} " == *" solidity_test "* ]]; then
+    declare -a selected_review_roles=()
+
+    if [[ " ${selected_surfaces[*]:-} " == *" solidity_prod "* || " ${selected_surfaces[*]:-} " == *" solidity_test "* ]]; then
         mapfile -t review_matrix_roles < <(jq -r --arg tier "$risk_tier" '.review_matrix[$tier][]? // empty' "$policy_file")
-        declare -a selected_review_roles=()
         for review_role in "${review_matrix_roles[@]}"; do
             append_unique selected_review_roles "$review_role"
         done
+    fi
+
+    while IFS= read -r review_trigger; do
+        [ -n "$review_trigger" ] || continue
+        mapfile -t trigger_surfaces < <(jq -r '.surfaces[]? // empty' <<<"$review_trigger")
+        mapfile -t trigger_paths < <(jq -r '.paths[]? // empty' <<<"$review_trigger")
+
+        trigger_surface_matched=0
+        if [ "${#trigger_surfaces[@]}" -eq 0 ]; then
+            trigger_surface_matched=1
+        else
+            for trigger_surface in "${trigger_surfaces[@]}"; do
+                if array_contains "$trigger_surface" "${selected_surfaces[@]}"; then
+                    trigger_surface_matched=1
+                    break
+                fi
+            done
+        fi
+
+        [ "$trigger_surface_matched" -eq 1 ] || continue
+
+        trigger_path_matched=0
+        if [ "${#trigger_paths[@]}" -eq 0 ]; then
+            trigger_path_matched=1
+        else
+            for changed_file in "${changed_files[@]}"; do
+                if match_path_against_patterns "$changed_file" "${trigger_paths[@]}"; then
+                    trigger_path_matched=1
+                    break
+                fi
+            done
+        fi
+
+        [ "$trigger_path_matched" -eq 1 ] || continue
+
+        review_role="$(jq -r '.reviewer_role' <<<"$review_trigger")"
+        append_unique selected_review_roles "$review_role"
+    done < <(jq -c '.review_triggers[]? // empty' "$policy_file")
+
+    if [ "${#selected_review_roles[@]}" -gt 0 ]; then
         selected_review_roles_json="$(json_array_from_values "${selected_review_roles[@]}")"
     else
         selected_review_roles_json='[]'
@@ -1189,69 +1138,7 @@ else
     final_verdict="pass"
 fi
 
-review_roles_json="${selected_review_roles_json:-[]}"
-
-run_id="gate-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-changed_files_json="$(json_array_from_values "${changed_files[@]}")"
-
-run_record_json="$(jq -cn \
-    --arg run_id "$run_id" \
-    --arg repo "$(jq -r '.repo' "$policy_file")" \
-    --argjson changed_files "$changed_files_json" \
-    --argjson surface "$surface_json" \
-    --arg risk_tier "$risk_tier" \
-    --arg writer_role "$writer_role" \
-    --argjson review_roles "$review_roles_json" \
-    --arg verification_profile "$verification_profile" \
-    --argjson profile_required_commands "$profile_required_commands_json" \
-    --argjson commands_run "$commands_run_json" \
-    --argjson command_results "$command_results_json" \
-    --argjson blocking_findings "$blocking_findings_json" \
-    --argjson residual_risks "$residual_risks_json" \
-    --arg final_verdict "$final_verdict" \
-    '
-    {
-      run_id: $run_id,
-      repo: $repo,
-      changed_files: $changed_files,
-      surface: $surface,
-      risk_tier: $risk_tier,
-      writer_role: $writer_role,
-      review_roles: $review_roles,
-      verification_profile: $verification_profile,
-      profile_required_commands: $profile_required_commands,
-      commands_run: $commands_run,
-      command_results: $command_results,
-      delegated_remediations: [],
-      blocking_findings: $blocking_findings,
-      residual_risks: $residual_risks,
-      final_verdict: $final_verdict
-    }
-    ')"
-
-if ! validate_json_string_against_schema "$run_record_json" "$run_record_schema_file"; then
-    die "assembled run record failed schema validation"
-fi
-
-should_emit_run_record=1
-if [ "$final_verdict" = "no-op" ] && [ -z "$emit_run_record" ]; then
-    emit_on_noop="$(jq -r '.run_record.emit_on_noop // false' "$policy_file")"
-    if [ "$emit_on_noop" != "true" ]; then
-        should_emit_run_record=0
-    fi
-fi
-
-run_record_path=""
-if [ "$should_emit_run_record" -eq 1 ]; then
-    run_record_path="$(resolve_run_record_path)"
-    mkdir -p "$(dirname "$run_record_path")"
-    printf '%s\n' "$run_record_json" >"$run_record_path"
-fi
-
 echo "[gate] profile=$profile verdict=$final_verdict risk=$risk_tier writer=$writer_role"
-if [ -n "$run_record_path" ]; then
-    echo "[gate] run_record=$run_record_path"
-fi
 
 case "$final_verdict" in
     pass|no-op)

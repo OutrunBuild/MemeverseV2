@@ -12,9 +12,9 @@
     "lint": "forge build",
     "build": "forge build",
     "test": "forge test",
-    "gate:fast": "bash ./script/harness/gate.sh --profile fast --fail-on-legacy",
-    "gate": "bash ./script/harness/gate.sh --profile full --fail-on-legacy",
-    "gate:ci": "bash ./script/harness/gate.sh --profile ci --changed-files \"$HARNESS_CHANGED_FILES\" --emit-run-record \"$RUN_RECORD_PATH\" --fail-on-legacy",
+    "gate:fast": "bash ./script/harness/gate.sh --profile fast",
+    "gate": "bash ./script/harness/gate.sh --profile full",
+    "gate:ci": "bash ./script/harness/gate.sh --profile ci --changed-files \"$HARNESS_CHANGED_FILES\"",
     "gas:report": "forge test --gas-report"
   },
   "devDependencies": {
