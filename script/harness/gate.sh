@@ -528,6 +528,12 @@ for changed_file in "${changed_files[@]}"; do
     esac
 done
 
+if [ "${#selected_surfaces[@]}" -eq 0 ]; then
+    echo "[gate] profile=$profile verdict=no-op risk=none writer=none"
+    echo "[gate] no changed files matched any surface pattern"
+    exit 0
+fi
+
 selected_solidity_json="$(json_array_from_values "${existing_solidity_files[@]}")"
 solidity_prod_json="$(json_array_from_values "${solidity_prod_files[@]}")"
 solidity_test_json="$(json_array_from_values "${solidity_test_files[@]}")"
