@@ -104,6 +104,56 @@
 - 上一周期未领完的 `rewardBalances[token]` 不永久保留；它们会在后续 `finalizeCurrentCycle()` 时回卷到 treasury ledger，并重新参与后续周期结算。
 - YieldVault 在 `totalSupply == 0` 时收到 yield 会 burn（防首存者攫取历史收益）。
 
-## 7. 启动期会计提醒
+## 7. Launch Fee 记账
 
-- 启动期会计重点是 launch fee 衰减与 launch settlement 固定 `1%` 路径。
+### 7.1 概述
+
+- Launch fee 是在 token launch 阶段（池初始化后的一段时间窗口内）对 swap 施加的额外费率保护。
+- 每个池的 launch 时间戳在 `beforeInitialize` 中记录为 `poolLaunchTimestamp[poolId]`。
+- Launch fee 与动态费（基于 PIF / 波动率 / 短期冲击）叠加取 max：`effectiveFeeBps = max(dynamicFeeBps, launchFeeBps)`。
+
+### 7.2 衰减公式
+
+- 默认配置 `defaultLaunchFeeConfig`：
+  - `startFeeBps = 5000`（50%）
+  - `minFeeBps = 100`（1%，即 `FEE_BASE_BPS`）
+  - `decayDurationSeconds = 900`（15 分钟）
+- 形状参数 `LAUNCH_FEE_EXP_SHAPE_WAD = 4e18`，指数衰减曲线：
+  - `elapsed = block.timestamp - launchTimestamp`
+  - 若 `elapsed >= decayDurationSeconds`，直接返回 `minFeeBps`
+  - 否则：
+    ```
+    expAtElapsed = wadExp(-elapsed * SHAPE / decayDuration)
+    expAtEnd     = wadExp(-SHAPE)
+    decayWad     = (expAtElapsed - expAtEnd) * 1e18 / (1e18 - expAtEnd)
+    feeBps       = minFeeBps + (startFeeBps - minFeeBps) * decayWad / 1e18
+    ```
+- 衰减单调递减：`elapsed` 增大时 `feeBps` 单调递减，不变量由 `LaunchFeeQuoteHandler` 测试保证。
+
+### 7.3 Launch Fee 的分配对象
+
+- Launch fee 本身不产生独立分配；它是 effective fee 的一部分，参与与常规 swap fee 相同的拆分：
+  - **LP 分配**：`lpFeeBps = effectiveFeeBps - protocolFeeBps`（即 `effectiveFeeBps * 7000 / 10000`）
+  - **Protocol 分配**：`protocolFeeBps = effectiveFeeBps * 3000 / 10000`
+- LP fee 按 per-share 累加到 `fee0PerShare / fee1PerShare`，LP 持有人通过 `claimFeesCore` 领取。
+- Protocol fee 发送到 `treasury` 地址。
+
+### 7.4 Launch Settlement 的固定费率
+
+- Launch settlement swap（preorder 结算）使用独立路径 `executeLaunchSettlement`，不经过 `beforeSwap/afterSwap` 回调。
+- 固定费率 `LAUNCH_SETTLEMENT_FEE_BPS = 100`（1%），不使用动态费也不使用衰减曲线。
+- 分配同样遵循 70/30 拆分：
+  - `lpFeeBps = 70`（0.7%）
+  - `protocolFeeBps = 30`（0.3%）
+- 输入侧费用在 settlement 入口直接收取：
+  - LP fee 部分：从 `payer` pull ERC20 到 hook，按 per-share 计入 LP 分配；若 `totalSupply == 0` 则只收取不计入。
+  - Protocol fee 部分：从 `payer` pull ERC20 直接到 `treasury`。
+- 输出侧 protocol fee（当 `!protocolFeeOnInput` 时）在 settlement callback 中从 pool output 扣取后发送到 `treasury`。
+
+### 7.5 配置管理
+
+- `setDefaultLaunchFeeConfig`：owner 可更新全局默认配置。
+  - 校验：`startFeeBps / minFeeBps / decayDurationSeconds` 均不能为零。
+  - 校验：`startFeeBps <= 10000`，`minFeeBps <= 10000`，`minFeeBps <= startFeeBps`。
+- 更新后对新池立即生效（已创建的池使用创建时的 `poolLaunchTimestamp`，不受配置变更影响）。
+- 变更通过 `DefaultLaunchFeeConfigUpdated` 事件链上可审计。
