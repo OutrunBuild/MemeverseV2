@@ -68,9 +68,9 @@
 
 | 函数 | 作用 |
 |---|---|
-| `settleDeltas` | 向 PoolManager settle 负 delta（用户欠池子的资金），支持 ERC20 和 native。 |
+| `settleDeltas` | 向 PoolManager settle 负 delta（用户欠池子的资金）。在 swap 栈语义下仅处理 ERC20/ERC20 pair；任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`。 |
 | `takeDeltas` | 从 PoolManager take 正 delta（池子欠用户的资金）到 recipient。 |
-| `transferCurrency` | 通用转账：native 用 `call{value}`，ERC20 用 `transfer`。 |
+| `transferCurrency` | 通用转账 helper。common 层可处理 native 与 ERC20，但 swap 栈文义上只允许 ERC20 结算。 |
 
 ### 1.4 资产层
 

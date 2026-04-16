@@ -29,7 +29,7 @@ Router 暴露 4 组 Permit2 入口（与普通入口并行，不替代）：
 
 ### 3.2 双 token 路径（add/create）
 
-- 按“是否含 native”推导期望 batch 长度（1 或 2）
+- 仅接受 ERC20/ERC20 pair，期望 batch 长度固定为 2
 - 逐项校验 token 顺序、接收地址、请求金额
 
 以上为 `[代码已证]`。
@@ -48,7 +48,7 @@ witness 绑定了关键业务参数（池子、方向、预算、截止时间等
 ## 5. 与普通入口一致/不一致点
 
 - 一致：Permit2 只改变 ERC20 资金准备方式，后续 slippage、deadline、hook 语义一致。`[代码已证]`
-- 不一致：native 资产不通过 Permit2，仍依赖 `msg.value`；未使用的 native 预算默认退回调用者。`[代码已证]`
+- 不一致：swap 栈 fail-close；任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`，Permit2 不为 native 提供任何兜底路径。`[代码已证]`
 
 ## 6. 安全边界
 

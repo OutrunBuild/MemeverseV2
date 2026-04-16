@@ -15,21 +15,23 @@
 ```mermaid
 flowchart TD
     A[用户调用 Router.swap / swapWithPermit2] --> B[Router 基础校验]
-    B --> C[准备输入资金]
+    B --> B1{currency0 或 currency1 是否为 address(0)?}
+    B1 -- 是 --> BX[revert NativeCurrencyUnsupported]
+    B1 -- 否 --> C[准备 ERC20 输入资金]
     C --> D[调用 PoolManager.swap]
     D --> E[Hook.beforeSwap]
     E --> F[执行动态费与启动期费率逻辑]
     F --> G[PoolManager 完成 swap]
     G --> H[Hook.afterSwap]
     H --> I[Router 做 minOut / maxIn 校验]
-    I --> J[退款未使用 native 输入]
-    J --> K[返回 BalanceDelta]
+    I --> K[返回 BalanceDelta]
 ```
 
 说明：
 
 - 普通 swap 采用单路径结算。
 - 交易要么成功结算，要么整笔回退。
+- swap 栈只支持 ERC20/ERC20 pair；任一侧为 `address(0)` 立即失败。
 - 启动期保护通过 Hook 内的 `launch fee window` 费率逻辑体现。
 
 ---
@@ -92,7 +94,7 @@ flowchart TD
 
 - Permit2 只改变 ERC20 资金准备方式。
 - 一旦资金到达 Router，后续业务语义与普通入口完全一致。
-- native 资产仍通过 `msg.value` 处理，不经过 Permit2。
+- Permit2 不处理 native；swap 栈也不接受 `msg.value`。
 
 ---
 
@@ -105,14 +107,13 @@ sequenceDiagram
     participant H as Hook
 
     U->>R: addLiquidity(...)
-    R->>R: 校验 deadline / minAmount / refundRecipient
-    R->>R: 准备输入资金
+    R->>R: 校验 deadline / minAmount / pair 为 ERC20/ERC20
+    R->>R: 准备 ERC20 输入资金
     R->>H: addLiquidityCore(...)
     H->>H: 如有必要初始化池
     H->>H: 计算 full-range liquidity
     H->>H: mint LP token
     H-->>R: 返回 liquidity 与 delta
-    R-->>U: 退回未使用 native 输入
     R-->>U: 返回 liquidity
 ```
 

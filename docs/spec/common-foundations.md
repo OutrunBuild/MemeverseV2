@@ -16,7 +16,18 @@
   - native 路径使用低层 call
   - ERC20 路径走 `safeTransfer`
 
-这意味着上层业务在处理 native 与 ERC20 时，共享同一套基础约束。
+这意味着多个上层业务模块在处理 native 与 ERC20 时，共享同一套基础约束。
+
+但这不是对全仓所有模块的无条件承诺。
+
+swap 栈是显式例外：
+
+- swap / router / hook 只支持 ERC20/ERC20 pair
+- 任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
+- Permit2 只处理 ERC20
+- protocol fee settlement currency 在 swap 栈内仅允许 ERC20
+
+因此阅读 swap 相关文档或实现时，不能把 common 层的 native 能力外推成 swap 也支持 native。
 
 ## 3. Approval 语义
 

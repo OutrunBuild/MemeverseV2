@@ -22,7 +22,7 @@
 另外还有一个重要运维约束：
 
 - `treasury` 必须是**被动收款地址**
-- 如果 protocol fee 可能以 native 支付，`treasury` 必须能正常收 ETH
+- swap 栈的 protocol fee settlement currency 只允许 ERC20
 - `treasury` 的 `receive()` / `fallback()` 不得继续触发 swap、加减流动性或其他重入式链上交易逻辑
 
 ---
@@ -44,7 +44,7 @@
 原因：
 
 1. Router 统一处理 `deadline`、`amountOutMinimum`、`amountInMaximum`
-2. Router 统一处理 native 退款地址与预算准备
+2. Router 对 swap 栈执行 fail-close 输入约束：任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
 3. Router 提供 pair 级 helper，如 `lpToken(...)`、`quoteAmountsForLiquidity(...)`
 4. Router 保持纯公开 surface；启动结算由 Launcher 直接走 Hook 显式路径，普通集成方无需感知专用 settlement 接线
 
@@ -69,7 +69,7 @@
 
 ### 2.2 Protocol fee
 
-- 协议支持同时配置多种 protocol fee 币种，币种既可以是 ERC20，也可以是 native
+- swap 栈的 protocol fee settlement currency 只允许 ERC20
 - 每一笔 swap 会优先检查输入币是否属于支持列表
 - 如果输入币不在支持列表，再检查输出币是否属于支持列表
 - 如果输入/输出都不在支持列表，swap 会视为配置错误并失败
@@ -101,20 +101,19 @@ function swap(
     PoolKey calldata key,
     SwapParams calldata params,
     address recipient,
-    address nativeRefundRecipient,
     uint256 deadline,
     uint256 amountOutMinimum,
     uint256 amountInMaximum,
     bytes calldata hookData
-) external payable returns (BalanceDelta delta);
+) external returns (BalanceDelta delta);
 ```
 
 参数含义：
 
 - `key`：池子 key
+- `key.currency0` / `key.currency1` 必须都是 ERC20；任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
 - `params`：Uniswap v4 swap 参数
 - `recipient`：最终接收输出币的地址
-- `nativeRefundRecipient`：接收未使用原生币退款的地址；如果本次调用附带了 `msg.value`，这里必须传一个可收 ETH 的地址
 - `deadline`：过期时间
 - `amountOutMinimum`：
   - exact-input 时用于最小输出保护
@@ -172,7 +171,7 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 - `permit2()` 可用于确认 Router 绑定的 Permit2 合约地址
 - `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` / `createPoolAndAddLiquidityWithPermit2(...)` 只负责签名拉资
 - Permit2 拉资后，deadline、slippage、Hook 语义与普通入口一致
-- native 资产仍走 `msg.value` 与 `nativeRefundRecipient`，不经过 Permit2
+- Permit2 只处理 ERC20；swap 栈不接受 native 资产，也不接受 `msg.value`
 - 签名里的 `spender` 必须是 Router 地址，`transferDetails.to` 必须是 Router
 
 ---
