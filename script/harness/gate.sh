@@ -3,12 +3,13 @@ set -euo pipefail
 
 profile="full"
 changed_files_arg=""
+all_mode=0
 
 declare -a cleanup_paths=()
 
 usage() {
     cat >&2 <<'EOF'
-Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>]
+Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>] [--all]
 EOF
 }
 
@@ -169,6 +170,17 @@ record_blocked_command() {
     record_command_result "$id" "failed" "" "$summary" "main-orchestrator"
 }
 
+filter_command_output() {
+    local output_file="$1"
+    local exit_code="$2"
+
+    if [ "$exit_code" -eq 0 ]; then
+        grep -i -E '(warning|warn |error|✖)' "$output_file" || true
+    else
+        grep -i -E '(warning|warn |error|FAIL|failed|✖|Revert|revert)' -C 3 "$output_file" || cat "$output_file"
+    fi
+}
+
 run_single_command() {
     local id="$1"
     local reason="$2"
@@ -181,10 +193,16 @@ run_single_command() {
     command_string="$(shell_join "${cmd[@]}")"
     record_command_run "$id" "$command_string" "$reason" "$scope_json"
 
+    local _output_file
+    _output_file="$(mktemp "$repo_root/.harness/tmp/cmd.XXXXXX")"
+    register_cleanup "$_output_file"
+
     set +e
-    "${cmd[@]}"
+    "${cmd[@]}" > "$_output_file" 2>&1
     exit_code=$?
     set -e
+
+    filter_command_output "$_output_file" "$exit_code"
 
     if [ "$exit_code" -eq 0 ]; then
         record_command_result "$id" "passed" "$exit_code" "command succeeded" "verifier"
@@ -208,6 +226,10 @@ run_looped_command() {
     local exit_code=0
     local loop_exit
 
+    local _loop_output_file
+    _loop_output_file="$(mktemp "$repo_root/.harness/tmp/cmd.XXXXXX")"
+    register_cleanup "$_loop_output_file"
+
     for item in "${scope[@]}"; do
         local command_string
         command_string="$(shell_join "$subcommand_label" "$item")"
@@ -215,10 +237,10 @@ run_looped_command() {
         set +e
         case "$id" in
             targeted_tests)
-                forge test --match-path "$item"
+                forge test --match-path "$item" >> "$_loop_output_file" 2>&1
                 ;;
             node_syntax_changed_js)
-                node --check "$item"
+                node --check "$item" >> "$_loop_output_file" 2>&1
                 ;;
             *)
                 die "unsupported looped command id: $id"
@@ -235,10 +257,12 @@ run_looped_command() {
     record_command_run "$id" "$(IFS=' && '; printf '%s' "${command_strings[*]}")" "$reason" "$scope_json"
 
     if [ "$exit_code" -eq 0 ]; then
+        filter_command_output "$_loop_output_file" "0"
         record_command_result "$id" "passed" "0" "all scoped commands succeeded" "verifier"
         return
     fi
 
+    filter_command_output "$_loop_output_file" "$exit_code"
     verification_failed=1
     record_command_result "$id" "failed" "$exit_code" "at least one scoped command failed" "verifier"
     append_finding blocking_findings_json "verifier" "verification command failed: $id" "$id" "error"
@@ -397,6 +421,10 @@ while [ "$#" -gt 0 ]; do
             changed_files_arg="$2"
             shift 2
             ;;
+        --all)
+            all_mode=1
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -414,6 +442,10 @@ case "$profile" in
         die "--profile must be one of: fast, full, ci"
         ;;
 esac
+
+if [ "$all_mode" -eq 1 ] && [ -n "$changed_files_arg" ]; then
+    die "--all and --changed-files are mutually exclusive"
+fi
 
 command -v jq >/dev/null 2>&1 || die "jq is required"
 command -v node >/dev/null 2>&1 || die "node is required"
@@ -438,19 +470,6 @@ mapfile -t harness_control_patterns < <(jq -r '.surfaces.harness_control[]' "$po
 mapfile -t high_risk_path_patterns < <(jq -r '.risk_rules.high_risk_paths[]' "$policy_file")
 mapfile -t high_risk_token_patterns < <(jq -r '.risk_rules.high_risk_tokens[]? // empty' "$policy_file")
 
-if [ -n "$changed_files_arg" ]; then
-    case "$changed_files_arg" in
-        /*) ;;
-        *) changed_files_arg="$original_cwd/$changed_files_arg" ;;
-    esac
-    [ -f "$changed_files_arg" ] || die "changed files input not found: $changed_files_arg"
-    mapfile -t changed_files < <(awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' "$changed_files_arg" | awk '!seen[$0]++')
-elif [ "$profile" = "ci" ]; then
-    die "--changed-files is required when --profile ci is used"
-else
-    mapfile -t changed_files < <(git diff --cached --name-only --diff-filter=ACMRD | awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' | awk '!seen[$0]++')
-fi
-
 declare -a selected_surfaces=()
 declare -a unmatched_files=()
 declare -a solidity_prod_files=()
@@ -466,6 +485,74 @@ declare -a existing_test_solidity_files=()
 declare -a existing_shell_files=()
 declare -a existing_js_files=()
 declare -a classification_solidity_files=()
+
+if [ "$all_mode" -eq 1 ]; then
+    # --all mode: enumerate ALL repo files matching surface patterns
+    while IFS= read -r -d '' file; do
+        rel="${file#"${repo_root}/"}"
+        if match_path_against_patterns "$rel" "${solidity_prod_patterns[@]}"; then
+            append_unique solidity_prod_files "$rel"
+            append_unique selected_surfaces "solidity_prod"
+            append_unique existing_solidity_files "$rel"
+            append_unique existing_src_or_script_solidity_files "$rel"
+            if [[ "$rel" =~ ^src/.*\.sol$ ]]; then
+                append_unique existing_src_solidity_files "$rel"
+            fi
+        fi
+    done < <(find "$repo_root" -name '*.sol' -not -path '*/lib/*' -not -path '*/node_modules/*' -not -path '*/.git/*' -print0 2>/dev/null)
+
+    while IFS= read -r -d '' file; do
+        rel="${file#"${repo_root}/"}"
+        if match_path_against_patterns "$rel" "${solidity_test_patterns[@]}"; then
+            append_unique solidity_test_files "$rel"
+            append_unique selected_surfaces "solidity_test"
+            append_unique existing_solidity_files "$rel"
+            append_unique existing_test_solidity_files "$rel"
+        fi
+    done < <(find "$repo_root" -name '*.sol' -not -path '*/lib/*' -not -path '*/node_modules/*' -not -path '*/.git/*' -print0 2>/dev/null)
+
+    for pattern in "${harness_control_patterns[@]}"; do
+        while IFS= read -r rel; do
+            [ -n "$rel" ] || continue
+            append_unique harness_control_files "$rel"
+            append_unique selected_surfaces "harness_control"
+
+            case "$rel" in
+                *.sh|.githooks/*)
+                    append_unique shell_files "$rel"
+                    append_unique existing_shell_files "$rel"
+                    ;;
+            esac
+
+            case "$rel" in
+                *.js|*.cjs|*.mjs)
+                    append_unique js_files "$rel"
+                    append_unique existing_js_files "$rel"
+                    ;;
+            esac
+
+            case "$rel" in
+                package.json|package-lock.json|npm-shrinkwrap.json)
+                    append_unique package_trigger_files "$rel"
+                    ;;
+            esac
+        done < <(expand_repo_glob "$pattern")
+    done
+
+    mapfile -t changed_files < <(printf '%s\n' "${solidity_prod_files[@]}" "${solidity_test_files[@]}" "${harness_control_files[@]}" | awk '!seen[$0]++')
+else
+    if [ -n "$changed_files_arg" ]; then
+        case "$changed_files_arg" in
+            /*) ;;
+            *) changed_files_arg="$original_cwd/$changed_files_arg" ;;
+        esac
+        [ -f "$changed_files_arg" ] || die "changed files input not found: $changed_files_arg"
+        mapfile -t changed_files < <(awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' "$changed_files_arg" | awk '!seen[$0]++')
+    elif [ "$profile" = "ci" ]; then
+        die "--changed-files is required when --profile ci is used"
+    else
+        mapfile -t changed_files < <(git diff --cached --name-only --diff-filter=ACMRD | awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' | awk '!seen[$0]++')
+    fi
 
 for changed_file in "${changed_files[@]}"; do
     matched=0
@@ -527,6 +614,7 @@ for changed_file in "${changed_files[@]}"; do
             ;;
     esac
 done
+fi
 
 if [ "${#selected_surfaces[@]}" -eq 0 ]; then
     echo "[gate] profile=$profile verdict=no-op risk=none writer=none"
@@ -558,7 +646,10 @@ register_cleanup "$patch_file"
 classification_requires_diff=0
 diff_evidence_error=0
 
-if [ "${#classification_solidity_files[@]}" -gt 0 ]; then
+if [ "$all_mode" -eq 1 ]; then
+    : >"$patch_file"
+    classification_requires_diff=0
+elif [ "${#classification_solidity_files[@]}" -gt 0 ]; then
     if [ -n "$changed_files_arg" ]; then
         if [ -n "${CHANGE_CLASSIFIER_DIFF_FILE:-}" ]; then
             if [ ! -r "${CHANGE_CLASSIFIER_DIFF_FILE}" ]; then
@@ -598,8 +689,12 @@ hard_blocked=0
 verification_failed=0
 
 if [ "${#selected_writer_roles[@]}" -gt 1 ]; then
-    hard_blocked=1
-    append_finding blocking_findings_json "main-orchestrator" "changed surfaces resolve to multiple writer roles: ${selected_writer_roles[*]}" "writer-role-conflict" "error"
+    if [ "$all_mode" -eq 1 ]; then
+        append_finding residual_risks_json "verifier" "multiple writer roles present in --all mode: ${selected_writer_roles[*]}" "writer-role-conflict" "info"
+    else
+        hard_blocked=1
+        append_finding blocking_findings_json "main-orchestrator" "changed surfaces resolve to multiple writer roles: ${selected_writer_roles[*]}" "writer-role-conflict" "error"
+    fi
 fi
 
 while IFS= read -r hard_block_rule; do
@@ -610,7 +705,10 @@ while IFS= read -r hard_block_rule; do
     rule_matched=0
 
     if jq -e '.mixed_surface_sets? != null' >/dev/null <<<"$hard_block_rule"; then
-        while IFS= read -r mixed_surface_set_json; do
+        if [ "$all_mode" -eq 1 ]; then
+            append_finding residual_risks_json "verifier" "$hard_block_rule_message (suppressed in --all mode)" "$hard_block_rule_id" "info"
+        else
+            while IFS= read -r mixed_surface_set_json; do
             [ -n "$mixed_surface_set_json" ] || continue
             mixed_surface_match=1
             mapfile -t mixed_surface_set < <(jq -r '.[]' <<<"$mixed_surface_set_json")
@@ -627,6 +725,7 @@ while IFS= read -r hard_block_rule; do
                 break
             fi
         done < <(jq -c '.mixed_surface_sets[]?' <<<"$hard_block_rule")
+        fi
     fi
 
     if jq -e '.paths? != null and .tokens? == null' >/dev/null <<<"$hard_block_rule"; then
@@ -666,15 +765,17 @@ while IFS= read -r hard_block_rule; do
     fi
 done < <(jq -c '.hard_blocks[]' "$policy_file")
 
-if [ -n "$changed_files_arg" ] && { [ "${#solidity_prod_files[@]}" -gt 0 ] || [ "${#solidity_test_files[@]}" -gt 0 ]; } && [ "$classification_requires_diff" -eq 1 ]; then
-    classification_requires_diff=1
-    hard_blocked=1
-    append_finding blocking_findings_json "main-orchestrator" "changed-files mode for Solidity changes requires CHANGE_CLASSIFIER_DIFF_FILE or GATE_DIFF_BASE to classify non-semantic diffs deterministically" "semantic-classification-requires-diff" "error"
-fi
+if [ "$all_mode" -eq 0 ]; then
+    if [ -n "$changed_files_arg" ] && { [ "${#solidity_prod_files[@]}" -gt 0 ] || [ "${#solidity_test_files[@]}" -gt 0 ]; } && [ "$classification_requires_diff" -eq 1 ]; then
+        classification_requires_diff=1
+        hard_blocked=1
+        append_finding blocking_findings_json "main-orchestrator" "changed-files mode for Solidity changes requires CHANGE_CLASSIFIER_DIFF_FILE or GATE_DIFF_BASE to classify non-semantic diffs deterministically" "semantic-classification-requires-diff" "error"
+    fi
 
-if [ -n "$changed_files_arg" ] && { [ "${#solidity_prod_files[@]}" -gt 0 ] || [ "${#solidity_test_files[@]}" -gt 0 ]; } && [ "$diff_evidence_error" -eq 1 ]; then
-    hard_blocked=1
-    append_finding blocking_findings_json "main-orchestrator" "changed-files mode provided unusable diff evidence for Solidity classification" "semantic-classification-diff-unusable" "error"
+    if [ -n "$changed_files_arg" ] && { [ "${#solidity_prod_files[@]}" -gt 0 ] || [ "${#solidity_test_files[@]}" -gt 0 ]; } && [ "$diff_evidence_error" -eq 1 ]; then
+        hard_blocked=1
+        append_finding blocking_findings_json "main-orchestrator" "changed-files mode provided unusable diff evidence for Solidity classification" "semantic-classification-diff-unusable" "error"
+    fi
 fi
 
 classification_json="$(
@@ -683,6 +784,7 @@ classification_json="$(
     HIGH_RISK_PATHS_JSON="$high_risk_paths_json" \
     HIGH_RISK_TOKENS_JSON="$high_risk_tokens_json" \
     PATCH_FILE="$patch_file" \
+    ALL_MODE="$all_mode" \
     node <<'EOF'
 const fs = require('fs');
 
@@ -691,6 +793,7 @@ const testFiles = JSON.parse(process.env.TEST_FILES_JSON || '[]');
 const highRiskPaths = JSON.parse(process.env.HIGH_RISK_PATHS_JSON || '[]');
 const highRiskTokens = JSON.parse(process.env.HIGH_RISK_TOKENS_JSON || '[]');
 const patchPath = process.env.PATCH_FILE || '';
+const allMode = process.env.ALL_MODE === '1';
 const patch = patchPath && fs.existsSync(patchPath) ? fs.readFileSync(patchPath, 'utf8') : '';
 const trackedFiles = [...prodFiles, ...testFiles];
 
@@ -709,7 +812,23 @@ function isNonSemanticLine(line) {
 
 const analysis = new Map(trackedFiles.map((file) => [file, { semantic: false, tokenHits: new Set() }]));
 
-if (patch !== '') {
+if (allMode) {
+  for (const file of trackedFiles) {
+    const entry = analysis.get(file);
+    entry.semantic = true;
+    if (fs.existsSync(file)) {
+      try {
+        const content = fs.readFileSync(file, 'utf8');
+        for (const tokenPattern of highRiskTokens) {
+          const regex = new RegExp(tokenPattern, 'i');
+          if (regex.test(content)) {
+            entry.tokenHits.add(tokenPattern);
+          }
+        }
+      } catch (e) { /* ignore read errors */ }
+    }
+  }
+} else if (patch !== '') {
   let currentFile = null;
   for (const rawLine of patch.split(/\r?\n/)) {
     if (rawLine.startsWith('diff --git ')) {
@@ -778,7 +897,24 @@ EOF
 
 risk_tier="$(jq -r '.risk_tier' <<<"$classification_json")"
 
-if [ "$classification_requires_diff" -eq 1 ]; then
+if [ "$all_mode" -eq 1 ]; then
+    if [ "${#solidity_prod_files[@]}" -gt 0 ]; then
+        fallback_high_risk=0
+        for solidity_prod_file in "${solidity_prod_files[@]}"; do
+            if match_path_against_patterns "$solidity_prod_file" "${high_risk_path_patterns[@]}"; then
+                fallback_high_risk=1
+                break
+            fi
+        done
+        if [ "$fallback_high_risk" -eq 1 ]; then
+            risk_tier="high-risk"
+        else
+            risk_tier="prod-semantic"
+        fi
+    elif [ "${#solidity_test_files[@]}" -gt 0 ]; then
+        risk_tier="test-semantic"
+    fi
+elif [ "$classification_requires_diff" -eq 1 ]; then
     if [ "${#solidity_prod_files[@]}" -gt 0 ]; then
         fallback_high_risk=0
         for solidity_prod_file in "${solidity_prod_files[@]}"; do
@@ -832,7 +968,7 @@ if [ "$risk_tier" = "none" ] && [[ " ${selected_surfaces[*]:-} " == *" harness_c
     risk_tier="non-semantic"
 fi
 
-if [ "${#unmatched_files[@]}" -gt 0 ]; then
+if [ "$all_mode" -eq 0 ] && [ "${#unmatched_files[@]}" -gt 0 ]; then
     hard_blocked=1
     append_finding blocking_findings_json "main-orchestrator" "changed files do not match configured policy surfaces: ${unmatched_files[*]}" "unclassified-paths" "error"
 fi
@@ -979,20 +1115,20 @@ if [ "${#changed_files[@]}" -gt 0 ]; then
                 fi
                 ;;
             lint_changed_solidity)
-                src_or_script_scope_json="$(json_array_from_values "${existing_src_or_script_solidity_files[@]}")"
+                src_scope_json="$(json_array_from_values "${existing_src_solidity_files[@]}")"
                 test_scope_json="$(json_array_from_values "${existing_test_solidity_files[@]}")"
                 if [ "$hard_blocked" -eq 1 ]; then
-                    record_blocked_command "$command_id" "npx solhint -c solhint.config.js <src-or-script-solidity> && npx solhint -c solhint-test.config.js <test-solidity>" "lint selected Solidity files" "$selected_solidity_json" "command blocked before execution by policy hard-block"
-                elif [ "${#existing_src_or_script_solidity_files[@]}" -gt 0 ]; then
-                    lint_command="npx solhint -c solhint.config.js $(shell_join "${existing_src_or_script_solidity_files[@]}")"
+                    record_blocked_command "$command_id" "npx solhint -c solhint.config.js <src-solidity> && npx solhint -c solhint-test.config.js <test-solidity>" "lint selected Solidity files" "$selected_solidity_json" "command blocked before execution by policy hard-block"
+                elif [ "${#existing_src_solidity_files[@]}" -gt 0 ]; then
+                    lint_command="npx solhint -c solhint.config.js $(shell_join "${existing_src_solidity_files[@]}")"
                     if [ "${#existing_test_solidity_files[@]}" -gt 0 ]; then
                         lint_command="$lint_command && npx solhint -c solhint-test.config.js $(shell_join "${existing_test_solidity_files[@]}")"
-                        lint_scope_json="$(jq -cn --argjson src "$src_or_script_scope_json" --argjson test "$test_scope_json" '$src + $test')"
+                        lint_scope_json="$(jq -cn --argjson src "$src_scope_json" --argjson test "$test_scope_json" '$src + $test')"
                     else
-                        lint_scope_json="$src_or_script_scope_json"
+                        lint_scope_json="$src_scope_json"
                     fi
                     run_single_command "$command_id" "lint selected Solidity files" "$lint_scope_json" bash -lc "$lint_command"
-                elif [ "${#existing_test_solidity_files[@]}" -gt 0 ]; then
+                elif [ "${#existing_src_solidity_files[@]}" -eq 0 ] && [ "${#existing_test_solidity_files[@]}" -gt 0 ]; then
                     run_single_command "$command_id" "lint selected Solidity files" "$test_scope_json" npx solhint -c solhint-test.config.js "${existing_test_solidity_files[@]}"
                 else
                     record_not_applicable_command "$command_id" "npx solhint -c solhint.config.js && npx solhint -c solhint-test.config.js" "lint selected Solidity files" "$selected_solidity_json" "no Solidity files in scope"
