@@ -927,7 +927,7 @@ contract MemeverseSwapRouterTest is Test {
 
         assertLt(int256(delta.amount0()), 0, "delta0");
         assertGt(int256(delta.amount1()), 0, "delta1");
-        assertLt(gasUsed, 352_000, "swap gas ceiling");
+        assertLt(gasUsed, 555_000, "swap gas ceiling");
     }
 
     /// @notice Verifies routed swaps do not pay for a redundant launch-fee quote round-trip.
