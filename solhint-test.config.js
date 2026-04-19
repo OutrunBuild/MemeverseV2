@@ -13,6 +13,7 @@ module.exports = {
         "gas-strict-inequalities": "off",
         "gas-small-strings": "off",
         "multiple-sends": "off",
+        "no-complex-fallback": "off",
         "no-console": "off",
         "one-contract-per-file": "off"
     }
