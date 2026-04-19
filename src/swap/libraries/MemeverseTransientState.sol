@@ -35,10 +35,12 @@ library MemeverseTransientState {
         depth = _loadSwapContextDepth();
         if (depth == 0) return (0, 0);
 
+        bytes32 feeSlot = _swapContextFieldSlot(SWAP_CONTEXT_FEE_TAG, poolId, depth);
         bytes32 priceSlot = _swapContextFieldSlot(SWAP_CONTEXT_PRICE_TAG, poolId, depth);
         bytes32 depthSlot = _swapContextDepthSlot();
         assembly {
             preSqrtPriceX96 := tload(priceSlot)
+            tstore(feeSlot, 0)
             tstore(priceSlot, 0)
             tstore(depthSlot, sub(depth, 1))
         }
@@ -63,20 +65,6 @@ library MemeverseTransientState {
         }
     }
 
-    function storeRequestedInputBudget(uint256 inputBudget) internal {
-        bytes32 budgetSlot = _requestedInputBudgetSlot();
-        assembly {
-            tstore(budgetSlot, inputBudget)
-        }
-    }
-
-    function loadRequestedInputBudget() internal view returns (uint256 inputBudget) {
-        bytes32 budgetSlot = _requestedInputBudgetSlot();
-        assembly {
-            inputBudget := tload(budgetSlot)
-        }
-    }
-
     function _loadSwapContextDepth() private view returns (uint256 depth) {
         bytes32 depthSlot = _swapContextDepthSlot();
         assembly {
@@ -98,9 +86,5 @@ library MemeverseTransientState {
 
     function _swapContextFieldSlot(bytes32 tag, PoolId poolId, uint256 depth) private pure returns (bytes32) {
         return bytes32(uint256(keccak256(abi.encode(tag, PoolId.unwrap(poolId), depth))) - 1);
-    }
-
-    function _requestedInputBudgetSlot() private pure returns (bytes32) {
-        return bytes32(uint256(keccak256(abi.encodePacked("memeverse.transient.", "requested-input-budget"))) - 1);
     }
 }

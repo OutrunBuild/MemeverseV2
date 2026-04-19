@@ -573,7 +573,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Verifies direct removeLiquidityCore forwards assets when recipient differs from sender.
-    /// @dev Covers the `_forwardLiquidityOutputs` branch in the hook.
+    /// @dev Covers the direct output-forwarding path inside `removeLiquidityCore`.
     function testRemoveLiquidityCore_ForwardsOutputsToDifferentRecipient() external {
         uint128 liquidity = _addLiquidity();
         (address liquidityToken,,) = hook.poolInfo(poolId);

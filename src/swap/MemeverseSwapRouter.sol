@@ -163,9 +163,9 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         external
         view
         override
+        differentTokens(tokenA, tokenB)
         returns (uint256 amountARequired, uint256 amountBRequired)
     {
-        if (tokenA == tokenB) revert InvalidTokenPair();
         (Currency currency0, Currency currency1, bool tokenAIsCurrency0) = _sortedCurrencies(tokenA, tokenB);
         PoolKey memory key = _hookPoolKey(currency0, currency1);
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());

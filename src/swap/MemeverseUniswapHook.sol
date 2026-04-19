@@ -1042,6 +1042,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         effectiveSupply = _effectiveLpSupply(poolId);
         if (effectiveSupply != 0) return effectiveSupply;
+        // When only protocol-locked MINIMUM_LIQUIDITY remains, fail closed instead of silently charging LP fees that
+        // nobody can ever claim. A fully drained pool still returns 0 to preserve zero-liquidity quote semantics.
         if (poolManager.getLiquidity(poolId) == 0) return 0;
         revert NoActiveLiquidityShares();
     }
