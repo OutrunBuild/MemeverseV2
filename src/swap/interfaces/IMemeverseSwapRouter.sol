@@ -77,14 +77,14 @@ interface IMemeverseSwapRouter {
 
     /// @notice Derive the hook-managed pool key that corresponds to a given token pair.
     /// @dev Sorts the tokens canonically and attaches the router's hook configuration before delegating to the hook.
-    /// @param tokenA One side of the pair; pass `address(0)` if this side represents the native currency.
+    /// @param tokenA One side of the pair.
     /// @param tokenB The other side of the pair.
     /// @return key Canonical hook pool key for the pair.
     function getHookPoolKey(address tokenA, address tokenB) external view returns (PoolKey memory key);
 
     /// @notice Preview how much LP fee an owner can claim for a token pair.
     /// @dev Resolves the hook pool key before delegating fee math to the hook.
-    /// @param tokenA One side of the pair; pass `address(0)` if it is the native currency.
+    /// @param tokenA One side of the pair.
     /// @param tokenB The other side of the pair.
     /// @param owner LP owner whose pending fees are being inspected.
     /// @return fee0 Preview claimable amount in currency0.
@@ -96,14 +96,14 @@ interface IMemeverseSwapRouter {
 
     /// @notice Return the LP token contract for the hook-managed pair formed by two tokens.
     /// @dev Handy when integrations know the ERC20 addresses but need the minted LP token contract.
-    /// @param tokenA One side of the pair; pass `address(0)` when it represents the native currency.
+    /// @param tokenA One side of the pair.
     /// @param tokenB The other side of the pair.
     /// @return liquidityToken LP token contract for the pair.
     function lpToken(address tokenA, address tokenB) external view returns (address liquidityToken);
 
     /// @notice Quote how much of each pool token the router would spend to mint a desired liquidity amount.
     /// @dev Mirrors the math that the router and hook apply when adding full-range liquidity.
-    /// @param tokenA One side of the pair; pass `address(0)` if this token is the native currency.
+    /// @param tokenA One side of the pair.
     /// @param tokenB The other side of the pair.
     /// @param liquidityDesired Target LP liquidity to mint.
     /// @return amountARequired Required amount of `tokenA`.
@@ -131,7 +131,7 @@ interface IMemeverseSwapRouter {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    ) external payable returns (BalanceDelta delta);
+    ) external returns (BalanceDelta delta);
 
     /// @notice Execute a swap after funding the router via Permit2 signature transfer.
     /// @dev Behaves identically to `swap(...)` once the Permit2 pull completes.
@@ -154,13 +154,13 @@ interface IMemeverseSwapRouter {
         uint256 amountOutMinimum,
         uint256 amountInMaximum,
         bytes calldata hookData
-    ) external payable returns (BalanceDelta delta);
+    ) external returns (BalanceDelta delta);
 
     /// @notice Add liquidity via the hook core while the router finalizes exact spend, enforces minimums, and refunds leftovers.
     /// @dev The router pulls desired budgets, resolves actual full-range spend at the current price, and forwards only what the hook needs.
     /// @custom:security Callers must approve ERC20 inputs to the router before calling and set min amounts that match their slippage tolerance.
-    /// @param currency0 Pool currency0; use `address(0)` inside `Currency.wrap` when this side is native.
-    /// @param currency1 Pool currency1; use `address(0)` inside `Currency.wrap` when this side is native.
+    /// @param currency0 Pool currency0.
+    /// @param currency1 Pool currency1.
     /// @param amount0Desired Desired currency0 budget.
     /// @param amount1Desired Desired currency1 budget.
     /// @param amount0Min Minimum currency0 spend accepted after routing to the hook.
@@ -177,7 +177,7 @@ interface IMemeverseSwapRouter {
         uint256 amount1Min,
         address to,
         uint256 deadline
-    ) external payable returns (uint128 liquidity);
+    ) external returns (uint128 liquidity);
 
     /// @notice Add liquidity after covering the ERC20 sides through a Permit2 signature transfer.
     /// @dev Once Permit2 funding succeeds, execution follows the same path as `addLiquidity(...)`.
@@ -202,7 +202,7 @@ interface IMemeverseSwapRouter {
         uint256 amount1Min,
         address to,
         uint256 deadline
-    ) external payable returns (uint128 liquidity);
+    ) external returns (uint128 liquidity);
 
     /// @notice Remove liquidity through the hook while the router enforces min outputs and sends the underlying assets forward.
     /// @dev The router pulls LP shares, burns them, and forwards the hook's balance delta after validating slippage.
@@ -265,8 +265,8 @@ interface IMemeverseSwapRouter {
 
     /// @notice Initialize a hook-managed pool and seed its first full-range liquidity position.
     /// @dev The router sorts the token pair, initializes the pool at `startPrice`, adds liquidity, and refunds unused input.
-    /// @custom:security Token addresses must be distinct, and native bootstrap calls must send the exact `msg.value` budget.
-    /// @param tokenA One side of the pool pair; pass `address(0)` if this side should be native currency.
+    /// @custom:security Token addresses must be distinct.
+    /// @param tokenA One side of the pool pair.
     /// @param tokenB The other side of the pool pair.
     /// @param amountADesired Desired budget for `tokenA`.
     /// @param amountBDesired Desired budget for `tokenB`.
@@ -283,7 +283,7 @@ interface IMemeverseSwapRouter {
         uint160 startPrice,
         address recipient,
         uint256 deadline
-    ) external payable returns (uint128 liquidity, PoolKey memory poolKey);
+    ) external returns (uint128 liquidity, PoolKey memory poolKey);
 
     /// @notice Initialize a hook-managed pool and seed its first liquidity after funding via Permit2.
     /// @dev After Permit2 funding succeeds, execution follows the same path as `createPoolAndAddLiquidity(...)`.
@@ -307,5 +307,5 @@ interface IMemeverseSwapRouter {
         uint160 startPrice,
         address recipient,
         uint256 deadline
-    ) external payable returns (uint128 liquidity, PoolKey memory poolKey);
+    ) external returns (uint128 liquidity, PoolKey memory poolKey);
 }

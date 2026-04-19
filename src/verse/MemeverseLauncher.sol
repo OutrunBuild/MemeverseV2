@@ -584,8 +584,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                     params: SwapParams({
                         zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: 0
                     }),
-                    recipient: address(this),
-                    amountInMaximum: totalFunds
+                    recipient: address(this)
                 })
             );
 

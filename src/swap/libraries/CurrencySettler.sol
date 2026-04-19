@@ -21,8 +21,6 @@ library CurrencySettler {
     function settle(Currency currency, IPoolManager manager, address payer, uint256 amount, bool burn) internal {
         if (burn) {
             manager.burn(payer, currency.toId(), amount);
-        } else if (currency.isAddressZero()) {
-            manager.settle{value: amount}();
         } else {
             manager.sync(currency);
             if (payer != address(this)) {
