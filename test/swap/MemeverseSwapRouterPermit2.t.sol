@@ -13,6 +13,8 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/ISignatureTransfer.sol";
@@ -53,6 +55,7 @@ contract MockPoolManagerForPermit2RouterTest {
     mapping(bytes32 => bytes32) internal extStorage;
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
+    mapping(PoolId => uint256) internal nextExactInputPoolInputAmount;
 
     struct RouterCallbackPreview {
         address payer;
@@ -178,6 +181,14 @@ contract MockPoolManagerForPermit2RouterTest {
         if (amountToSwap != 0) {
             if (params.amountSpecified < 0) {
                 uint256 inputAmount = uint256(-amountToSwap);
+                uint256 configuredInputAmount = nextExactInputPoolInputAmount[poolId];
+                if (configuredInputAmount != 0) {
+                    inputAmount = configuredInputAmount;
+                    delete nextExactInputPoolInputAmount[poolId];
+                } else if (beforeSwapDelta.getSpecifiedDelta() == 0) {
+                    inputAmount =
+                        IExactInputPoolInputPreview(address(key.hooks)).previewExactInputPoolInput(key, params);
+                }
                 uint256 outputAmount = inputAmount / 2;
                 if (params.zeroForOne) {
                     poolDelta = toBalanceDelta(-int128(int256(inputAmount)), int128(int256(outputAmount)));
@@ -265,6 +276,10 @@ contract MockPoolManagerForPermit2RouterTest {
         return liquidityState[poolId];
     }
 
+    function setNextExactInputPoolInputAmount(PoolId poolId, uint256 inputAmount) external {
+        nextExactInputPoolInputAmount[poolId] = inputAmount;
+    }
+
     function lastUnlockPayer() external view returns (address payer) {
         return lastUnlockCallbackPayer;
     }
@@ -289,6 +304,13 @@ interface IUnlockCallbackLike {
     function unlockCallback(bytes calldata data) external returns (bytes memory);
 }
 
+interface IExactInputPoolInputPreview {
+    function previewExactInputPoolInput(PoolKey calldata key, SwapParams calldata params)
+        external
+        view
+        returns (uint256 inputAmount);
+}
+
 contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
     constructor(IPoolManager _manager, address _owner, address _treasury)
         MemeverseUniswapHook(_manager, _owner, _treasury)
@@ -306,6 +328,25 @@ contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
 
         UniswapLP(liquidityToken).mint(owner, activeShares);
         cachedLpTotalSupply[id] += activeShares;
+    }
+
+    function previewExactInputPoolInput(PoolKey calldata key, SwapParams calldata params)
+        external
+        view
+        returns (uint256 inputAmount)
+    {
+        PoolId id = key.toId();
+        _revertIfNoActiveLiquidityShares(id, params.amountSpecified);
+        _revertIfPublicSwapBlocked(id);
+
+        SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
+        (uint160 preSqrtPriceX96,,,) = StateLibrary.getSlot0(poolManager, id);
+        DynamicFeeQuote memory quote = _quoteDynamicFee(id, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        uint256 absSpecified = uint256(-params.amountSpecified);
+        uint256 lpFeeInputAmount = FullMath.mulDiv(absSpecified, _lpFeeBps(quote.feeBps), BPS_BASE);
+        uint256 protocolFeeInputAmount =
+            ctx.protocolFeeOnInput ? FullMath.mulDiv(absSpecified, _protocolFeeBps(quote.feeBps), BPS_BASE) : 0;
+        return absSpecified - lpFeeInputAmount - protocolFeeInputAmount;
     }
 
     function validateHookAddress(BaseHook) internal pure override {}
@@ -804,6 +845,73 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(manager.lastUnlockPayer(), address(router), "router should pay exact-output input");
         assertEq(balance0Before - token0.balanceOf(alice), 300 ether, "unused input refunded");
         assertEq(token0.balanceOf(address(router)), 0, "router should not retain refunded input");
+    }
+
+    /// @notice Verifies Permit2 exact-input partial fills fail closed on output-side fee pools.
+    /// @dev Confirms payer, treasury, and LP-fee state roll back when the hook rejects the swap.
+    function testSwapWithPermit2_RevertsWhenExactInputPartialFillsOnOutputFeePool() external {
+        hook.setProtocolFeeCurrency(key.currency1);
+        // Seed non-zero EWVWAP state so rollback assertions are non-trivial.
+        IMemeverseSwapRouter.Permit2SingleParams memory seedPermit = _singlePermit(address(token0), 10 ether);
+        vm.prank(alice);
+        router.swapWithPermit2(
+            seedPermit,
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)}),
+            alice,
+            block.timestamp,
+            0,
+            10 ether,
+            ""
+        );
+        _matureLaunchWindow();
+        manager.setNextExactInputPoolInputAmount(poolId, 99 ether);
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token0), 100 ether);
+        uint256 payer0Before = token0.balanceOf(alice);
+        uint256 payer1Before = token1.balanceOf(alice);
+        uint256 treasury0Before = token0.balanceOf(treasury);
+        uint256 treasury1Before = token1.balanceOf(treasury);
+        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
+        (
+            uint256 wv0Before,, uint256 ewVWAPBefore,
+            uint160 volAnchorBefore,,
+            uint24 volDevBefore,,
+            uint24 shortImpactBefore,
+        ) = hook.poolEWVWAPParams(poolId);
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+        router.swapWithPermit2(
+            singlePermit,
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            alice,
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+
+        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
+        assertEq(token0.balanceOf(alice), payer0Before, "payer token0 unchanged");
+        assertEq(token1.balanceOf(alice), payer1Before, "payer token1 unchanged");
+        assertEq(token0.balanceOf(treasury), treasury0Before, "treasury token0 unchanged");
+        assertEq(token1.balanceOf(treasury), treasury1Before, "treasury token1 unchanged");
+        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
+        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
+
+        (
+            uint256 wv0After,, uint256 ewVWAPAfter,
+            uint160 volAnchorAfter,,
+            uint24 volDevAfter,,
+            uint24 shortImpactAfter,
+        ) = hook.poolEWVWAPParams(poolId);
+        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
+        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
+        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
+        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
+        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
     /// @notice Verifies the single Permit2 path now surfaces Permit2's own amount check.

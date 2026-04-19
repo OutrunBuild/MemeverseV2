@@ -11,7 +11,9 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
@@ -53,6 +55,7 @@ contract MockPoolManagerForRouterTest {
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
     mapping(PoolId => uint160) internal nextSwapSqrtPriceX96;
+    mapping(PoolId => uint256) internal nextExactInputPoolInputAmount;
     mapping(PoolId => uint256) internal nextExactOutputAmount;
 
     struct RouterCallbackPreview {
@@ -192,6 +195,14 @@ contract MockPoolManagerForRouterTest {
                 uint128 liquidity = liquidityState[poolId];
                 if (params.amountSpecified < 0) {
                     uint256 inputAmount = uint256(-amountToSwap);
+                    uint256 configuredInputAmount = nextExactInputPoolInputAmount[poolId];
+                    if (configuredInputAmount != 0) {
+                        inputAmount = configuredInputAmount;
+                        delete nextExactInputPoolInputAmount[poolId];
+                    } else if (!skipHookCallbacks && beforeSwapDelta.getSpecifiedDelta() == 0) {
+                        inputAmount =
+                            IExactInputPoolInputPreview(address(key.hooks)).previewExactInputPoolInput(key, params);
+                    }
                     uint160 alignedNextSqrtPriceX96 = SqrtPriceMath.getNextSqrtPriceFromInput(
                         state.sqrtPriceX96, liquidity, inputAmount, params.zeroForOne
                     );
@@ -219,6 +230,14 @@ contract MockPoolManagerForRouterTest {
                 }
             } else if (params.amountSpecified < 0) {
                 uint256 inputAmount = uint256(-amountToSwap);
+                uint256 configuredInputAmount = nextExactInputPoolInputAmount[poolId];
+                if (configuredInputAmount != 0) {
+                    inputAmount = configuredInputAmount;
+                    delete nextExactInputPoolInputAmount[poolId];
+                } else if (!skipHookCallbacks && beforeSwapDelta.getSpecifiedDelta() == 0) {
+                    inputAmount =
+                        IExactInputPoolInputPreview(address(key.hooks)).previewExactInputPoolInput(key, params);
+                }
                 uint256 outputAmount = inputAmount / 2;
                 if (params.zeroForOne) {
                     poolDelta = toBalanceDelta(-int128(int256(inputAmount)), int128(int256(outputAmount)));
@@ -334,6 +353,10 @@ contract MockPoolManagerForRouterTest {
         nextSwapSqrtPriceX96[poolId] = sqrtPriceX96;
     }
 
+    function setNextExactInputPoolInputAmount(PoolId poolId, uint256 inputAmount) external {
+        nextExactInputPoolInputAmount[poolId] = inputAmount;
+    }
+
     function setNextExactOutputAmount(PoolId poolId, uint256 outputAmount) external {
         nextExactOutputAmount[poolId] = outputAmount;
     }
@@ -360,6 +383,13 @@ interface IUnlockCallbackLike {
     function unlockCallback(bytes calldata data) external returns (bytes memory);
 }
 
+interface IExactInputPoolInputPreview {
+    function previewExactInputPoolInput(PoolKey calldata key, SwapParams calldata params)
+        external
+        view
+        returns (uint256 inputAmount);
+}
+
 contract TestableMemeverseUniswapHookForRouter is MemeverseUniswapHook {
     constructor(IPoolManager _manager, address _owner, address _treasury)
         MemeverseUniswapHook(_manager, _owner, _treasury)
@@ -377,6 +407,25 @@ contract TestableMemeverseUniswapHookForRouter is MemeverseUniswapHook {
 
         UniswapLP(liquidityToken).mint(owner, activeShares);
         cachedLpTotalSupply[id] += activeShares;
+    }
+
+    function previewExactInputPoolInput(PoolKey calldata key, SwapParams calldata params)
+        external
+        view
+        returns (uint256 inputAmount)
+    {
+        PoolId id = key.toId();
+        _revertIfNoActiveLiquidityShares(id, params.amountSpecified);
+        _revertIfPublicSwapBlocked(id);
+
+        SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
+        (uint160 preSqrtPriceX96,,,) = StateLibrary.getSlot0(poolManager, id);
+        DynamicFeeQuote memory quote = _quoteDynamicFee(id, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        uint256 absSpecified = uint256(-params.amountSpecified);
+        uint256 lpFeeInputAmount = FullMath.mulDiv(absSpecified, _lpFeeBps(quote.feeBps), BPS_BASE);
+        uint256 protocolFeeInputAmount =
+            ctx.protocolFeeOnInput ? FullMath.mulDiv(absSpecified, _protocolFeeBps(quote.feeBps), BPS_BASE) : 0;
+        return absSpecified - lpFeeInputAmount - protocolFeeInputAmount;
     }
 
     function validateHookAddress(BaseHook) internal pure override {}
@@ -1577,6 +1626,67 @@ contract MemeverseSwapRouterTest is Test {
             100 ether,
             ""
         );
+    }
+
+    /// @notice Verifies exact-input partial fills fail closed in the hook on input-side fee pools.
+    /// @dev Confirms router swaps leave payer, treasury, and LP-fee state untouched when the hook reverts.
+    function testSwapReverts_WhenExactInputPartialFillsOnInputFeePool() external {
+        _setProtocolFeeCurrency(key.currency0);
+        // Seed non-zero EWVWAP state so rollback assertions are non-trivial.
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)}),
+            address(this),
+            block.timestamp,
+            0,
+            10 ether,
+            ""
+        );
+        _matureLaunchWindow();
+        manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
+
+        uint256 payer0Before = token0.balanceOf(address(this));
+        uint256 payer1Before = token1.balanceOf(address(this));
+        uint256 treasury0Before = token0.balanceOf(treasury);
+        uint256 treasury1Before = token1.balanceOf(treasury);
+        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
+        (
+            uint256 wv0Before,, uint256 ewVWAPBefore,
+            uint160 volAnchorBefore,,
+            uint24 volDevBefore,,
+            uint24 shortImpactBefore,
+        ) = hook.poolEWVWAPParams(poolId);
+
+        vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+
+        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
+        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
+        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
+        assertEq(token0.balanceOf(treasury), treasury0Before, "treasury token0 unchanged");
+        assertEq(token1.balanceOf(treasury), treasury1Before, "treasury token1 unchanged");
+        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
+        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
+
+        (
+            uint256 wv0After,, uint256 ewVWAPAfter,
+            uint160 volAnchorAfter,,
+            uint24 volDevAfter,,
+            uint24 shortImpactAfter,
+        ) = hook.poolEWVWAPParams(poolId);
+        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
+        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
+        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
+        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
+        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
     /// @notice Verifies exact-output quotes include input-side fees in the user input amount.

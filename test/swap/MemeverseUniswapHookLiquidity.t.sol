@@ -13,6 +13,7 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
@@ -47,6 +48,7 @@ contract MockPoolManagerForHookLiquidity {
     mapping(bytes32 => bytes32) internal extStorage;
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
+    mapping(PoolId => uint256) internal nextExactInputPoolInputAmount;
 
     /// @notice Initializes a mock pool and notifies the hook.
     /// @dev Seeds slot0 and liquidity-related storage so the hook sees the pool as configured.
@@ -133,6 +135,14 @@ contract MockPoolManagerForHookLiquidity {
 
         if (params.amountSpecified < 0) {
             uint256 exactInputAmount = uint256(-params.amountSpecified);
+            uint256 configuredInputAmount = nextExactInputPoolInputAmount[key.toId()];
+            if (configuredInputAmount != 0) {
+                exactInputAmount = configuredInputAmount;
+                delete nextExactInputPoolInputAmount[key.toId()];
+            } else {
+                exactInputAmount =
+                    IExactInputPoolInputPreview(address(key.hooks)).previewExactInputPoolInput(key, params);
+            }
             uint256 exactOutputAmount = exactInputAmount / 2;
             if (params.zeroForOne) {
                 delta = toBalanceDelta(-int128(int256(exactInputAmount)), int128(int256(exactOutputAmount)));
@@ -209,6 +219,10 @@ contract MockPoolManagerForHookLiquidity {
         return liquidityState[poolId];
     }
 
+    function setNextExactInputPoolInputAmount(PoolId poolId, uint256 inputAmount) external {
+        nextExactInputPoolInputAmount[poolId] = inputAmount;
+    }
+
     /// @notice Returns last take recipient address.
     /// @dev Observes which recipient the hook forwarded liquidity outputs to.
     /// @return Returned value.
@@ -240,6 +254,25 @@ contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
         return cachedLpTotalSupply[poolId];
     }
 
+    function previewExactInputPoolInput(PoolKey calldata key, SwapParams calldata params)
+        external
+        view
+        returns (uint256 inputAmount)
+    {
+        PoolId id = key.toId();
+        _revertIfNoActiveLiquidityShares(id, params.amountSpecified);
+        _revertIfPublicSwapBlocked(id);
+
+        SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
+        (uint160 preSqrtPriceX96,,,) = StateLibrary.getSlot0(poolManager, id);
+        DynamicFeeQuote memory quote = _quoteDynamicFee(id, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        uint256 absSpecified = uint256(-params.amountSpecified);
+        uint256 lpFeeInputAmount = FullMath.mulDiv(absSpecified, _lpFeeBps(quote.feeBps), BPS_BASE);
+        uint256 protocolFeeInputAmount =
+            ctx.protocolFeeOnInput ? FullMath.mulDiv(absSpecified, _protocolFeeBps(quote.feeBps), BPS_BASE) : 0;
+        return absSpecified - lpFeeInputAmount - protocolFeeInputAmount;
+    }
+
     function exposedPopulateDynamicFeeQuote(
         uint256 pifPpm,
         uint256 spotBeforeX18,
@@ -264,6 +297,13 @@ contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
 
         _populateDynamicFeeQuoteFromState(quote, state);
     }
+}
+
+interface IExactInputPoolInputPreview {
+    function previewExactInputPoolInput(PoolKey calldata key, SwapParams calldata params)
+        external
+        view
+        returns (uint256 inputAmount);
 }
 
 contract ReentrantExitRecipient {
@@ -985,6 +1025,104 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         mockManager.swapAsUnlocked(
             nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
         );
+    }
+
+    /// @notice Verifies direct hook-managed exact-input partial fills fail closed without router checks.
+    /// @dev Covers the direct/core path and confirms fee accounting rolls back on revert.
+    function testDirectManagerSwapReverts_WhenExactInputPartialFills() external {
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency1);
+        // Seed non-zero EWVWAP state so rollback assertions are non-trivial.
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+        vm.warp(block.timestamp + 900);
+        mockManager.setNextExactInputPoolInputAmount(poolId, 99 ether);
+
+        uint256 payer0Before = token0.balanceOf(address(this));
+        uint256 payer1Before = token1.balanceOf(address(this));
+        uint256 treasury0Before = token0.balanceOf(hook.treasury());
+        uint256 treasury1Before = token1.balanceOf(hook.treasury());
+        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
+        (
+            uint256 wv0Before,, uint256 ewVWAPBefore,
+            uint160 volAnchorBefore,,
+            uint24 volDevBefore,,
+            uint24 shortImpactBefore,
+        ) = hook.poolEWVWAPParams(poolId);
+
+        vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+
+        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
+        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
+        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
+        assertEq(token0.balanceOf(hook.treasury()), treasury0Before, "treasury token0 unchanged");
+        assertEq(token1.balanceOf(hook.treasury()), treasury1Before, "treasury token1 unchanged");
+        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
+        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
+
+        (
+            uint256 wv0After,, uint256 ewVWAPAfter,
+            uint160 volAnchorAfter,,
+            uint24 volDevAfter,,
+            uint24 shortImpactAfter,
+        ) = hook.poolEWVWAPParams(poolId);
+        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
+        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
+        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
+        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
+        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+    }
+
+    /// @notice Verifies direct hook-managed exact-input partial fills fail closed on input-side fee pools.
+    /// @dev Covers the direct/core path with protocolFeeOnInput=true and confirms all state rolls back atomically.
+    function testDirectManagerSwapReverts_WhenExactInputPartialFillsOnInputFeePool() external {
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0); // input-side fee for zeroForOne=true
+        // Seed non-zero EWVWAP state so rollback assertions are non-trivial.
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+        vm.warp(block.timestamp + 900);
+        mockManager.setNextExactInputPoolInputAmount(poolId, 99 ether);
+
+        uint256 payer0Before = token0.balanceOf(address(this));
+        uint256 payer1Before = token1.balanceOf(address(this));
+        uint256 treasury0Before = token0.balanceOf(hook.treasury());
+        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
+        (
+            uint256 wv0Before,, uint256 ewVWAPBefore,
+            uint160 volAnchorBefore,,
+            uint24 volDevBefore,,
+            uint24 shortImpactBefore,
+        ) = hook.poolEWVWAPParams(poolId);
+
+        vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+
+        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
+        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
+        assertEq(token0.balanceOf(hook.treasury()), treasury0Before, "treasury token0 unchanged");
+        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
+        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
+        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
+
+        (
+            uint256 wv0After,, uint256 ewVWAPAfter,
+            uint160 volAnchorAfter,,
+            uint24 volDevAfter,,
+            uint24 shortImpactAfter,
+        ) = hook.poolEWVWAPParams(poolId);
+        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
+        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
+        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
+        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
+        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
     /// @notice Verifies launch fee floor dominates immediately after pool initialization and decays to the minimum fee.
