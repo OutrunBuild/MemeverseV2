@@ -11,10 +11,8 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
-import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForHookLiquidity, TestableMemeverseUniswapHook} from "./MemeverseUniswapHookLiquidity.t.sol";
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
@@ -72,29 +70,49 @@ contract LaunchFeeQuoteHandler is Test {
     }
 }
 
-contract LaunchSettlementHandler is Test {
+contract DirectLaunchSettlementHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
-
-    MemeverseSwapRouter internal router;
+    uint256 internal constant MAX_SWAP_AMOUNT = 10_000 ether;
+    uint256 internal constant PROTOCOL_FEE_BPS = 30;
+    uint256 internal constant LP_FEE_BPS = 70;
+    uint256 internal constant BPS_BASE = 10_000;
+    TestableMemeverseUniswapHookForRouter internal immutable hook;
+    address internal immutable owner;
+    address public immutable settlementRecipient;
     MockERC20 internal immutable token0;
+    MockERC20 internal immutable token1;
     PoolKey internal key;
-    address internal immutable treasury;
 
-    uint256 public expectedTreasuryFee;
+    uint256 public expectedTreasuryCurrency0Fee;
+    uint256 public expectedTreasuryCurrency1Fee;
+    uint256 public expectedHandlerCurrency0Balance;
+    uint256 public expectedHandlerCurrency1Balance;
+    uint256 public expectedRecipientCurrency0Balance;
+    uint256 public expectedRecipientCurrency1Balance;
     uint256 public settlementSwapCount;
+    bool internal expectedBalancesInitialized;
 
-    constructor(MockERC20 _token0, PoolKey memory _key, address _treasury) {
+    constructor(
+        TestableMemeverseUniswapHookForRouter _hook,
+        PoolKey memory _key,
+        MockERC20 _token0,
+        MockERC20 _token1,
+        address _owner,
+        address _settlementRecipient
+    ) {
+        hook = _hook;
         token0 = _token0;
+        token1 = _token1;
         key = _key;
-        treasury = _treasury;
+        owner = _owner;
+        settlementRecipient = _settlementRecipient;
     }
 
-    /// @notice Test helper for setRouter.
-    /// @param _router See implementation.
-    function setRouter(MemeverseSwapRouter _router) external {
-        require(address(router) == address(0), "router already set");
-        router = _router;
-        token0.approve(address(router), type(uint256).max);
+    /// @notice Test helper for approveHook.
+    function approveHook() external {
+        _initializeExpectedBalancesIfNeeded();
+        token0.approve(address(hook), type(uint256).max);
+        token1.approve(address(hook), type(uint256).max);
     }
 
     /// @notice Test helper for warp.
@@ -105,33 +123,79 @@ contract LaunchSettlementHandler is Test {
 
     /// @notice Test helper for settlementSwap.
     /// @param amountSeed See implementation.
-    function settlementSwap(uint256 amountSeed) external {
-        uint256 balance = token0.balanceOf(address(this));
-        if (balance == 0) return;
+    /// @param zeroForOne See implementation.
+    /// @param useCurrency0AsFeeSide See implementation.
+    function settlementSwap(uint256 amountSeed, bool zeroForOne, bool useCurrency0AsFeeSide) external {
+        _initializeExpectedBalancesIfNeeded();
 
-        uint256 amount = bound(amountSeed, 1 ether, _min(balance, 10_000 ether));
-        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
+        MockERC20 inputToken = zeroForOne ? token0 : token1;
+        uint256 balance = inputToken.balanceOf(address(this));
+        if (balance < 1 ether) return;
 
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            block.timestamp,
-            0,
-            amount,
-            bytes("public-swap")
+        uint256 grossInputAmount = bound(amountSeed, 1 ether, _min(balance, MAX_SWAP_AMOUNT));
+        bool protocolFeeOnInput = zeroForOne == useCurrency0AsFeeSide;
+        uint256 protocolFeeInputAmount = protocolFeeOnInput ? grossInputAmount * PROTOCOL_FEE_BPS / BPS_BASE : 0;
+        uint256 lpFeeInputAmount = grossInputAmount * LP_FEE_BPS / BPS_BASE;
+        uint256 netInputAmount = grossInputAmount - lpFeeInputAmount - protocolFeeInputAmount;
+        uint256 grossOutputAmount = netInputAmount / 2;
+        // Output-side fee uses denominator (BPS_BASE - LP_FEE_BPS) to avoid double-counting LP fee
+        uint256 protocolFeeOutputAmount = protocolFeeOnInput ? 0 : grossOutputAmount * PROTOCOL_FEE_BPS / BPS_BASE;
+        uint256 netOutputAmount = grossOutputAmount - protocolFeeOutputAmount;
+
+        vm.startPrank(owner);
+        hook.setProtocolFeeCurrencySupport(key.currency0, useCurrency0AsFeeSide);
+        hook.setProtocolFeeCurrencySupport(key.currency1, !useCurrency0AsFeeSide);
+        vm.stopPrank();
+
+        BalanceDelta delta = hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({
+                    zeroForOne: zeroForOne,
+                    amountSpecified: -int256(grossInputAmount),
+                    sqrtPriceLimitX96: zeroForOne ? 0 : SQRT_PRICE_1_1
+                }),
+                recipient: settlementRecipient
+            })
         );
 
-        assertLt(delta.amount0(), 0, "settlement delta0");
-        assertGt(delta.amount1(), 0, "settlement delta1");
+        if (zeroForOne) {
+            assertLt(delta.amount0(), 0, "settlement delta0");
+            assertGt(delta.amount1(), 0, "settlement delta1");
+        } else {
+            assertGt(delta.amount0(), 0, "settlement delta0");
+            assertLt(delta.amount1(), 0, "settlement delta1");
+        }
 
-        expectedTreasuryFee += amount * 30 / 10_000;
+        if (zeroForOne) {
+            expectedHandlerCurrency0Balance -= grossInputAmount;
+            expectedRecipientCurrency1Balance += netOutputAmount;
+        } else {
+            expectedHandlerCurrency1Balance -= grossInputAmount;
+            expectedRecipientCurrency0Balance += netOutputAmount;
+        }
+
+        if (useCurrency0AsFeeSide) {
+            expectedTreasuryCurrency0Fee += protocolFeeOnInput ? protocolFeeInputAmount : protocolFeeOutputAmount;
+        } else {
+            expectedTreasuryCurrency1Fee += protocolFeeOnInput ? protocolFeeInputAmount : protocolFeeOutputAmount;
+        }
+
         settlementSwapCount++;
-        assertEq(token0.balanceOf(treasury), expectedTreasuryFee, "treasury fixed 1% protocol share");
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {
         return a < b ? a : b;
+    }
+
+    function _initializeExpectedBalancesIfNeeded() internal {
+        if (expectedBalancesInitialized) return;
+
+        expectedHandlerCurrency0Balance = token0.balanceOf(address(this));
+        expectedHandlerCurrency1Balance = token1.balanceOf(address(this));
+        expectedRecipientCurrency0Balance = token0.balanceOf(settlementRecipient);
+        expectedRecipientCurrency1Balance = token1.balanceOf(settlementRecipient);
+        expectedBalancesInitialized = true;
     }
 }
 
@@ -208,17 +272,19 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
 
     MockPoolManagerForRouterTest internal manager;
     TestableMemeverseUniswapHookForRouter internal hook;
-    MemeverseSwapRouter internal router;
     MockERC20 internal token0;
     MockERC20 internal token1;
     PoolKey internal key;
+    PoolId internal poolId;
     address internal treasury;
-    LaunchSettlementHandler internal handler;
+    address internal settlementRecipient;
+    DirectLaunchSettlementHandler internal handler;
 
     /// @notice Test helper for setUp.
     function setUp() external {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
+        settlementRecipient = makeAddr("settlementRecipient");
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
         hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury);
@@ -230,31 +296,127 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
             tickSpacing: 200,
             hooks: IHooks(address(hook))
         });
+        poolId = key.toId();
 
         token0.mint(address(manager), 1_000_000 ether);
         token1.mint(address(manager), 1_000_000 ether);
         manager.initialize(key, SQRT_PRICE_1_1);
+        hook.seedActiveLiquidityShares(key, address(this), 1e18);
         hook.setProtocolFeeCurrency(key.currency0);
 
-        handler = new LaunchSettlementHandler(token0, key, treasury);
-        router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
-        );
-        handler.setRouter(router);
+        handler = new DirectLaunchSettlementHandler(hook, key, token0, token1, address(this), settlementRecipient);
+        hook.setLauncher(address(handler));
         token0.mint(address(handler), 1_000_000 ether);
+        token1.mint(address(handler), 1_000_000 ether);
+        handler.approveHook();
 
         targetContract(address(handler));
     }
 
-    /// @notice Test helper for invariant_launchSettlementAlwaysUsesFixedProtocolShare.
-    function invariant_launchSettlementAlwaysUsesFixedProtocolShare() external view {
-        assertEq(token0.balanceOf(treasury), handler.expectedTreasuryFee(), "treasury accounting");
+    function testSetUp_DirectSettlementHandlerPreconditions() external view {
+        assertEq(hook.launcher(), address(handler), "launcher");
+        assertEq(handler.settlementRecipient(), settlementRecipient, "recipient");
+        assertEq(token0.balanceOf(address(handler)), 1_000_000 ether, "token0 handler balance");
+        assertEq(token1.balanceOf(address(handler)), 1_000_000 ether, "token1 handler balance");
+        assertEq(token0.allowance(address(handler), address(hook)), type(uint256).max, "token0 allowance");
+        assertEq(token1.allowance(address(handler), address(hook)), type(uint256).max, "token1 allowance");
+    }
+
+    function testDirectSettlementHandler_OutputSideFeeComesFromSwapOutput() external {
+        uint256 payerToken1Before = token1.balanceOf(address(handler));
+        uint256 recipientToken1Before = token1.balanceOf(settlementRecipient);
+
+        (bool ok,) =
+            address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 200 ether, true, false));
+
+        assertTrue(ok, "zeroForOne currency1");
+        assertEq(token1.balanceOf(settlementRecipient) - recipientToken1Before, 99.0021 ether, "recipient net output");
+        assertEq(token1.balanceOf(address(handler)), payerToken1Before, "payer output token unchanged");
+    }
+
+    function testDirectSettlementHandler_CoversAllSupportedFeeSidesAndSwapDirections() external {
+        uint256 treasury0Before = token0.balanceOf(treasury);
+        uint256 treasury1Before = token1.balanceOf(treasury);
+        (bool ok,) =
+            address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 100 ether, true, true));
+        assertTrue(ok, "zeroForOne currency0");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "zeroForOne currency0 treasury0");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 0, "zeroForOne currency0 treasury1");
+        assertEq(token1.balanceOf(settlementRecipient), 49.5 ether, "zeroForOne currency0 recipient1");
+
+        treasury0Before = token0.balanceOf(treasury);
+        treasury1Before = token1.balanceOf(treasury);
+        uint256 handlerToken1Before = token1.balanceOf(address(handler));
+        (ok,) =
+            address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 200 ether, true, false));
+        assertTrue(ok, "zeroForOne currency1");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0, "zeroForOne currency1 treasury0");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 0.2979 ether, "zeroForOne currency1 treasury1");
+        assertEq(token1.balanceOf(settlementRecipient), 148.5021 ether, "zeroForOne currency1 recipient1");
+        assertEq(token1.balanceOf(address(handler)), handlerToken1Before, "zeroForOne currency1 payer1");
+
+        treasury0Before = token0.balanceOf(treasury);
+        treasury1Before = token1.balanceOf(treasury);
+        uint256 handlerToken0Before = token0.balanceOf(address(handler));
+        (ok,) =
+            address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 300 ether, false, true));
+        assertTrue(ok, "oneForZero currency0");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.44685 ether, "oneForZero currency0 treasury0");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 0, "oneForZero currency0 treasury1");
+        assertEq(token0.balanceOf(settlementRecipient), 148.50315 ether, "oneForZero currency0 recipient0");
+        assertEq(token0.balanceOf(address(handler)), handlerToken0Before, "oneForZero currency0 payer0");
+
+        treasury0Before = token0.balanceOf(treasury);
+        treasury1Before = token1.balanceOf(treasury);
+        (ok,) = address(handler)
+            .call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 400 ether, false, false));
+        assertTrue(ok, "oneForZero currency1");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0, "oneForZero currency1 treasury0");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 1.2 ether, "oneForZero currency1 treasury1");
+        assertEq(token0.balanceOf(settlementRecipient), 346.50315 ether, "oneForZero currency1 recipient0");
+
+        assertEq(handler.settlementSwapCount(), 4, "settlement count");
     }
 
     /// @notice Test helper for invariant_publicQuoteNeverDropsBelowSettlementFeeFloor.
-    function invariant_publicQuoteNeverDropsBelowSettlementFeeFloor() external view {
+    function invariant_directSettlementTreasuryAccountingMatchesExpected() external view {
+        assertEq(token0.balanceOf(treasury), handler.expectedTreasuryCurrency0Fee(), "treasury token0 accounting");
+        assertEq(token1.balanceOf(treasury), handler.expectedTreasuryCurrency1Fee(), "treasury token1 accounting");
+    }
+
+    /// @notice Test helper for invariant_directSettlementOutputSideProtocolFeeCountedOnce.
+    function invariant_directSettlementOutputSideProtocolFeeCountedOnce() external view {
+        assertEq(
+            token0.balanceOf(address(handler)),
+            handler.expectedHandlerCurrency0Balance(),
+            "handler token0 single-fee accounting"
+        );
+        assertEq(
+            token1.balanceOf(address(handler)),
+            handler.expectedHandlerCurrency1Balance(),
+            "handler token1 single-fee accounting"
+        );
+        assertEq(
+            token0.balanceOf(settlementRecipient),
+            handler.expectedRecipientCurrency0Balance(),
+            "recipient token0 net output accounting"
+        );
+        assertEq(
+            token1.balanceOf(settlementRecipient),
+            handler.expectedRecipientCurrency1Balance(),
+            "recipient token1 net output accounting"
+        );
+    }
+
+    /// @notice Test helper for invariant_directSettlementNeverBreaksPublicQuoteFloor.
+    function invariant_directSettlementNeverBreaksPublicQuoteFloor() external view {
         IMemeverseUniswapHook.SwapQuote memory quote =
             hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
         assertGe(quote.feeBps, 100, "public fee floor");
+    }
+
+    /// @notice Test helper for invariant_directSettlementDoesNotRewritePoolLaunchTimestamp.
+    function invariant_directSettlementDoesNotRewritePoolLaunchTimestamp() external view {
+        assertEq(hook.poolLaunchTimestamp(poolId), 1, "pool launch timestamp");
     }
 }

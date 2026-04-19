@@ -211,6 +211,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         } else {
             ewState.volCarryAccumulator = 0;
         }
+        ewState.volDeviationAccumulator = ewState.volCarryAccumulator;
     }
 
     function _volatilityDeltaSteps(uint160 referencePrice, uint160 currentPrice) internal view returns (uint256) {
@@ -300,17 +301,17 @@ contract MemeverseDynamicFeeSimulation is Test {
         uint256 satPpm = (cappedPif * PPM_BASE) / (cappedPif + cfg.pifCapPpm);
         uint256 dffPpm = (uint256(cfg.dffMaxPpm) * satPpm) / PPM_BASE;
         uint256 dynamicPpm = (dffPpm * cappedPif) / PPM_BASE;
-        uint256 dynamicPartBps = _ppmToBps(dynamicPpm);
+        uint256 adverseImpactPartBps = _ppmToBps(dynamicPpm);
 
-        uint256 volPartBps = _volatilityQuadraticFeeBps();
+        uint256 volatilityPartBps = _volatilityQuadraticFeeBps();
 
         uint256 decayedShortPpm = _decayLinearPpm(ewState.shortImpactPpm, ewState.shortLastTs);
         uint256 projectedShortPpm = decayedShortPpm + pifPpm;
         if (projectedShortPpm > cfg.shortCapPpm) projectedShortPpm = cfg.shortCapPpm;
         uint256 chargeableShortPpm = projectedShortPpm > cfg.shortFloorPpm ? projectedShortPpm - cfg.shortFloorPpm : 0;
-        uint256 shortPartBps = (chargeableShortPpm * uint256(cfg.shortCoeffBps)) / PPM_BASE;
+        uint256 shortImpactPartBps = (chargeableShortPpm * uint256(cfg.shortCoeffBps)) / PPM_BASE;
 
-        feeBps = uint256(cfg.baseFeeBps) + dynamicPartBps + volPartBps + shortPartBps;
+        feeBps = uint256(cfg.baseFeeBps) + adverseImpactPartBps + volatilityPartBps + shortImpactPartBps;
         if (feeBps > cfg.maxFeeBps) feeBps = cfg.maxFeeBps;
     }
 
@@ -647,6 +648,51 @@ contract MemeverseDynamicFeeSimulation is Test {
 
         assertGe(lastFeeBps, cfg.baseFeeBps, "last fee should stay >= base");
         assertLe(lastFeeBps, cfg.maxFeeBps, "last fee should stay <= max");
+    }
+
+    /// @notice Proves that volatility accumulator decay is applied BEFORE the first post-calm swap's fee quote.
+    /// @dev After driving the accumulator high and waiting past VOL_DECAY_PERIOD_SEC, the first trade
+    ///      must see a near-zero volatility fee, not the stale high value from the previous swap.
+    function testQuoteSwap_VolatilityDecayAppliesBeforeFirstPostCalmTrade() external {
+        _resetSimulation();
+
+        // 1. Drive volDeviationAccumulator high through rapid volatile swaps.
+        uint256 volatileSwapInput = 500 * U;
+        uint256 volatileSwaps = 50;
+        uint256 volatileIntervalSec = 1;
+
+        uint256 lastFeeBps;
+        uint256 volatileFeeSum;
+        for (uint256 i = 0; i < volatileSwaps; i++) {
+            (lastFeeBps,,,) = _simulateOneSwap(volatileSwapInput, false);
+            volatileFeeSum += lastFeeBps;
+            if (i < volatileSwaps - 1) vm.warp(block.timestamp + volatileIntervalSec);
+        }
+        uint256 accumulatorBeforeCalm = ewState.volDeviationAccumulator;
+        assertGt(accumulatorBeforeCalm, 0, "accumulator must be non-zero after volatile swaps");
+
+        // Record volatility part during volatile regime for comparison.
+        uint256 volatileVolPartBps = _volatilityQuadraticFeeBps();
+        assertGt(volatileVolPartBps, 0, "volatility part must be positive during volatile regime");
+
+        // 2. Warp past full decay: 120s > VOL_DECAY_PERIOD_SEC (60).
+        vm.warp(block.timestamp + 120);
+
+        // 3. Manually call refresh (simulating _beforeSwap) and verify the accumulator
+        //    is immediately zeroed before any fee quote reads it.
+        _refreshVolatilityAnchorAndCarry(simPrice);
+        assertEq(ewState.volDeviationAccumulator, 0, "accumulator must be zero after full decay and refresh");
+        uint256 postCalmVolPartBps = _volatilityQuadraticFeeBps();
+        assertEq(postCalmVolPartBps, 0, "volatility part must be zero after full decay");
+
+        // 4. Compare: if the bug were present (no sync), the quoted volatility part for the
+        //    next swap would use the stale accumulatorBeforeCalm instead of 0. Verify the
+        //    decayed value is strictly lower than the stale value.
+        assertLt(
+            ewState.volDeviationAccumulator,
+            accumulatorBeforeCalm,
+            "decayed accumulator must be lower than pre-calm value"
+        );
     }
 
     /// @notice Spec: simulates one hour of retail-like random flow with 1-5 trades per second and a 5% fee ceiling.

@@ -17,17 +17,17 @@ interface IMemeverseUniswapHook {
     struct PoolInfo {
         /// @notice Custom ERC20 LP token address for this pool.
         address liquidityToken;
-        /// @notice Accumulated LP fees for currency0 (per share, scaled by PRECISION in the implementation).
+        /// @notice Accumulated LP fees for currency0 (per share, scaled by Q128 in the implementation).
         uint256 fee0PerShare;
-        /// @notice Accumulated LP fees for currency1 (per share, scaled by PRECISION in the implementation).
+        /// @notice Accumulated LP fees for currency1 (per share, scaled by Q128 in the implementation).
         uint256 fee1PerShare;
     }
 
     /// @notice Per-user fee accounting state for a pool.
     struct UserFeeState {
-        /// @notice Snapshot offset of `fee0PerShare` at the last user update.
+        /// @notice Snapshot offset of `fee0PerShare` at the last user update, in Q128 per-share units.
         uint256 fee0Offset;
-        /// @notice Snapshot offset of `fee1PerShare` at the last user update.
+        /// @notice Snapshot offset of `fee1PerShare` at the last user update, in Q128 per-share units.
         uint256 fee1Offset;
         /// @notice Earned but unclaimed currency0 fees.
         uint256 pendingFee0;
@@ -67,7 +67,6 @@ interface IMemeverseUniswapHook {
         PoolKey key;
         SwapParams params;
         address recipient;
-        uint256 amountInMaximum;
     }
 
     struct SwapQuote {
@@ -184,7 +183,6 @@ interface IMemeverseUniswapHook {
     /// @return delta The balance delta settled against the caller.
     function addLiquidityCore(AddLiquidityCoreParams calldata params)
         external
-        payable
         returns (uint128 liquidity, BalanceDelta delta);
 
     /// @notice Low-level liquidity exit API.
@@ -304,6 +302,9 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when initial liquidity does not meet the minimum requirement.
     error LiquidityDoesntMeetMinimum();
 
+    /// @notice Reverts when only protocol-locked minimum liquidity remains and no LP shares can earn fees.
+    error NoActiveLiquidityShares();
+
     /// @notice Reverts when a restricted hook-only function is called by an external sender.
     error SenderMustBeHook();
 
@@ -316,11 +317,11 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when the launch settlement caller is zero.
     error ZeroAddress();
 
+    /// @notice Reverts when a hook-managed pool or protocol config uses native currency.
+    error NativeCurrencyUnsupported();
+
     /// @notice Reverts when a launch fee configuration value is zero or invalid.
     error ZeroValue();
-
-    /// @notice Reverts when the attached native value does not exactly match the required native input.
-    error InvalidNativeValue(uint256 expected, uint256 actual);
 
     /// @notice Reverts when a given currency is not supported by configuration.
     error CurrencyNotSupported();
@@ -333,9 +334,6 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when an ERC20 transfer returns false.
     error ERC20TransferFailed();
-
-    /// @notice Reverts when the configured treasury cannot receive native protocol fees.
-    error NativeTreasuryMustAcceptETH();
 
     /// @notice Reverts when a delegated fee-claim signature is invalid.
     error InvalidClaimSignature();

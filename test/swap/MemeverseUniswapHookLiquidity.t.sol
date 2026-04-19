@@ -7,6 +7,7 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -18,7 +19,6 @@ import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {LiquidityQuote} from "../../src/swap/libraries/LiquidityQuote.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
 contract MockPoolManagerForHookLiquidity {
@@ -70,6 +70,15 @@ contract MockPoolManagerForHookLiquidity {
         unlocked = false;
     }
 
+    function swapAsUnlocked(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
+        external
+        returns (BalanceDelta delta)
+    {
+        unlocked = true;
+        delta = this.swap(key, params, hookData);
+        unlocked = false;
+    }
+
     /// @notice Applies a mocked liquidity modification for the pool.
     /// @dev Returns deterministic deltas while enforcing the unlock-window guard used by the hook.
     /// @param key Pool key being modified.
@@ -110,6 +119,37 @@ contract MockPoolManagerForHookLiquidity {
             uint128(uint256(-params.liquidityDelta))
         );
         delta = toBalanceDelta(int128(int256(amount0Used)), int128(int256(amount1Used)));
+    }
+
+    /// @notice Executes a mocked swap during hook-controlled unlock callbacks.
+    /// @dev Launch-settlement tests only need deterministic deltas that respect the unlock guard.
+    function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
+        external
+        returns (BalanceDelta delta)
+    {
+        if (!unlocked) revert ManagerLocked();
+
+        key.hooks.beforeSwap(msg.sender, key, params, hookData);
+
+        if (params.amountSpecified < 0) {
+            uint256 exactInputAmount = uint256(-params.amountSpecified);
+            uint256 exactOutputAmount = exactInputAmount / 2;
+            if (params.zeroForOne) {
+                delta = toBalanceDelta(-int128(int256(exactInputAmount)), int128(int256(exactOutputAmount)));
+            } else {
+                delta = toBalanceDelta(int128(int256(exactOutputAmount)), -int128(int256(exactInputAmount)));
+            }
+        } else {
+            uint256 requestedOutputAmount = uint256(params.amountSpecified);
+            uint256 requiredInputAmount = requestedOutputAmount * 2;
+            if (params.zeroForOne) {
+                delta = toBalanceDelta(-int128(int256(requiredInputAmount)), int128(int256(requestedOutputAmount)));
+            } else {
+                delta = toBalanceDelta(int128(int256(requestedOutputAmount)), -int128(int256(requiredInputAmount)));
+            }
+        }
+
+        key.hooks.afterSwap(msg.sender, key, params, delta, hookData);
     }
 
     /// @notice Pays tokens or native currency out of the mock manager.
@@ -191,10 +231,113 @@ contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
     {}
 
     function validateHookAddress(BaseHook) internal pure override {}
+
+    function exposedBaseFeeBps() external pure returns (uint256) {
+        return FEE_BASE_BPS;
+    }
+
+    function exposedCachedLpTotalSupply(PoolId poolId) external view returns (uint256) {
+        return cachedLpTotalSupply[poolId];
+    }
+
+    function exposedPopulateDynamicFeeQuote(
+        uint256 pifPpm,
+        uint256 spotBeforeX18,
+        uint256 spotAfterX18,
+        uint256 weightedVolume0,
+        uint256 ewVWAPX18,
+        uint24 volDeviationAccumulator,
+        uint24 shortImpactPpm,
+        uint40 shortLastTs
+    ) external view returns (DynamicFeeQuote memory quote) {
+        quote.feeBps = FEE_BASE_BPS;
+        quote.pifPpm = pifPpm;
+        quote.spotBeforeX18 = spotBeforeX18;
+        quote.spotAfterX18 = spotAfterX18;
+
+        EWVWAPParams memory state;
+        state.weightedVolume0 = weightedVolume0;
+        state.ewVWAPX18 = ewVWAPX18;
+        state.volDeviationAccumulator = volDeviationAccumulator;
+        state.shortImpactPpm = shortImpactPpm;
+        state.shortLastTs = shortLastTs;
+
+        _populateDynamicFeeQuoteFromState(quote, state);
+    }
+}
+
+contract ReentrantExitRecipient {
+    IMemeverseUniswapHook internal immutable hook;
+    MockERC20 internal immutable token;
+    Currency internal immutable currency0;
+    Currency internal immutable currency1;
+
+    bool internal hasReentered;
+    bool internal quoteSucceeded;
+
+    constructor(IMemeverseUniswapHook _hook, MockERC20 _token, Currency _currency0, Currency _currency1) {
+        hook = _hook;
+        token = _token;
+        currency0 = _currency0;
+        currency1 = _currency1;
+        token.approve(address(_hook), type(uint256).max);
+    }
+
+    function addLiquidity(uint256 amount0Desired, uint256 amount1Desired) external returns (uint128 liquidity) {
+        (liquidity,) = hook.addLiquidityCore(
+            IMemeverseUniswapHook.AddLiquidityCoreParams({
+                currency0: currency0,
+                currency1: currency1,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                to: address(this)
+            })
+        );
+    }
+
+    function removeLiquidity(uint128 liquidity) external {
+        hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: currency0, currency1: currency1, liquidity: liquidity, recipient: address(this)
+            })
+        );
+    }
+
+    function quoteSucceededDuringReceive() external view returns (bool) {
+        return quoteSucceeded;
+    }
+
+    function callbackTriggered() external view returns (bool) {
+        return hasReentered;
+    }
+
+    receive() external payable {
+        if (hasReentered) return;
+        hasReentered = true;
+
+        try hook.quoteSwap(
+            PoolKey({
+                currency0: currency0,
+                currency1: currency1,
+                fee: 0x800000,
+                tickSpacing: 200,
+                hooks: IHooks(address(hook))
+            }),
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: 0})
+        ) returns (
+            IMemeverseUniswapHook.SwapQuote memory
+        ) {
+            quoteSucceeded = true;
+        } catch {
+            quoteSucceeded = false;
+        }
+    }
 }
 
 contract MemeverseUniswapHookLiquidityTest is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
+    uint256 internal constant Q128 = uint256(1) << 128;
+    bytes4 internal constant TOTAL_SUPPLY_SELECTOR = bytes4(keccak256("totalSupply()"));
 
     MockPoolManagerForHookLiquidity internal mockManager;
     TestableMemeverseUniswapHook internal hook;
@@ -328,43 +471,18 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(token1.balanceOf(address(this)), balance1Before + amount1Out, "token1 returned");
     }
 
-    /// @notice Executes test add liquidity supports native input.
-    /// @dev Covers the native-input branching path in the hook's addLiquidityCore helper.
-    function testAddLiquidity_SupportsNativeInput() external {
+    /// @notice Verifies native pairs are rejected during hook-managed pool initialization.
+    function testInitializeReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        PoolId nativePoolId = nativeKey.toId();
-        vm.deal(address(this), 1_000_000 ether);
-
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
         mockManager.initialize(nativeKey, SQRT_PRICE_1_1);
-        (, uint256 requiredNative,) = LiquidityQuote.quote(SQRT_PRICE_1_1, 100 ether, 100 ether);
-
-        (uint128 liquidity,) = hook.addLiquidityCore{value: requiredNative}(
-            IMemeverseUniswapHook.AddLiquidityCoreParams({
-                currency0: nativeKey.currency0,
-                currency1: nativeKey.currency1,
-                amount0Desired: 100 ether,
-                amount1Desired: 100 ether,
-                to: address(this)
-            })
-        );
-
-        (address liquidityToken,,) = hook.poolInfo(nativePoolId);
-        assertGt(liquidity, 0, "liquidity");
-        assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
-        assertEq(address(hook).balance, 0, "no stranded native");
     }
 
-    /// @notice Executes test add liquidity reverts on excess native value.
-    /// @dev Validates the hook rejects users that send more native ETH than quoted.
-    function testAddLiquidity_RevertsOnExcessNativeValue() external {
+    /// @notice Verifies addLiquidityCore rejects native pairs.
+    function testAddLiquidityCoreReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        _dealAndInitializeNativePool(nativeKey);
-        (, uint256 requiredNative,) = LiquidityQuote.quote(SQRT_PRICE_1_1, 300 ether, 100 ether);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(IMemeverseUniswapHook.InvalidNativeValue.selector, requiredNative, 300 ether)
-        );
-        hook.addLiquidityCore{value: 300 ether}(
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.addLiquidityCore(
             IMemeverseUniswapHook.AddLiquidityCoreParams({
                 currency0: nativeKey.currency0,
                 currency1: nativeKey.currency1,
@@ -405,48 +523,18 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         mockManager.initialize(invalidKey, SQRT_PRICE_1_1);
     }
 
-    /// @notice Executes test remove liquidity supports native output.
-    /// @dev Ensures native output is forwarded through the take helper and recorded on the mock manager.
-    function testRemoveLiquidity_SupportsNativeOutput() external {
+    /// @notice Verifies removeLiquidityCore rejects native pairs.
+    function testRemoveLiquidityCoreReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        PoolId nativePoolId = nativeKey.toId();
-        vm.deal(address(this), 1_000_000 ether);
-        mockManager.initialize(nativeKey, SQRT_PRICE_1_1);
-        (, uint256 requiredNative,) = LiquidityQuote.quote(SQRT_PRICE_1_1, 100 ether, 100 ether);
-
-        (uint128 liquidity,) = hook.addLiquidityCore{value: requiredNative}(
-            IMemeverseUniswapHook.AddLiquidityCoreParams({
-                currency0: nativeKey.currency0,
-                currency1: nativeKey.currency1,
-                amount0Desired: 100 ether,
-                amount1Desired: 100 ether,
-                to: address(this)
-            })
-        );
-
-        uint256 nativeBefore = address(this).balance;
-        uint256 token1Before = token1.balanceOf(address(this));
-
-        BalanceDelta delta = hook.removeLiquidityCore(
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.removeLiquidityCore(
             IMemeverseUniswapHook.RemoveLiquidityCoreParams({
                 currency0: nativeKey.currency0,
                 currency1: nativeKey.currency1,
-                liquidity: liquidity,
+                liquidity: 1 ether,
                 recipient: address(this)
             })
         );
-
-        uint256 nativeOut = uint256(uint128(delta.amount0()));
-        uint256 token1Out = uint256(uint128(delta.amount1()));
-
-        assertGt(nativeOut, 0, "native out");
-        assertGt(token1Out, 0, "token1 out");
-        assertEq(mockManager.lastTakeRecipientAddress(), address(this), "take recipient");
-        assertEq(address(this).balance, nativeBefore + nativeOut, "native returned");
-        assertEq(token1.balanceOf(address(this)), token1Before + token1Out, "token1 returned");
-        assertEq(address(hook).balance, 0, "hook keeps no native");
-        assertEq(address(mockManager).balance, 1000, "manager keeps minimum-liquidity native dust");
-        assertEq(mockManager.getLiquidity(nativePoolId), 1000, "minimum liquidity remains locked");
     }
 
     /// @notice Verifies addLiquidity rejects pools that have not been initialized.
@@ -519,16 +607,11 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
     }
 
-    /// @notice Executes test router add liquidity refunds unused native budget.
-    /// @dev Verifies the router refund path returns quoted native ETH back to the caller.
-    function testRouterAddLiquidity_RefundsUnusedNativeBudget() external {
+    /// @notice Verifies router-mediated addLiquidity rejects native pairs.
+    function testRouterAddLiquidityReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        PoolId nativePoolId = nativeKey.toId();
-        _dealAndInitializeNativePool(nativeKey);
-        (, uint256 requiredNative,) = LiquidityQuote.quote(SQRT_PRICE_1_1, 300 ether, 100 ether);
-
-        uint256 nativeBefore = address(this).balance;
-        uint128 liquidity = router.addLiquidity{value: 300 ether}(
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        router.addLiquidity(
             nativeKey.currency0,
             nativeKey.currency1,
             300 ether,
@@ -538,13 +621,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             address(this),
             block.timestamp
         );
-
-        (address liquidityToken,,) = hook.poolInfo(nativePoolId);
-        assertGt(liquidity, 0, "liquidity");
-        assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
-        assertEq(address(this).balance, nativeBefore - requiredNative, "only spent quoted native");
-        assertEq(address(router).balance, 0, "router keeps no native");
-        assertEq(address(hook).balance, 0, "hook keeps no native");
     }
 
     /// @notice Executes test router remove liquidity uses hook core.
@@ -611,6 +687,208 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(pendingFee1, 0, "pending fee1");
     }
 
+    /// @notice Verifies direct LP transfers cannot target the zero address.
+    /// @dev Users must exit through hook-managed burn paths so total supply stays synchronized with fee accounting.
+    function testUniswapLPTransfer_RevertsToZeroAddress() external {
+        _addLiquidity();
+
+        (address lpToken,,) = hook.poolInfo(poolId);
+        vm.expectRevert();
+        /// forge-lint: disable-next-line(erc20-unchecked-transfer)
+        UniswapLP(lpToken).transfer(address(0), 1);
+    }
+
+    /// @notice Verifies delegated LP transfers cannot target the zero address.
+    /// @dev Prevents `transferFrom` from acting like an unsynchronized user burn.
+    function testUniswapLPTransferFrom_RevertsToZeroAddress() external {
+        _addLiquidity();
+
+        (address lpToken,,) = hook.poolInfo(poolId);
+        UniswapLP(lpToken).approve(address(0xBEEF), 1);
+
+        vm.prank(address(0xBEEF));
+        vm.expectRevert();
+        /// forge-lint: disable-next-line(erc20-unchecked-transfer)
+        UniswapLP(lpToken).transferFrom(address(this), address(0), 1);
+    }
+
+    /// @notice Verifies LP fee growth uses the live-share supply and Q128 precision.
+    /// @dev The protocol-locked `MINIMUM_LIQUIDITY` must not dilute fee growth for the first real LP.
+    function testLpFeeGrowth_UsesEffectiveSupplyAndQ128Accumulator() external {
+        uint128 liquidity = _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        IMemeverseUniswapHook.SwapQuote memory quote =
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+
+        vm.prank(address(mockManager));
+        hook.beforeSwap(
+            address(this),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            bytes("")
+        );
+
+        (, uint256 fee0PerShare, uint256 fee1PerShare) = hook.poolInfo(poolId);
+        uint256 expectedFeeGrowthX128 = FullMath.mulDiv(quote.estimatedLpFeeAmount, Q128, liquidity);
+
+        assertEq(fee0PerShare, expectedFeeGrowthX128, "fee0 growth");
+        assertEq(fee1PerShare, 0, "fee1 growth");
+    }
+
+    /// @notice Verifies LP-fee hot paths do not call the LP token's external `totalSupply()`.
+    /// @dev Locks both public swap fee collection and launch-settlement LP fee credit to the hook-side cached supply path.
+    function testLpFeeHotPaths_UseCachedSupplyInsteadOfExternalTotalSupply() external {
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        (address lpToken,,) = hook.poolInfo(poolId);
+        vm.mockCallRevert(lpToken, abi.encodeWithSelector(TOTAL_SUPPLY_SELECTOR), bytes("unexpected totalSupply"));
+
+        vm.prank(address(mockManager));
+        hook.beforeSwap(
+            address(this),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            bytes("")
+        );
+
+        vm.clearMockedCalls();
+        vm.mockCallRevert(lpToken, abi.encodeWithSelector(TOTAL_SUPPLY_SELECTOR), bytes("unexpected totalSupply"));
+
+        hook.setLauncher(address(this));
+        token1.mint(address(mockManager), 1_000_000 ether);
+
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+    }
+
+    /// @notice Verifies swaps and launch settlement fail closed when only protocol-locked minimum liquidity remains.
+    /// @dev Once effective LP supply is zero, charging LP fees would strand funds because no claimable shares remain.
+    function testFeeChargingReverts_WhenOnlyMinimumLiquidityRemains() external {
+        uint128 liquidity = _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: key.currency0, currency1: key.currency1, liquidity: liquidity, recipient: address(this)
+            })
+        );
+
+        vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
+        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+
+        vm.prank(address(mockManager));
+        vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
+        hook.beforeSwap(
+            address(this),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            bytes("")
+        );
+
+        hook.setLauncher(address(this));
+        token1.mint(address(mockManager), 1_000_000 ether);
+
+        vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+    }
+
+    /// @notice Verifies the hook's cached LP total supply stays in sync with the actual LP token contract.
+    /// @dev A mismatch would corrupt fee-per-share accounting.
+    function testCachedLpTotalSupply_MatchesActualTotalSupply() external {
+        // After addLiquidity: cached should equal LP token totalSupply
+        uint128 liquidity = _addLiquidity();
+        (address lpToken,,) = hook.poolInfo(poolId);
+
+        uint256 actualSupply = UniswapLP(lpToken).totalSupply();
+        uint256 cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
+        assertEq(cachedSupply, actualSupply, "cached supply after add");
+
+        // After partial removal: still in sync
+        uint128 halfLiquidity = liquidity / 2;
+        hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: key.currency0, currency1: key.currency1, liquidity: halfLiquidity, recipient: address(this)
+            })
+        );
+
+        actualSupply = UniswapLP(lpToken).totalSupply();
+        cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
+        assertEq(cachedSupply, actualSupply, "cached supply after partial remove");
+
+        // After full removal: still in sync (only MINIMUM_LIQUIDITY remains)
+        hook.removeLiquidityCore(
+            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                liquidity: liquidity - halfLiquidity,
+                recipient: address(this)
+            })
+        );
+
+        actualSupply = UniswapLP(lpToken).totalSupply();
+        cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
+        assertEq(cachedSupply, actualSupply, "cached supply after full remove");
+        assertEq(actualSupply, 1000, "only MINIMUM_LIQUIDITY remains"); // 1000 = MINIMUM_LIQUIDITY constant
+    }
+
+    /// @notice Verifies liquidity cannot be minted directly to the zero address.
+    /// @dev Only hook-managed burn paths may move LP supply out of circulation.
+    function testAddLiquidityCoreReverts_WhenRecipientIsZeroAddress() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.addLiquidityCore(
+            IMemeverseUniswapHook.AddLiquidityCoreParams({
+                currency0: key.currency0,
+                currency1: key.currency1,
+                amount0Desired: 100 ether,
+                amount1Desired: 100 ether,
+                to: address(0)
+            })
+        );
+    }
+
+    /// @notice Verifies the protocol-locked zero address LP balance never becomes fee-earning state.
+    /// @dev The `MINIMUM_LIQUIDITY` lock should not surface as claimable fees or pending fee accrual.
+    function testZeroAddressLockedLiquidity_DoesNotAccrueClaimableOrPendingFees() external {
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        vm.prank(address(mockManager));
+        hook.beforeSwap(
+            address(this),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            bytes("")
+        );
+
+        (uint256 fee0Amount, uint256 fee1Amount) = hook.claimableFees(key, address(0));
+        assertEq(fee0Amount, 0, "zero address claimable fee0");
+        assertEq(fee1Amount, 0, "zero address claimable fee1");
+
+        hook.updateUserSnapshot(poolId, address(0));
+
+        (uint256 fee0Offset, uint256 fee1Offset, uint256 pendingFee0, uint256 pendingFee1) =
+            hook.userFeeState(poolId, address(0));
+        (, uint256 fee0PerShare, uint256 fee1PerShare) = hook.poolInfo(poolId);
+
+        assertEq(fee0Offset, fee0PerShare, "zero address fee0 offset");
+        assertEq(fee1Offset, fee1PerShare, "zero address fee1 offset");
+        assertEq(pendingFee0, 0, "zero address pending fee0");
+        assertEq(pendingFee1, 0, "zero address pending fee1");
+    }
+
     /// @notice Verifies relayed claims reject expired signatures.
     /// @dev Covers the `ExpiredPastDeadline` branch in claim authorization.
     function testClaimFeesCoreReverts_WhenSignatureExpired() external {
@@ -627,6 +905,22 @@ contract MemeverseUniswapHookLiquidityTest is Test {
                 recipient: address(this),
                 deadline: block.timestamp - 1,
                 v: 27,
+                r: bytes32(0),
+                s: bytes32(0)
+            })
+        );
+    }
+
+    function testClaimFeesCoreReverts_WhenPairUsesNativeCurrency() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.claimFeesCore(
+            IMemeverseUniswapHook.ClaimFeesCoreParams({
+                key: nativeKey,
+                owner: address(this),
+                recipient: address(this),
+                deadline: block.timestamp,
+                v: 0,
                 r: bytes32(0),
                 s: bytes32(0)
             })
@@ -663,6 +957,12 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         hook.setTreasury(address(0xBEEF));
         assertEq(hook.treasury(), address(0xBEEF), "treasury");
+
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.setProtocolFeeCurrency(CurrencyLibrary.ADDRESS_ZERO);
+
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.setProtocolFeeCurrencySupport(CurrencyLibrary.ADDRESS_ZERO, true);
     }
 
     /// @notice Verifies swap quoting reverts when neither side is enabled for protocol fees.
@@ -670,6 +970,21 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     function testQuoteSwapReverts_WhenProtocolFeeCurrencyUnsupported() external {
         vm.expectRevert(IMemeverseUniswapHook.CurrencyNotSupported.selector);
         hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+    }
+
+    function testQuoteSwapReverts_WhenPairUsesNativeCurrency() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.quoteSwap(nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+    }
+
+    function testDirectManagerSwapReverts_WhenPairUsesNativeCurrency() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        mockManager.swapAsUnlocked(
+            nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
     }
 
     /// @notice Verifies launch fee floor dominates immediately after pool initialization and decays to the minimum fee.
@@ -688,6 +1003,79 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(maturedQuote.feeBps, 100, "matured fee");
     }
 
+    function testDynamicFeeQuote_RevertingTradeStillPaysVolatilityAndShortImpact() external view {
+        MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
+            pifPpm: 50_000,
+            spotBeforeX18: 1.3e18,
+            spotAfterX18: 1.15e18,
+            weightedVolume0: 1,
+            ewVWAPX18: 1e18,
+            volDeviationAccumulator: 100_000,
+            shortImpactPpm: 50_000,
+            shortLastTs: uint40(block.timestamp)
+        });
+
+        assertFalse(quote.isAdverse, "reverting quote should not be adverse");
+        assertEq(quote.adverseImpactPartBps, 0, "reverting quote adverse impact");
+        assertGt(quote.volatilityPartBps, 0, "reverting quote volatility surcharge");
+        assertGt(quote.shortImpactPartBps, 0, "reverting quote short-impact surcharge");
+        assertEq(
+            quote.feeBps,
+            hook.exposedBaseFeeBps() + quote.volatilityPartBps + quote.shortImpactPartBps,
+            "reverting quote fee composition"
+        );
+    }
+
+    function testDynamicFeeQuote_AdverseTradeStillPaysAllThreeSurcharges() external view {
+        MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
+            pifPpm: 50_000,
+            spotBeforeX18: 1.3e18,
+            spotAfterX18: 1.45e18,
+            weightedVolume0: 1,
+            ewVWAPX18: 1e18,
+            volDeviationAccumulator: 100_000,
+            shortImpactPpm: 50_000,
+            shortLastTs: uint40(block.timestamp)
+        });
+
+        assertTrue(quote.isAdverse, "adverse quote flag");
+        assertGt(quote.adverseImpactPartBps, 0, "adverse impact surcharge");
+        assertGt(quote.volatilityPartBps, 0, "volatility surcharge");
+        assertGt(quote.shortImpactPartBps, 0, "short-impact surcharge");
+        assertEq(
+            quote.feeBps,
+            hook.exposedBaseFeeBps() + quote.adverseImpactPartBps + quote.volatilityPartBps + quote.shortImpactPartBps,
+            "adverse quote fee composition"
+        );
+    }
+
+    function testDynamicFeeQuote_RevertingTradeCostsLessThanAdverseButMoreThanBase() external view {
+        MemeverseUniswapHook.DynamicFeeQuote memory revertingQuote = hook.exposedPopulateDynamicFeeQuote({
+            pifPpm: 50_000,
+            spotBeforeX18: 1.3e18,
+            spotAfterX18: 1.15e18,
+            weightedVolume0: 1,
+            ewVWAPX18: 1e18,
+            volDeviationAccumulator: 100_000,
+            shortImpactPpm: 50_000,
+            shortLastTs: uint40(block.timestamp)
+        });
+        MemeverseUniswapHook.DynamicFeeQuote memory adverseQuote = hook.exposedPopulateDynamicFeeQuote({
+            pifPpm: 50_000,
+            spotBeforeX18: 1.3e18,
+            spotAfterX18: 1.45e18,
+            weightedVolume0: 1,
+            ewVWAPX18: 1e18,
+            volDeviationAccumulator: 100_000,
+            shortImpactPpm: 50_000,
+            shortLastTs: uint40(block.timestamp)
+        });
+
+        uint256 baseFeeBps = hook.exposedBaseFeeBps();
+        assertGt(revertingQuote.feeBps, baseFeeBps, "reverting quote above base");
+        assertLt(revertingQuote.feeBps, adverseQuote.feeBps, "reverting quote below adverse");
+    }
+
     /// @notice Verifies launch settlement can only be initiated by the bound launcher.
     function testExecuteLaunchSettlement_RevertsWhenCallerNotLauncher() external {
         hook.setProtocolFeeCurrency(key.currency0);
@@ -698,8 +1086,22 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             IMemeverseUniswapHook.LaunchSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-                recipient: address(this),
-                amountInMaximum: 100 ether
+                recipient: address(this)
+            })
+        );
+    }
+
+    function testExecuteLaunchSettlement_RevertsWhenPairUsesNativeCurrency() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        hook.setProtocolFeeCurrency(key.currency0);
+        hook.setLauncher(address(this));
+
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: nativeKey,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this)
             })
         );
     }
@@ -724,8 +1126,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             IMemeverseUniswapHook.LaunchSettlementParams({
                 key: uninitializedKey,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-                recipient: address(this),
-                amountInMaximum: 100 ether
+                recipient: address(this)
             })
         );
     }

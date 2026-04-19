@@ -45,9 +45,7 @@ import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
  * - This contract is the Core engine for the Memeverse v4 integration.
  * - End-user and SDK-facing flows are expected to enter via `MemeverseSwapRouter`.
  * - The external Core APIs on this contract remain intentionally open for custom routers and advanced integrators.
- * - The configured `treasury` is expected to be a passive fee receiver. In particular, when protocol fees may be
- *   paid in native currency, the treasury must be able to receive ETH and must not use `receive` / `fallback` to
- *   trigger reentrant swap or liquidity actions.
+ * - The configured `treasury` is expected to be a passive fee receiver.
  * - `beforeInitialize`: validates pool settings and deploys the pool-specific LP token.
  * - `beforeSwap`: computes public-swap fees and accrues fee accounting.
  * - `afterSwap`: updates ewVWAP, reference-price volatility state, and short-term impact state, and optionally takes protocol fees.
@@ -69,7 +67,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     int24 internal constant MAX_TICK = 887200;
     int24 internal constant TICK_SPACING = 200;
     uint16 internal constant MINIMUM_LIQUIDITY = 1000;
-    uint256 internal constant PRECISION = 1e18;
+    uint256 internal constant EWVWAP_PRECISION = 1e18;
+    uint256 internal constant FEE_GROWTH_Q128 = uint256(1) << 128;
     uint256 internal constant Q96 = 1 << 96;
     uint256 internal constant Q96_SQUARED = Q96 * Q96;
 
@@ -105,6 +104,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     // solhint-enable gas-small-strings
     mapping(address => bool) public supportedProtocolFeeCurrencies;
     mapping(PoolId => PoolInfo) public poolInfo;
+    mapping(PoolId => uint256) internal cachedLpTotalSupply;
     mapping(PoolId => uint40) public poolLaunchTimestamp;
     mapping(PoolId => uint40) public publicSwapResumeTime;
     mapping(PoolId => mapping(address => UserFeeState)) public userFeeState;
@@ -129,9 +129,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     struct DynamicFeeQuote {
         uint256 feeBps;
         uint256 pifPpm;
-        uint256 dynamicPartBps;
-        uint256 volPartBps;
-        uint256 shortPartBps;
+        uint256 adverseImpactPartBps;
+        uint256 volatilityPartBps;
+        uint256 shortImpactPartBps;
         uint256 estimatedInputAmount;
         uint256 estimatedOutputAmount;
         uint256 estimatedGrossOutputAmount;
@@ -176,6 +176,16 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
     }
 
+    modifier onlyLauncher() {
+        if (msg.sender != launcher) revert Unauthorized();
+        _;
+    }
+
+    modifier erc20Pair(Currency currency0, Currency currency1) {
+        _revertIfNativeCurrencyUnsupported(currency0, currency1);
+        _;
+    }
+
     /// @notice Declares which hook callbacks are enabled for this hook.
     /// @dev Memeverse uses only `beforeInitialize`, `beforeAddLiquidity`, `beforeSwap`, and `afterSwap`.
     /// @return permissions The callback permission bitmap consumed by the Uniswap v4 hook framework.
@@ -210,14 +220,16 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         external
         view
         override
+        erc20Pair(key.currency0, key.currency1)
         returns (SwapQuote memory quote)
     {
         PoolId poolId = key.toId();
+        _revertIfNoActiveLiquidityShares(poolId, params.amountSpecified);
+        _revertIfPublicSwapBlocked(poolId);
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
 
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         DynamicFeeQuote memory feeQuote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
-        _applyLaunchFeeFloor(poolId, feeQuote);
         uint256 lpFeeBps = _lpFeeBps(feeQuote.feeBps);
         uint256 protocolFeeBps = _protocolFeeBps(feeQuote.feeBps);
 
@@ -256,7 +268,13 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @dev Convenience helper for integrators that already operate with `PoolKey`.
     /// @param key The pool key to query.
     /// @return liquidityToken The deployed LP token, or `address(0)` when the pool is not initialized.
-    function lpToken(PoolKey calldata key) external view override returns (address liquidityToken) {
+    function lpToken(PoolKey calldata key)
+        external
+        view
+        override
+        erc20Pair(key.currency0, key.currency1)
+        returns (address liquidityToken)
+    {
         return poolInfo[key.toId()].liquidityToken;
     }
 
@@ -271,11 +289,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         external
         view
         override
+        erc20Pair(key.currency0, key.currency1)
         returns (uint256 fee0Amount, uint256 fee1Amount)
     {
         PoolId poolId = key.toId();
         PoolInfo storage pool = poolInfo[poolId];
-        if (pool.liquidityToken == address(0)) return (0, 0);
+        if (pool.liquidityToken == address(0) || owner == address(0)) return (0, 0);
 
         UserFeeState storage state = userFeeState[poolId][owner];
         fee0Amount = state.pendingFee0;
@@ -285,14 +304,19 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (balance == 0) return (fee0Amount, fee1Amount);
 
         if (pool.fee0PerShare > state.fee0Offset) {
-            fee0Amount += FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, PRECISION);
+            fee0Amount += FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, FEE_GROWTH_Q128);
         }
         if (pool.fee1PerShare > state.fee1Offset) {
-            fee1Amount += FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, PRECISION);
+            fee1Amount += FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, FEE_GROWTH_Q128);
         }
     }
 
-    function _beforeInitialize(address, PoolKey calldata key, uint160) internal override returns (bytes4) {
+    function _beforeInitialize(address, PoolKey calldata key, uint160)
+        internal
+        override
+        erc20Pair(key.currency0, key.currency1)
+        returns (bytes4)
+    {
         if (key.tickSpacing != TICK_SPACING) revert TickSpacingNotDefault();
         if (!LPFeeLibrary.isDynamicFee(key.fee)) revert FeeMustBeDynamic();
 
@@ -314,6 +338,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
         override
+        erc20Pair(key.currency0, key.currency1)
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         PoolId poolId = key.toId();
@@ -323,6 +348,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
         _revertIfPublicSwapBlocked(poolId);
+        uint256 effectiveSupply = _activeLpSupplyForSwap(poolId, params.amountSpecified);
 
         uint256 absSpecified = uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified);
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
@@ -330,17 +356,21 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         _refreshVolatilityAnchorAndCarry(poolId, preSqrtPriceX96);
         DynamicFeeQuote memory quote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
-        _applyLaunchFeeFloor(poolId, quote);
         uint256 dynamicFeeBps = quote.feeBps;
-
-        // `afterSwap` must reuse the exact same pre-swap fee quote and price anchor even though PoolManager callbacks split the flow.
-        MemeverseTransientState.storeSwapContext(dynamicFeeBps, preSqrtPriceX96);
 
         uint256 lpFeeBps = _lpFeeBps(dynamicFeeBps);
         uint256 protocolFeeBps = _protocolFeeBps(dynamicFeeBps);
+        bool needsFeeContext = params.amountSpecified > 0 || !ctx.protocolFeeOnInput;
 
-        uint256 lpFeeInputAmount;
-        uint256 protocolFeeInputAmount;
+        // `afterSwap` must reuse the same pre-swap price anchor, and only fee-bearing branches need the fee context.
+        if (needsFeeContext) {
+            MemeverseTransientState.pushSwapContext(poolId, dynamicFeeBps, preSqrtPriceX96);
+        } else {
+            MemeverseTransientState.pushPriceContext(poolId, preSqrtPriceX96);
+        }
+
+        uint256 lpFeeInputAmount = 0;
+        uint256 protocolFeeInputAmount = 0;
         if (params.amountSpecified < 0) {
             // Exact-input swaps can charge input-side fees immediately because the user's budget is already known up front.
             lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
@@ -350,7 +380,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         }
 
         if (lpFeeInputAmount > 0) {
-            _collectLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount);
+            _collectLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount, effectiveSupply);
         }
         if (protocolFeeInputAmount > 0) {
             _collectProtocolFee(poolId, ctx.currencyIn, protocolFeeInputAmount);
@@ -375,15 +405,28 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (resumeTime != 0 && block.timestamp < resumeTime) revert PublicSwapDisabled();
     }
 
-    function _afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
-        internal
-        override
-        returns (bytes4, int128)
-    {
-        _updateDynamicStateAfterSwap(key.toId(), delta);
+    function _afterSwap(
+        address sender,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        BalanceDelta delta,
+        bytes calldata
+    ) internal override returns (bytes4, int128) {
+        if (sender == address(this)) {
+            return (IHooks.afterSwap.selector, 0);
+        }
 
+        PoolId poolId = key.toId();
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
-        uint256 feeBps = MemeverseTransientState.loadSwapFeeBps();
+        if (params.amountSpecified < 0 && ctx.protocolFeeOnInput) {
+            (uint160 contextPreSqrtPriceX96,) = MemeverseTransientState.consumeCurrentPriceContext(poolId);
+            _updateDynamicStateAfterSwap(poolId, delta, contextPreSqrtPriceX96);
+            return (IHooks.afterSwap.selector, 0);
+        }
+
+        (uint256 feeBps, uint160 preSqrtPriceX96,) = MemeverseTransientState.consumeCurrentSwapContext(poolId);
+        _updateDynamicStateAfterSwap(poolId, delta, preSqrtPriceX96);
+
         uint256 lpFeeBps = _lpFeeBps(feeBps);
         uint256 protocolFeeBps = _protocolFeeBps(feeBps);
 
@@ -394,14 +437,17 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
             uint256 exactOutputLpFeeInputAmount = FullMath.mulDiv(actualInputAbs, lpFeeBps, BPS_BASE);
             if (exactOutputLpFeeInputAmount > 0) {
-                _collectLpFee(key.toId(), ctx.currencyIn, ctx.inputIsCurrency0, exactOutputLpFeeInputAmount);
+                uint256 effectiveSupply = _effectiveLpSupply(poolId);
+                _collectLpFee(
+                    poolId, ctx.currencyIn, ctx.inputIsCurrency0, exactOutputLpFeeInputAmount, effectiveSupply
+                );
             }
 
             uint256 unspecifiedDelta;
             if (ctx.protocolFeeOnInput) {
                 uint256 exactOutputProtocolFeeInputAmount = FullMath.mulDiv(actualInputAbs, protocolFeeBps, BPS_BASE);
                 if (exactOutputProtocolFeeInputAmount > 0) {
-                    _collectProtocolFee(key.toId(), ctx.currencyIn, exactOutputProtocolFeeInputAmount);
+                    _collectProtocolFee(poolId, ctx.currencyIn, exactOutputProtocolFeeInputAmount);
                 }
                 unspecifiedDelta = exactOutputLpFeeInputAmount + exactOutputProtocolFeeInputAmount;
             } else {
@@ -409,7 +455,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 uint256 actualGrossOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
                 uint256 exactOutputProtocolFeeOutputAmount = actualGrossOutputAbs - uint256(params.amountSpecified);
                 if (exactOutputProtocolFeeOutputAmount > 0) {
-                    _collectProtocolFee(key.toId(), ctx.currencyOut, exactOutputProtocolFeeOutputAmount);
+                    _collectProtocolFee(poolId, ctx.currencyOut, exactOutputProtocolFeeOutputAmount);
                 }
                 unspecifiedDelta = exactOutputLpFeeInputAmount;
             }
@@ -444,15 +490,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
     /// @notice Add full-range liquidity while the caller funds the assets and receives LP shares at `params.to`.
     /// @dev This is the low-level liquidity entrypoint intended for routers and other on-chain integrators.
-    /// It omits deadline and min-amount checks, requires exact native funding when one side is native, and returns the
-    /// settled delta to the caller. Callers are expected to pre-compute the required native amount from the same
-    /// full-range quote inputs before invoking this Core entrypoint.
+    /// It omits deadline and min-amount checks and returns the settled delta to the caller.
     /// @param params The core liquidity-add parameters.
     /// @return liquidity The LP liquidity minted by the operation.
     /// @return delta The balance delta settled against the caller.
     function addLiquidityCore(AddLiquidityCoreParams calldata params)
         external
-        payable
         override
         nonReentrant
         returns (uint128 liquidity, BalanceDelta delta)
@@ -464,6 +507,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         internal
         returns (uint128 liquidity, BalanceDelta addedDelta)
     {
+        if (params.to == address(0)) revert ZeroAddress();
         PoolKey memory key = _poolKey(params.currency0, params.currency1);
         PoolId poolId = key.toId();
         PoolInfo storage pool = poolInfo[poolId];
@@ -477,14 +521,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 amount1Used;
         (liquidity, amount0Used, amount1Used) =
             LiquidityQuote.quote(sqrtPriceX96, params.amount0Desired, params.amount1Desired);
-
-        uint256 requiredNative;
-        if (key.currency0.isAddressZero()) {
-            requiredNative = amount0Used;
-        } else if (key.currency1.isAddressZero()) {
-            requiredNative = amount1Used;
-        }
-        if (msg.value != requiredNative) revert InvalidNativeValue(requiredNative, msg.value);
 
         if (poolLiquidity == 0 && liquidity <= MINIMUM_LIQUIDITY) revert LiquidityDoesntMeetMinimum();
 
@@ -501,9 +537,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 liquidity -= MINIMUM_LIQUIDITY;
             }
             UniswapLP(pool.liquidityToken).mint(address(0), MINIMUM_LIQUIDITY);
+            cachedLpTotalSupply[poolId] += MINIMUM_LIQUIDITY;
         }
 
         UniswapLP(pool.liquidityToken).mint(params.to, liquidity);
+        cachedLpTotalSupply[poolId] += liquidity;
 
         emit LiquidityAdded(
             poolId,
@@ -537,6 +575,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         updateUserSnapshot(poolId, msg.sender);
 
         UniswapLP lp = UniswapLP(poolInfo[poolId].liquidityToken);
+        lp.burn(msg.sender, params.liquidity);
+        cachedLpTotalSupply[poolId] -= params.liquidity;
+
         delta = _modifyLiquidity(
             params.recipient,
             key,
@@ -544,7 +585,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 tickLower: MIN_TICK, tickUpper: MAX_TICK, liquidityDelta: -(params.liquidity.toInt256()), salt: 0
             })
         );
-        lp.burn(msg.sender, params.liquidity);
 
         emit LiquidityRemoved(
             poolId,
@@ -579,25 +619,25 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         external
         override
         nonReentrant
+        onlyLauncher
+        erc20Pair(params.key.currency0, params.key.currency1)
         returns (BalanceDelta delta)
     {
-        if (msg.sender != launcher) revert Unauthorized();
-
         PoolId poolId = params.key.toId();
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         if (poolInfo[poolId].liquidityToken == address(0) || sqrtPriceX96 == 0) revert PoolNotInitialized();
         if (params.params.amountSpecified >= 0) revert ZeroValue();
 
+        _revertIfNoActiveLiquidityShares(poolId, params.params.amountSpecified);
+
         uint256 grossInputAmount = uint256(-params.params.amountSpecified);
         if (grossInputAmount == 0) revert ZeroValue();
-        if (params.amountInMaximum == 0 || grossInputAmount > params.amountInMaximum) revert TooMuchSlippage();
-
         SwapFeeContext memory feeContext = _resolveSwapFeeContext(params.key, params.params.zeroForOne);
         // Vendored Uniswap v4 `Hooks.beforeSwap/afterSwap` short-circuit self-calls when `msg.sender == address(self)`.
-        // Explicit settlement therefore bypasses hook callbacks on the real pool manager, so capture the same
-        // pre-swap context here and replay the dynamic-state bookkeeping in the settlement callback.
+        // Explicit settlement therefore bypasses hook callbacks on the real pool manager, so refresh the volatility
+        // anchor here and replay the dynamic-state bookkeeping in the settlement callback using a pre-swap price
+        // captured immediately before the actual self-swap executes.
         _refreshVolatilityAnchorAndCarry(poolId, sqrtPriceX96);
-        MemeverseTransientState.storeSwapContext(LAUNCH_SETTLEMENT_FEE_BPS, sqrtPriceX96);
         uint256 lpFeeBps = _lpFeeBps(LAUNCH_SETTLEMENT_FEE_BPS);
         uint256 protocolFeeBps = _protocolFeeBps(LAUNCH_SETTLEMENT_FEE_BPS);
         uint256 lpFeeInputAmount = FullMath.mulDiv(grossInputAmount, lpFeeBps, BPS_BASE);
@@ -681,21 +721,21 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         PoolId poolId = data.key.toId();
         SwapFeeContext memory feeContext = _resolveSwapFeeContext(data.key, data.params.zeroForOne);
         uint256 protocolFeeBps = _protocolFeeBps(LAUNCH_SETTLEMENT_FEE_BPS);
+        (uint160 preSwapSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
 
         BalanceDelta swapDelta = poolManager.swap(data.key, data.params, ZERO_BYTES);
-        _updateDynamicStateAfterSwap(poolId, swapDelta);
-        MemeverseTransientState.storeSwapContext(0, 0);
+        _updateDynamicStateAfterSwap(poolId, swapDelta, preSwapSqrtPriceX96);
         int128 amount0 = swapDelta.amount0();
         int128 amount1 = swapDelta.amount1();
 
         if (amount0 < 0) {
-            data.key.currency0.settle(poolManager, data.payer, uint256(uint128(-amount0)), false);
+            data.key.currency0.settle(poolManager, data.payer, uint256((-amount0).toUint128()), false);
         }
         if (amount1 < 0) {
-            data.key.currency1.settle(poolManager, data.payer, uint256(uint128(-amount1)), false);
+            data.key.currency1.settle(poolManager, data.payer, uint256((-amount1).toUint128()), false);
         }
 
-        uint256 protocolFeeOutputAmount;
+        uint256 protocolFeeOutputAmount = 0;
         if (!data.protocolFeeOnInput) {
             // When protocol fee is charged on output, the pool pays gross proceeds first and the hook skims treasury share before forwarding.
             uint256 grossOutputAmount = _actualOutputAmount(swapDelta, data.params.zeroForOne);
@@ -703,8 +743,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             _collectProtocolFee(poolId, feeContext.currencyOut, protocolFeeOutputAmount);
         }
 
-        uint256 takeAmount0 = amount0 > 0 ? uint256(uint128(amount0)) : 0;
-        uint256 takeAmount1 = amount1 > 0 ? uint256(uint128(amount1)) : 0;
+        uint256 takeAmount0 = amount0 > 0 ? uint256(amount0.toUint128()) : 0;
+        uint256 takeAmount1 = amount1 > 0 ? uint256(amount1.toUint128()) : 0;
         if (protocolFeeOutputAmount > 0) {
             if (data.params.zeroForOne) {
                 takeAmount1 -= protocolFeeOutputAmount;
@@ -725,16 +765,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return abi.encode(toBalanceDelta(adjustedAmount0, adjustedAmount1));
     }
 
-    /// @dev Transfers `amount` of `currency` to `to`. Supports native currency (address(0)) and ERC20.
+    /// @dev Transfers `amount` of `currency` to `to`.
     function _transferCurrency(Currency currency, address to, uint256 amount) internal {
         if (amount == 0) return;
-
-        if (currency.isAddressZero()) {
-            (bool success,) = to.call{value: amount}("");
-            if (!success) revert ERC20TransferFailed();
-        } else {
-            if (!IERC20Minimal(Currency.unwrap(currency)).transfer(to, amount)) revert ERC20TransferFailed();
-        }
+        if (to == address(0)) revert ZeroAddress();
+        if (!IERC20Minimal(Currency.unwrap(currency)).transfer(to, amount)) revert ERC20TransferFailed();
     }
 
     function _settleDeltas(address sender, PoolKey memory key, BalanceDelta delta) internal {
@@ -747,17 +782,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         poolManager.take(key.currency1, recipient, uint256(delta.amount1().toUint128()));
     }
 
-    function _forwardLiquidityOutputs(address recipient, PoolKey memory key, BalanceDelta delta) internal {
-        if (delta.amount0() > 0) {
-            _transferCurrency(key.currency0, recipient, uint256(delta.amount0().toUint128()));
-        }
-        if (delta.amount1() > 0) {
-            _transferCurrency(key.currency1, recipient, uint256(delta.amount1().toUint128()));
-        }
-    }
-
     function _claimFees(PoolKey memory key, address owner, address recipient)
         internal
+        erc20Pair(key.currency0, key.currency1)
         returns (uint256 fee0Amount, uint256 fee1Amount)
     {
         PoolId poolId = key.toId();
@@ -825,7 +852,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         );
     }
 
-    function _poolKey(Currency currency0, Currency currency1) internal view returns (PoolKey memory key) {
+    function _poolKey(Currency currency0, Currency currency1)
+        internal
+        view
+        erc20Pair(currency0, currency1)
+        returns (PoolKey memory key)
+    {
         key = PoolKey({
             currency0: currency0,
             currency1: currency1,
@@ -865,16 +897,18 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         emit ProtocolFeeCollected(poolId, feeCurrency, treasury, protocolFeeAmount, block.number);
     }
 
-    function _collectLpFee(PoolId poolId, Currency feeCurrency, bool feeCurrencyIsCurrency0, uint256 lpFeeAmount)
-        internal
-    {
+    function _collectLpFee(
+        PoolId poolId,
+        Currency feeCurrency,
+        bool feeCurrencyIsCurrency0,
+        uint256 lpFeeAmount,
+        uint256 effectiveSupply
+    ) internal {
         if (lpFeeAmount == 0) return;
-        PoolInfo storage pool = poolInfo[poolId];
-        uint256 totalSupply = UniswapLP(pool.liquidityToken).totalSupply();
-        if (totalSupply == 0) return;
+        if (effectiveSupply == 0) return;
 
         poolManager.take(feeCurrency, address(this), lpFeeAmount);
-        _creditLpFee(poolId, feeCurrency, feeCurrencyIsCurrency0, lpFeeAmount, totalSupply);
+        _creditLpFee(poolId, feeCurrency, feeCurrencyIsCurrency0, lpFeeAmount, effectiveSupply);
     }
 
     function _collectLaunchSettlementInputFees(
@@ -885,21 +919,17 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 protocolFeeInputAmount
     ) internal {
         if (lpFeeInputAmount > 0) {
-            if (ctx.currencyIn.isAddressZero()) revert InvalidNativeValue(lpFeeInputAmount, 0);
-            // Cache storage pointer to avoid redundant SLOAD for liquidityToken access.
-            PoolInfo storage pool = poolInfo[poolId];
-            uint256 totalSupply = UniswapLP(pool.liquidityToken).totalSupply();
+            uint256 effectiveSupply = _effectiveLpSupply(poolId);
             // Launcher settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, address(this), lpFeeInputAmount)) {
                 revert ERC20TransferFailed();
             }
-            if (totalSupply > 0) {
-                _creditLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount, totalSupply);
+            if (effectiveSupply > 0) {
+                _creditLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount, effectiveSupply);
             }
         }
 
         if (protocolFeeInputAmount > 0) {
-            if (ctx.currencyIn.isAddressZero()) revert InvalidNativeValue(protocolFeeInputAmount, 0);
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, treasury, protocolFeeInputAmount)) {
                 revert ERC20TransferFailed();
             }
@@ -909,29 +939,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
     function _takeToTreasury(Currency feeCurrency, uint256 amount) internal {
         if (treasury == address(0)) revert Unauthorized();
-        if (feeCurrency.isAddressZero()) {
-            try poolManager.take(feeCurrency, treasury, amount) {}
-            catch {
-                revert NativeTreasuryMustAcceptETH();
-            }
-        } else {
-            poolManager.take(feeCurrency, treasury, amount);
-        }
-    }
-
-    function _transferFromCallerToTreasury(Currency feeCurrency, uint256 amount) internal {
-        if (treasury == address(0)) revert Unauthorized();
-        if (feeCurrency.isAddressZero()) {
-            (bool success,) = payable(treasury).call{value: amount}("");
-            if (!success) revert NativeTreasuryMustAcceptETH();
-        } else {
-            if (!IERC20Minimal(Currency.unwrap(feeCurrency)).transferFrom(msg.sender, treasury, amount)) {
-                revert ERC20TransferFailed();
-            }
-        }
+        poolManager.take(feeCurrency, treasury, amount);
     }
 
     function _setProtocolFeeCurrencySupport(Currency currency, bool supported) internal {
+        if (currency.isAddressZero()) revert NativeCurrencyUnsupported();
         supportedProtocolFeeCurrencies[Currency.unwrap(currency)] = supported;
         emit ProtocolFeeCurrencySupportUpdated(currency, supported);
     }
@@ -945,10 +957,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         Currency feeCurrency,
         bool feeCurrencyIsCurrency0,
         uint256 lpFeeAmount,
-        uint256 totalSupply
+        uint256 effectiveSupply
     ) internal {
         PoolInfo storage pool = poolInfo[poolId];
-        uint256 feePerShare = FullMath.mulDiv(lpFeeAmount, PRECISION, totalSupply);
+        uint256 feePerShare = FullMath.mulDiv(lpFeeAmount, FEE_GROWTH_Q128, effectiveSupply);
         if (feeCurrencyIsCurrency0) {
             pool.fee0PerShare += feePerShare;
             emit LPFeeCollected(poolId, feeCurrency, lpFeeAmount, pool.fee0PerShare, block.number);
@@ -986,6 +998,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         PoolInfo storage pool = poolInfo[id];
         UserFeeState storage state = userFeeState[id][user];
 
+        if (user == address(0)) {
+            state.fee0Offset = pool.fee0PerShare;
+            state.fee1Offset = pool.fee1PerShare;
+            return;
+        }
+
         uint256 balance = UniswapLP(pool.liquidityToken).balanceOf(user);
         if (balance == 0) {
             // A zero-balance account should not retain stale offsets; advancing them prevents future mint recipients from inheriting old fees.
@@ -996,8 +1014,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         unchecked {
             // Crystallize accrued fees before any mint/burn changes the user's LP balance baseline.
-            uint256 fee0Claimable = FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, PRECISION);
-            uint256 fee1Claimable = FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, PRECISION);
+            uint256 fee0Claimable = FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, FEE_GROWTH_Q128);
+            uint256 fee1Claimable = FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, FEE_GROWTH_Q128);
 
             if (fee0Claimable > 0) state.pendingFee0 += fee0Claimable;
             if (fee1Claimable > 0) state.pendingFee1 += fee1Claimable;
@@ -1005,6 +1023,31 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         state.fee0Offset = pool.fee0PerShare;
         state.fee1Offset = pool.fee1PerShare;
+    }
+
+    function _effectiveLpSupply(PoolId poolId) internal view returns (uint256 effectiveSupply) {
+        uint256 totalSupply = cachedLpTotalSupply[poolId];
+        if (totalSupply <= MINIMUM_LIQUIDITY) return 0;
+        unchecked {
+            effectiveSupply = totalSupply - MINIMUM_LIQUIDITY;
+        }
+    }
+
+    function _activeLpSupplyForSwap(PoolId poolId, int256 amountSpecified)
+        internal
+        view
+        returns (uint256 effectiveSupply)
+    {
+        if (amountSpecified == 0) return 0;
+
+        effectiveSupply = _effectiveLpSupply(poolId);
+        if (effectiveSupply != 0) return effectiveSupply;
+        if (poolManager.getLiquidity(poolId) == 0) return 0;
+        revert NoActiveLiquidityShares();
+    }
+
+    function _revertIfNoActiveLiquidityShares(PoolId poolId, int256 amountSpecified) internal view {
+        _activeLpSupplyForSwap(poolId, amountSpecified);
     }
 
     /// @notice Updates the treasury address.
@@ -1028,7 +1071,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
     /// @notice Updates whether a currency is eligible to receive protocol fees.
     /// @dev If both pool sides are supported, the swap path will prefer charging protocol fees on the input side.
-    /// Native currency support is represented by `address(0)`.
     /// @param currency The currency whose support flag is being updated.
     /// @param supported Whether protocol fees may settle in `currency`.
     function setProtocolFeeCurrencySupport(Currency currency, bool supported) external onlyOwner {
@@ -1061,8 +1103,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// @param tokenA One token in the protected pool.
     /// @param tokenB The other token in the protected pool.
     /// @param resumeTime New public-swap resume timestamp for the pool.
-    function setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime) external {
-        if (msg.sender != launcher) revert Unauthorized();
+    function setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime) external onlyLauncher {
         publicSwapResumeTime[_poolIdForTokens(tokenA, tokenB)] = resumeTime;
     }
 
@@ -1090,30 +1131,44 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     // Dynamic fee computation
     // -----------------------------------------------------------------------------
 
-    /// @dev Dynamic fee quote. Returns base fee in emergency mode, for zero-sized/zero-liquidity
-    /// cases, or when an ewVWAP history marks the swap as non-adverse. Does not move funds.
+    /// @dev Dynamic fee quote. Returns base-fee pricing in emergency mode and for zero-sized/zero-liquidity cases.
+    /// Still estimates swap flow in emergency mode so exact-output callers receive usable input/output guardrails.
     function _quoteDynamicFee(PoolId poolId, SwapParams calldata params, uint160 preSqrtPriceX96, bool feeOnInput)
         internal
         view
         returns (DynamicFeeQuote memory quote)
     {
-        quote.feeBps = FEE_BASE_BPS;
-        if (emergencyFlag) return quote;
-
+        uint256 launchFeeBps = _quoteLaunchFeeBps(poolId);
+        quote.feeBps = launchFeeBps > FEE_BASE_BPS ? launchFeeBps : FEE_BASE_BPS;
         if (params.amountSpecified == 0) return quote;
 
         uint128 liquidity = poolManager.getLiquidity(poolId);
         if (liquidity == 0) return quote;
 
-        EWVWAPParams memory state = poolEWVWAPParams[poolId];
-        quote = _estimateDynamicFeeQuote(
-            state, liquidity, preSqrtPriceX96, params.zeroForOne, params.amountSpecified, feeOnInput
-        );
-    }
+        if (emergencyFlag) {
+            EWVWAPParams memory emptyState;
+            return _estimateDynamicFeeQuote(
+                emptyState,
+                liquidity,
+                preSqrtPriceX96,
+                params.zeroForOne,
+                params.amountSpecified,
+                feeOnInput,
+                true,
+                launchFeeBps
+            );
+        }
 
-    function _applyLaunchFeeFloor(PoolId poolId, DynamicFeeQuote memory quote) internal view {
-        uint256 launchFeeBps = _quoteLaunchFeeBps(poolId);
-        if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
+        return _estimateDynamicFeeQuote(
+            poolEWVWAPParams[poolId],
+            liquidity,
+            preSqrtPriceX96,
+            params.zeroForOne,
+            params.amountSpecified,
+            feeOnInput,
+            false,
+            launchFeeBps
+        );
     }
 
     function _quoteLaunchFeeBps(PoolId poolId) internal view returns (uint256 feeBps) {
@@ -1140,9 +1195,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint160 preSqrtPriceX96,
         bool zeroForOne,
         int256 amountSpecified,
-        bool feeOnInput
+        bool feeOnInput,
+        bool emergencyMode,
+        uint256 launchFeeBps
     ) internal view returns (DynamicFeeQuote memory quote) {
-        quote.feeBps = FEE_BASE_BPS;
+        quote.feeBps = launchFeeBps > FEE_BASE_BPS ? launchFeeBps : FEE_BASE_BPS;
         if (amountSpecified == 0 || liquidity == 0) return quote;
 
         int256 workingAmountSpecified = amountSpecified;
@@ -1159,11 +1216,14 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             ) = _estimateSwapFlowAndPostPrice(liquidity, preSqrtPriceX96, zeroForOne, workingAmountSpecified);
             if (quote.estimatedInputAmount == 0) return quote;
 
-            quote.spotBeforeX18 = _spotX18FromSqrtPrice(preSqrtPriceX96);
-            quote.spotAfterX18 = _spotX18FromSqrtPrice(postSqrtPriceX96);
-            quote.pifPpm = _priceMovePpm(preSqrtPriceX96, postSqrtPriceX96);
+            if (!emergencyMode) {
+                quote.spotBeforeX18 = _spotX18FromSqrtPrice(preSqrtPriceX96);
+                quote.spotAfterX18 = _spotX18FromSqrtPrice(postSqrtPriceX96);
+                quote.pifPpm = _priceMovePpm(preSqrtPriceX96, postSqrtPriceX96);
+                _populateDynamicFeeQuoteFromState(quote, state);
+            }
 
-            _populateDynamicFeeQuoteFromState(quote, state);
+            if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
 
             if (amountSpecified < 0) {
                 uint256 inputSideFeeBps = feeOnInput ? quote.feeBps : _lpFeeBps(quote.feeBps);
@@ -1205,18 +1265,19 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             uint256 distBefore = _absDiff(quote.spotBeforeX18, state.ewVWAPX18);
             uint256 distAfter = _absDiff(quote.spotAfterX18, state.ewVWAPX18);
             quote.isAdverse = distAfter > distBefore;
-            if (!quote.isAdverse) return;
         } else {
             quote.isAdverse = true;
         }
 
-        uint256 cappedPif = quote.pifPpm > PIF_CAP_PPM ? PIF_CAP_PPM : quote.pifPpm;
-        uint256 satPpm = FullMath.mulDiv(cappedPif, PPM_BASE, cappedPif + PIF_CAP_PPM);
-        uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
-        uint256 dynamicPpm = FullMath.mulDiv(dffPpm, cappedPif, PPM_BASE);
-        quote.dynamicPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
+        if (quote.isAdverse) {
+            uint256 cappedPif = quote.pifPpm > PIF_CAP_PPM ? PIF_CAP_PPM : quote.pifPpm;
+            uint256 satPpm = FullMath.mulDiv(cappedPif, PPM_BASE, cappedPif + PIF_CAP_PPM);
+            uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
+            uint256 dynamicPpm = FullMath.mulDiv(dffPpm, cappedPif, PPM_BASE);
+            quote.adverseImpactPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
+        }
 
-        quote.volPartBps = _volatilityQuadraticFeeBps(
+        quote.volatilityPartBps = _volatilityQuadraticFeeBps(
             state.volDeviationAccumulator, VOL_DEVIATION_STEP_BPS, VOL_QUADRATIC_FEE_CONTROL
         );
 
@@ -1224,9 +1285,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint256 projectedShortPpm = decayedShortPpm + quote.pifPpm;
         if (projectedShortPpm > SHORT_CAP_PPM) projectedShortPpm = SHORT_CAP_PPM;
         uint256 chargeableShortPpm = projectedShortPpm > SHORT_FLOOR_PPM ? projectedShortPpm - SHORT_FLOOR_PPM : 0;
-        quote.shortPartBps = FullMath.mulDiv(chargeableShortPpm, SHORT_COEFF_BPS, PPM_BASE);
+        quote.shortImpactPartBps = FullMath.mulDiv(chargeableShortPpm, SHORT_COEFF_BPS, PPM_BASE);
 
-        uint256 feeBps = FEE_BASE_BPS + quote.dynamicPartBps + quote.volPartBps + quote.shortPartBps;
+        uint256 feeBps = FEE_BASE_BPS + quote.adverseImpactPartBps + quote.volatilityPartBps + quote.shortImpactPartBps;
         if (feeBps > FEE_MAX_BPS) feeBps = FEE_MAX_BPS;
         quote.feeBps = feeBps;
     }
@@ -1276,8 +1337,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     /// @dev Updates ewVWAP, reference-price volatility state, and short-term impact state using the realized swap outcome.
-    function _updateDynamicStateAfterSwap(PoolId poolId, BalanceDelta delta) internal {
-        uint160 preSqrtPriceX96 = MemeverseTransientState.loadPreSwapSqrtPriceX96();
+    function _updateDynamicStateAfterSwap(PoolId poolId, BalanceDelta delta, uint160 preSqrtPriceX96) internal {
         if (preSqrtPriceX96 == 0) return;
 
         (uint160 postSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
@@ -1297,7 +1357,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (volume0 == 0 || spotX18 == 0) return;
         uint256 alpha = FEE_ALPHA;
         uint256 alphaR = PPM_BASE - alpha;
-        uint256 priceVolume = FullMath.mulDiv(volume0, spotX18, PRECISION);
+        uint256 priceVolume = FullMath.mulDiv(volume0, spotX18, EWVWAP_PRECISION);
 
         if (state.weightedVolume0 == 0) {
             state.weightedVolume0 = volume0;
@@ -1309,7 +1369,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             state.weightedPriceVolume0 = FullMath.mulDiv(alpha, priceVolume, PPM_BASE)
                 + FullMath.mulDiv(alphaR, state.weightedPriceVolume0, PPM_BASE);
             if (state.weightedVolume0 > 0) {
-                state.ewVWAPX18 = FullMath.mulDiv(state.weightedPriceVolume0, PRECISION, state.weightedVolume0);
+                state.ewVWAPX18 = FullMath.mulDiv(state.weightedPriceVolume0, EWVWAP_PRECISION, state.weightedVolume0);
             }
         }
     }
@@ -1343,6 +1403,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         } else {
             state.volCarryAccumulator = 0;
         }
+        state.volDeviationAccumulator = state.volCarryAccumulator;
     }
 
     function _updateVolatilityDeviationAccumulatorAfterSwap(EWVWAPParams storage state, uint160 postSqrtPriceX96)
@@ -1387,14 +1448,14 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         (uint256 upper, uint256 lower) = referenceSqrtPriceX96 > currentSqrtPriceX96
             ? (uint256(referenceSqrtPriceX96), uint256(currentSqrtPriceX96))
             : (uint256(currentSqrtPriceX96), uint256(referenceSqrtPriceX96));
-        uint256 sqrtRatioX18 = FullMath.mulDiv(upper, PRECISION, lower);
-        if (sqrtRatioX18 <= PRECISION) return 0;
+        uint256 sqrtRatioX18 = FullMath.mulDiv(upper, EWVWAP_PRECISION, lower);
+        if (sqrtRatioX18 <= EWVWAP_PRECISION) return 0;
 
-        return FullMath.mulDiv(sqrtRatioX18 - PRECISION, BPS_BASE * 2, stepBps * PRECISION);
+        return FullMath.mulDiv(sqrtRatioX18 - EWVWAP_PRECISION, BPS_BASE * 2, stepBps * EWVWAP_PRECISION);
     }
 
     function _spotX18FromSqrtPrice(uint160 sqrtPriceX96) internal pure returns (uint256) {
-        return FullMath.mulDiv(uint256(sqrtPriceX96) * uint256(sqrtPriceX96), PRECISION, Q96_SQUARED);
+        return FullMath.mulDiv(uint256(sqrtPriceX96) * uint256(sqrtPriceX96), EWVWAP_PRECISION, Q96_SQUARED);
     }
 
     function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -1409,9 +1470,10 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     function _currencySymbol(Currency currency) internal view returns (string memory) {
-        if (currency.isAddressZero()) return "NATIVE";
         return IERC20Metadata(Currency.unwrap(currency)).symbol();
     }
 
-    receive() external payable {}
+    function _revertIfNativeCurrencyUnsupported(Currency currency0, Currency currency1) internal pure {
+        if (currency0.isAddressZero() || currency1.isAddressZero()) revert NativeCurrencyUnsupported();
+    }
 }

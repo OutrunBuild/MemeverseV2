@@ -9,6 +9,8 @@ import {IMemeverseUniswapHook, PoolId} from "../interfaces/IMemeverseUniswapHook
 contract UniswapLP is Owned {
     error PermitDeadlineExpired(uint256 deadline);
     error InvalidSigner(address recoveredAddress, address owner);
+    error ZeroAddressHook();
+    error ZeroAddressTransfer();
 
     string public name;
     string public symbol;
@@ -32,6 +34,7 @@ contract UniswapLP is Owned {
         PoolId _poolId,
         address _memeverseUniswapHook
     ) Owned(msg.sender) {
+        if (_memeverseUniswapHook == address(0)) revert ZeroAddressHook();
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
@@ -61,6 +64,7 @@ contract UniswapLP is Owned {
     /// @param amount Amount of LP tokens to transfer.
     /// @return success Always returns `true` on success.
     function transfer(address to, uint256 amount) public returns (bool) {
+        if (to == address(0)) revert ZeroAddressTransfer();
         _beforeTokenTransfer(msg.sender, to);
 
         balanceOf[msg.sender] -= amount;
@@ -81,6 +85,7 @@ contract UniswapLP is Owned {
     /// @param amount Amount of LP tokens to transfer.
     /// @return success Always returns `true` on success.
     function transferFrom(address from, address to, uint256 amount) public returns (bool) {
+        if (to == address(0)) revert ZeroAddressTransfer();
         _beforeTokenTransfer(from, to);
 
         uint256 allowed = allowance[from][msg.sender];

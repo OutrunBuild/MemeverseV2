@@ -24,6 +24,11 @@ contract UniswapLPTest is Test {
         token = new UniswapLP("Memeverse LP", "MLP", 18, PoolId.wrap(bytes32(uint256(1))), address(this));
     }
 
+    function testConstructorRevertsWithZeroAddressHook() external {
+        vm.expectRevert(UniswapLP.ZeroAddressHook.selector);
+        new UniswapLP("Memeverse LP", "MLP", 18, PoolId.wrap(bytes32(uint256(1))), address(0));
+    }
+
     function testPermitRevertsWithPermitDeadlineExpired() external {
         uint256 deadline = block.timestamp + 1 days;
         bytes32 digest = _permitDigest(OWNER, SPENDER, 7 ether, deadline);
