@@ -41,7 +41,7 @@ jobs:
         run: npm ci
 
       - name: Install Slither
-        run: python3 -m pip install slither-analyzer==0.11.5
+        run: python3 -m pip install slither-analyzer==0.11.5 jsonschema
 
       - name: Show Forge version
         run: forge --version
