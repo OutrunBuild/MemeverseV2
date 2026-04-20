@@ -14,6 +14,8 @@ interface IMemecoinDaoGovernor {
         mapping(address => uint256) userUnfinalizedProposalId;
         uint256 _minQuorum;
         uint256 _governanceStartTime;
+        uint256 _maxTreasurySpendRatio;
+        uint256 _upgradeSupermajorityRatio;
     }
 
     /**
@@ -38,7 +40,9 @@ interface IMemecoinDaoGovernor {
         uint256 _quorumNumerator,
         address _governanceCycleIncentivizer,
         uint256 _minQuorum,
-        uint256 _bootstrapPeriod
+        uint256 _bootstrapPeriod,
+        uint256 _maxTreasurySpendRatio,
+        uint256 _upgradeSupermajorityRatio
     ) external;
 
     /**
@@ -58,6 +62,10 @@ interface IMemecoinDaoGovernor {
      * @return Start timestamp for governance.
      */
     function governanceStartTime() external view returns (uint256);
+
+    function maxTreasurySpendRatio() external view returns (uint256);
+
+    function upgradeSupermajorityRatio() external view returns (uint256);
 
     /**
      * @notice Records treasury income received by governor-controlled flows.
@@ -83,4 +91,6 @@ interface IMemecoinDaoGovernor {
     error UserHasUnfinalizedProposal();
     error UnauthorizedRewardPayout();
     error GovernanceNotStarted();
+    error TreasurySpendExceedsLimit(address token, uint256 spent, uint256 limit);
+    error UpgradeSupermajorityRequired(uint256 forVotes, uint256 totalVotes, uint256 requiredRatio);
 }

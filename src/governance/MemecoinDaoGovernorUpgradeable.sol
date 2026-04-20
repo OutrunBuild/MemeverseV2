@@ -57,12 +57,16 @@ contract MemecoinDaoGovernorUpgradeable is
     function __MemecoinDaoGovernor_init(
         address _governanceCycleIncentivizer,
         uint256 _minQuorum,
-        uint256 _bootstrapPeriod
+        uint256 _bootstrapPeriod,
+        uint256 _maxTreasurySpendRatio,
+        uint256 _upgradeSupermajorityRatio
     ) internal onlyInitializing {
         MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
         $._governanceCycleIncentivizer = IGovernanceCycleIncentivizer(_governanceCycleIncentivizer);
         $._minQuorum = _minQuorum;
         $._governanceStartTime = block.timestamp + _bootstrapPeriod;
+        $._maxTreasurySpendRatio = _maxTreasurySpendRatio;
+        $._upgradeSupermajorityRatio = _upgradeSupermajorityRatio;
     }
 
     constructor() {
@@ -91,7 +95,9 @@ contract MemecoinDaoGovernorUpgradeable is
         uint256 _quorumNumerator,
         address _governanceCycleIncentivizer,
         uint256 _minQuorum,
-        uint256 _bootstrapPeriod
+        uint256 _bootstrapPeriod,
+        uint256 _maxTreasurySpendRatio,
+        uint256 _upgradeSupermajorityRatio
     ) external override initializer {
         __Governor_init(_name);
         __GovernorSettings_init(_votingDelay, _votingPeriod, _proposalThreshold);
@@ -99,7 +105,9 @@ contract MemecoinDaoGovernorUpgradeable is
         __GovernorStorage_init();
         __GovernorVotes_init(_token);
         __GovernorVotesQuorumFraction_init(_quorumNumerator);
-        __MemecoinDaoGovernor_init(_governanceCycleIncentivizer, _minQuorum, _bootstrapPeriod);
+        __MemecoinDaoGovernor_init(
+            _governanceCycleIncentivizer, _minQuorum, _bootstrapPeriod, _maxTreasurySpendRatio, _upgradeSupermajorityRatio
+        );
     }
 
     /// @notice Exposes how long a proposal waits before voting opens.
@@ -158,6 +166,14 @@ contract MemecoinDaoGovernorUpgradeable is
     /// @return Start timestamp for governance.
     function governanceStartTime() external view override returns (uint256) {
         return _getMemecoinDaoGovernorStorage()._governanceStartTime;
+    }
+
+    function maxTreasurySpendRatio() external view override returns (uint256) {
+        return _getMemecoinDaoGovernorStorage()._maxTreasurySpendRatio;
+    }
+
+    function upgradeSupermajorityRatio() external view returns (uint256) {
+        return _getMemecoinDaoGovernorStorage()._upgradeSupermajorityRatio;
     }
 
     /// @notice Creates a new governance proposal for the caller.
@@ -264,6 +280,53 @@ contract MemecoinDaoGovernorUpgradeable is
         );
 
         IERC20(_token).safeTransfer(_to, _amount);
+    }
+
+    function _executeOperations(
+        uint256 proposalId,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) internal override {
+        MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
+
+        // Layer 4: self-call requires supermajority
+        bool isSelfCall = false;
+        for (uint256 i = 0; i < targets.length; ++i) {
+            if (targets[i] == address(this)) {
+                isSelfCall = true;
+                break;
+            }
+        }
+        if (isSelfCall) {
+            (uint256 againstVotes, uint256 forVotes, uint256 abstainVotes) = proposalVotes(proposalId);
+            uint256 totalVotes = forVotes + againstVotes + abstainVotes;
+            require(
+                forVotes * 10000 >= totalVotes * $._upgradeSupermajorityRatio,
+                UpgradeSupermajorityRequired(forVotes, totalVotes, $._upgradeSupermajorityRatio)
+            );
+        }
+
+        // Layer 3: snapshot treasury balances
+        (,,, address[] memory treasuryTokens,) = $._governanceCycleIncentivizer.metaData();
+        uint256 len = treasuryTokens.length;
+        uint256[] memory preBalances = new uint256[](len);
+        for (uint256 i = 0; i < len; ++i) {
+            preBalances[i] = IERC20(treasuryTokens[i]).balanceOf(address(this));
+        }
+
+        super._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
+
+        // Check balance diff for each treasury token
+        for (uint256 i = 0; i < len; ++i) {
+            if (preBalances[i] == 0) continue;
+            uint256 postBalance = IERC20(treasuryTokens[i]).balanceOf(address(this));
+            if (postBalance >= preBalances[i]) continue;
+            uint256 spent = preBalances[i] - postBalance;
+            uint256 limit = preBalances[i] * $._maxTreasurySpendRatio / 10000;
+            require(spent <= limit, TreasurySpendExceedsLimit(treasuryTokens[i], spent, limit));
+        }
     }
 
     function _propose(
