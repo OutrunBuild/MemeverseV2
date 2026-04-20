@@ -390,7 +390,9 @@ contract MemeverseScript is BaseScript {
                 CYCLE_INCENTIVIZER_IMPLEMENTATION,
                 40,
                 10,
-                7 days
+                7 days,
+                1000,
+                6000
             )
         );
 
