@@ -157,6 +157,11 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params)
 - `createPoolAndAddLiquidity(...)`
 - `createPoolAndAddLiquidityWithPermit2(...)`
 
+`claimFees` 支持两种调用模式：
+
+- **Owner 直调**：`msg.sender == owner` 时无需签名，`v/r/s` 传零值即可。
+- **第三方中继**：`msg.sender != owner` 时必须提供 owner 的 EIP-712 签名（`v/r/s`），Hook 内部校验 nonce + deadline 防重放。签名的 digest 包含 `owner`、`recipient`、`poolId`、`nonce`、`deadline`。
+
 对只知道 token pair、不想感知 `PoolKey` / Hook 细节的集成方，当前只读 helper 可以这样理解：
 
 - `lpToken(tokenA, tokenB)`：返回该 pair 对应的 Hook LP token 地址

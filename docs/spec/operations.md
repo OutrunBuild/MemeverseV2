@@ -87,6 +87,7 @@
 ### 3.6 Swap/LP 运维配置
 
 - Hook owner 可改：`treasury`、protocol fee 币种支持、`emergencyFlag`、`launcher`、launch fee 衰减参数。
+- `emergencyFlag` 启用后，所有 swap 的动态费计算回退为仅收 base fee（`FEE_BASE_BPS = 100`，即 1%），PIF / 波动率 / 短期冲击分量全部跳过；launch fee 衰减下限不受影响。`[代码已证]`
 - Launcher owner 配置 router / hook 时，会同时校验 `router.hook()==hook` 且 `hook.launcher()==launcher`，配置不一致会直接拒绝；其中 `memeverseUniswapHook` 仅允许首次设置。`[代码已证]`
 - Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内运维能力，不否定 set-time 双重校验的必要性。`[代码已证]`
 
