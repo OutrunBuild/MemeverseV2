@@ -28,6 +28,8 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
     uint256 public quorumNumerator;
     uint256 public minQuorumNumerator;
     uint256 public bootstrapPeriod;
+    uint256 public maxTreasurySpendRatio;
+    uint256 public upgradeSupermajorityRatio;
 
     modifier onlyMemeverseLauncher() {
         _onlyMemeverseLauncher();
@@ -48,7 +50,9 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         address _incentivizerImplementation,
         uint256 _quorumNumerator,
         uint256 _minQuorumNumerator,
-        uint256 _bootstrapPeriod
+        uint256 _bootstrapPeriod,
+        uint256 _maxTreasurySpendRatio,
+        uint256 _upgradeSupermajorityRatio
     ) Ownable(_owner) {
         memeverseLauncher = _memeverseLauncher;
         memecoinImplementation = _memecoinImplementation;
@@ -59,6 +63,8 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         quorumNumerator = _quorumNumerator;
         minQuorumNumerator = _minQuorumNumerator;
         bootstrapPeriod = _bootstrapPeriod;
+        maxTreasurySpendRatio = _maxTreasurySpendRatio;
+        upgradeSupermajorityRatio = _upgradeSupermajorityRatio;
     }
 
     /// @notice Predicts where the verse yield vault will be deployed.
@@ -170,7 +176,9 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
                 quorumNumerator,
                 incentivizer,
                 _minQuorum,
-                bootstrapPeriod
+                bootstrapPeriod,
+                maxTreasurySpendRatio,
+                upgradeSupermajorityRatio
             );
         address[] memory initFundTokens = new address[](4);
         initFundTokens[0] = UPT;

@@ -28,6 +28,8 @@ contract MockDeployerGovernor {
     address public incentivizer;
     uint256 public minQuorum;
     uint256 public governanceStartTime;
+    uint256 public maxTreasurySpendRatio;
+    uint256 public upgradeSupermajorityRatio;
 
     function initialize(
         string memory name_,
@@ -38,7 +40,9 @@ contract MockDeployerGovernor {
         uint256 quorumNumerator_,
         address incentivizer_,
         uint256 minQuorum_,
-        uint256 bootstrapPeriod_
+        uint256 bootstrapPeriod_,
+        uint256 maxTreasurySpendRatio_,
+        uint256 upgradeSupermajorityRatio_
     ) external {
         name = name_;
         token = token_;
@@ -49,6 +53,8 @@ contract MockDeployerGovernor {
         incentivizer = incentivizer_;
         minQuorum = minQuorum_;
         governanceStartTime = block.timestamp + bootstrapPeriod_;
+        maxTreasurySpendRatio = maxTreasurySpendRatio_;
+        upgradeSupermajorityRatio = upgradeSupermajorityRatio_;
     }
 }
 
@@ -110,7 +116,9 @@ contract MemeverseProxyDeployerTest is Test {
             address(incentivizerImplementation),
             25,
             10,
-            7 days
+            7 days,
+            1000,
+            6000
         );
     }
 
@@ -167,6 +175,8 @@ contract MemeverseProxyDeployerTest is Test {
         assertEq(governorProxy.incentivizer(), incentivizer);
         assertEq(governorProxy.minQuorum(), 1_000_000 ether * 10 / 100);
         assertEq(governorProxy.governanceStartTime(), block.timestamp + 7 days);
+        assertEq(governorProxy.maxTreasurySpendRatio(), 1000);
+        assertEq(governorProxy.upgradeSupermajorityRatio(), 6000);
 
         MockDeployerIncentivizer incentivizerProxy = MockDeployerIncentivizer(incentivizer);
         assertEq(incentivizerProxy.governor(), governor);
