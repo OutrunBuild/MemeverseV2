@@ -32,6 +32,8 @@
       "^docs/VERIFICATION\\.md$",
       "^docs/GLOSSARY\\.md$",
       "^docs/SECURITY_AND_APPROVALS\\.md$",
+      "^docs/testing/.*\\.md$",
+      "^docs/superpowers/plans/.*\\.md$",
       "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
       "^solhint.*\\.config\\.js$",
       "^foundry\\.toml$",

@@ -11,6 +11,7 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {TokenHelper} from "../common/token/TokenHelper.sol";
 import {InitialPriceCalculator} from "./libraries/InitialPriceCalculator.sol";
@@ -465,15 +466,15 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address pol = verse.pol;
         uint32 govChainId = verse.omnichainIds[0];
 
+        // Deploy liquidity
+        _deployLiquidity(verseId, UPT, memecoin, pol, totalMemecoinFunds, totalPolFunds);
+
         // Deploy Yield Vault, DAO Governor and Incentivizer
         (address yieldVault, address governor, address incentivizer) =
             _deployGovernanceComponents(verseId, govChainId, name, symbol, UPT, memecoin, pol);
         verse.yieldVault = yieldVault;
         verse.governor = governor;
         verse.incentivizer = incentivizer;
-
-        // Deploy liquidity
-        _deployLiquidity(verseId, UPT, memecoin, pol, totalMemecoinFunds, totalPolFunds);
     }
 
     /**
@@ -576,13 +577,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (totalFunds == 0) return;
 
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == UPT;
+        uint160 sqrtPriceLimitX96 = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
         // Settlement goes through the hook's dedicated launch path so preorder accounting stays isolated from public swap flow.
         BalanceDelta delta = IMemeverseUniswapHook(memeverseUniswapHook)
             .executeLaunchSettlement(
                 IMemeverseUniswapHook.LaunchSettlementParams({
                     key: poolKey,
                     params: SwapParams({
-                        zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: 0
+                        zeroForOne: zeroForOne,
+                        amountSpecified: -int256(totalFunds),
+                        sqrtPriceLimitX96: sqrtPriceLimitX96
                     }),
                     recipient: address(this)
                 })
