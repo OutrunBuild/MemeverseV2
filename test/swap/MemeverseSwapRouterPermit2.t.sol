@@ -25,6 +25,12 @@ import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRout
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
+/// @dev Mock-harness boundary:
+/// - This file's Permit2 and manager mocks only cover local plumbing, witness/deadline handling,
+///   local revert surface, and deterministic branch coverage.
+/// - The newer integration tests only cover a narrow exact-input subset under a stricter manager harness.
+///   Exact-output, one-for-zero symmetry outside that subset, and broader Permit2 swap economics claims are not
+///   proven by this file and must not be inferred from this mock manager.
 contract MockPoolManagerForPermit2RouterTest {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -141,7 +147,7 @@ contract MockPoolManagerForPermit2RouterTest {
     }
 
     /// @notice Executes a mocked swap against the configured hook callbacks.
-    /// @dev Simulates hook-before/hook-after accounting with deterministic price impact.
+    /// @dev Simulates deterministic local Permit2/router branch coverage rather than real execution economics.
     /// @param key The pool key being swapped against.
     /// @param params The swap parameters.
     /// @param hookData Opaque hook payload forwarded through the mock.
@@ -535,6 +541,10 @@ contract MockLauncherForPermit2ProtectionTest {
     }
 }
 
+/// @dev Test boundary:
+/// - These cases lock Permit2/router handling under the local manager and Permit2 mocks.
+/// - They do not establish real market execution, partial-fill economics, rollback guarantees,
+///   or fee-side correctness beyond this deterministic harness.
 contract MemeverseSwapRouterPermit2Test is Test {
     using PoolIdLibrary for PoolKey;
 
@@ -763,8 +773,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
-    /// @notice Verifies Permit2 execution swaps also reject a zero price limit under real v4 semantics.
-    /// @dev The Permit2 prefund path still forwards the swap params into manager execution, so `0` must revert.
+    /// @notice Covers the local manager revert surface when Permit2 execution swaps pass a zero price limit.
+    /// @dev Locks that the Permit2 prefund path still forwards the swap params into the mock execution path, so `0` reverts locally.
     function testSwapWithPermit2_RevertsWhenExecutionPriceLimitIsZero() external {
         hook.setProtocolFeeCurrency(key.currency0);
         _matureLaunchWindow();
@@ -788,8 +798,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
-    /// @notice Verifies Permit2 exact-output swaps prefund `amountInMaximum` and refund the unused input.
-    /// @dev This keeps Permit2 aligned with the regular router path's single prefunded `_swap()` model.
+    /// @notice Covers the Permit2 exact-output prefund-and-refund branch under the local router harness.
+    /// @dev This locks local budget plumbing parity with the regular router path rather than proving real execution semantics.
     function testSwapWithPermit2_ExactOutputRefundsUnusedPrefundedInput() external {
         hook.setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(alice);
@@ -816,8 +826,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(token0.balanceOf(address(router)), 0, "router should not retain refunded input");
     }
 
-    /// @notice Verifies Permit2 exact-input partial fills fail closed on output-side fee pools.
-    /// @dev Confirms payer, treasury, and LP-fee state roll back when the hook rejects the swap.
+    /// @notice Covers the local fail-closed Permit2 branch for exact-input underfills on output-side fee pools.
+    /// @dev Uses the mock harness to witness payer, treasury, and LP-fee rollback when the hook rejects the swap.
     function testSwapWithPermit2_RevertsWhenExactInputPartialFillsOnOutputFeePool() external {
         hook.setProtocolFeeCurrency(key.currency1);
         // Seed non-zero EWVWAP state so rollback assertions are non-trivial.
@@ -887,8 +897,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
-    /// @notice Verifies Permit2 exact-input partial fills fail closed on one-for-zero output-fee pools.
-    /// @dev Covers the missing zeroForOne=false symmetry on the Permit2 path with rollback assertions.
+    /// @notice Covers the mirrored local fail-closed Permit2 branch for one-for-zero exact-input underfills on output-fee pools.
+    /// @dev Uses the mock harness to witness rollback symmetry on the Permit2 path rather than proving full production partial-fill semantics.
     function testSwapWithPermit2_RevertsWhenOneForZeroExactInputPartialFillsOnOutputFeePool() external {
         hook.setProtocolFeeCurrency(key.currency0);
         // Seed non-zero EWVWAP state so rollback assertions are non-trivial.

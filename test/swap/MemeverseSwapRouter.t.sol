@@ -23,6 +23,12 @@ import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswap
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
+/// @dev Mock-harness boundary:
+/// - This file's mock manager and routed tests only cover local plumbing, witness/deadline handling,
+///   local revert surface, and deterministic branch coverage.
+/// - The newer integration tests only cover a narrow exact-input subset under a stricter manager harness.
+///   Exact-output, one-for-zero symmetry outside that subset, and other broader swap economics claims are not
+///   proven by this file and must not be inferred from this mock manager.
 contract MockPoolManagerForRouterTest {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -146,7 +152,7 @@ contract MockPoolManagerForRouterTest {
     }
 
     /// @notice Executes a mocked swap against the configured hook callbacks.
-    /// @dev Produces deterministic deltas that are sufficient for router integration tests.
+    /// @dev Produces deterministic deltas for local router-harness branch coverage only.
     /// @param key Pool key to swap against.
     /// @param params Swap parameters.
     /// @param hookData Opaque hook data forwarded into the mock hook callbacks.
@@ -461,6 +467,10 @@ contract DirectProtectedSwapCaller {
     }
 }
 
+/// @dev Test boundary:
+/// - These cases lock router-side behavior under the local manager mock.
+/// - They do not establish real market execution, partial-fill economics, rollback guarantees,
+///   or fee-side correctness beyond this deterministic harness.
 contract MemeverseSwapRouterTest is Test {
     using PoolIdLibrary for PoolKey;
 
@@ -614,8 +624,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Verifies real v4 semantics reject execution swaps that pass a zero price limit.
-    /// @dev The router forwards `sqrtPriceLimitX96` into manager execution, so `0` must fail instead of silently swapping.
+    /// @notice Covers the local manager revert surface for execution swaps that pass a zero price limit.
+    /// @dev Locks that the router forwards `sqrtPriceLimitX96` into the mock execution path instead of silently bypassing it.
     function testSwapReverts_WhenExecutionPriceLimitIsZero() external {
         _setProtocolFeeCurrency(key.currency0);
         _matureLaunchWindow();
@@ -713,8 +723,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(delta.amount1(), int128(int256(100 ether)), "delta1");
     }
 
-    /// @notice Verifies emergency-mode exact-output swaps still collect output-side protocol fees.
-    /// @dev Locks the base-fee quote gross-output semantics used by `beforeSwap` on output-fee pools.
+    /// @notice Covers the emergency exact-output branch where the local harness still routes output-side fee accounting.
+    /// @dev Locks router-side handling under the local manager harness; integration tests cover real output-fee execution semantics.
     function testSwapPass_WhenEmergencyFlagEnabled_ZeroForOneExactOutput_OutputSideProtocolFeeStillGrossesUp()
         external
     {
@@ -1265,8 +1275,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Verifies one-for-zero exact-input swaps execute successfully.
-    /// @dev Covers the basic exact-input routing path.
+    /// @notice Covers the basic one-for-zero exact-input routing branch under the local manager harness.
+    /// @dev This is plumbing coverage for the routed mock path, not proof of production execution quality.
     function testSwapPass_OneForZeroExactInputExecutes() external {
         _setProtocolFeeCurrency(key.currency1);
         _matureLaunchWindow();
@@ -1292,8 +1302,8 @@ contract MemeverseSwapRouterTest is Test {
         assertLt(delta.amount1(), 0, "delta1");
     }
 
-    /// @notice Verifies zero-for-one exact-input swaps apply output-side protocol fees.
-    /// @dev Covers output-fee accounting for exact-input swaps.
+    /// @notice Covers the mock harness branch for zero-for-one exact-input output-side fee accounting.
+    /// @dev Locks router-side handling under deterministic local manager deltas.
     function testSwapPass_ZeroForOneExactInput_OutputSideProtocolFee() external {
         _setProtocolFeeCurrency(key.currency1);
         uint256 balance1Before = token1.balanceOf(address(this));
@@ -1315,8 +1325,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
     }
 
-    /// @notice Verifies one-for-zero exact-input swaps apply output-side protocol fees.
-    /// @dev Covers output-fee accounting for exact-input swaps.
+    /// @notice Covers the mock harness branch for one-for-zero exact-input output-side fee accounting.
+    /// @dev Locks router-side handling under deterministic local manager deltas.
     function testSwapPass_OneForZeroExactInput_OutputSideProtocolFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -1338,8 +1348,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token0.balanceOf(treasury), treasury0Before, "treasury collected token0");
     }
 
-    /// @notice Verifies zero-for-one exact-output swaps execute and charge input-side fees.
-    /// @dev Covers exact-output fee accounting.
+    /// @notice Covers the zero-for-one exact-output branch with input-side fee handling under the local manager harness.
+    /// @dev This locks router bookkeeping against deterministic mock deltas rather than proving real execution economics.
     function testSwapPass_ZeroForOneExactOutputExecutesAndChargesInputFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -1388,8 +1398,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(token0.balanceOf(address(router)), 0, "router should not retain refunded input");
     }
 
-    /// @notice Verifies one-for-zero exact-output swaps execute and charge input-side fees.
-    /// @dev Covers exact-output fee accounting.
+    /// @notice Covers the one-for-zero exact-output branch with input-side fee handling under the local manager harness.
+    /// @dev This locks router bookkeeping against deterministic mock deltas rather than proving real execution economics.
     function testSwapPass_OneForZeroExactOutputExecutesAndChargesInputFee() external {
         _setProtocolFeeCurrency(key.currency1);
         uint256 balance0Before = token0.balanceOf(address(this));
@@ -1414,8 +1424,8 @@ contract MemeverseSwapRouterTest is Test {
         assertLt(delta.amount1(), -int128(int256(200 ether)), "delta1 fee-adjusted");
     }
 
-    /// @notice Verifies zero-for-one exact-output swaps gross up output-side protocol fees.
-    /// @dev Covers output-side fee gross-up logic for exact-output swaps.
+    /// @notice Covers the mock harness branch for zero-for-one exact-output output-side fee gross-up handling.
+    /// @dev Locks router-side gross-up bookkeeping under deterministic local manager deltas.
     function testSwapPass_ZeroForOneExactOutput_OutputSideProtocolFeeGrossesUp() external {
         _setProtocolFeeCurrency(key.currency1);
         _matureLaunchWindow();
@@ -1440,8 +1450,8 @@ contract MemeverseSwapRouterTest is Test {
         assertGt(token1.balanceOf(treasury), treasury1Before, "treasury collected token1");
     }
 
-    /// @notice Verifies one-for-zero exact-output swaps gross up output-side protocol fees.
-    /// @dev Covers output-side fee gross-up logic for exact-output swaps.
+    /// @notice Covers the mock harness branch for one-for-zero exact-output output-side fee gross-up handling.
+    /// @dev Locks router-side gross-up bookkeeping under deterministic local manager deltas.
     function testSwapPass_OneForZeroExactOutput_OutputSideProtocolFeeGrossesUp() external {
         _setProtocolFeeCurrency(key.currency0);
         _matureLaunchWindow();
@@ -1536,8 +1546,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Verifies exact-output swaps revert when execution underfills the requested output even with a looser minimum.
-    /// @dev Locks Router-level exact-output semantics instead of delegating them to caller-provided `amountOutMinimum`.
+    /// @notice Covers the local underfill revert surface when the mock execution path returns less than the requested output.
+    /// @dev Locks router-side exact-output checks against deterministic harness output instead of caller-provided `amountOutMinimum`.
     function testSwapReverts_WhenExactOutputUnderfillsRequestedAmount() external {
         _setProtocolFeeCurrency(key.currency0);
         manager.setNextExactOutputAmount(poolId, 80 ether);
@@ -1594,8 +1604,8 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Verifies exact-input partial fills fail closed in the hook on input-side fee pools.
-    /// @dev Confirms router swaps leave payer, treasury, and LP-fee state untouched when the hook reverts.
+    /// @notice Covers the local fail-closed branch for exact-input underfills on input-side fee pools.
+    /// @dev Uses the mock harness to witness router-facing rollback of payer, treasury, and LP-fee state.
     function testSwapReverts_WhenExactInputPartialFillsOnInputFeePool() external {
         _setProtocolFeeCurrency(key.currency0);
         // Seed non-zero EWVWAP state so rollback assertions are non-trivial.
@@ -1678,8 +1688,8 @@ contract MemeverseSwapRouterTest is Test {
         }
     }
 
-    /// @notice Verifies exact-input partial fills fail closed on one-for-zero input-fee pools.
-    /// @dev Covers the missing zeroForOne=false symmetry on the routed path and confirms rollback stays atomic.
+    /// @notice Covers the mirrored local fail-closed branch for one-for-zero exact-input underfills on input-fee pools.
+    /// @dev Uses the mock harness to witness routed rollback symmetry rather than proving full production partial-fill semantics.
     function testSwapReverts_WhenOneForZeroExactInputPartialFillsOnInputFeePool() external {
         _setProtocolFeeCurrency(key.currency1);
         // Seed non-zero EWVWAP state so rollback assertions are non-trivial.

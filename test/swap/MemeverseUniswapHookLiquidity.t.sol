@@ -23,6 +23,12 @@ import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
+/// @dev Mock-harness boundary:
+/// - This file's local hook-liquidity manager mock only covers plumbing, local revert surface,
+///   deterministic branch coverage, and rollback witnesses inside the hook-local harness.
+/// - The newer integration tests only cover a narrow direct-manager exact-input subset under a stricter manager
+///   harness. One-for-zero symmetry beyond that subset, launch-settlement swap semantics, and broader fee-side
+///   execution claims are not proven by this file and must not be inferred from this mock manager.
 contract MockPoolManagerForHookLiquidity {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -126,7 +132,7 @@ contract MockPoolManagerForHookLiquidity {
     }
 
     /// @notice Executes a mocked swap during hook-controlled unlock callbacks.
-    /// @dev Launch-settlement tests only need deterministic deltas that respect the unlock guard.
+    /// @dev Produces deterministic hook-local branch coverage only; it does not model real swap economics.
     function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
         external
         returns (BalanceDelta delta)
@@ -360,6 +366,10 @@ contract ReentrantExitRecipient {
     }
 }
 
+/// @dev Test boundary:
+/// - These cases lock hook-side handling under the local hook-liquidity manager mock.
+/// - They do not establish real market execution, partial-fill economics, rollback guarantees,
+///   or fee-side correctness beyond this deterministic harness.
 contract MemeverseUniswapHookLiquidityTest is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint160 internal constant PRICE_MOVE_59_999_UP_POST = 81570347323081481549928488305;
@@ -1036,8 +1046,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
-    /// @notice Verifies direct hook-managed exact-input partial fills fail closed without router checks.
-    /// @dev Covers the direct/core path and confirms fee accounting rolls back on revert.
+    /// @notice Covers the local direct/core fail-closed branch for exact-input underfills without router checks.
+    /// @dev Uses the hook-liquidity manager mock to witness fee-accounting rollback on revert.
     function testDirectManagerSwapReverts_WhenExactInputPartialFills() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency1);
@@ -1088,8 +1098,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
-    /// @notice Verifies output-fee exact-input swaps consume the net pool input implied by `beforeSwap` delta semantics.
-    /// @dev Locks one-for-zero symmetry against vendored v4 `specifiedDelta` handling on the direct/core path.
+    /// @notice Covers the local direct/core branch where output-fee exact-input swaps consume the net pool input from `beforeSwap`.
+    /// @dev Locks hook-side handling under the local hook-liquidity manager mock instead of proving full v4 execution semantics.
     function testDirectManagerSwapPasses_WhenOneForZeroExactInputUsesNetPoolInputOnOutputFeePool() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
@@ -1110,8 +1120,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertGt(token0.balanceOf(hook.treasury()), treasury0Before, "output-side protocol fee collected");
     }
 
-    /// @notice Verifies direct hook-managed exact-input partial fills fail closed on input-side fee pools.
-    /// @dev Covers the direct/core path with protocolFeeOnInput=true and confirms all state rolls back atomically.
+    /// @notice Covers the local direct/core fail-closed branch for exact-input underfills on input-side fee pools.
+    /// @dev Uses the hook-liquidity manager mock to witness atomic rollback instead of proving production partial-fill semantics.
     function testDirectManagerSwapReverts_WhenExactInputPartialFillsOnInputFeePool() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0); // input-side fee for zeroForOne=true
@@ -1160,8 +1170,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
-    /// @notice Verifies direct hook-managed exact-input partial fills fail closed on one-for-zero output-fee pools.
-    /// @dev Covers the missing zeroForOne=false symmetry on the direct/core path and confirms rollback stays atomic.
+    /// @notice Covers the mirrored local direct/core fail-closed branch for one-for-zero exact-input underfills on output-fee pools.
+    /// @dev Uses the hook-liquidity manager mock to witness rollback symmetry instead of proving production partial-fill semantics.
     function testDirectManagerSwapReverts_WhenOneForZeroExactInputPartialFillsOnOutputFeePool() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
@@ -1212,8 +1222,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
-    /// @notice Verifies launch settlement exact-input swaps fail closed on partial fills.
-    /// @dev Settlement charges input fees up front, so this locks rollback for balances, fee growth, and dynamic state.
+    /// @notice Covers the local launch-settlement fail-closed branch for exact-input underfills.
+    /// @dev Uses the hook-liquidity manager mock to witness rollback for balances, fee growth, and dynamic state.
     function testExecuteLaunchSettlement_RevertsWhenExactInputPartiallyFills() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
