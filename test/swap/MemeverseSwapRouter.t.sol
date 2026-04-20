@@ -1611,52 +1611,71 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
         _matureLaunchWindow();
-        manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
 
-        uint256 payer0Before = token0.balanceOf(address(this));
-        uint256 payer1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(treasury);
-        uint256 treasury1Before = token1.balanceOf(treasury);
-        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
-        (
-            uint256 wv0Before,,
-            uint256 ewVWAPBefore,
-            uint160 volAnchorBefore,,
-            uint24 volDevBefore,,
-            uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        // Scope 1: balances + fee-per-share unchanged (swap reverts, so state is safe to re-check)
+        {
+            uint256 payer0Before = token0.balanceOf(address(this));
+            uint256 payer1Before = token1.balanceOf(address(this));
+            uint256 treasury0Before = token0.balanceOf(treasury);
+            uint256 treasury1Before = token1.balanceOf(treasury);
+            (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
 
-        vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
-        router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            block.timestamp,
-            0,
-            100 ether,
-            ""
-        );
+            manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
+            vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+            router.swap(
+                key,
+                SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                address(this),
+                block.timestamp,
+                0,
+                100 ether,
+                ""
+            );
 
-        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
-        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
-        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
-        assertEq(token0.balanceOf(treasury), treasury0Before, "treasury token0 unchanged");
-        assertEq(token1.balanceOf(treasury), treasury1Before, "treasury token1 unchanged");
-        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
-        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
+            assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
+            assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
+            assertEq(token0.balanceOf(treasury), treasury0Before, "treasury token0 unchanged");
+            assertEq(token1.balanceOf(treasury), treasury1Before, "treasury token1 unchanged");
+            (, uint256 fee0After, uint256 fee1After) = hook.poolInfo(poolId);
+            assertEq(fee0After, fee0PerShareBefore, "fee0 per share unchanged");
+            assertEq(fee1After, fee1PerShareBefore, "fee1 per share unchanged");
+        }
 
-        (
-            uint256 wv0After,,
-            uint256 ewVWAPAfter,
-            uint160 volAnchorAfter,,
-            uint24 volDevAfter,,
-            uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
-        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
-        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
-        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
-        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        // Scope 2: EWVWAP state unchanged
+        {
+            (
+                uint256 wv0Before,,
+                uint256 ewVWAPBefore,
+                uint160 volAnchorBefore,,
+                uint24 volDevBefore,,
+                uint24 shortImpactBefore,
+            ) = hook.poolEWVWAPParams(poolId);
+
+            manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
+            vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+            router.swap(
+                key,
+                SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                address(this),
+                block.timestamp,
+                0,
+                100 ether,
+                ""
+            );
+
+            (
+                uint256 wv0After,,
+                uint256 ewVWAPAfter,
+                uint160 volAnchorAfter,,
+                uint24 volDevAfter,,
+                uint24 shortImpactAfter,
+            ) = hook.poolEWVWAPParams(poolId);
+            assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
+            assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
+            assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
+            assertEq(volDevAfter, volDevBefore, "volatility unchanged");
+            assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        }
     }
 
     /// @notice Verifies exact-input partial fills fail closed on one-for-zero input-fee pools.
@@ -1676,52 +1695,71 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
         _matureLaunchWindow();
-        manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
 
-        uint256 payer0Before = token0.balanceOf(address(this));
-        uint256 payer1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(treasury);
-        uint256 treasury1Before = token1.balanceOf(treasury);
-        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
-        (
-            uint256 wv0Before,,
-            uint256 ewVWAPBefore,
-            uint160 volAnchorBefore,,
-            uint24 volDevBefore,,
-            uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        // Scope 1: balances + fee-per-share unchanged
+        {
+            uint256 payer0Before = token0.balanceOf(address(this));
+            uint256 payer1Before = token1.balanceOf(address(this));
+            uint256 treasury0Before = token0.balanceOf(treasury);
+            uint256 treasury1Before = token1.balanceOf(treasury);
+            (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
 
-        vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
-        router.swap(
-            key,
-            SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            address(this),
-            block.timestamp,
-            0,
-            100 ether,
-            ""
-        );
+            manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
+            vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+            router.swap(
+                key,
+                SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                address(this),
+                block.timestamp,
+                0,
+                100 ether,
+                ""
+            );
 
-        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
-        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
-        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
-        assertEq(token0.balanceOf(treasury), treasury0Before, "treasury token0 unchanged");
-        assertEq(token1.balanceOf(treasury), treasury1Before, "treasury token1 unchanged");
-        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
-        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
+            assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
+            assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
+            assertEq(token0.balanceOf(treasury), treasury0Before, "treasury token0 unchanged");
+            assertEq(token1.balanceOf(treasury), treasury1Before, "treasury token1 unchanged");
+            (, uint256 fee0After, uint256 fee1After) = hook.poolInfo(poolId);
+            assertEq(fee0After, fee0PerShareBefore, "fee0 per share unchanged");
+            assertEq(fee1After, fee1PerShareBefore, "fee1 per share unchanged");
+        }
 
-        (
-            uint256 wv0After,,
-            uint256 ewVWAPAfter,
-            uint160 volAnchorAfter,,
-            uint24 volDevAfter,,
-            uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
-        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
-        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
-        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
-        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        // Scope 2: EWVWAP state unchanged
+        {
+            (
+                uint256 wv0Before,,
+                uint256 ewVWAPBefore,
+                uint160 volAnchorBefore,,
+                uint24 volDevBefore,,
+                uint24 shortImpactBefore,
+            ) = hook.poolEWVWAPParams(poolId);
+
+            manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
+            vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
+            router.swap(
+                key,
+                SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                address(this),
+                block.timestamp,
+                0,
+                100 ether,
+                ""
+            );
+
+            (
+                uint256 wv0After,,
+                uint256 ewVWAPAfter,
+                uint160 volAnchorAfter,,
+                uint24 volDevAfter,,
+                uint24 shortImpactAfter,
+            ) = hook.poolEWVWAPParams(poolId);
+            assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
+            assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
+            assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
+            assertEq(volDevAfter, volDevBefore, "volatility unchanged");
+            assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        }
     }
 
     /// @notice Verifies exact-output quotes include input-side fees in the user input amount.
