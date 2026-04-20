@@ -17,6 +17,7 @@ import {
 } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -42,6 +43,14 @@ contract MockLaunchSettlementHookForLauncherTest {
     address internal boundLauncher;
     mapping(bytes32 => LaunchSwapResult) internal launchSwapResults;
     mapping(bytes32 => uint40) internal publicSwapResumeTimes;
+    uint160 internal expectedZeroForOneSqrtPriceLimitX96;
+    uint160 internal expectedOneForZeroSqrtPriceLimitX96;
+    bool internal enforceExpectedSqrtPriceLimitX96;
+    bool internal revertLaunchSettlement;
+    string internal launchSettlementRevertReason;
+    bool internal lastLaunchSettlementZeroForOne;
+    uint160 internal lastLaunchSettlementSqrtPriceLimitX96;
+    uint256 internal launchSettlementCallCount;
 
     constructor(address boundLauncher_) {
         boundLauncher = boundLauncher_;
@@ -70,11 +79,46 @@ contract MockLaunchSettlementHookForLauncherTest {
         return publicSwapResumeTimes[poolId];
     }
 
+    function setExpectedLaunchSqrtPriceLimit(bool zeroForOne, uint160 expectedSqrtPriceLimitX96) external {
+        if (zeroForOne) {
+            expectedZeroForOneSqrtPriceLimitX96 = expectedSqrtPriceLimitX96;
+        } else {
+            expectedOneForZeroSqrtPriceLimitX96 = expectedSqrtPriceLimitX96;
+        }
+        enforceExpectedSqrtPriceLimitX96 = true;
+    }
+
+    function setLaunchSettlementRevert(string calldata reason) external {
+        revertLaunchSettlement = true;
+        launchSettlementRevertReason = reason;
+    }
+
+    function lastSettlementZeroForOne() external view returns (bool zeroForOne) {
+        return lastLaunchSettlementZeroForOne;
+    }
+
+    function lastSettlementSqrtPriceLimitX96() external view returns (uint160 sqrtPriceLimitX96) {
+        return lastLaunchSettlementSqrtPriceLimitX96;
+    }
+
+    function settlementCallCount() external view returns (uint256 count) {
+        return launchSettlementCallCount;
+    }
+
     function executeLaunchSettlement(IMemeverseUniswapHook.LaunchSettlementParams calldata params)
         external
         returns (BalanceDelta delta)
     {
         require(msg.sender == boundLauncher, "unauthorized launcher");
+        if (revertLaunchSettlement) revert(launchSettlementRevertReason);
+        lastLaunchSettlementZeroForOne = params.params.zeroForOne;
+        lastLaunchSettlementSqrtPriceLimitX96 = params.params.sqrtPriceLimitX96;
+        launchSettlementCallCount++;
+        if (enforceExpectedSqrtPriceLimitX96) {
+            uint160 expectedSqrtPriceLimitX96 =
+                params.params.zeroForOne ? expectedZeroForOneSqrtPriceLimitX96 : expectedOneForZeroSqrtPriceLimitX96;
+            require(params.params.sqrtPriceLimitX96 == expectedSqrtPriceLimitX96, "unexpected sqrtPriceLimitX96");
+        }
         address tokenIn =
             params.params.zeroForOne ? Currency.unwrap(params.key.currency0) : Currency.unwrap(params.key.currency1);
         address tokenOut =
@@ -788,6 +832,15 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         });
     }
 
+    function getPreorderStateForTest(uint256 verseId)
+        external
+        view
+        returns (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp)
+    {
+        PreorderState storage preorderState = preorderStates[verseId];
+        return (preorderState.totalFunds, preorderState.settledMemecoin, preorderState.settlementTimestamp);
+    }
+
     /// @notice Stores mock total POL liquidity for a verse id.
     /// @dev Used to drive POL LP redemption share math in tests.
     /// @param verseId Verse id whose total POL liquidity should be set.
@@ -894,16 +947,43 @@ contract MemeverseLauncherLifecycleTest is Test {
     /// @notice Seeds a verse that is currently in the Genesis stage.
     /// @dev Controls flashGenesis, endTime, and omnichain ids for change-stage tests.
     function _setGenesisVerse(uint256 verseId, bool flashGenesis, uint128 endTime) internal {
+        _setGenesisVerseWithAssets(
+            verseId, address(upt), address(memecoin), address(liquidProof), flashGenesis, endTime
+        );
+    }
+
+    function _setGenesisVerseWithAssets(
+        uint256 verseId,
+        address uptAddress,
+        address memecoinAddress,
+        address polAddress,
+        bool flashGenesis,
+        uint128 endTime
+    ) internal {
         IMemeverseLauncher.Memeverse memory verse;
-        verse.UPT = address(upt);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(liquidProof);
+        verse.UPT = uptAddress;
+        verse.memecoin = memecoinAddress;
+        verse.pol = polAddress;
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         verse.endTime = endTime;
         verse.flashGenesis = flashGenesis;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = uint32(block.chainid + 1);
         launcher.setMemeverseForTest(verseId, verse);
+    }
+
+    function _launchSettlementLimit(bool zeroForOne) internal pure returns (uint160) {
+        return zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+    }
+
+    function _deployTokenSortedRelativeTo(address referenceToken, bool sortBefore) internal returns (MockERC20 token) {
+        for (uint256 i = 0; i < 32; ++i) {
+            token = new MockERC20("UPT-LATE", "UPTL", 18);
+            if ((address(token) < referenceToken) == sortBefore) {
+                return token;
+            }
+        }
+        revert("failed to deploy ordered token");
     }
 
     /// @notice Approves the launcher to pull mint inputs for a user.
@@ -1129,6 +1209,101 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 claimedAmount = launcher.claimUnlockedPreorderMemecoin(verseId);
         assertEq(claimedAmount, 60 ether, "claimed amount");
         assertEq(memecoin.balanceOf(ALICE), 60 ether, "alice memecoin");
+    }
+
+    function testChangeStage_WhenPreorderSettlementZeroForOne_UsesMinSqrtPriceBoundary() external {
+        uint256 verseId = 23;
+        _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
+        launcher.setFundMetaData(address(upt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        router.setAddLiquidityResult(address(memecoin), address(upt), 90 ether, 0, 0);
+        router.setAddLiquidityResult(address(liquidProof), address(upt), 30 ether, 0, 0);
+        router.setLaunchSwapResult(address(upt), address(memecoin), 10 ether, 60 ether);
+
+        bool zeroForOne = address(upt) < address(memecoin);
+        assertTrue(zeroForOne, "fixture requires UPT as currency0");
+
+        MockLaunchSettlementHookForLauncherTest settlementHook =
+            MockLaunchSettlementHookForLauncherTest(address(router.hook()));
+        uint160 expectedLimit = _launchSettlementLimit(true);
+        settlementHook.setExpectedLaunchSqrtPriceLimit(true, expectedLimit);
+
+        upt.mint(address(this), 10 ether);
+        upt.approve(address(launcher), type(uint256).max);
+        launcher.preorder(verseId, 10 ether, ALICE);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked), "returned stage");
+        assertTrue(settlementHook.lastSettlementZeroForOne(), "zeroForOne");
+        assertEq(settlementHook.lastSettlementSqrtPriceLimitX96(), expectedLimit, "sqrt price limit");
+        assertEq(settlementHook.settlementCallCount(), 1, "settlement calls");
+    }
+
+    function testChangeStage_WhenPreorderSettlementOneForZero_UsesMaxSqrtPriceBoundary() external {
+        uint256 verseId = 24;
+        MockERC20 laterUpt = _deployTokenSortedRelativeTo(address(memecoin), false);
+        _setGenesisVerseWithAssets(
+            verseId, address(laterUpt), address(memecoin), address(liquidProof), true, uint128(block.timestamp + 1 days)
+        );
+        launcher.setFundMetaData(address(laterUpt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        router.setAddLiquidityResult(address(memecoin), address(laterUpt), 90 ether, 0, 0);
+        router.setAddLiquidityResult(address(liquidProof), address(laterUpt), 30 ether, 0, 0);
+        router.setLaunchSwapResult(address(laterUpt), address(memecoin), 10 ether, 60 ether);
+
+        bool zeroForOne = address(laterUpt) < address(memecoin);
+        assertFalse(zeroForOne, "fixture requires UPT as currency1");
+
+        MockLaunchSettlementHookForLauncherTest settlementHook =
+            MockLaunchSettlementHookForLauncherTest(address(router.hook()));
+        uint160 expectedLimit = _launchSettlementLimit(false);
+        settlementHook.setExpectedLaunchSqrtPriceLimit(false, expectedLimit);
+
+        laterUpt.mint(address(this), 10 ether);
+        laterUpt.approve(address(launcher), type(uint256).max);
+        launcher.preorder(verseId, 10 ether, ALICE);
+
+        IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
+
+        assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked), "returned stage");
+        assertFalse(settlementHook.lastSettlementZeroForOne(), "zeroForOne");
+        assertEq(settlementHook.lastSettlementSqrtPriceLimitX96(), expectedLimit, "sqrt price limit");
+        assertEq(settlementHook.settlementCallCount(), 1, "settlement calls");
+    }
+
+    function testChangeStage_WhenLaunchSettlementReverts_RevertsAtomically() external {
+        uint256 verseId = 25;
+        _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
+        launcher.setFundMetaData(address(upt), 100 ether, 4);
+        launcher.setGenesisFundForTest(verseId, 90 ether, 30 ether);
+        router.setAddLiquidityResult(address(memecoin), address(upt), 90 ether, 0, 0);
+        router.setAddLiquidityResult(address(liquidProof), address(upt), 30 ether, 0, 0);
+
+        MockLaunchSettlementHookForLauncherTest settlementHook =
+            MockLaunchSettlementHookForLauncherTest(address(router.hook()));
+        settlementHook.setLaunchSettlementRevert("mock launch settlement revert");
+
+        upt.mint(address(this), 10 ether);
+        upt.approve(address(launcher), type(uint256).max);
+        launcher.preorder(verseId, 10 ether, ALICE);
+
+        (uint256 totalFundsBefore, uint256 settledMemecoinBefore, uint40 settlementTimestampBefore) =
+            launcher.getPreorderStateForTest(verseId);
+        assertEq(totalFundsBefore, 10 ether, "preorder total funds before");
+        assertEq(settledMemecoinBefore, 0, "settled memecoin before");
+        assertEq(settlementTimestampBefore, 0, "settlement timestamp before");
+
+        vm.expectRevert(bytes("mock launch settlement revert"));
+        launcher.changeStage(verseId);
+
+        assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Genesis), "stage");
+
+        (uint256 totalFundsAfter, uint256 settledMemecoinAfter, uint40 settlementTimestampAfter) =
+            launcher.getPreorderStateForTest(verseId);
+        assertEq(totalFundsAfter, 10 ether, "preorder total funds after");
+        assertEq(settledMemecoinAfter, 0, "settled memecoin after");
+        assertEq(settlementTimestampAfter, 0, "settlement timestamp after");
     }
 
     /// @notice Verifies non-flash Genesis cannot lock early even if the minimum funding target is met.
