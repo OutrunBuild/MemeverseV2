@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {GovernorUpgradeable} from "@openzeppelin/contracts-upgradeable/governance/GovernorUpgradeable.sol";
@@ -53,9 +54,15 @@ contract MemecoinDaoGovernorUpgradeable is
         }
     }
 
-    function __MemecoinDaoGovernor_init(address _governanceCycleIncentivizer) internal onlyInitializing {
+    function __MemecoinDaoGovernor_init(
+        address _governanceCycleIncentivizer,
+        uint256 _minQuorum,
+        uint256 _bootstrapPeriod
+    ) internal onlyInitializing {
         MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
         $._governanceCycleIncentivizer = IGovernanceCycleIncentivizer(_governanceCycleIncentivizer);
+        $._minQuorum = _minQuorum;
+        $._governanceStartTime = block.timestamp + _bootstrapPeriod;
     }
 
     constructor() {
@@ -80,7 +87,9 @@ contract MemecoinDaoGovernorUpgradeable is
         uint32 _votingPeriod,
         uint256 _proposalThreshold,
         uint256 _quorumNumerator,
-        address _governanceCycleIncentivizer
+        address _governanceCycleIncentivizer,
+        uint256 _minQuorum,
+        uint256 _bootstrapPeriod
     ) external override initializer {
         __Governor_init(_name);
         __GovernorSettings_init(_votingDelay, _votingPeriod, _proposalThreshold);
@@ -88,7 +97,7 @@ contract MemecoinDaoGovernorUpgradeable is
         __GovernorStorage_init();
         __GovernorVotes_init(_token);
         __GovernorVotesQuorumFraction_init(_quorumNumerator);
-        __MemecoinDaoGovernor_init(_governanceCycleIncentivizer);
+        __MemecoinDaoGovernor_init(_governanceCycleIncentivizer, _minQuorum, _bootstrapPeriod);
     }
 
     /// @notice Exposes how long a proposal waits before voting opens.
@@ -115,7 +124,7 @@ contract MemecoinDaoGovernorUpgradeable is
         override(GovernorUpgradeable, GovernorVotesQuorumFractionUpgradeable)
         returns (uint256)
     {
-        return super.quorum(blockNumber);
+        return Math.max(super.quorum(blockNumber), _getMemecoinDaoGovernorStorage()._minQuorum);
     }
 
     /// @notice Exposes the minimum voting power required to create a proposal.
@@ -137,6 +146,18 @@ contract MemecoinDaoGovernorUpgradeable is
         return address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer);
     }
 
+    /// @notice Returns the absolute minimum quorum floor.
+    /// @return Minimum quorum in vote units.
+    function minQuorum() external view override returns (uint256) {
+        return _getMemecoinDaoGovernorStorage()._minQuorum;
+    }
+
+    /// @notice Returns the timestamp when governance proposals become active.
+    /// @return Start timestamp for governance.
+    function governanceStartTime() external view override returns (uint256) {
+        return _getMemecoinDaoGovernorStorage()._governanceStartTime;
+    }
+
     /// @notice Creates a new governance proposal for the caller.
     /// @dev Prevents a proposer from opening a new proposal while a previous one is still unresolved.
     /// @param targets The call targets for the proposal actions.
@@ -150,8 +171,10 @@ contract MemecoinDaoGovernorUpgradeable is
         bytes[] memory calldatas,
         string memory description
     ) public override returns (uint256) {
-        // Restrict each address from submitting new proposals while it has unfinalized proposal
         MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
+        require(block.timestamp >= $._governanceStartTime, GovernanceNotStarted());
+
+        // Restrict each address from submitting new proposals while it has unfinalized proposal
         uint256 unfinalizedProposalId = $.userUnfinalizedProposalId[msg.sender];
         require(
             unfinalizedProposalId == 0 || state(unfinalizedProposalId) == ProposalState.Defeated,

@@ -12,6 +12,8 @@ interface IMemecoinDaoGovernor {
     struct MemecoinDaoGovernorStorage {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer;
         mapping(address => uint256) userUnfinalizedProposalId;
+        uint256 _minQuorum;
+        uint256 _governanceStartTime;
     }
 
     /**
@@ -24,6 +26,8 @@ interface IMemecoinDaoGovernor {
      * @param _proposalThreshold Minimum votes required to create proposals.
      * @param _quorumNumerator Quorum numerator used by governor quorum math.
      * @param _governanceCycleIncentivizer Incentivizer contract address paired to this governor.
+     * @param _minQuorum Absolute minimum quorum floor based on total supply.
+     * @param _bootstrapPeriod Delay after deployment before proposals are accepted.
      */
     function initialize(
         string calldata _name,
@@ -32,19 +36,31 @@ interface IMemecoinDaoGovernor {
         uint32 _votingPeriod,
         uint256 _proposalThreshold,
         uint256 _quorumNumerator,
-        address _governanceCycleIncentivizer
+        address _governanceCycleIncentivizer,
+        uint256 _minQuorum,
+        uint256 _bootstrapPeriod
     ) external;
 
     /**
      * @notice Returns the paired governance cycle incentivizer address.
-     * @dev Incentivizer receives treasury and voting accounting callbacks from governor flows.
      * @return Incentivizer contract address.
      */
     function governanceCycleIncentivizer() external view returns (address);
 
     /**
+     * @notice Returns the absolute minimum quorum floor.
+     * @return Minimum quorum in vote units.
+     */
+    function minQuorum() external view returns (uint256);
+
+    /**
+     * @notice Returns the timestamp when governance proposals become active.
+     * @return Start timestamp for governance.
+     */
+    function governanceStartTime() external view returns (uint256);
+
+    /**
      * @notice Records treasury income received by governor-controlled flows.
-     * @dev Expected to forward accounting updates into the incentivizer ledger.
      * @param token Treasury token address received.
      * @param amount Amount received for treasury accounting.
      */
@@ -52,7 +68,6 @@ interface IMemecoinDaoGovernor {
 
     /**
      * @notice Sends treasury assets and records the corresponding spend.
-     * @dev Enforces governance-controlled payout semantics before token transfer.
      * @param token Treasury token address spent.
      * @param to Recipient address.
      * @param amount Amount transferred from treasury custody.
@@ -60,13 +75,12 @@ interface IMemecoinDaoGovernor {
     function sendTreasuryAssets(address token, address to, uint256 amount) external;
 
     /// @notice Disburse user rewards from governor custody.
-    /// @dev Only the paired incentivizer may call this payout path.
     /// @param token Reward token being transferred.
     /// @param to Reward recipient.
     /// @param amount Reward amount to transfer.
     function disburseReward(address token, address to, uint256 amount) external;
 
     error UserHasUnfinalizedProposal();
-
     error UnauthorizedRewardPayout();
+    error GovernanceNotStarted();
 }
