@@ -314,6 +314,9 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when actual amounts are worse than user-provided minimums.
     error TooMuchSlippage();
 
+    /// @notice Reverts when an exact-input swap underdelivers the expected pool-side input.
+    error ExactInputPartialFill();
+
     /// @notice Reverts when the launch settlement caller is zero.
     error ZeroAddress();
 

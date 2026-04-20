@@ -11,15 +11,6 @@ library MemeverseTransientState {
     bytes32 private constant SWAP_CONTEXT_FEE_TAG = keccak256("mv.ts.swap.fee");
     bytes32 private constant SWAP_CONTEXT_PRICE_TAG = keccak256("mv.ts.swap.price");
 
-    function pushPriceContext(PoolId poolId, uint160 preSqrtPriceX96) internal returns (uint256 depth) {
-        depth = _incrementSwapContextDepth();
-
-        bytes32 priceSlot = _swapContextFieldSlot(SWAP_CONTEXT_PRICE_TAG, poolId, depth);
-        assembly {
-            tstore(priceSlot, preSqrtPriceX96)
-        }
-    }
-
     function pushSwapContext(PoolId poolId, uint256 feeBps, uint160 preSqrtPriceX96) internal returns (uint256 depth) {
         depth = _incrementSwapContextDepth();
 
@@ -28,21 +19,6 @@ library MemeverseTransientState {
         assembly {
             tstore(feeSlot, feeBps)
             tstore(priceSlot, preSqrtPriceX96)
-        }
-    }
-
-    function consumeCurrentPriceContext(PoolId poolId) internal returns (uint160 preSqrtPriceX96, uint256 depth) {
-        depth = _loadSwapContextDepth();
-        if (depth == 0) return (0, 0);
-
-        bytes32 feeSlot = _swapContextFieldSlot(SWAP_CONTEXT_FEE_TAG, poolId, depth);
-        bytes32 priceSlot = _swapContextFieldSlot(SWAP_CONTEXT_PRICE_TAG, poolId, depth);
-        bytes32 depthSlot = _swapContextDepthSlot();
-        assembly {
-            preSqrtPriceX96 := tload(priceSlot)
-            tstore(feeSlot, 0)
-            tstore(priceSlot, 0)
-            tstore(depthSlot, sub(depth, 1))
         }
     }
 
