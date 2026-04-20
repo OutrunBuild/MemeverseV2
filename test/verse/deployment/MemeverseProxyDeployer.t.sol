@@ -230,4 +230,34 @@ contract MemeverseProxyDeployerTest is Test {
         deployer.setBootstrapPeriod(14 days);
         assertEq(deployer.bootstrapPeriod(), 14 days);
     }
+
+    /// @notice Test set max treasury spend ratio only owner and rejects zero.
+    function testSetMaxTreasurySpendRatioOnlyOwnerAndRejectsZero() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        deployer.setMaxTreasurySpendRatio(2000);
+
+        vm.prank(OWNER);
+        vm.expectRevert(IMemeverseProxyDeployer.ZeroInput.selector);
+        deployer.setMaxTreasurySpendRatio(0);
+
+        vm.prank(OWNER);
+        deployer.setMaxTreasurySpendRatio(2000);
+        assertEq(deployer.maxTreasurySpendRatio(), 2000);
+    }
+
+    /// @notice Test set upgrade supermajority ratio only owner and rejects zero.
+    function testSetUpgradeSupermajorityRatioOnlyOwnerAndRejectsZero() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        deployer.setUpgradeSupermajorityRatio(7000);
+
+        vm.prank(OWNER);
+        vm.expectRevert(IMemeverseProxyDeployer.ZeroInput.selector);
+        deployer.setUpgradeSupermajorityRatio(0);
+
+        vm.prank(OWNER);
+        deployer.setUpgradeSupermajorityRatio(7000);
+        assertEq(deployer.upgradeSupermajorityRatio(), 7000);
+    }
 }
