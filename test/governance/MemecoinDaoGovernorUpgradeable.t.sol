@@ -173,6 +173,8 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         assertEq(governor.votingDelay(), 0);
         assertEq(governor.votingPeriod(), 5);
         assertEq(governor.proposalThreshold(), 1 ether);
+        assertEq(governor.minQuorum(), 0);
+        assertEq(governor.governanceStartTime(), block.timestamp);
     }
 
     /// @notice Test receive treasury income notifies incentivizer and pulls tokens.
@@ -265,6 +267,55 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
 
         assertEq(MemecoinDaoGovernorUpgradeableV2(payable(address(governor))).upgradeVersion(), 2);
         assertEq(governor.governanceCycleIncentivizer(), address(incentivizer));
+    }
+
+    /// @notice Test propose reverts during bootstrap period.
+    function testProposeRevertsDuringBootstrapPeriod() external {
+        ERC1967Proxy bootstrapProxy = new ERC1967Proxy(
+            address(implementation),
+            abi.encodeCall(
+                MemecoinDaoGovernorUpgradeable.initialize,
+                ("Bootstrap DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 50 ether, 7 days)
+            )
+        );
+        MemecoinDaoGovernorUpgradeable bootstrapGovernor =
+            MemecoinDaoGovernorUpgradeable(payable(address(bootstrapProxy)));
+
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _proposalPayload();
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemecoinDaoGovernor.GovernanceNotStarted.selector);
+        bootstrapGovernor.propose(targets, values, calldatas, "too-early");
+
+        // Warp past the bootstrap period — propose should succeed.
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(ALICE);
+        uint256 proposalId = bootstrapGovernor.propose(targets, values, calldatas, "on-time");
+        assertTrue(proposalId != 0);
+    }
+
+    /// @notice Test quorum returns the maximum of staked quorum and minQuorum floor.
+    function testQuorumReturnsMaxOfStakedQuorumAndMinQuorumFloor() external view {
+        // Mock token getPastTotalSupply returns 1000 ether, quorumNumerator = 10 → staked quorum = 100 ether
+        // minQuorum = 0 (from setUp) → staked quorum is larger
+        assertEq(governor.quorum(block.number), 100 ether);
+    }
+
+    /// @notice Test quorum floor takes effect when staked quorum is low.
+    function testQuorumFloorTakesEffectWhenStakedQuorumIsLow() external {
+        // Deploy with minQuorum = 50 ether and quorumNumerator = 1
+        // staked quorum = 1000 ether * 1 / 100 = 10 ether → floor wins
+        ERC1967Proxy floorProxy = new ERC1967Proxy(
+            address(implementation),
+            abi.encodeCall(
+                MemecoinDaoGovernorUpgradeable.initialize,
+                ("Floor DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 1, address(incentivizer), 50 ether, 0)
+            )
+        );
+        MemecoinDaoGovernorUpgradeable floorGovernor =
+            MemecoinDaoGovernorUpgradeable(payable(address(floorProxy)));
+
+        assertEq(floorGovernor.quorum(block.number), 50 ether);
     }
 
     function _proposalPayload()
