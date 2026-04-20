@@ -155,6 +155,9 @@ contract MockLaunchSettlementHookForLauncherTest {
     }
 }
 
+// `MemeverseLauncherSwapIntegration.t.sol` currently covers the real launch-settlement path and exposes the
+// current real-stack `mintPOLToken` / fee-claim blockers.
+// This mock router remains for broader lifecycle-focused tests that isolate launcher control flow from router internals.
 contract MockSwapRouter {
     using SafeERC20 for IERC20;
 

@@ -102,6 +102,9 @@ contract FeeDistributionHandler is Test {
     }
 }
 
+// Invariant fuzzing here still uses the lifecycle mock router for broad state exploration.
+// `MemeverseLauncherSwapIntegration.t.sol` currently adds only the real launch-settlement path plus the
+// current real-stack `mintPOLToken` / fee-claim blockers; broader asset-flow semantics are still mock-backed here.
 contract MintPOLHandler is Test {
     uint256 internal constant VERSE_ID = 1;
 
