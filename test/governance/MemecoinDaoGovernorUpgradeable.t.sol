@@ -512,4 +512,44 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
 
         _proposePassAndExecute(targets, values, calldatas, "zero-balance", ALICE);
     }
+
+    /// @notice Test multi-token rate limit reports the correct token on violation.
+    function testMultiTokenRateLimitReportsCorrectToken() external {
+        MockERC20 tokenA = treasuryToken;
+        MockERC20 tokenB = new MockERC20("TokenB", "B", 18);
+        tokenA.mint(address(governor), 1000 ether);
+        tokenB.mint(address(governor), 500 ether);
+
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(tokenA);
+        tokens[1] = address(tokenB);
+        incentivizer.setTreasuryTokens(tokens);
+
+        // tokenA: transfer 50 (5% <= 10% ok), tokenB: transfer 100 (20% > 10% revert)
+        address[] memory targets = new address[](2);
+        uint256[] memory values = new uint256[](2);
+        bytes[] memory calldatas = new bytes[](2);
+        targets[0] = address(tokenA);
+        values[0] = 0;
+        calldatas[0] = abi.encodeCall(IERC20.transfer, (BOB, 50 ether));
+        targets[1] = address(tokenB);
+        values[1] = 0;
+        calldatas[1] = abi.encodeCall(IERC20.transfer, (BOB, 100 ether));
+
+        vm.prank(ALICE);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "multi-token");
+
+        vm.roll(block.number + 1);
+        vm.prank(ALICE);
+        governor.castVote(proposalId, 1);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        // limit for tokenB = 500 * 1000/10000 = 50, spent = 100
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemecoinDaoGovernor.TreasurySpendExceedsLimit.selector, address(tokenB), 100 ether, 50 ether
+            )
+        );
+        governor.execute(targets, values, calldatas, keccak256("multi-token"));
+    }
 }
