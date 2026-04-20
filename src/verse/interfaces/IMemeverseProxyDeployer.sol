@@ -79,6 +79,30 @@ interface IMemeverseProxyDeployer {
      */
     function setQuorumNumerator(uint256 quorumNumerator) external;
 
+    /**
+     * @notice Returns the min quorum numerator used to calculate the quorum floor.
+     * @return Current min quorum numerator value (percentage denominator = 100).
+     */
+    function minQuorumNumerator() external view returns (uint256);
+
+    /**
+     * @notice Returns the bootstrap period applied to new governor deployments.
+     * @return Bootstrap period in seconds.
+     */
+    function bootstrapPeriod() external view returns (uint256);
+
+    /**
+     * @notice Updates min quorum numerator for subsequent governor deployments.
+     * @param minQuorumNumerator New min quorum numerator value.
+     */
+    function setMinQuorumNumerator(uint256 minQuorumNumerator) external;
+
+    /**
+     * @notice Updates bootstrap period for subsequent governor deployments.
+     * @param bootstrapPeriod New bootstrap period in seconds.
+     */
+    function setBootstrapPeriod(uint256 bootstrapPeriod) external;
+
     event DeployMemecoin(uint256 indexed uniqueId, address memecoin);
 
     event DeployPOL(uint256 indexed uniqueId, address pol);
@@ -88,6 +112,9 @@ interface IMemeverseProxyDeployer {
     event DeployGovernorAndIncentivizer(uint256 indexed uniqueId, address governor, address incentivizer);
 
     event SetQuorumNumerator(uint256 quorumNumerator);
+
+    event SetMinQuorumNumerator(uint256 minQuorumNumerator);
+    event SetBootstrapPeriod(uint256 bootstrapPeriod);
 
     error ZeroInput();
 

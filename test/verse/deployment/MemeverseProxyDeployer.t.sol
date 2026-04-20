@@ -104,7 +104,9 @@ contract MemeverseProxyDeployerTest is Test {
             address(vaultImplementation),
             address(governorImplementation),
             address(incentivizerImplementation),
-            25
+            25,
+            10,
+            7 days
         );
     }
 

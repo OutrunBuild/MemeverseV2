@@ -5,6 +5,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IMemeverseProxyDeployer} from "../interfaces/IMemeverseProxyDeployer.sol";
@@ -25,6 +26,8 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
     address public immutable incentivizerImplementation;
 
     uint256 public quorumNumerator;
+    uint256 public minQuorumNumerator;
+    uint256 public bootstrapPeriod;
 
     modifier onlyMemeverseLauncher() {
         _onlyMemeverseLauncher();
@@ -43,7 +46,9 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         address _vaultImplementation,
         address _governorImplementation,
         address _incentivizerImplementation,
-        uint256 _quorumNumerator
+        uint256 _quorumNumerator,
+        uint256 _minQuorumNumerator,
+        uint256 _bootstrapPeriod
     ) Ownable(_owner) {
         memeverseLauncher = _memeverseLauncher;
         memecoinImplementation = _memecoinImplementation;
@@ -52,6 +57,8 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         governorImplementation = _governorImplementation;
         incentivizerImplementation = _incentivizerImplementation;
         quorumNumerator = _quorumNumerator;
+        minQuorumNumerator = _minQuorumNumerator;
+        bootstrapPeriod = _bootstrapPeriod;
     }
 
     /// @notice Predicts where the verse yield vault will be deployed.
@@ -149,6 +156,9 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
             abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(incentivizerImplementation, bytes("")))
         );
 
+        // Calculate absolute minQuorum from memecoin total supply
+        uint256 _minQuorum = IERC20(memecoin).totalSupply() * minQuorumNumerator / 100;
+
         // Initialize
         IMemecoinDaoGovernor(governor)
             .initialize(
@@ -158,7 +168,9 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
                 1 weeks,
                 proposalThreshold,
                 quorumNumerator,
-                incentivizer
+                incentivizer,
+                _minQuorum,
+                bootstrapPeriod
             );
         address[] memory initFundTokens = new address[](4);
         initFundTokens[0] = UPT;
@@ -179,5 +191,27 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         quorumNumerator = _quorumNumerator;
 
         emit SetQuorumNumerator(_quorumNumerator);
+    }
+
+    /// @notice Updates the min quorum numerator used for future governor deployments.
+    /// @dev Does not retroactively modify already deployed governors.
+    /// @param _minQuorumNumerator New min quorum numerator value.
+    function setMinQuorumNumerator(uint256 _minQuorumNumerator) external override onlyOwner {
+        require(_minQuorumNumerator != 0, ZeroInput());
+
+        minQuorumNumerator = _minQuorumNumerator;
+
+        emit SetMinQuorumNumerator(_minQuorumNumerator);
+    }
+
+    /// @notice Updates the bootstrap period used for future governor deployments.
+    /// @dev Does not retroactively modify already deployed governors.
+    /// @param _bootstrapPeriod New bootstrap period in seconds.
+    function setBootstrapPeriod(uint256 _bootstrapPeriod) external override onlyOwner {
+        require(_bootstrapPeriod != 0, ZeroInput());
+
+        bootstrapPeriod = _bootstrapPeriod;
+
+        emit SetBootstrapPeriod(_bootstrapPeriod);
     }
 }

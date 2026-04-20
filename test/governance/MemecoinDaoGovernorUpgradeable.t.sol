@@ -160,7 +160,7 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Memecoin DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer))
+                ("Memecoin DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 0, 0)
             )
         );
         governor = MemecoinDaoGovernorUpgradeable(payable(address(proxy)));
