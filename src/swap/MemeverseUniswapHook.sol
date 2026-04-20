@@ -70,7 +70,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint256 internal constant EWVWAP_PRECISION = 1e18;
     uint256 internal constant FEE_GROWTH_Q128 = uint256(1) << 128;
     uint256 internal constant Q96 = 1 << 96;
-    uint256 internal constant Q96_SQUARED = Q96 * Q96;
+    uint256 internal constant Q192 = uint256(1) << 192;
+    uint256 internal constant Q192_MASK = Q192 - 1;
 
     uint256 public constant PROTOCOL_FEE_RATIO_BPS = 3000;
     uint256 public constant BPS_BASE = 10000;
@@ -92,6 +93,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint24 internal constant SHORT_COEFF_BPS = 2_000; // Short-term impact surcharge coefficient.
     uint24 internal constant SHORT_FLOOR_PPM = 20_000; // Free short-impact allowance before charging starts.
     uint24 internal constant SHORT_CAP_PPM = 150_000; // Cap for short-term impact accumulator.
+    uint256 internal constant UP_SHORT_BUCKET = 1072380529476360830;
+    uint256 internal constant DOWN_SHORT_BUCKET = 921954445729288731;
     uint8 internal constant UNLOCK_ACTION_MODIFY_LIQUIDITY = 0;
     uint8 internal constant UNLOCK_ACTION_LAUNCH_SETTLEMENT = 1;
     address public treasury;
@@ -1226,7 +1229,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             if (!emergencyMode) {
                 quote.spotBeforeX18 = _spotX18FromSqrtPrice(preSqrtPriceX96);
                 quote.spotAfterX18 = _spotX18FromSqrtPrice(postSqrtPriceX96);
-                quote.pifPpm = _priceMovePpm(preSqrtPriceX96, postSqrtPriceX96);
+                quote.pifPpm = _priceMovePpmCappedToShort(preSqrtPriceX96, postSqrtPriceX96);
                 _populateDynamicFeeQuoteFromState(quote, state);
             }
 
@@ -1348,7 +1351,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (preSqrtPriceX96 == 0) return;
 
         (uint160 postSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        uint256 pifPpm = _priceMovePpm(preSqrtPriceX96, postSqrtPriceX96);
+        uint256 pifPpm = _priceMovePpmCappedToShort(preSqrtPriceX96, postSqrtPriceX96);
         EWVWAPParams storage state = poolEWVWAPParams[poolId];
 
         uint256 decayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
@@ -1462,20 +1465,102 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     function _spotX18FromSqrtPrice(uint160 sqrtPriceX96) internal pure returns (uint256) {
-        return FullMath.mulDiv(
-            FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1), EWVWAP_PRECISION, Q96_SQUARED
-        );
+        (uint256 squareHi, uint256 squareLo) = _squareWide(sqrtPriceX96);
+        uint256 integerPart = (squareHi << 64) | (squareLo >> 192);
+        uint256 fractionalPart = squareLo & Q192_MASK;
+        return integerPart * EWVWAP_PRECISION + FullMath.mulDiv(fractionalPart, EWVWAP_PRECISION, Q192);
     }
 
     function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
         return a > b ? a - b : b - a;
     }
 
-    function _priceMovePpm(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
-        uint256 preP = FullMath.mulDiv(uint256(preSqrtPrice), uint256(preSqrtPrice), 1);
-        uint256 postP = FullMath.mulDiv(uint256(postSqrtPrice), uint256(postSqrtPrice), 1);
-        uint256 num = postP > preP ? postP - preP : preP - postP;
-        return FullMath.mulDiv(num, PPM_BASE, preP);
+    function _priceMovePpmCappedToShort(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
+        if (preSqrtPrice == postSqrtPrice) return 0;
+
+        uint256 sqrtRatioX18 = FullMath.mulDiv(uint256(postSqrtPrice), EWVWAP_PRECISION, uint256(preSqrtPrice));
+
+        if (postSqrtPrice > preSqrtPrice) {
+            if (sqrtRatioX18 > UP_SHORT_BUCKET) return SHORT_CAP_PPM;
+
+            uint256 upSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
+            uint256 candidate = (upSquaredRatioX18 - EWVWAP_PRECISION) / 1e12;
+            if (
+                candidate < SHORT_CAP_PPM
+                    && _wideSquareTimesSmallGte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE + candidate + 1)
+            ) {
+                ++candidate;
+            }
+            return candidate;
+        }
+
+        if (sqrtRatioX18 < DOWN_SHORT_BUCKET) return SHORT_CAP_PPM;
+
+        uint256 downSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
+        uint256 candidatePpm = (EWVWAP_PRECISION - downSquaredRatioX18) / 1e12;
+        if (
+            candidatePpm != 0
+                && !_wideSquareTimesSmallLte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE - candidatePpm)
+        ) {
+            --candidatePpm;
+        }
+        return candidatePpm;
+    }
+
+    function _squareWide(uint160 value) internal pure returns (uint256 hi, uint256 lo) {
+        uint256 upper = uint256(value) >> 128;
+        uint256 lower = uint128(value);
+        uint256 lowerSquared = lower * lower;
+        uint256 cross = (lower * upper) << 1;
+
+        unchecked {
+            lo = lowerSquared + (cross << 128);
+        }
+        hi = (upper * upper) + (cross >> 128);
+        if (lo < lowerSquared) ++hi;
+    }
+
+    function _mulWideBySmall(uint256 hi, uint256 lo, uint256 factor)
+        internal
+        pure
+        returns (uint256 outHi, uint256 outLo)
+    {
+        uint256 loLower = uint128(lo);
+        uint256 loUpper = lo >> 128;
+        uint256 lowerProduct = loLower * factor;
+        uint256 upperProduct = loUpper * factor;
+
+        unchecked {
+            outLo = lowerProduct + (upperProduct << 128);
+        }
+        outHi = (hi * factor) + (upperProduct >> 128);
+        if (outLo < lowerProduct) ++outHi;
+    }
+
+    function _wideSquareTimesSmallGte(uint160 left, uint256 leftFactor, uint160 right, uint256 rightFactor)
+        internal
+        pure
+        returns (bool)
+    {
+        (uint256 leftSquareHi, uint256 leftSquareLo) = _squareWide(left);
+        (uint256 rightSquareHi, uint256 rightSquareLo) = _squareWide(right);
+        (uint256 leftHi, uint256 leftLo) = _mulWideBySmall(leftSquareHi, leftSquareLo, leftFactor);
+        (uint256 rightHi, uint256 rightLo) = _mulWideBySmall(rightSquareHi, rightSquareLo, rightFactor);
+
+        return leftHi > rightHi || (leftHi == rightHi && leftLo >= rightLo);
+    }
+
+    function _wideSquareTimesSmallLte(uint160 left, uint256 leftFactor, uint160 right, uint256 rightFactor)
+        internal
+        pure
+        returns (bool)
+    {
+        (uint256 leftSquareHi, uint256 leftSquareLo) = _squareWide(left);
+        (uint256 rightSquareHi, uint256 rightSquareLo) = _squareWide(right);
+        (uint256 leftHi, uint256 leftLo) = _mulWideBySmall(leftSquareHi, leftSquareLo, leftFactor);
+        (uint256 rightHi, uint256 rightLo) = _mulWideBySmall(rightSquareHi, rightSquareLo, rightFactor);
+
+        return leftHi < rightHi || (leftHi == rightHi && leftLo <= rightLo);
     }
 
     function _currencySymbol(Currency currency) internal view returns (string memory) {
