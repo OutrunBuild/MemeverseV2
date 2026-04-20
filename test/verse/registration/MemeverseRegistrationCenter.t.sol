@@ -98,6 +98,8 @@ contract MockCenterRegistrar {
     uint256 public lastUniqueId;
     address public lastUPT;
     bool public lastFlashGenesis;
+    uint64 public lastEndTime;
+    uint64 public lastUnlockTime;
     string public lastName;
     string public lastSymbol;
 
@@ -107,6 +109,8 @@ contract MockCenterRegistrar {
         lastUniqueId = param.uniqueId;
         lastUPT = param.UPT;
         lastFlashGenesis = param.flashGenesis;
+        lastEndTime = param.endTime;
+        lastUnlockTime = param.unlockTime;
         lastName = param.name;
         lastSymbol = param.symbol;
     }
@@ -136,7 +140,6 @@ contract MemeverseRegistrationCenterTest is Test {
         vm.startPrank(OWNER);
         center.setSupportedUPT(address(0x7777), true);
         center.setDurationDaysRange(1, 10);
-        center.setLockupDaysRange(2, 20);
         center.setRegisterGasLimit(150);
         center.setPeer(REMOTE_EID, bytes32(uint256(uint160(address(0xBEEF)))));
         center.setPeer(SOURCE_EID, bytes32(uint256(uint160(address(registrar)))));
@@ -150,8 +153,6 @@ contract MemeverseRegistrationCenterTest is Test {
         vm.prank(OWNER);
         center.setDurationDaysRange(2, 12);
         vm.prank(OWNER);
-        center.setLockupDaysRange(3, 13);
-        vm.prank(OWNER);
         center.setRegisterGasLimit(321);
 
         assertTrue(center.previewRegistration("NEW"));
@@ -159,8 +160,6 @@ contract MemeverseRegistrationCenterTest is Test {
         assertFalse(center.previewRegistration(longSymbol));
         assertEq(center.minDurationDays(), 2);
         assertEq(center.maxDurationDays(), 12);
-        assertEq(center.minLockupDays(), 3);
-        assertEq(center.maxLockupDays(), 13);
         assertEq(center.registerGasLimit(), 321);
     }
 
@@ -183,10 +182,6 @@ contract MemeverseRegistrationCenterTest is Test {
         vm.prank(OWNER);
         vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
         center.setDurationDaysRange(0, 1);
-
-        vm.prank(OWNER);
-        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
-        center.setLockupDaysRange(5, 5);
 
         vm.prank(OWNER);
         vm.expectRevert(IMemeverseRegistrationCenter.ZeroInput.selector);
@@ -248,6 +243,8 @@ contract MemeverseRegistrationCenterTest is Test {
         assertEq(registrar.lastUniqueId(), expectedUniqueId);
         assertEq(registrar.lastUPT(), param.UPT);
         assertEq(registrar.lastFlashGenesis(), param.flashGenesis);
+        assertEq(registrar.lastEndTime(), uint64(block.timestamp + param.durationDays * center.DAY()));
+        assertEq(registrar.lastUnlockTime(), uint64(block.timestamp + param.durationDays * center.DAY() + 365 days));
         assertEq(endpoint.lastDstEid(), REMOTE_EID);
         assertEq(endpoint.lastRefundAddress(), address(center));
         assertEq(endpoint.lastSendValue(), 0.5 ether);
@@ -299,11 +296,6 @@ contract MemeverseRegistrationCenterTest is Test {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
 
-        param.lockupDays = 1;
-        vm.expectRevert(IMemeverseRegistrationCenter.InvalidLockupDays.selector);
-        center.registration(param);
-
-        param = _registrationParam();
         param.durationDays = 11;
         vm.expectRevert(IMemeverseRegistrationCenter.InvalidDurationDays.selector);
         center.registration(param);
@@ -360,6 +352,16 @@ contract MemeverseRegistrationCenterTest is Test {
             abi.encodeWithSelector(IMemeverseRegistrationCenter.SymbolNotUnlock.selector, uint256(currentEndTime))
         );
         center.registration(param);
+    }
+
+    /// @notice Test registration rejects windows that would overflow uint64 when applying the fixed lockup.
+    function testRegistrationRevertsWhenFixedUnlockTimeOverflowsUint64() external {
+        endpoint.setQuotedNativeFee(0.5 ether);
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+
+        vm.warp(type(uint64).max - 365 days - center.DAY() + 1);
+        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
+        center.registration{value: 0.5 ether}(param);
     }
 
     /// @notice Test registration deduplicates omnichain ids and requires enough fee.
@@ -430,7 +432,6 @@ contract MemeverseRegistrationCenterTest is Test {
         param.communities = new string[](1);
         param.communities[0] = "https://center.example";
         param.durationDays = 3;
-        param.lockupDays = 5;
         param.omnichainIds = new uint32[](2);
         param.omnichainIds[0] = uint32(block.chainid);
         param.omnichainIds[1] = REMOTE_CHAIN_ID;

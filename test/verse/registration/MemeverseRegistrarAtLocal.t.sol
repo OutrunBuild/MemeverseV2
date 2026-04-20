@@ -15,6 +15,16 @@ contract MockAtLocalRegistrationCenter {
     bool public lastRegistrationFlashGenesis;
     uint256 public lastRegistrationValue;
 
+    function DAY() external pure returns (uint256) {
+        return 180;
+    }
+
+    function symbolRegistry(string calldata) external pure returns (uint256 uniqueId, uint64 endTime, uint192 nonce) {
+        uniqueId;
+        endTime;
+        nonce = 0;
+    }
+
     /// @notice Set quoted fee.
     /// @param fee See implementation.
     function setQuotedFee(uint256 fee) external {
@@ -126,9 +136,70 @@ contract MemeverseRegistrarAtLocalTest is Test {
         registrationCenter.setQuotedFee(99 ether);
 
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        uint64 expectedEndTime = uint64(block.timestamp + param.durationDays * registrationCenter.DAY());
+        uint64 expectedUnlockTime = uint64(block.timestamp + param.durationDays * registrationCenter.DAY() + 365 days);
+        IMemeverseRegistrar.MemeverseParam memory expectedMemeverseParam = IMemeverseRegistrar.MemeverseParam({
+            name: param.name,
+            symbol: param.symbol,
+            uri: param.uri,
+            desc: param.desc,
+            communities: param.communities,
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            endTime: expectedEndTime,
+            unlockTime: expectedUnlockTime,
+            omnichainIds: param.omnichainIds,
+            UPT: param.UPT,
+            flashGenesis: param.flashGenesis
+        });
+
+        vm.expectCall(
+            address(registrationCenter),
+            abi.encodeWithSelector(
+                MockAtLocalRegistrationCenter.quoteSend.selector, param.omnichainIds, abi.encode(expectedMemeverseParam)
+            )
+        );
         uint256 quoted = registrar.quoteRegister(param, 0);
 
         assertEq(quoted, 99 ether);
+    }
+
+    /// @notice Test quote register deduplicates omnichain ids before quoting the center.
+    function testQuoteRegisterDeduplicatesOmnichainIds() external {
+        registrationCenter.setQuotedFee(88 ether);
+
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        param.omnichainIds = new uint32[](3);
+        param.omnichainIds[0] = uint32(block.chainid);
+        param.omnichainIds[1] = 101;
+        param.omnichainIds[2] = 101;
+
+        uint32[] memory expectedIds = new uint32[](2);
+        expectedIds[0] = uint32(block.chainid);
+        expectedIds[1] = 101;
+        uint64 expectedEndTime = uint64(block.timestamp + param.durationDays * registrationCenter.DAY());
+        uint64 expectedUnlockTime = uint64(block.timestamp + param.durationDays * registrationCenter.DAY() + 365 days);
+        IMemeverseRegistrar.MemeverseParam memory expectedMemeverseParam = IMemeverseRegistrar.MemeverseParam({
+            name: param.name,
+            symbol: param.symbol,
+            uri: param.uri,
+            desc: param.desc,
+            communities: param.communities,
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            endTime: expectedEndTime,
+            unlockTime: expectedUnlockTime,
+            omnichainIds: expectedIds,
+            UPT: param.UPT,
+            flashGenesis: param.flashGenesis
+        });
+
+        vm.expectCall(
+            address(registrationCenter),
+            abi.encodeWithSelector(
+                MockAtLocalRegistrationCenter.quoteSend.selector, expectedIds, abi.encode(expectedMemeverseParam)
+            )
+        );
+
+        assertEq(registrar.quoteRegister(param, 0), 88 ether);
     }
 
     /// @notice Test local registration only center and forwards to launcher.
@@ -186,7 +257,6 @@ contract MemeverseRegistrarAtLocalTest is Test {
         param.communities = new string[](1);
         param.communities[0] = "https://memeverse.example";
         param.durationDays = 3;
-        param.lockupDays = 5;
         param.omnichainIds = new uint32[](2);
         param.omnichainIds[0] = uint32(block.chainid);
         param.omnichainIds[1] = 101;

@@ -237,7 +237,6 @@ contract MemeverseRegistrarOmnichainTest is Test {
         param.communities = new string[](1);
         param.communities[0] = "https://omemeverse.example";
         param.durationDays = 3;
-        param.lockupDays = 5;
         param.omnichainIds = new uint32[](3);
         param.omnichainIds[0] = CENTER_CHAIN_ID;
         param.omnichainIds[1] = uint32(block.chainid);

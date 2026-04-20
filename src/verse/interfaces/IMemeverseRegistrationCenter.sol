@@ -14,7 +14,6 @@ interface IMemeverseRegistrationCenter {
         string desc; // Description
         string[] communities; // Community, index -> 0:Website, 1:X, 2:Discord, 3:Telegram, >4:Others
         uint256 durationDays; // DurationDays of genesis stage
-        uint256 lockupDays; // LockupDays of liquidity
         uint32[] omnichainIds; // ChainIds of the token's omnichain(EVM)
         address UPT; // UPT of Memeverse
         bool flashGenesis; // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
@@ -43,6 +42,13 @@ interface IMemeverseRegistrationCenter {
      * @return True when the symbol can be registered at current state.
      */
     function previewRegistration(string calldata symbol) external view returns (bool);
+
+    function DAY() external view returns (uint256);
+
+    function symbolRegistry(string calldata symbol)
+        external
+        view
+        returns (uint256 uniqueId, uint64 endTime, uint192 nonce);
 
     /**
      * @notice Quotes LayerZero native fee requirements for registration broadcasts.
@@ -106,14 +112,6 @@ interface IMemeverseRegistrationCenter {
     function setDurationDaysRange(uint128 minDurationDays, uint128 maxDurationDays) external;
 
     /**
-     * @notice Updates allowed LP lockup range for new verses.
-     * @dev Values are interpreted in days and validated by registration flow.
-     * @param minLockupDays Minimum allowed lockup in days.
-     * @param maxLockupDays Maximum allowed lockup in days.
-     */
-    function setLockupDaysRange(uint128 minLockupDays, uint128 maxLockupDays) external;
-
-    /**
      * @notice Sets default gas limit used for registration broadcast messages.
      * @dev Applied when building LayerZero options for cross-chain registration.
      * @param registerGasLimit New registration message gas limit.
@@ -128,8 +126,6 @@ interface IMemeverseRegistrationCenter {
 
     event SetDurationDaysRange(uint128 minDurationDays, uint128 maxDurationDays);
 
-    event SetLockupDaysRange(uint128 minLockupDays, uint128 maxLockupDays);
-
     event SetRegisterGasLimit(uint256 registerGasLimit);
 
     error ZeroInput();
@@ -143,8 +139,6 @@ interface IMemeverseRegistrationCenter {
     error PermissionDenied();
 
     error EmptyOmnichainIds();
-
-    error InvalidLockupDays();
 
     error InsufficientLzFee();
 

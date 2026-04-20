@@ -9,7 +9,8 @@ import {IMemeverseRegistrar, IMemeverseRegistrationCenter} from "../interfaces/I
  * @title Local MemeverseRegistrar for deploying memecoin and registering memeverse
  */
 contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegistrarAbstract {
-    uint256 public constant DAY = 24 * 3600;
+    uint256 internal constant FIXED_LOCKUP_DURATION = 365 days;
+    uint256 internal constant MAX_END_TIME = type(uint64).max - FIXED_LOCKUP_DURATION;
 
     address public registrationCenter;
 
@@ -32,23 +33,28 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
         returns (uint256 lzFee)
     {
         value;
-        uint64 endTime = uint64(block.timestamp + param.durationDays * DAY);
-        uint64 unlockTime = endTime + uint64(param.lockupDays * DAY);
+        uint32[] memory omnichainIds = _deduplicate(param.omnichainIds);
+        (,, uint192 currentNonce) = IMemeverseRegistrationCenter(registrationCenter).symbolRegistry(param.symbol);
+        uint256 centerDay = IMemeverseRegistrationCenter(registrationCenter).DAY();
+        uint256 endTimeRaw = block.timestamp + param.durationDays * centerDay;
+        require(endTimeRaw <= MAX_END_TIME, IMemeverseRegistrationCenter.InvalidInput());
+
+        uint64 endTime = uint64(endTimeRaw);
+        uint64 unlockTime = uint64(endTimeRaw + FIXED_LOCKUP_DURATION);
         IMemeverseRegistrar.MemeverseParam memory memeverseParam = IMemeverseRegistrar.MemeverseParam({
             name: param.name,
             symbol: param.symbol,
             uri: param.uri,
             desc: param.desc,
             communities: param.communities,
-            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol))),
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, currentNonce + 1, param.UPT))),
             endTime: endTime,
             unlockTime: unlockTime,
-            omnichainIds: param.omnichainIds,
+            omnichainIds: omnichainIds,
             UPT: param.UPT,
             flashGenesis: param.flashGenesis
         });
-        (lzFee,,) =
-            IMemeverseRegistrationCenter(registrationCenter).quoteSend(param.omnichainIds, abi.encode(memeverseParam));
+        (lzFee,,) = IMemeverseRegistrationCenter(registrationCenter).quoteSend(omnichainIds, abi.encode(memeverseParam));
     }
 
     /// @notice Registers the memeverse on the local chain.
@@ -83,5 +89,32 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
         registrationCenter = _registrationCenter;
 
         emit SetRegistrationCenter(_registrationCenter);
+    }
+
+    function _deduplicate(uint32[] calldata input) internal pure returns (uint32[] memory uniqueValues) {
+        uint256 inputLength = input.length;
+        if (inputLength == 0) return new uint32[](0);
+
+        uint32[] memory temp = new uint32[](inputLength);
+        uint256 uniqueCount;
+
+        for (uint256 i = 0; i < inputLength; ++i) {
+            bool found;
+            for (uint256 j = 0; j < uniqueCount; ++j) {
+                if (temp[j] == input[i]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                temp[uniqueCount] = input[i];
+                ++uniqueCount;
+            }
+        }
+
+        uniqueValues = new uint32[](uniqueCount);
+        for (uint256 i = 0; i < uniqueCount; ++i) {
+            uniqueValues[i] = temp[i];
+        }
     }
 }

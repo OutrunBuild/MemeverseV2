@@ -20,13 +20,13 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
 
     // uint256 public constant DAY = 24 * 3600;
     uint256 public constant DAY = 180; // OutrunTODO 180 seconds for testing
+    uint256 internal constant FIXED_LOCKUP_DURATION = 365 days;
+    uint256 internal constant MAX_END_TIME = type(uint64).max - FIXED_LOCKUP_DURATION;
     address public immutable MEMEVERSE_REGISTRAR;
     address public immutable MEMEVERSE_COMMON_INFO;
 
     uint128 public minDurationDays;
     uint128 public maxDurationDays;
-    uint128 public minLockupDays;
-    uint128 public maxLockupDays;
     uint256 public registerGasLimit;
 
     // Main symbol mapping, recording the latest registration information
@@ -127,8 +127,12 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
             });
         }
 
+        uint256 endTimeRaw = currentTime + param.durationDays * DAY;
+        require(endTimeRaw <= MAX_END_TIME, InvalidInput());
+
         uint192 nextNonce = currentNonce + 1;
-        uint64 endTime = uint64(currentTime + param.durationDays * DAY);
+        uint64 endTime = uint64(endTimeRaw);
+        uint64 unlockTime = uint64(endTimeRaw + FIXED_LOCKUP_DURATION);
         uint256 uniqueId = uint256(keccak256(abi.encodePacked(param.symbol, nextNonce, param.UPT)));
         currentRegistration.uniqueId = uniqueId;
         currentRegistration.endTime = endTime;
@@ -142,7 +146,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
             communities: param.communities,
             uniqueId: uniqueId,
             endTime: endTime,
-            unlockTime: endTime + uint64(param.lockupDays * DAY),
+            unlockTime: unlockTime,
             omnichainIds: param.omnichainIds,
             UPT: param.UPT,
             flashGenesis: param.flashGenesis
@@ -217,7 +221,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
      * @param param - The registration parameter
      */
     function _registrationParamValidation(RegistrationParam memory param) internal view {
-        require(param.lockupDays >= minLockupDays && param.lockupDays <= maxLockupDays, InvalidLockupDays());
         require(param.durationDays >= minDurationDays && param.durationDays <= maxDurationDays, InvalidDurationDays());
         require(bytes(param.name).length > 0 && bytes(param.name).length < 32, InvalidLength());
         require(bytes(param.symbol).length > 0 && bytes(param.symbol).length < 32, InvalidLength());
@@ -320,19 +323,6 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         maxDurationDays = _maxDurationDays;
 
         emit SetDurationDaysRange(_minDurationDays, _maxDurationDays);
-    }
-
-    /// @notice Updates the allowed liquidity lockup range for new registrations.
-    /// @dev Only callable by the owner.
-    /// @param _minLockupDays New minimum lockup duration, measured in `DAY` units.
-    /// @param _maxLockupDays New maximum lockup duration, measured in `DAY` units.
-    function setLockupDaysRange(uint128 _minLockupDays, uint128 _maxLockupDays) external override onlyOwner {
-        require(_minLockupDays != 0 && _maxLockupDays != 0 && _minLockupDays < _maxLockupDays, InvalidInput());
-
-        minLockupDays = _minLockupDays;
-        maxLockupDays = _maxLockupDays;
-
-        emit SetLockupDaysRange(_minLockupDays, _maxLockupDays);
     }
 
     /// @notice Updates the remote receive gas used for outbound registration sends.

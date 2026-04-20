@@ -303,7 +303,6 @@ contract MemeverseScript is BaseScript {
         IMemeverseRegistrationCenter(centerAddr).setSupportedUPT(UUSD, true);
         IMemeverseRegistrationCenter(centerAddr).setRegisterGasLimit(1000000);
         IMemeverseRegistrationCenter(centerAddr).setDurationDaysRange(1, 3);
-        IMemeverseRegistrationCenter(centerAddr).setLockupDaysRange(1, 365); // Min: 180
 
         console.log("MemeverseRegistrationCenter deployed on %s", centerAddr);
     }
@@ -388,7 +387,7 @@ contract MemeverseScript is BaseScript {
                 MEMECOIN_VAULT_IMPLEMENTATION,
                 MEMECOIN_GOVERNOR_IMPLEMENTATION,
                 CYCLE_INCENTIVIZER_IMPLEMENTATION,
-                40,
+                50,
                 10,
                 7 days,
                 1000,

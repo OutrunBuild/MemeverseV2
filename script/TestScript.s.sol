@@ -41,7 +41,6 @@ contract TestScript is BaseScript {
         param.uri = "XXX";
         param.desc = "XXX";
         param.durationDays = 1;
-        param.lockupDays = 1;
         uint32[] memory ids = new uint32[](2);
         ids[0] = 421614;
         ids[1] = 84532;
