@@ -26,15 +26,9 @@ contract MockDeployerGovernor {
     uint256 public proposalThreshold;
     uint256 public quorumNumerator;
     address public incentivizer;
+    uint256 public minQuorum;
+    uint256 public governanceStartTime;
 
-    /// @notice Initialize.
-    /// @param name_ See implementation.
-    /// @param token_ See implementation.
-    /// @param votingDelay_ See implementation.
-    /// @param votingPeriod_ See implementation.
-    /// @param proposalThreshold_ See implementation.
-    /// @param quorumNumerator_ See implementation.
-    /// @param incentivizer_ See implementation.
     function initialize(
         string memory name_,
         address token_,
@@ -42,7 +36,9 @@ contract MockDeployerGovernor {
         uint32 votingPeriod_,
         uint256 proposalThreshold_,
         uint256 quorumNumerator_,
-        address incentivizer_
+        address incentivizer_,
+        uint256 minQuorum_,
+        uint256 bootstrapPeriod_
     ) external {
         name = name_;
         token = token_;
@@ -51,6 +47,8 @@ contract MockDeployerGovernor {
         proposalThreshold = proposalThreshold_;
         quorumNumerator = quorumNumerator_;
         incentivizer = incentivizer_;
+        minQuorum = minQuorum_;
+        governanceStartTime = block.timestamp + bootstrapPeriod_;
     }
 }
 
@@ -74,6 +72,10 @@ contract MockDeployerIncentivizer {
     }
 }
 
+contract MockDeployerMemecoin {
+    uint256 public totalSupply = 1_000_000 ether;
+}
+
 contract MemeverseProxyDeployerTest is Test {
     using Clones for address;
 
@@ -87,6 +89,7 @@ contract MemeverseProxyDeployerTest is Test {
     MockDeployerGovernor internal governorImplementation;
     MockDeployerIncentivizer internal incentivizerImplementation;
     MemeverseProxyDeployer internal deployer;
+    MockDeployerMemecoin internal mockMemecoin;
 
     /// @notice Set up.
     function setUp() external {
@@ -95,6 +98,7 @@ contract MemeverseProxyDeployerTest is Test {
         vaultImplementation = new MockDeployerCloneable();
         governorImplementation = new MockDeployerGovernor();
         incentivizerImplementation = new MockDeployerIncentivizer();
+        mockMemecoin = new MockDeployerMemecoin();
 
         deployer = new MemeverseProxyDeployer(
             OWNER,
@@ -139,7 +143,7 @@ contract MemeverseProxyDeployerTest is Test {
     function testComputeGovernorAndIncentivizerMatchesDeployedProxiesAndInitializesThem() external {
         uint256 uniqueId = 42;
         address UPT = address(0x1111);
-        address memecoin = address(0x2222);
+        address memecoin = address(mockMemecoin);
         address pol = address(0x3333);
         address yieldVault = address(0x4444);
 
@@ -161,6 +165,8 @@ contract MemeverseProxyDeployerTest is Test {
         assertEq(governorProxy.proposalThreshold(), 123);
         assertEq(governorProxy.quorumNumerator(), 25);
         assertEq(governorProxy.incentivizer(), incentivizer);
+        assertEq(governorProxy.minQuorum(), 1_000_000 ether * 10 / 100);
+        assertEq(governorProxy.governanceStartTime(), block.timestamp + 7 days);
 
         MockDeployerIncentivizer incentivizerProxy = MockDeployerIncentivizer(incentivizer);
         assertEq(incentivizerProxy.governor(), governor);
@@ -183,5 +189,35 @@ contract MemeverseProxyDeployerTest is Test {
         vm.prank(OWNER);
         deployer.setQuorumNumerator(77);
         assertEq(deployer.quorumNumerator(), 77);
+    }
+
+    /// @notice Test set min quorum numerator only owner and rejects zero.
+    function testSetMinQuorumNumeratorOnlyOwnerAndRejectsZero() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        deployer.setMinQuorumNumerator(50);
+
+        vm.prank(OWNER);
+        vm.expectRevert(IMemeverseProxyDeployer.ZeroInput.selector);
+        deployer.setMinQuorumNumerator(0);
+
+        vm.prank(OWNER);
+        deployer.setMinQuorumNumerator(50);
+        assertEq(deployer.minQuorumNumerator(), 50);
+    }
+
+    /// @notice Test set bootstrap period only owner and rejects zero.
+    function testSetBootstrapPeriodOnlyOwnerAndRejectsZero() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        deployer.setBootstrapPeriod(14 days);
+
+        vm.prank(OWNER);
+        vm.expectRevert(IMemeverseProxyDeployer.ZeroInput.selector);
+        deployer.setBootstrapPeriod(0);
+
+        vm.prank(OWNER);
+        deployer.setBootstrapPeriod(14 days);
+        assertEq(deployer.bootstrapPeriod(), 14 days);
     }
 }
