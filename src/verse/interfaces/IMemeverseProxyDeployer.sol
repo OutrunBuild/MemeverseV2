@@ -73,6 +73,12 @@ interface IMemeverseProxyDeployer {
     ) external returns (address governor, address incentivizer);
 
     /**
+     * @notice Returns the quorum numerator used for governor deployments.
+     * @return Current quorum numerator value.
+     */
+    function quorumNumerator() external view returns (uint256);
+
+    /**
      * @notice Updates quorum numerator used for subsequent governor deployments.
      * @dev Affects deployment-time governor config, not already deployed instances.
      * @param quorumNumerator New quorum numerator value.

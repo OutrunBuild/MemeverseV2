@@ -79,6 +79,8 @@ contract MemecoinDaoGovernorUpgradeable is
      * @param _proposalThreshold Minimum voting power required to propose.
      * @param _quorumNumerator Fractional quorum numerator for governance decisions.
      * @param _governanceCycleIncentivizer Address of the incentivizer that tracks cycle rewards.
+     * @param _minQuorum Absolute minimum quorum floor based on total supply.
+     * @param _bootstrapPeriod Delay after deployment before proposals are accepted.
      */
     function initialize(
         string calldata _name,
