@@ -104,6 +104,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     // solhint-enable gas-small-strings
     mapping(address => bool) public supportedProtocolFeeCurrencies;
     mapping(PoolId => PoolInfo) public poolInfo;
+    // Shadow copy of UniswapLP totalSupply, maintained by add/removeLiquidity flows.
+    // If this contract is ever deployed behind a proxy, a migration must rebuild this
+    // mapping from UniswapLP.totalSupply() to keep fee-per-share accounting correct.
     mapping(PoolId => uint256) internal cachedLpTotalSupply;
     mapping(PoolId => uint40) public poolLaunchTimestamp;
     mapping(PoolId => uint40) public publicSwapResumeTime;
@@ -360,19 +363,13 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         uint256 lpFeeBps = _lpFeeBps(dynamicFeeBps);
         uint256 protocolFeeBps = _protocolFeeBps(dynamicFeeBps);
-        bool needsFeeContext = params.amountSpecified > 0 || !ctx.protocolFeeOnInput;
-
-        // `afterSwap` must reuse the same pre-swap price anchor, and only fee-bearing branches need the fee context.
-        if (needsFeeContext) {
-            MemeverseTransientState.pushSwapContext(poolId, dynamicFeeBps, preSqrtPriceX96);
-        } else {
-            MemeverseTransientState.pushPriceContext(poolId, preSqrtPriceX96);
-        }
+        MemeverseTransientState.pushSwapContext(poolId, dynamicFeeBps, preSqrtPriceX96);
 
         uint256 lpFeeInputAmount = 0;
         uint256 protocolFeeInputAmount = 0;
         if (params.amountSpecified < 0) {
             // Exact-input swaps can charge input-side fees immediately because the user's budget is already known up front.
+            // Fee amounts below are mirrored in _afterSwap exact-input branch — keep in sync.
             lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
             if (ctx.protocolFeeOnInput) {
                 protocolFeeInputAmount = FullMath.mulDiv(absSpecified, protocolFeeBps, BPS_BASE);
@@ -392,11 +389,14 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             return (IHooks.beforeSwap.selector, toBeforeSwapDelta(protocolFeeOutputAmount.toInt128(), int128(0)), 0);
         }
 
-        if (params.amountSpecified > 0 || !ctx.protocolFeeOnInput) {
+        if (params.amountSpecified > 0) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
         int128 specifiedDeltaInput = (lpFeeInputAmount + protocolFeeInputAmount).toInt128();
+        if (specifiedDeltaInput == 0) {
+            return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        }
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(specifiedDeltaInput, int128(0)), 0);
     }
 
@@ -418,17 +418,33 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         PoolId poolId = key.toId();
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
-        if (params.amountSpecified < 0 && ctx.protocolFeeOnInput) {
-            (uint160 contextPreSqrtPriceX96,) = MemeverseTransientState.consumeCurrentPriceContext(poolId);
-            _updateDynamicStateAfterSwap(poolId, delta, contextPreSqrtPriceX96);
-            return (IHooks.afterSwap.selector, 0);
-        }
-
         (uint256 feeBps, uint160 preSqrtPriceX96,) = MemeverseTransientState.consumeCurrentSwapContext(poolId);
         _updateDynamicStateAfterSwap(poolId, delta, preSqrtPriceX96);
 
         uint256 lpFeeBps = _lpFeeBps(feeBps);
         uint256 protocolFeeBps = _protocolFeeBps(feeBps);
+
+        if (params.amountSpecified < 0) {
+            uint256 absSpecified = uint256(-params.amountSpecified);
+            // These must match the _beforeSwap computation for the partial-fill guard to work.
+            uint256 lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
+            uint256 protocolFeeInputAmount =
+                ctx.protocolFeeOnInput ? FullMath.mulDiv(absSpecified, protocolFeeBps, BPS_BASE) : 0;
+            uint256 expectedPoolInput = absSpecified - lpFeeInputAmount - protocolFeeInputAmount;
+            uint256 actualPoolInput = _actualInputAmount(delta, params.zeroForOne);
+            if (actualPoolInput != expectedPoolInput) revert ExactInputPartialFill();
+
+            if (!ctx.protocolFeeOnInput) {
+                uint256 actualOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
+                uint256 exactInputProtocolFeeOutputAmount = FullMath.mulDiv(actualOutputAbs, protocolFeeBps, BPS_BASE);
+                if (exactInputProtocolFeeOutputAmount > 0) {
+                    _collectProtocolFee(poolId, ctx.currencyOut, exactInputProtocolFeeOutputAmount);
+                }
+                return (IHooks.afterSwap.selector, int128(int256(exactInputProtocolFeeOutputAmount)));
+            }
+
+            return (IHooks.afterSwap.selector, 0);
+        }
 
         if (params.amountSpecified > 0) {
             // Exact-output fees settle against the actual fill, so only `afterSwap` knows the final input amount to charge.
@@ -453,6 +469,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             } else {
                 // Output-side protocol fee was grossed up in `beforeSwap`; here the hook withholds the realized output fee from the taker.
                 uint256 actualGrossOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
+                // Safe: pool executes with grossed-up amountToSwap; full fill produces exactly that output with no rounding.
                 uint256 exactOutputProtocolFeeOutputAmount = actualGrossOutputAbs - uint256(params.amountSpecified);
                 if (exactOutputProtocolFeeOutputAmount > 0) {
                     _collectProtocolFee(poolId, ctx.currencyOut, exactOutputProtocolFeeOutputAmount);
@@ -462,18 +479,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
             return (IHooks.afterSwap.selector, int128(int256(unspecifiedDelta)));
         }
-
-        if (!ctx.protocolFeeOnInput) {
-            uint256 actualOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
-            if (actualOutputAbs == 0) return (IHooks.afterSwap.selector, 0);
-
-            uint256 exactInputProtocolFeeOutputAmount = FullMath.mulDiv(actualOutputAbs, protocolFeeBps, BPS_BASE);
-            if (exactInputProtocolFeeOutputAmount > 0) {
-                _collectProtocolFee(key.toId(), ctx.currencyOut, exactInputProtocolFeeOutputAmount);
-            }
-            return (IHooks.afterSwap.selector, int128(int256(exactInputProtocolFeeOutputAmount)));
-        }
-
         return (IHooks.afterSwap.selector, 0);
     }
 
@@ -669,6 +674,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             ),
             (BalanceDelta)
         );
+        if (_actualInputAmount(delta, params.params.zeroForOne) != netInputAmount) revert ExactInputPartialFill();
     }
 
     function _modifyLiquidity(address sender, PoolKey memory key, ModifyLiquidityParams memory params)
@@ -920,13 +926,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     ) internal {
         if (lpFeeInputAmount > 0) {
             uint256 effectiveSupply = _effectiveLpSupply(poolId);
+            if (effectiveSupply == 0) revert NoActiveLiquidityShares();
             // Launcher settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, address(this), lpFeeInputAmount)) {
                 revert ERC20TransferFailed();
             }
-            if (effectiveSupply > 0) {
-                _creditLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount, effectiveSupply);
-            }
+            _creditLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount, effectiveSupply);
         }
 
         if (protocolFeeInputAmount > 0) {
@@ -1457,7 +1462,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     function _spotX18FromSqrtPrice(uint160 sqrtPriceX96) internal pure returns (uint256) {
-        return FullMath.mulDiv(uint256(sqrtPriceX96) * uint256(sqrtPriceX96), EWVWAP_PRECISION, Q96_SQUARED);
+        return FullMath.mulDiv(
+            FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1), EWVWAP_PRECISION, Q96_SQUARED
+        );
     }
 
     function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -1465,8 +1472,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     function _priceMovePpm(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
-        uint256 preP = uint256(preSqrtPrice) * uint256(preSqrtPrice);
-        uint256 postP = uint256(postSqrtPrice) * uint256(postSqrtPrice);
+        uint256 preP = FullMath.mulDiv(uint256(preSqrtPrice), uint256(preSqrtPrice), 1);
+        uint256 postP = FullMath.mulDiv(uint256(postSqrtPrice), uint256(postSqrtPrice), 1);
         uint256 num = postP > preP ? postP - preP : preP - postP;
         return FullMath.mulDiv(num, PPM_BASE, preP);
     }
