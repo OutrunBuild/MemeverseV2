@@ -91,6 +91,7 @@ interface IMemecoinDaoGovernor {
     error UserHasUnfinalizedProposal();
     error UnauthorizedRewardPayout();
     error GovernanceNotStarted();
+    error InvalidGovernanceParams();
     error TreasurySpendExceedsLimit(address token, uint256 spent, uint256 limit);
     error UpgradeSupermajorityRequired(uint256 forVotes, uint256 totalVotes, uint256 requiredRatio);
 }

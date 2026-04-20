@@ -61,6 +61,11 @@ contract MemecoinDaoGovernorUpgradeable is
         uint256 _maxTreasurySpendRatio,
         uint256 _upgradeSupermajorityRatio
     ) internal onlyInitializing {
+        require(
+            _maxTreasurySpendRatio > 0 && _maxTreasurySpendRatio <= 10000 && _upgradeSupermajorityRatio > 0
+                && _upgradeSupermajorityRatio <= 10000,
+            InvalidGovernanceParams()
+        );
         MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
         $._governanceCycleIncentivizer = IGovernanceCycleIncentivizer(_governanceCycleIncentivizer);
         $._minQuorum = _minQuorum;
