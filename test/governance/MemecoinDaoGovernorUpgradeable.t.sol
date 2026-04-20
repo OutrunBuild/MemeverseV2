@@ -180,7 +180,19 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Memecoin DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 0, 0, 1000, 6000)
+                (
+                    "Memecoin DAO",
+                    IVotes(address(votesToken)),
+                    0,
+                    5,
+                    1 ether,
+                    10,
+                    address(incentivizer),
+                    0,
+                    0,
+                    1000,
+                    6000
+                )
             )
         );
         governor = MemecoinDaoGovernorUpgradeable(payable(address(proxy)));
@@ -297,7 +309,19 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Bootstrap DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 50 ether, 7 days, 1000, 6000)
+                (
+                    "Bootstrap DAO",
+                    IVotes(address(votesToken)),
+                    0,
+                    5,
+                    1 ether,
+                    10,
+                    address(incentivizer),
+                    50 ether,
+                    7 days,
+                    1000,
+                    6000
+                )
             )
         );
         MemecoinDaoGovernorUpgradeable bootstrapGovernor =
@@ -331,11 +355,22 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Floor DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 1, address(incentivizer), 50 ether, 0, 1000, 6000)
+                (
+                    "Floor DAO",
+                    IVotes(address(votesToken)),
+                    0,
+                    5,
+                    1 ether,
+                    1,
+                    address(incentivizer),
+                    50 ether,
+                    0,
+                    1000,
+                    6000
+                )
             )
         );
-        MemecoinDaoGovernorUpgradeable floorGovernor =
-            MemecoinDaoGovernorUpgradeable(payable(address(floorProxy)));
+        MemecoinDaoGovernorUpgradeable floorGovernor = MemecoinDaoGovernorUpgradeable(payable(address(floorProxy)));
 
         assertEq(floorGovernor.quorum(block.number), 50 ether);
     }
@@ -429,10 +464,7 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         vm.roll(block.number + governor.votingPeriod() + 1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IMemecoinDaoGovernor.TreasurySpendExceedsLimit.selector,
-                address(treasuryToken),
-                200 ether,
-                100 ether
+                IMemecoinDaoGovernor.TreasurySpendExceedsLimit.selector, address(treasuryToken), 200 ether, 100 ether
             )
         );
         governor.execute(targets, values, calldatas, keccak256("spend-over-limit"));
@@ -455,7 +487,9 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         vm.roll(block.number + governor.votingPeriod() + 1);
         // forVotes=100, totalVotes=180, required=100*10000 >= 180*6000 → 1000000 < 1080000
         vm.expectRevert(
-            abi.encodeWithSelector(IMemecoinDaoGovernor.UpgradeSupermajorityRequired.selector, 100 ether, 180 ether, 6000)
+            abi.encodeWithSelector(
+                IMemecoinDaoGovernor.UpgradeSupermajorityRequired.selector, 100 ether, 180 ether, 6000
+            )
         );
         governor.execute(targets, values, calldatas, keccak256("upgrade-no-super"));
     }

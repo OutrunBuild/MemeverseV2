@@ -111,7 +111,11 @@ contract MemecoinDaoGovernorUpgradeable is
         __GovernorVotes_init(_token);
         __GovernorVotesQuorumFraction_init(_quorumNumerator);
         __MemecoinDaoGovernor_init(
-            _governanceCycleIncentivizer, _minQuorum, _bootstrapPeriod, _maxTreasurySpendRatio, _upgradeSupermajorityRatio
+            _governanceCycleIncentivizer,
+            _minQuorum,
+            _bootstrapPeriod,
+            _maxTreasurySpendRatio,
+            _upgradeSupermajorityRatio
         );
     }
 
@@ -298,7 +302,8 @@ contract MemecoinDaoGovernorUpgradeable is
 
         // Layer 4: self-call requires supermajority
         bool isSelfCall = false;
-        for (uint256 i = 0; i < targets.length; ++i) {
+        uint256 targetsLength = targets.length;
+        for (uint256 i = 0; i < targetsLength; ++i) {
             if (targets[i] == address(this)) {
                 isSelfCall = true;
                 break;
