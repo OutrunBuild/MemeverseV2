@@ -388,7 +388,9 @@ contract MemeverseScript is BaseScript {
                 MEMECOIN_VAULT_IMPLEMENTATION,
                 MEMECOIN_GOVERNOR_IMPLEMENTATION,
                 CYCLE_INCENTIVIZER_IMPLEMENTATION,
-                40
+                40,
+                10,
+                7 days
             )
         );
 
