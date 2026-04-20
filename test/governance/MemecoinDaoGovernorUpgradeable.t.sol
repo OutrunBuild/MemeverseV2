@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 import {MemecoinDaoGovernorUpgradeable} from "../../src/governance/MemecoinDaoGovernorUpgradeable.sol";
@@ -100,6 +101,25 @@ contract MockGovernorIncentivizer {
     uint256 public lastSentGovernorBalance;
     address public lastVoteAccount;
     uint256 public lastVoteAmount;
+    address[] public treasuryTokens;
+
+    function setTreasuryTokens(address[] memory tokens) external {
+        treasuryTokens = tokens;
+    }
+
+    function metaData()
+        external
+        view
+        returns (
+            uint128 currentCycleId,
+            uint128 rewardRatio,
+            address governor,
+            address[] memory treasuryTokenList,
+            address[] memory rewardTokenList
+        )
+    {
+        return (0, 0, address(0), treasuryTokens, new address[](0));
+    }
 
     /// @notice Record treasury income.
     /// @param token See implementation.
@@ -160,7 +180,7 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Memecoin DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 0, 0)
+                ("Memecoin DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 0, 0, 1000, 6000)
             )
         );
         governor = MemecoinDaoGovernorUpgradeable(payable(address(proxy)));
@@ -175,6 +195,8 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         assertEq(governor.proposalThreshold(), 1 ether);
         assertEq(governor.minQuorum(), 0);
         assertEq(governor.governanceStartTime(), block.timestamp);
+        assertEq(governor.maxTreasurySpendRatio(), 1000);
+        assertEq(governor.upgradeSupermajorityRatio(), 6000);
     }
 
     /// @notice Test receive treasury income notifies incentivizer and pulls tokens.
@@ -275,7 +297,7 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Bootstrap DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 50 ether, 7 days)
+                ("Bootstrap DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 10, address(incentivizer), 50 ether, 7 days, 1000, 6000)
             )
         );
         MemecoinDaoGovernorUpgradeable bootstrapGovernor =
@@ -309,7 +331,7 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             address(implementation),
             abi.encodeCall(
                 MemecoinDaoGovernorUpgradeable.initialize,
-                ("Floor DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 1, address(incentivizer), 50 ether, 0)
+                ("Floor DAO", IVotes(address(votesToken)), 0, 5, 1 ether, 1, address(incentivizer), 50 ether, 0, 1000, 6000)
             )
         );
         MemecoinDaoGovernorUpgradeable floorGovernor =
@@ -329,5 +351,165 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         targets[0] = address(0x1234);
         values[0] = 0;
         calldatas[0] = bytes("");
+    }
+
+    function _proposePassAndExecute(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        string memory description,
+        address voter
+    ) internal returns (uint256 proposalId) {
+        vm.prank(voter);
+        proposalId = governor.propose(targets, values, calldatas, description);
+        vm.roll(block.number + 1);
+        vm.prank(voter);
+        governor.castVote(proposalId, 1);
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        governor.execute(targets, values, calldatas, keccak256(bytes(description)));
+    }
+
+    function _transferPayload(address token, address to, uint256 amount)
+        internal
+        pure
+        returns (address[] memory targets, uint256[] memory values, bytes[] memory calldatas)
+    {
+        targets = new address[](1);
+        values = new uint256[](1);
+        calldatas = new bytes[](1);
+        targets[0] = token;
+        values[0] = 0;
+        calldatas[0] = abi.encodeCall(IERC20.transfer, (to, amount));
+    }
+
+    function _selfCallPayload(bytes memory data)
+        internal
+        view
+        returns (address[] memory targets, uint256[] memory values, bytes[] memory calldatas)
+    {
+        targets = new address[](1);
+        values = new uint256[](1);
+        calldatas = new bytes[](1);
+        targets[0] = address(governor);
+        values[0] = 0;
+        calldatas[0] = data;
+    }
+
+    function testTreasurySpendWithinLimitSucceeds() external {
+        treasuryToken.mint(address(governor), 1000 ether);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(treasuryToken);
+        incentivizer.setTreasuryTokens(tokens);
+
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) =
+            _transferPayload(address(treasuryToken), BOB, 50 ether);
+
+        _proposePassAndExecute(targets, values, calldatas, "spend-within-limit", ALICE);
+
+        assertEq(treasuryToken.balanceOf(BOB), 50 ether);
+        assertEq(treasuryToken.balanceOf(address(governor)), 950 ether);
+    }
+
+    function testTreasurySpendExceedingLimitReverts() external {
+        treasuryToken.mint(address(governor), 1000 ether);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(treasuryToken);
+        incentivizer.setTreasuryTokens(tokens);
+
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) =
+            _transferPayload(address(treasuryToken), BOB, 200 ether);
+
+        vm.prank(ALICE);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "spend-over-limit");
+
+        vm.roll(block.number + 1);
+        vm.prank(ALICE);
+        governor.castVote(proposalId, 1);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemecoinDaoGovernor.TreasurySpendExceedsLimit.selector,
+                address(treasuryToken),
+                200 ether,
+                100 ether
+            )
+        );
+        governor.execute(targets, values, calldatas, keccak256("spend-over-limit"));
+    }
+
+    function testUpgradeWithoutSupermajorityReverts() external {
+        // ALICE has 100 votes, BOB has 80 votes — total 180
+        // 60% of 180 = 108. ALICE votes For = 100 < 108 → should revert
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _selfCallPayload("");
+
+        vm.prank(ALICE);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "upgrade-no-super");
+
+        vm.roll(block.number + 1);
+        vm.prank(ALICE);
+        governor.castVote(proposalId, 1); // For
+        vm.prank(BOB);
+        governor.castVote(proposalId, 0); // Against
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        // forVotes=100, totalVotes=180, required=100*10000 >= 180*6000 → 1000000 < 1080000
+        vm.expectRevert(
+            abi.encodeWithSelector(IMemecoinDaoGovernor.UpgradeSupermajorityRequired.selector, 100 ether, 180 ether, 6000)
+        );
+        governor.execute(targets, values, calldatas, keccak256("upgrade-no-super"));
+    }
+
+    function testUpgradeWithSupermajoritySucceeds() external {
+        // Set ALICE votes = 700, BOB = 300 → total 1000
+        // 60% of 1000 = 600. ALICE + BOB both vote For = 1000 >= 600 → should pass
+        votesToken.setVotes(ALICE, 700 ether);
+        votesToken.setVotes(BOB, 300 ether);
+
+        // Use IGovernor.name() as valid self-call payload — view function succeeds via .call()
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) =
+            _selfCallPayload(abi.encodeCall(IGovernor.name, ()));
+
+        vm.prank(ALICE);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "upgrade-super");
+
+        vm.roll(block.number + 1);
+        vm.prank(ALICE);
+        governor.castVote(proposalId, 1);
+        vm.prank(BOB);
+        governor.castVote(proposalId, 1);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        governor.execute(targets, values, calldatas, keccak256("upgrade-super"));
+    }
+
+    function testNonSelfCallIgnoresSupermajority() external {
+        // Simple majority (>50% forVotes) is enough for non-self-call proposals
+        // Use treasuryToken.balanceOf as a valid non-self-call target
+        address[] memory targets = new address[](1);
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        targets[0] = address(treasuryToken);
+        values[0] = 0;
+        calldatas[0] = abi.encodeCall(IERC20.balanceOf, (address(governor)));
+
+        _proposePassAndExecute(targets, values, calldatas, "non-self-call", ALICE);
+    }
+
+    function testZeroPreBalanceSkipsRateLimit() external {
+        // Treasury token has 0 balance before execution — no spend to limit
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(treasuryToken);
+        incentivizer.setTreasuryTokens(tokens);
+
+        // Use treasuryToken.balanceOf as valid non-self-call target (doesn't change balances)
+        address[] memory targets = new address[](1);
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        targets[0] = address(treasuryToken);
+        values[0] = 0;
+        calldatas[0] = abi.encodeCall(IERC20.balanceOf, (address(governor)));
+
+        _proposePassAndExecute(targets, values, calldatas, "zero-balance", ALICE);
     }
 }
