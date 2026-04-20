@@ -109,6 +109,30 @@ interface IMemeverseProxyDeployer {
      */
     function setBootstrapPeriod(uint256 bootstrapPeriod) external;
 
+    /**
+     * @notice Returns the max treasury spend ratio used for governor deployments.
+     * @return Current max treasury spend ratio (basis points, 1000 = 10%).
+     */
+    function maxTreasurySpendRatio() external view returns (uint256);
+
+    /**
+     * @notice Returns the upgrade supermajority ratio used for governor deployments.
+     * @return Current upgrade supermajority ratio (basis points, 6000 = 60%).
+     */
+    function upgradeSupermajorityRatio() external view returns (uint256);
+
+    /**
+     * @notice Updates max treasury spend ratio for subsequent governor deployments.
+     * @param maxTreasurySpendRatio New max treasury spend ratio value.
+     */
+    function setMaxTreasurySpendRatio(uint256 maxTreasurySpendRatio) external;
+
+    /**
+     * @notice Updates upgrade supermajority ratio for subsequent governor deployments.
+     * @param upgradeSupermajorityRatio New upgrade supermajority ratio value.
+     */
+    function setUpgradeSupermajorityRatio(uint256 upgradeSupermajorityRatio) external;
+
     event DeployMemecoin(uint256 indexed uniqueId, address memecoin);
 
     event DeployPOL(uint256 indexed uniqueId, address pol);
@@ -121,6 +145,8 @@ interface IMemeverseProxyDeployer {
 
     event SetMinQuorumNumerator(uint256 minQuorumNumerator);
     event SetBootstrapPeriod(uint256 bootstrapPeriod);
+    event SetMaxTreasurySpendRatio(uint256 maxTreasurySpendRatio);
+    event SetUpgradeSupermajorityRatio(uint256 upgradeSupermajorityRatio);
 
     error ZeroInput();
 

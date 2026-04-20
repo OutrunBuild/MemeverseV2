@@ -222,4 +222,26 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
 
         emit SetBootstrapPeriod(_bootstrapPeriod);
     }
+
+    /// @notice Updates the max treasury spend ratio used for future governor deployments.
+    /// @dev Does not retroactively modify already deployed governors.
+    /// @param _maxTreasurySpendRatio New max treasury spend ratio in basis points.
+    function setMaxTreasurySpendRatio(uint256 _maxTreasurySpendRatio) external override onlyOwner {
+        require(_maxTreasurySpendRatio != 0, ZeroInput());
+
+        maxTreasurySpendRatio = _maxTreasurySpendRatio;
+
+        emit SetMaxTreasurySpendRatio(_maxTreasurySpendRatio);
+    }
+
+    /// @notice Updates the upgrade supermajority ratio used for future governor deployments.
+    /// @dev Does not retroactively modify already deployed governors.
+    /// @param _upgradeSupermajorityRatio New upgrade supermajority ratio in basis points.
+    function setUpgradeSupermajorityRatio(uint256 _upgradeSupermajorityRatio) external override onlyOwner {
+        require(_upgradeSupermajorityRatio != 0, ZeroInput());
+
+        upgradeSupermajorityRatio = _upgradeSupermajorityRatio;
+
+        emit SetUpgradeSupermajorityRatio(_upgradeSupermajorityRatio);
+    }
 }
