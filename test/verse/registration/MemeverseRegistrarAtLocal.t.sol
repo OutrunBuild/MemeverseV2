@@ -49,7 +49,7 @@ contract MockAtLocalRegistrationCenter {
     /// @notice Registration.
     /// @param param See implementation.
     function registration(IMemeverseRegistrationCenter.RegistrationParam calldata param) external payable {
-        require(msg.value == quotedFee, IMemeverseRegistrationCenter.InvalidInput());
+        require(msg.value >= quotedFee, IMemeverseRegistrationCenter.InsufficientLzFee());
         lastRegistrationUPT = param.UPT;
         lastRegistrationFlashGenesis = param.flashGenesis;
         lastRegistrationValue = msg.value;
@@ -266,8 +266,8 @@ contract MemeverseRegistrarAtLocalTest is Test {
         vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
         registrar.registerAtCenter{value: 0.9 ether}(param, uint128(1 ether));
 
-        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
-        registrar.registerAtCenter{value: 1.1 ether}(param, uint128(1 ether));
+        registrar.registerAtCenter{value: 1.1 ether}(param, uint128(1.1 ether));
+        assertEq(registrationCenter.lastRegistrationValue(), 1.1 ether);
 
         vm.prank(OTHER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
@@ -291,8 +291,20 @@ contract MemeverseRegistrarAtLocalTest is Test {
 
         registrationCenter.setQuotedFee(2 ether);
 
-        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
+        vm.expectRevert(IMemeverseRegistrationCenter.InsufficientLzFee.selector);
         registrar.registerAtCenter{value: quotedFee}(param, uint128(quotedFee));
+    }
+
+    /// @notice Test register at center allows overpay as long as the forwarded value still matches msg.value.
+    function testRegisterAtCenterAllowsOverpayAboveQuotedFee() external {
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        registrationCenter.setQuotedFee(1 ether);
+
+        registrar.registerAtCenter{value: 1.25 ether}(param, uint128(1.25 ether));
+
+        assertEq(registrationCenter.lastRegistrationValue(), 1.25 ether);
+        assertEq(registrationCenter.lastRegistrationUPT(), param.UPT);
+        assertEq(registrationCenter.lastRegistrationFlashGenesis(), param.flashGenesis);
     }
 
     function _registrationParam() internal view returns (IMemeverseRegistrationCenter.RegistrationParam memory param) {
