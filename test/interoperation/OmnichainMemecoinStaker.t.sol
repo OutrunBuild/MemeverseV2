@@ -57,12 +57,20 @@ contract MockStakerComposeToken is MockERC20, IOFTCompose, IBurnable {
 contract MockStakerYieldVault {
     uint256 public lastDepositAmount;
     address public lastDepositReceiver;
+    bool public shouldRevert;
+
+    /// @notice Set whether deposits should revert.
+    /// @param shouldRevert_ See implementation.
+    function setShouldRevert(bool shouldRevert_) external {
+        shouldRevert = shouldRevert_;
+    }
 
     /// @notice Deposit.
     /// @param amount See implementation.
     /// @param receiver See implementation.
     /// @return shares See implementation.
     function deposit(uint256 amount, address receiver) external returns (uint256 shares) {
+        require(!shouldRevert, "deposit failed");
         lastDepositAmount = amount;
         lastDepositReceiver = receiver;
         shares = amount;
@@ -87,7 +95,7 @@ contract OmnichainMemecoinStakerTest is Test {
     /// @notice Test lz compose rejects unauthorized caller and already executed guid.
     function testLzComposeRejectsUnauthorizedCallerAndAlreadyExecutedGuid() external {
         vm.expectRevert(IOmnichainMemecoinStaker.PermissionDenied.selector);
-        staker.lzCompose(address(memecoin), bytes32(0), "", address(0), "");
+        staker.lzCompose(address(memecoin), bytes32(0), "", LOCAL_ENDPOINT, "");
 
         bytes32 guid = bytes32("done");
         memecoin.setExecuted(guid, true);
@@ -141,5 +149,61 @@ contract OmnichainMemecoinStakerTest is Test {
         assertEq(memecoin.balanceOf(RECEIVER), 2 ether);
         assertEq(memecoin.lastNotifiedGuid(), guid);
         assertTrue(memecoin.getComposeTxExecutedStatus(guid));
+    }
+
+    /// @notice Test lz compose ignores executor and native value when refunding the receiver.
+    function testLzComposeIgnoresExecutorAndNativeValueWhenRefundingReceiver() external {
+        bytes32 guid = bytes32("value");
+        memecoin.mint(address(staker), 5 ether);
+        bytes memory message = OFTComposeMsgCodec.encode(
+            1,
+            101,
+            2 ether,
+            abi.encodePacked(bytes32(uint256(uint160(RECEIVER))), abi.encode(RECEIVER, address(0x1234)))
+        );
+
+        vm.deal(LOCAL_ENDPOINT, 1 wei);
+        vm.prank(LOCAL_ENDPOINT);
+        staker.lzCompose{value: 1 wei}(address(memecoin), guid, message, address(0xCAFE), hex"1234");
+
+        assertEq(memecoin.balanceOf(RECEIVER), 2 ether);
+        assertEq(memecoin.balanceOf(address(staker)), 3 ether);
+        assertEq(address(staker).balance, 1 wei);
+        assertEq(memecoin.lastNotifiedGuid(), guid);
+        assertTrue(memecoin.getComposeTxExecutedStatus(guid));
+    }
+
+    /// @notice Test failed deposits do not consume the guid and replays are blocked after success.
+    function testLzComposeAllowsRetryAfterFailedDepositAndBlocksReplayAfterSuccess() external {
+        bytes32 guid = bytes32("retry");
+        memecoin.mint(address(staker), 4 ether);
+        bytes memory message = OFTComposeMsgCodec.encode(
+            1,
+            101,
+            4 ether,
+            abi.encodePacked(bytes32(uint256(uint160(RECEIVER))), abi.encode(RECEIVER, address(yieldVault)))
+        );
+
+        yieldVault.setShouldRevert(true);
+        vm.prank(LOCAL_ENDPOINT);
+        vm.expectRevert("deposit failed");
+        staker.lzCompose(address(memecoin), guid, message, address(0xCAFE), "");
+
+        assertEq(memecoin.lastNotifiedGuid(), bytes32(0));
+        assertFalse(memecoin.getComposeTxExecutedStatus(guid));
+        assertEq(yieldVault.lastDepositAmount(), 0);
+
+        yieldVault.setShouldRevert(false);
+        vm.prank(LOCAL_ENDPOINT);
+        staker.lzCompose(address(memecoin), guid, message, address(0xCAFE), "");
+
+        assertEq(yieldVault.lastDepositAmount(), 4 ether);
+        assertEq(yieldVault.lastDepositReceiver(), RECEIVER);
+        assertEq(memecoin.lastNotifiedGuid(), guid);
+        assertTrue(memecoin.getComposeTxExecutedStatus(guid));
+
+        vm.prank(LOCAL_ENDPOINT);
+        vm.expectRevert(IOmnichainMemecoinStaker.AlreadyExecuted.selector);
+        staker.lzCompose(address(memecoin), guid, message, address(0xCAFE), "");
     }
 }

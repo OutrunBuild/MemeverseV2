@@ -8,6 +8,7 @@ import {
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
 import {MemeverseRegistrationCenter} from "../../../src/verse/registration/MemeverseRegistrationCenter.sol";
 import {IMemeverseRegistrar} from "../../../src/verse/interfaces/IMemeverseRegistrar.sol";
@@ -16,6 +17,8 @@ import {LzEndpointRegistry} from "../../../src/common/omnichain/LzEndpointRegist
 import {ILzEndpointRegistry} from "../../../src/common/omnichain/interfaces/ILzEndpointRegistry.sol";
 
 contract MockCenterEndpoint {
+    bool public quoteBlocked;
+    bool public sendBlocked;
     address public delegate;
     uint256 public quotedNativeFee;
     uint256 public actualNativeFee;
@@ -54,6 +57,18 @@ contract MockCenterEndpoint {
         actualNativeFee = fee;
     }
 
+    /// @notice Block or unblock quote calls.
+    /// @param blocked See implementation.
+    function setQuoteBlocked(bool blocked) external {
+        quoteBlocked = blocked;
+    }
+
+    /// @notice Block or unblock send calls.
+    /// @param blocked See implementation.
+    function setSendBlocked(bool blocked) external {
+        sendBlocked = blocked;
+    }
+
     /// @notice Quote.
     /// @param params See implementation.
     /// @param sender See implementation.
@@ -61,6 +76,7 @@ contract MockCenterEndpoint {
     function quote(MessagingParams calldata params, address sender) external view returns (MessagingFee memory fee) {
         params;
         sender;
+        require(!quoteBlocked, "quote blocked");
         fee = MessagingFee({nativeFee: quotedNativeFee, lzTokenFee: 0});
     }
 
@@ -73,6 +89,7 @@ contract MockCenterEndpoint {
         payable
         returns (MessagingReceipt memory receipt)
     {
+        require(!sendBlocked, "send blocked");
         lastDstEid = params.dstEid;
         lastReceiver = params.receiver;
         lastMessage = params.message;
@@ -117,6 +134,8 @@ contract MockCenterRegistrar {
 }
 
 contract MemeverseRegistrationCenterTest is Test {
+    using OptionsBuilder for bytes;
+
     address internal constant OWNER = address(0xABCD);
     uint32 internal constant REMOTE_CHAIN_ID = 202;
     uint32 internal constant REMOTE_EID = 302;
@@ -194,8 +213,28 @@ contract MemeverseRegistrationCenterTest is Test {
         uint32[] memory omnichainIds = new uint32[](2);
         omnichainIds[0] = uint32(block.chainid);
         omnichainIds[1] = REMOTE_CHAIN_ID;
+        bytes memory message = bytes("hello");
+        bytes memory expectedOptions =
+            OptionsBuilder.newOptions().addExecutorLzReceiveOption(uint128(center.registerGasLimit()), 0);
 
-        (uint256 totalFee, uint256[] memory fees, uint32[] memory eids) = center.quoteSend(omnichainIds, bytes("hello"));
+        vm.expectCall(
+            address(endpoint),
+            abi.encodeCall(
+                MockCenterEndpoint.quote,
+                (
+                    MessagingParams({
+                        dstEid: REMOTE_EID,
+                        receiver: bytes32(uint256(uint160(address(0xBEEF)))),
+                        message: message,
+                        options: expectedOptions,
+                        payInLzToken: false
+                    }),
+                    address(center)
+                )
+            )
+        );
+
+        (uint256 totalFee, uint256[] memory fees, uint32[] memory eids) = center.quoteSend(omnichainIds, message);
 
         assertEq(totalFee, 0.4 ether);
         assertEq(fees.length, 2);
@@ -206,7 +245,8 @@ contract MemeverseRegistrationCenterTest is Test {
     }
 
     /// @notice Test quote send returns zero for all local targets.
-    function testQuoteSendReturnsZeroForAllLocalTargets() external view {
+    function testQuoteSendReturnsZeroForAllLocalTargets() external {
+        endpoint.setQuoteBlocked(true);
         uint32[] memory omnichainIds = new uint32[](1);
         omnichainIds[0] = uint32(block.chainid);
 
@@ -231,6 +271,40 @@ contract MemeverseRegistrationCenterTest is Test {
     function testRegistrationStoresSymbolRegistersLocalAndSendsRemote() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        uint64 expectedEndTime = uint64(block.timestamp + param.durationDays * center.DAY());
+        IMemeverseRegistrar.MemeverseParam memory expectedRemoteParam = IMemeverseRegistrar.MemeverseParam({
+            name: param.name,
+            symbol: param.symbol,
+            uri: param.uri,
+            desc: param.desc,
+            communities: param.communities,
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            endTime: expectedEndTime,
+            unlockTime: uint64(expectedEndTime + 365 days),
+            omnichainIds: param.omnichainIds,
+            UPT: param.UPT,
+            flashGenesis: param.flashGenesis
+        });
+        bytes memory expectedOptions =
+            OptionsBuilder.newOptions().addExecutorLzReceiveOption(uint128(center.registerGasLimit()), 0);
+
+        vm.expectCall(
+            address(endpoint),
+            0.5 ether,
+            abi.encodeCall(
+                MockCenterEndpoint.send,
+                (
+                    MessagingParams({
+                        dstEid: REMOTE_EID,
+                        receiver: bytes32(uint256(uint160(address(0xBEEF)))),
+                        message: abi.encode(expectedRemoteParam),
+                        options: expectedOptions,
+                        payInLzToken: false
+                    }),
+                    address(center)
+                )
+            )
+        );
 
         center.registration{value: 0.5 ether}(param);
 
@@ -248,6 +322,22 @@ contract MemeverseRegistrationCenterTest is Test {
         assertEq(endpoint.lastDstEid(), REMOTE_EID);
         assertEq(endpoint.lastRefundAddress(), address(center));
         assertEq(endpoint.lastSendValue(), 0.5 ether);
+    }
+
+    /// @notice Test local-only registration never hits remote quote/send paths.
+    function testRegistrationSkipsRemoteQuoteAndSendForLocalOnlyTargets() external {
+        endpoint.setQuoteBlocked(true);
+        endpoint.setSendBlocked(true);
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _localOnlyRegistrationParam();
+
+        center.registration(param);
+
+        assertEq(registrar.lastUPT(), param.UPT);
+        assertEq(registrar.lastName(), param.name);
+        assertEq(registrar.lastSymbol(), param.symbol);
+        assertEq(endpoint.lastDstEid(), 0);
+        assertEq(endpoint.lastSendValue(), 0);
+        assertEq(address(center).balance, 0);
     }
 
     /// @notice Test registration accepts native refunds sent back to the center contract.

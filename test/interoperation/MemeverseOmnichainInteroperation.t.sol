@@ -73,6 +73,14 @@ contract MockInteroperationYieldVault {
 contract MockInteroperationOFT is MockERC20, IOFT {
     using OptionsBuilder for bytes;
 
+    error InvalidQuotedSendFee(
+        uint256 expectedNativeFee,
+        uint256 expectedLzTokenFee,
+        uint256 providedNativeFee,
+        uint256 providedLzTokenFee,
+        uint256 msgValue
+    );
+
     MessagingFee internal quoteFee;
     uint32 public lastSendDstEid;
     bytes32 public lastSendTo;
@@ -150,6 +158,15 @@ contract MockInteroperationOFT is MockERC20, IOFT {
         payable
         returns (MessagingReceipt memory receipt, OFTReceipt memory oftReceipt)
     {
+        if (
+            fee.nativeFee != quoteFee.nativeFee || fee.lzTokenFee != quoteFee.lzTokenFee
+                || msg.value != quoteFee.nativeFee
+        ) {
+            revert InvalidQuotedSendFee(
+                quoteFee.nativeFee, quoteFee.lzTokenFee, fee.nativeFee, fee.lzTokenFee, msg.value
+            );
+        }
+
         lastSendDstEid = sendParam.dstEid;
         lastSendTo = sendParam.to;
         lastSendComposeMsg = sendParam.composeMsg;
@@ -262,18 +279,44 @@ contract MemeverseOmnichainInteroperationTest is Test {
         memecoin.setQuoteFee(0.4 ether);
         memecoin.mint(address(this), 5 ether);
         memecoin.approve(address(interoperation), type(uint256).max);
+        uint256 quotedFee = interoperation.quoteMemecoinStaking(address(memecoin), RECEIVER, 5 ether);
 
-        vm.expectRevert(abi.encodeWithSelector(IMemeverseOmnichainInteroperation.InvalidLzFee.selector, 0.4 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseOmnichainInteroperation.InvalidLzFee.selector, quotedFee, 0));
         interoperation.memecoinStaking(address(memecoin), RECEIVER, 5 ether);
 
-        interoperation.memecoinStaking{value: 0.4 ether}(address(memecoin), RECEIVER, 5 ether);
+        interoperation.memecoinStaking{value: quotedFee}(address(memecoin), RECEIVER, 5 ether);
 
         assertEq(memecoin.lastRefundAddress(), address(this));
-        assertEq(memecoin.lastSendValue(), 0.4 ether);
-        assertEq(memecoin.lastSendNativeFee(), 0.4 ether);
+        assertEq(memecoin.lastSendValue(), quotedFee);
+        assertEq(memecoin.lastSendNativeFee(), quotedFee);
         assertEq(memecoin.lastSendDstEid(), REMOTE_EID);
         assertEq(memecoin.lastSendTo(), bytes32(uint256(uint160(OMNICHAIN_STAKER))));
         assertEq(memecoin.lastSendComposeMsg(), abi.encode(RECEIVER, address(yieldVault)));
+    }
+
+    /// @notice Verifies the OFT mock rejects stale quoted fees and mismatched msg.value.
+    function testMockInteroperationOFTSendRejectsStaleQuotedFee() external {
+        memecoin.mint(address(this), 1 ether);
+
+        SendParam memory sendParam = SendParam({
+            dstEid: REMOTE_EID,
+            to: bytes32(uint256(uint160(OMNICHAIN_STAKER))),
+            amountLD: 1 ether,
+            minAmountLD: 0,
+            extraOptions: "",
+            composeMsg: abi.encode(RECEIVER, address(yieldVault)),
+            oftCmd: abi.encode()
+        });
+        memecoin.setQuoteFee(0.2 ether);
+        MessagingFee memory staleFee = memecoin.quoteSend(sendParam, false);
+        memecoin.setQuoteFee(0.3 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MockInteroperationOFT.InvalidQuotedSendFee.selector, 0.3 ether, 0, 0.2 ether, 0, 0.2 ether
+            )
+        );
+        memecoin.send{value: staleFee.nativeFee}(sendParam, staleFee, RECEIVER);
     }
 
     /// @notice Verifies remote staking rejects overpayment instead of trapping extra ETH in the interoperation contract.

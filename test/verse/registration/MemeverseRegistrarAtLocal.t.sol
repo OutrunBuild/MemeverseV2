@@ -49,6 +49,7 @@ contract MockAtLocalRegistrationCenter {
     /// @notice Registration.
     /// @param param See implementation.
     function registration(IMemeverseRegistrationCenter.RegistrationParam calldata param) external payable {
+        require(msg.value == quotedFee, IMemeverseRegistrationCenter.InvalidInput());
         lastRegistrationUPT = param.UPT;
         lastRegistrationFlashGenesis = param.flashGenesis;
         lastRegistrationValue = msg.value;
@@ -202,6 +203,37 @@ contract MemeverseRegistrarAtLocalTest is Test {
         assertEq(registrar.quoteRegister(param, 0), 88 ether);
     }
 
+    /// @notice Test quote register ignores the interface value argument on the local path.
+    function testQuoteRegisterIgnoresValueArgumentOnLocalPath() external {
+        registrationCenter.setQuotedFee(77 ether);
+
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        uint64 expectedEndTime = uint64(block.timestamp + param.durationDays * registrationCenter.DAY());
+        uint64 expectedUnlockTime = uint64(block.timestamp + param.durationDays * registrationCenter.DAY() + 365 days);
+        IMemeverseRegistrar.MemeverseParam memory expectedMemeverseParam = IMemeverseRegistrar.MemeverseParam({
+            name: param.name,
+            symbol: param.symbol,
+            uri: param.uri,
+            desc: param.desc,
+            communities: param.communities,
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            endTime: expectedEndTime,
+            unlockTime: expectedUnlockTime,
+            omnichainIds: param.omnichainIds,
+            UPT: param.UPT,
+            flashGenesis: param.flashGenesis
+        });
+
+        vm.expectCall(
+            address(registrationCenter),
+            abi.encodeWithSelector(
+                MockAtLocalRegistrationCenter.quoteSend.selector, param.omnichainIds, abi.encode(expectedMemeverseParam)
+            )
+        );
+
+        assertEq(registrar.quoteRegister(param, uint128(123 ether)), 77 ether);
+    }
+
     /// @notice Test local registration only center and forwards to launcher.
     function testLocalRegistrationOnlyCenterAndForwardsToLauncher() external {
         IMemeverseRegistrar.MemeverseParam memory param = _memeverseParam();
@@ -224,6 +256,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
     /// @notice Test register at center forwards value and set registration center is owner only.
     function testRegisterAtCenterForwardsValueAndSetRegistrationCenterIsOwnerOnly() external {
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        registrationCenter.setQuotedFee(1 ether);
 
         registrar.registerAtCenter{value: 1 ether}(param, uint128(1 ether));
         assertEq(registrationCenter.lastRegistrationValue(), 1 ether);
@@ -247,6 +280,19 @@ contract MemeverseRegistrarAtLocalTest is Test {
         vm.prank(OWNER);
         registrar.setRegistrationCenter(address(0x9999));
         assertEq(registrar.registrationCenter(), address(0x9999));
+    }
+
+    /// @notice Test stale center quotes fail once the configured fee drifts.
+    function testRegisterAtCenterRevertsWhenQuotedFeeDrifts() external {
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+
+        registrationCenter.setQuotedFee(1 ether);
+        uint256 quotedFee = registrar.quoteRegister(param, 0);
+
+        registrationCenter.setQuotedFee(2 ether);
+
+        vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
+        registrar.registerAtCenter{value: quotedFee}(param, uint128(quotedFee));
     }
 
     function _registrationParam() internal view returns (IMemeverseRegistrationCenter.RegistrationParam memory param) {

@@ -9,6 +9,8 @@ import {
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
+import {OAppReceiver} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppReceiver.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
 import {MemeverseRegistrarOmnichain} from "../../../src/verse/registration/MemeverseRegistrarOmnichain.sol";
@@ -62,10 +64,13 @@ contract MockOmnichainLauncher {
 }
 
 contract MockRegistrarOmnichainEndpoint {
+    error InvalidQuotedNativeFee(uint256 expectedNativeFee, uint256 msgValue);
+
     address public delegate;
     uint256 public quotedNativeFee;
     address public lastRefundAddress;
     uint256 public lastSendValue;
+    uint256 public lastRefundedNative;
     uint32 public lastDstEid;
     bytes32 public lastReceiver;
     bytes public lastMessage;
@@ -111,6 +116,10 @@ contract MockRegistrarOmnichainEndpoint {
         payable
         returns (MessagingReceipt memory receipt)
     {
+        if (msg.value < quotedNativeFee) {
+            revert InvalidQuotedNativeFee(quotedNativeFee, msg.value);
+        }
+
         lastDstEid = params.dstEid;
         lastReceiver = params.receiver;
         lastMessage = params.message;
@@ -118,6 +127,11 @@ contract MockRegistrarOmnichainEndpoint {
         lastPayInLzToken = params.payInLzToken;
         lastRefundAddress = refundAddress;
         lastSendValue = msg.value;
+        lastRefundedNative = msg.value - quotedNativeFee;
+        if (lastRefundedNative > 0) {
+            (bool success,) = payable(refundAddress).call{value: lastRefundedNative}("");
+            require(success, "refund failed");
+        }
         receipt = MessagingReceipt({
             guid: sendGuid, nonce: sendNonce, fee: MessagingFee({nativeFee: quotedNativeFee, lzTokenFee: 0})
         });
@@ -135,6 +149,8 @@ contract MemeverseRegistrarOmnichainTest is Test {
     MockRegistrarOmnichainEndpoint internal endpoint;
     MockOmnichainLauncher internal launcher;
     MemeverseRegistrarOmnichain internal registrar;
+
+    receive() external payable {}
 
     /// @notice Set up.
     function setUp() external {
@@ -178,19 +194,60 @@ contract MemeverseRegistrarOmnichainTest is Test {
     function testRegisterAtCenterRequiresEnoughFeeAndSendsMessageThroughEndpoint() external {
         endpoint.setQuotedNativeFee(0.5 ether);
         IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        uint256 quotedFee = registrar.quoteRegister(param, 33);
 
         vm.expectRevert(IMemeverseRegistrarOmnichain.InsufficientLzFee.selector);
         registrar.registerAtCenter(param, 33);
 
-        registrar.registerAtCenter{value: 0.5 ether}(param, 33);
+        registrar.registerAtCenter{value: quotedFee}(param, 33);
 
         bytes memory expectedOptions = OptionsBuilder.newOptions().addExecutorLzReceiveOption(150, 33);
         assertEq(endpoint.lastDstEid(), CENTER_EID);
         assertEq(endpoint.lastRefundAddress(), address(this));
-        assertEq(endpoint.lastSendValue(), 0.5 ether);
+        assertEq(endpoint.lastSendValue(), quotedFee);
         assertEq(endpoint.lastMessage(), abi.encode(param));
         assertEq(endpoint.lastOptions(), expectedOptions);
         assertFalse(endpoint.lastPayInLzToken());
+    }
+
+    /// @notice Test register at center accepts overpayment and refunds the excess back to the caller.
+    function testRegisterAtCenterAcceptsOverpaymentAndRefundsExcess() external {
+        endpoint.setQuotedNativeFee(0.5 ether);
+        IMemeverseRegistrationCenter.RegistrationParam memory param = _registrationParam();
+        uint256 quotedFee = registrar.quoteRegister(param, 44);
+        uint256 overpayment = quotedFee + 0.2 ether;
+
+        vm.deal(address(this), 2 ether);
+        uint256 balanceBefore = address(this).balance;
+
+        registrar.registerAtCenter{value: overpayment}(param, 44);
+
+        assertEq(endpoint.lastRefundAddress(), address(this));
+        assertEq(endpoint.lastSendValue(), overpayment);
+        assertEq(endpoint.lastRefundedNative(), overpayment - quotedFee);
+        assertEq(address(this).balance, balanceBefore - quotedFee);
+    }
+
+    /// @notice Test endpoint send reverts if callers use a stale quote.
+    function testMockRegistrarEndpointSendRejectsStaleQuote() external {
+        endpoint.setQuotedNativeFee(0.5 ether);
+        MessagingParams memory params = MessagingParams({
+            dstEid: CENTER_EID,
+            receiver: bytes32(uint256(uint160(address(0xBEEF)))),
+            message: abi.encode(_registrationParam()),
+            options: OptionsBuilder.newOptions().addExecutorLzReceiveOption(150, 33),
+            payInLzToken: false
+        });
+        uint256 staleQuote = endpoint.quote(params, address(registrar)).nativeFee;
+
+        endpoint.setQuotedNativeFee(0.6 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MockRegistrarOmnichainEndpoint.InvalidQuotedNativeFee.selector, 0.6 ether, staleQuote
+            )
+        );
+        endpoint.send{value: staleQuote}(params, address(this));
     }
 
     /// @notice Test set registration gas limit only owner.
@@ -227,6 +284,29 @@ contract MemeverseRegistrarOmnichainTest is Test {
         assertEq(launcher.lastRegisteredFlashGenesis(), param.flashGenesis);
         assertEq(launcher.lastExternalInfoUniqueId(), param.uniqueId);
         assertEq(launcher.lastUri(), param.uri);
+    }
+
+    /// @notice Test lz receive rejects non-endpoint callers.
+    function testLzReceiveRejectsNonEndpointCaller() external {
+        IMemeverseRegistrar.MemeverseParam memory param = _memeverseParam();
+        Origin memory origin =
+            Origin({srcEid: CENTER_EID, sender: bytes32(uint256(uint160(address(0xBEEF)))), nonce: 1});
+
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(OAppReceiver.OnlyEndpoint.selector, OTHER));
+        registrar.lzReceive(origin, bytes32("guid"), abi.encode(param), address(0), "");
+    }
+
+    /// @notice Test lz receive rejects unexpected peers even from the endpoint.
+    function testLzReceiveRejectsUnexpectedPeer() external {
+        IMemeverseRegistrar.MemeverseParam memory param = _memeverseParam();
+        Origin memory origin = Origin({srcEid: CENTER_EID, sender: bytes32(uint256(uint160(OTHER))), nonce: 1});
+
+        vm.prank(address(endpoint));
+        vm.expectRevert(
+            abi.encodeWithSelector(IOAppCore.OnlyPeer.selector, CENTER_EID, bytes32(uint256(uint160(OTHER))))
+        );
+        registrar.lzReceive(origin, bytes32("guid"), abi.encode(param), address(0), "");
     }
 
     function _registrationParam() internal view returns (IMemeverseRegistrationCenter.RegistrationParam memory param) {
