@@ -710,17 +710,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             _dynamicPoolKey(Currency.wrap(address(new MockERC20("X", "X", 18))), Currency.wrap(address(token1)));
 
         vm.expectRevert(IMemeverseUniswapHook.PoolNotInitialized.selector);
-        hook.claimFeesCore(
-            IMemeverseUniswapHook.ClaimFeesCoreParams({
-                key: uninitializedKey,
-                owner: address(this),
-                recipient: address(this),
-                deadline: block.timestamp,
-                v: 0,
-                r: bytes32(0),
-                s: bytes32(0)
-            })
-        );
+        hook.claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: uninitializedKey, recipient: address(this)}));
     }
 
     /// @notice Verifies `updateUserSnapshot` handles zero LP balances by only moving offsets.
@@ -948,64 +938,36 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(pendingFee1, 0, "zero address pending fee1");
     }
 
-    /// @notice Verifies relayed claims reject expired signatures.
-    /// @dev Covers the `ExpiredPastDeadline` branch in claim authorization.
-    function testClaimFeesCoreReverts_WhenSignatureExpired() external {
+    /// @notice Verifies callers can redirect claimed fees to a different recipient without signatures.
+    /// @dev Covers the owner-direct claim surface after relay support was removed.
+    function testClaimFeesCore_DirectClaimCanRedirectRecipient() external {
         router.addLiquidity(
             key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
         );
+        hook.setProtocolFeeCurrency(key.currency0);
 
-        vm.prank(address(0xCAFE));
-        vm.expectRevert(IMemeverseUniswapHook.ExpiredPastDeadline.selector);
-        hook.claimFeesCore(
-            IMemeverseUniswapHook.ClaimFeesCoreParams({
-                key: key,
-                owner: address(this),
-                recipient: address(this),
-                deadline: block.timestamp - 1,
-                v: 27,
-                r: bytes32(0),
-                s: bytes32(0)
-            })
+        vm.prank(address(mockManager));
+        hook.beforeSwap(
+            address(this),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            bytes("")
         );
+
+        address recipient = address(0xCAFE);
+        uint256 balanceBefore = token0.balanceOf(recipient);
+        (uint256 fee0Amount, uint256 fee1Amount) =
+            hook.claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: key, recipient: recipient}));
+
+        assertGt(fee0Amount, 0, "fee0 claimed");
+        assertEq(fee1Amount, 0, "fee1 claimed");
+        assertEq(token0.balanceOf(recipient), balanceBefore + fee0Amount, "recipient received fee");
     }
 
     function testClaimFeesCoreReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
-        hook.claimFeesCore(
-            IMemeverseUniswapHook.ClaimFeesCoreParams({
-                key: nativeKey,
-                owner: address(this),
-                recipient: address(this),
-                deadline: block.timestamp,
-                v: 0,
-                r: bytes32(0),
-                s: bytes32(0)
-            })
-        );
-    }
-
-    /// @notice Verifies relayed claims reject invalid signatures.
-    /// @dev Covers the invalid-recovery branch in claim authorization.
-    function testClaimFeesCoreReverts_WhenSignatureInvalid() external {
-        router.addLiquidity(
-            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
-        );
-
-        vm.prank(address(0xCAFE));
-        vm.expectRevert(IMemeverseUniswapHook.InvalidClaimSignature.selector);
-        hook.claimFeesCore(
-            IMemeverseUniswapHook.ClaimFeesCoreParams({
-                key: key,
-                owner: address(this),
-                recipient: address(this),
-                deadline: block.timestamp,
-                v: 27,
-                r: bytes32(0),
-                s: bytes32(0)
-            })
-        );
+        hook.claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: nativeKey, recipient: address(this)}));
     }
 
     /// @notice Verifies owner config setters reject invalid inputs and update state.

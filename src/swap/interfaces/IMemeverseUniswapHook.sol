@@ -55,12 +55,7 @@ interface IMemeverseUniswapHook {
 
     struct ClaimFeesCoreParams {
         PoolKey key;
-        address owner;
         address recipient;
-        uint256 deadline;
-        uint8 v;
-        bytes32 r;
-        bytes32 s;
     }
 
     struct LaunchSettlementParams {
@@ -196,9 +191,7 @@ interface IMemeverseUniswapHook {
 
     /**
      * @notice Low-level fee-claim API.
-     * @dev Claims pending LP fees on behalf of `params.owner`, optionally using a signed authorization.
-     * Routers and third parties must provide a valid owner signature. Direct owner calls may set the signature fields
-     * to zero and bypass signature verification.
+     * @dev Claims pending LP fees for `msg.sender` and forwards them to `params.recipient`.
      * @param params The core fee-claim parameters.
      * @return fee0Amount The claimed amount of currency0 fees.
      * @return fee1Amount The claimed amount of currency1 fees.
@@ -337,7 +330,4 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when an ERC20 transfer returns false.
     error ERC20TransferFailed();
-
-    /// @notice Reverts when a delegated fee-claim signature is invalid.
-    error InvalidClaimSignature();
 }

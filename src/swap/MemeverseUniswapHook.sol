@@ -50,7 +50,8 @@ import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
  * - `beforeSwap`: computes public-swap fees and accrues fee accounting.
  * - `afterSwap`: updates ewVWAP, reference-price volatility state, and short-term impact state, and optionally takes protocol fees.
  * - `addLiquidityCore` / `removeLiquidityCore`: mint/burn LP tokens while adding/removing full-range liquidity.
- * - `claimFeesCore`: allows LPs or routers with signatures to claim accrued fees (tracked via per-share accounting).
+ * - `claimFeesCore`: lets the calling LP claim its own accrued fees to a chosen recipient
+ *   (tracked via per-share accounting).
  */
 contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHook, ReentrancyGuard, Ownable {
     using CurrencyLibrary for Currency;
@@ -99,12 +100,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint8 internal constant UNLOCK_ACTION_LAUNCH_SETTLEMENT = 1;
     address public treasury;
     address public launcher;
-    // solhint-disable gas-small-strings
-    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    bytes32 internal constant CLAIM_FEES_TYPEHASH =
-        keccak256("ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)");
-    // solhint-enable gas-small-strings
     mapping(address => bool) public supportedProtocolFeeCurrencies;
     mapping(PoolId => PoolInfo) public poolInfo;
     // Shadow copy of UniswapLP totalSupply, maintained by add/removeLiquidity flows.
@@ -114,9 +109,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     mapping(PoolId => uint40) public poolLaunchTimestamp;
     mapping(PoolId => uint40) public publicSwapResumeTime;
     mapping(PoolId => mapping(address => UserFeeState)) public userFeeState;
-    uint256 internal immutable INITIAL_CHAIN_ID;
-    bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
-    mapping(address => uint256) public claimNonces;
     LaunchFeeConfig public defaultLaunchFeeConfig;
 
     /// @notice Per-pool exponentially weighted state used by dynamic fee computation.
@@ -178,8 +170,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         treasury = _treasury;
         defaultLaunchFeeConfig =
             LaunchFeeConfig({startFeeBps: 5000, minFeeBps: FEE_BASE_BPS, decayDurationSeconds: 900});
-        INITIAL_CHAIN_ID = block.chainid;
-        INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
     }
 
     modifier onlyLauncher() {
@@ -603,8 +593,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         );
     }
 
-    /// @notice Claims pending LP fees on behalf of an owner using either direct ownership or a signed authorization.
-    /// @dev The owner may call directly, or a third party may relay with a valid owner signature.
+    /// @notice Claims the caller's pending LP fees and sends them to the requested recipient.
+    /// @dev Fee ownership is derived strictly from `msg.sender`; relayed or signature-based claims are unsupported.
     /// @param params The core fee-claim parameters.
     /// @return fee0Amount The claimed amount of currency0 fees.
     /// @return fee1Amount The claimed amount of currency1 fees.
@@ -614,8 +604,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         nonReentrant
         returns (uint256 fee0Amount, uint256 fee1Amount)
     {
-        _authorizeClaim(params);
-        return _claimFees(params.key, params.owner, params.recipient);
+        return _claimFees(params.key, msg.sender, params.recipient);
     }
 
     /// @notice Execute launch preorder settlement through a dedicated hook path.
@@ -817,48 +806,6 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         if (fee0Amount > 0 || fee1Amount > 0) {
             emit FeesClaimed(poolId, owner, key.currency0, key.currency1, fee0Amount, fee1Amount);
         }
-    }
-
-    function _authorizeClaim(ClaimFeesCoreParams calldata params) internal {
-        if (msg.sender == params.owner) return;
-        if (params.deadline < block.timestamp) revert ExpiredPastDeadline();
-
-        // solhint-disable-next-line gas-increment-by-one
-        uint256 nonce = claimNonces[params.owner]++;
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        CLAIM_FEES_TYPEHASH,
-                        params.owner,
-                        params.recipient,
-                        PoolId.unwrap(params.key.toId()),
-                        nonce,
-                        params.deadline
-                    )
-                )
-            )
-        );
-
-        address recovered = ecrecover(digest, params.v, params.r, params.s);
-        if (recovered == address(0) || recovered != params.owner) revert InvalidClaimSignature();
-    }
-
-    /// @notice Exposes the EIP-712 domain separator used for fee-claim signatures.
-    /// @dev Recomputes the separator when the chain id changes to preserve replay protection across forks.
-    /// @return separator The active domain separator for this deployment and chain id.
-    function DOMAIN_SEPARATOR() public view returns (bytes32) {
-        return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : _computeDomainSeparator();
-    }
-
-    function _computeDomainSeparator() internal view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                EIP712_DOMAIN_TYPEHASH, keccak256("MemeverseUniswapHook"), keccak256("1"), block.chainid, address(this)
-            )
-        );
     }
 
     function _poolKey(Currency currency0, Currency currency1)

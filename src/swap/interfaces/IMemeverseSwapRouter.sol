@@ -113,6 +113,19 @@ interface IMemeverseSwapRouter {
         view
         returns (uint256 amountARequired, uint256 amountBRequired);
 
+    /// @notice Quote the exact-path token amounts the router will use for an exact-liquidity mint at current slot0.
+    /// @dev Unlike `quoteAmountsForLiquidity(...)`, this method may return the unpadded floor amounts when they already
+    /// mint the requested liquidity, so exact-liquidity callers are not forced to over-budget against conservative padding.
+    /// @param tokenA One side of the pair.
+    /// @param tokenB The other side of the pair.
+    /// @param liquidityDesired Target LP liquidity to mint.
+    /// @return amountARequired Exact-path amount of `tokenA`.
+    /// @return amountBRequired Exact-path amount of `tokenB`.
+    function quoteExactAmountsForLiquidity(address tokenA, address tokenB, uint128 liquidityDesired)
+        external
+        view
+        returns (uint256 amountARequired, uint256 amountBRequired);
+
     /// @notice Execute a swap through the Memeverse hook with router-managed slippage and caller-directed refunds.
     /// @dev Swaps always settle or revert; the caller must cover slippage via `amountOutMinimum` or `amountInMaximum`.
     /// @param key Pool key to swap against.
@@ -178,6 +191,32 @@ interface IMemeverseSwapRouter {
         address to,
         uint256 deadline
     ) external returns (uint128 liquidity);
+
+    /// @notice Add liquidity and return both minted LP liquidity and the actual token spend.
+    /// @dev The router normalizes pool ordering internally and returns the actual spend in the same argument order
+    /// supplied by the caller, bounded by the desired budgets.
+    /// @custom:security Callers must approve ERC20 inputs to the router before calling and set min amounts that match their slippage tolerance.
+    /// @param currency0 First currency supplied by the caller.
+    /// @param currency1 Second currency supplied by the caller.
+    /// @param amount0Desired Maximum budget for `currency0`.
+    /// @param amount1Desired Maximum budget for `currency1`.
+    /// @param amount0Min Minimum spend accepted for `currency0`.
+    /// @param amount1Min Minimum spend accepted for `currency1`.
+    /// @param to Recipient of minted LP shares.
+    /// @param deadline The latest timestamp at which the call is valid.
+    /// @return liquidity The LP liquidity minted to `to`.
+    /// @return amount0Used Actual amount spent for `currency0`.
+    /// @return amount1Used Actual amount spent for `currency1`.
+    function addLiquidityDetailed(
+        Currency currency0,
+        Currency currency1,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        address to,
+        uint256 deadline
+    ) external returns (uint128 liquidity, uint256 amount0Used, uint256 amount1Used);
 
     /// @notice Add liquidity after covering the ERC20 sides through a Permit2 signature transfer.
     /// @dev Once Permit2 funding succeeds, execution follows the same path as `addLiquidity(...)`.
@@ -247,21 +286,6 @@ interface IMemeverseSwapRouter {
         address to,
         uint256 deadline
     ) external returns (BalanceDelta delta);
-
-    /// @notice Claim pending LP fees for the caller, either directly or via a signed relay, through the hook core entrypoint.
-    /// @dev The caller may invoke this directly as owner or provide a signature for relay.
-    /// @custom:security Non-owner relays must provide a valid signature in `v`, `r`, and `s`.
-    /// @param key The pool key whose fees are being claimed.
-    /// @param recipient Recipient of the claimed fees.
-    /// @param deadline The latest timestamp at which the signature remains valid.
-    /// @param v Signature `v`.
-    /// @param r Signature `r`.
-    /// @param s Signature `s`.
-    /// @return fee0Amount The claimed amount of currency0 fees.
-    /// @return fee1Amount The claimed amount of currency1 fees.
-    function claimFees(PoolKey calldata key, address recipient, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
-        external
-        returns (uint256 fee0Amount, uint256 fee1Amount);
 
     /// @notice Initialize a hook-managed pool and seed its first full-range liquidity position.
     /// @dev The router sorts the token pair, initializes the pool at `startPrice`, adds liquidity, and refunds unused input.

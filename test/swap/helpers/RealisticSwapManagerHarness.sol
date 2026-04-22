@@ -50,11 +50,14 @@ contract RealisticSwapManagerHarness {
 
     bool internal unlocked;
     mapping(bytes32 => bytes32) internal extStorage;
+    mapping(bytes32 => bool) internal isPoolStateSlot;
+    mapping(bytes32 => PoolId) internal poolIdForStateSlot;
     mapping(PoolId => Slot0State) internal slot0State;
     mapping(PoolId => uint128) internal liquidityState;
     mapping(PoolId => uint256) internal nextExactInputPoolInputAmount;
     mapping(PoolId => uint256) internal nextExactOutputAmount;
     mapping(PoolId => uint160) internal nextSwapSqrtPriceX96;
+    mapping(PoolId => mapping(address => uint160)) internal callerSlot0OverrideX96;
     mapping(bytes32 => int256) internal currencyDeltaState;
     bool internal syncedCurrencySet;
     Currency internal syncedCurrency;
@@ -205,6 +208,12 @@ contract RealisticSwapManagerHarness {
     }
 
     function extsload(bytes32 slot) external view returns (bytes32 value) {
+        if (isPoolStateSlot[slot]) {
+            uint160 overridePriceX96 = callerSlot0OverrideX96[poolIdForStateSlot[slot]][msg.sender];
+            if (overridePriceX96 != 0) {
+                return bytes32(uint256(overridePriceX96));
+            }
+        }
         return extStorage[slot];
     }
 
@@ -232,6 +241,19 @@ contract RealisticSwapManagerHarness {
 
     function setNextSwapSqrtPriceX96(PoolId poolId, uint160 sqrtPriceX96) external {
         nextSwapSqrtPriceX96[poolId] = sqrtPriceX96;
+    }
+
+    function setCallerSlot0OverrideX96(PoolId poolId, address caller, uint160 sqrtPriceX96) external {
+        callerSlot0OverrideX96[poolId][caller] = sqrtPriceX96;
+    }
+
+    function getSlot0(PoolId poolId)
+        external
+        view
+        returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)
+    {
+        Slot0State memory state = slot0State[poolId];
+        return (state.sqrtPriceX96, state.tick, state.protocolFee, state.lpFee);
     }
 
     function _validatePriceLimit(uint160 sqrtPriceCurrentX96, SwapParams memory params) internal pure {
@@ -316,6 +338,10 @@ contract RealisticSwapManagerHarness {
         bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), POOLS_SLOT));
         Slot0State memory state = slot0State[poolId];
 
+        if (!isPoolStateSlot[stateSlot]) {
+            isPoolStateSlot[stateSlot] = true;
+            poolIdForStateSlot[stateSlot] = poolId;
+        }
         extStorage[stateSlot] = bytes32(uint256(state.sqrtPriceX96));
         extStorage[bytes32(uint256(stateSlot) + LIQUIDITY_OFFSET)] = bytes32(uint256(liquidityState[poolId]));
     }

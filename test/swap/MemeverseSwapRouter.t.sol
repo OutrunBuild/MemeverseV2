@@ -343,6 +343,15 @@ contract MockPoolManagerForRouterTest {
         return liquidityState[poolId];
     }
 
+    /// @notice Overrides the mocked active liquidity for a pool.
+    /// @dev Used by router regression tests that need an initialized pool with zero active liquidity.
+    /// @param poolId Pool id whose liquidity should be updated.
+    /// @param liquidity New mocked active liquidity.
+    function setLiquidity(PoolId poolId, uint128 liquidity) external {
+        liquidityState[poolId] = liquidity;
+        _syncPoolStorage(poolId);
+    }
+
     /// @notice Configures the next post-swap price written into slot0 for a pool.
     /// @dev Used by settlement regression tests to simulate realized price movement.
     /// @param poolId Pool whose next swap should update price.
@@ -1869,9 +1878,9 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Verifies router fee claims relay through the hook core with a signature.
-    /// @dev Covers router-mediated LP fee claiming.
-    function testRouterClaimFees_UsesHookCoreWithSignature() external {
+    /// @notice Verifies router-accrued LP fees are claimed directly through the hook without router relays.
+    /// @dev Covers the new owner-direct claim flow while keeping router swap/liquidity integration in scope.
+    function testClaimFeesCore_DirectOwnerClaimCanRedirectRecipient() external {
         _setProtocolFeeCurrency(key.currency0);
 
         vm.prank(alice);
@@ -1891,34 +1900,16 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        uint256 balanceBefore = token0.balanceOf(alice);
-        uint256 nonce = hook.claimNonces(alice);
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                hook.DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        keccak256(
-                            "ClaimFees(address owner,address recipient,bytes32 poolId,uint256 nonce,uint256 deadline)"
-                        ),
-                        alice,
-                        alice,
-                        PoolId.unwrap(poolId),
-                        nonce,
-                        block.timestamp
-                    )
-                )
-            )
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ALICE_PK, digest);
+        address recipient = address(0xCAFE);
+        uint256 balanceBefore = token0.balanceOf(recipient);
 
         vm.prank(alice);
-        (uint256 fee0Amount, uint256 fee1Amount) = router.claimFees(key, alice, block.timestamp, v, r, s);
+        (uint256 fee0Amount, uint256 fee1Amount) =
+            hook.claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: key, recipient: recipient}));
 
         assertGt(fee0Amount, 0, "fee0 claimed");
         assertEq(fee1Amount, 0, "fee1 claimed");
-        assertEq(token0.balanceOf(alice), balanceBefore + fee0Amount, "alice received claimed fee");
+        assertEq(token0.balanceOf(recipient), balanceBefore + fee0Amount, "recipient received claimed fee");
     }
 
     /// @notice Verifies claimable-fee previews match claims and do not mutate state.
@@ -1959,17 +1950,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(previewFee1, 0, "preview fee1");
 
         vm.prank(alice);
-        (uint256 claimedFee0, uint256 claimedFee1) = hook.claimFeesCore(
-            IMemeverseUniswapHook.ClaimFeesCoreParams({
-                key: key,
-                owner: alice,
-                recipient: alice,
-                deadline: block.timestamp,
-                v: uint8(0),
-                r: bytes32(0),
-                s: bytes32(0)
-            })
-        );
+        (uint256 claimedFee0, uint256 claimedFee1) =
+            hook.claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: key, recipient: alice}));
 
         assertEq(claimedFee0, previewFee0, "preview fee0 mismatch");
         assertEq(claimedFee1, previewFee1, "preview fee1 mismatch");
@@ -2034,23 +2016,96 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(router.lpToken(address(token0), address(token1)), poolLpToken, "lp token");
     }
 
-    /// @notice Verifies the router quotes the required pair amounts for a target liquidity.
-    /// @dev Covers the new exact-liquidity read helper.
-    function testRouterQuoteAmountsForLiquidity_ReturnsRequiredPairAmounts() external {
+    /// @notice Verifies the router quotes enough pair amounts to mint at least the target liquidity.
+    /// @dev The quote is an upper bound for exact-liquidity callers, not a floor-rounded under-estimate.
+    function testRouterQuoteAmountsForLiquidity_ReturnsAmountsThatCoverTargetLiquidity() external {
         uint128 liquidityDesired = 10 ether;
         PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
         manager.initialize(normalizedKey, SQRT_PRICE_1_1);
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(normalizedKey.toId());
-        (uint256 amount0Required, uint256 amount1Required) = LiquidityAmounts.getAmountsForLiquidity(
+        (uint256 amount0Floor, uint256 amount1Floor) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPriceX96, FULL_RANGE_MIN_SQRT_PRICE_X96, FULL_RANGE_MAX_SQRT_PRICE_X96, liquidityDesired
         );
 
         (uint256 amountToken0, uint256 amountToken1) =
             router.quoteAmountsForLiquidity(address(token0), address(token1), liquidityDesired);
 
-        assertEq(amountToken0, amount0Required, "token0 required");
-        assertEq(amountToken1, amount1Required, "token1 required");
+        uint128 quotedLiquidity = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtPriceX96, FULL_RANGE_MIN_SQRT_PRICE_X96, FULL_RANGE_MAX_SQRT_PRICE_X96, amountToken0, amountToken1
+        );
+
+        assertGe(amountToken0, amount0Floor, "token0 floor");
+        assertGe(amountToken1, amount1Floor, "token1 floor");
+        assertGe(quotedLiquidity, liquidityDesired, "quoted liquidity covers target");
+    }
+
+    /// @notice Verifies quoting a single unit of liquidity does not hang and still covers the request.
+    /// @dev Guards the exact-liquidity boundary used by launcher-side POL minting.
+    function testRouterQuoteAmountsForLiquidity_SingleUnitCoverageAtParity() external {
+        uint128 liquidityDesired = 1;
+        PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
+        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+
+        (uint160 sqrtPriceX96,,,) = manager.getSlot0(normalizedKey.toId());
+        (uint256 amountToken0, uint256 amountToken1) =
+            router.quoteAmountsForLiquidity(address(token0), address(token1), liquidityDesired);
+
+        uint128 quotedLiquidity = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtPriceX96, FULL_RANGE_MIN_SQRT_PRICE_X96, FULL_RANGE_MAX_SQRT_PRICE_X96, amountToken0, amountToken1
+        );
+
+        assertGe(quotedLiquidity, liquidityDesired, "quoted liquidity covers unit target");
+    }
+
+    /// @notice Verifies the exact-liquidity quote can be used verbatim for addLiquidityDetailed at an unchanged price.
+    /// @dev Guards the launcher exact-liquidity flow against underfunding when using the router's exact quote path.
+    function testQuoteExactAmountsForLiquidity_FeedsDetailedAddLiquidityAtUnchangedPrice() external {
+        uint128 liquidityDesired = 10 ether;
+        PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
+        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+
+        (uint256 amountToken0, uint256 amountToken1) =
+            router.quoteExactAmountsForLiquidity(address(token0), address(token1), liquidityDesired);
+        (uint128 liquidity,,) = router.addLiquidityDetailed(
+            normalizedKey.currency0,
+            normalizedKey.currency1,
+            amountToken0,
+            amountToken1,
+            0,
+            0,
+            address(this),
+            block.timestamp
+        );
+
+        assertEq(liquidity, liquidityDesired, "exact quote mints target liquidity");
+    }
+
+    /// @notice Verifies the exact-liquidity quote also covers the hook's first-mint burn on an initialized empty pool.
+    /// @dev Guards exact-liquidity callers that quote against a fresh pool before any active LP shares exist.
+    function testQuoteExactAmountsForLiquidity_FeedsDetailedAddLiquidityOnInitializedEmptyPool() external {
+        uint128 liquidityDesired = 10 ether;
+        MockERC20 freshToken0 = new MockERC20("Fresh0", "F0", 18);
+        MockERC20 freshToken1 = new MockERC20("Fresh1", "F1", 18);
+        freshToken0.mint(address(this), 1_000_000 ether);
+        freshToken1.mint(address(this), 1_000_000 ether);
+        freshToken0.mint(address(manager), 1_000_000 ether);
+        freshToken1.mint(address(manager), 1_000_000 ether);
+        freshToken0.approve(address(router), type(uint256).max);
+        freshToken1.approve(address(router), type(uint256).max);
+
+        PoolKey memory freshKey = router.getHookPoolKey(address(freshToken0), address(freshToken1));
+        PoolId freshPoolId = freshKey.toId();
+        manager.initialize(freshKey, SQRT_PRICE_1_1);
+        manager.setLiquidity(freshPoolId, 0);
+
+        (uint256 amountToken0, uint256 amountToken1) =
+            router.quoteExactAmountsForLiquidity(address(freshToken0), address(freshToken1), liquidityDesired);
+        (uint128 liquidity,,) = router.addLiquidityDetailed(
+            freshKey.currency0, freshKey.currency1, amountToken0, amountToken1, 0, 0, address(this), block.timestamp
+        );
+
+        assertEq(liquidity, liquidityDesired, "exact quote mints target liquidity after first-mint burn");
     }
 
     /// @notice Verifies liquidity-related router selectors remain aligned with the public interface.
@@ -2127,6 +2182,41 @@ contract MemeverseSwapRouterTest is Test {
         router.addLiquidity(
             key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp - 1
         );
+    }
+
+    /// @notice Verifies the detailed add-liquidity entrypoint reports actual spend in pool-currency order.
+    /// @dev Locks the new router surface that Launcher exact-liquidity now relies on to avoid balance snapshots.
+    function testAddLiquidityDetailed_ReturnsActualUsageInPoolCurrencyOrder() external {
+        uint256 token0Before = token0.balanceOf(address(this));
+        uint256 token1Before = token1.balanceOf(address(this));
+
+        (uint128 liquidity, uint256 amount0Used, uint256 amount1Used) = router.addLiquidityDetailed(
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, address(this), block.timestamp
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(token0Before - token0.balanceOf(address(this)), amount0Used, "amount0 used");
+        assertEq(token1Before - token1.balanceOf(address(this)), amount1Used, "amount1 used");
+        assertLe(amount0Used, 100 ether, "amount0 budget");
+        assertLe(amount1Used, 100 ether, "amount1 budget");
+    }
+
+    /// @notice Verifies unsorted addLiquidityDetailed inputs still report spend in caller order.
+    /// @dev Guards the launcher path that now passes `(UPT, memecoin)` directly and relies on router-side normalization.
+    function testAddLiquidityDetailed_ReturnsActualUsageInCallerOrderWhenInputsAreUnsorted() external {
+        manager.initialize(key, SQRT_PRICE_1_1 / 2);
+
+        uint256 token0Before = token0.balanceOf(address(this));
+        uint256 token1Before = token1.balanceOf(address(this));
+
+        (uint128 liquidity, uint256 amountFirstCurrencyUsed, uint256 amountSecondCurrencyUsed) = router.addLiquidityDetailed(
+            key.currency1, key.currency0, 100 ether, 150 ether, 0, 0, address(this), block.timestamp
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+        assertEq(token1Before - token1.balanceOf(address(this)), amountFirstCurrencyUsed, "first currency used");
+        assertEq(token0Before - token0.balanceOf(address(this)), amountSecondCurrencyUsed, "second currency used");
+        assertNotEq(amountFirstCurrencyUsed, amountSecondCurrencyUsed, "price skew ensures caller-order coverage");
     }
 
     /// @notice Verifies removeLiquidity rejects expired deadlines.

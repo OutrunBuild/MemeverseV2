@@ -25,6 +25,7 @@ import {IYieldDispatcher} from "./interfaces/IYieldDispatcher.sol";
 import {IMemeverseProxyDeployer} from "./interfaces/IMemeverseProxyDeployer.sol";
 import {IMemeverseSwapRouter} from "../swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../swap/interfaces/IMemeverseUniswapHook.sol";
+import {MemeversePoolKeyLib} from "../swap/libraries/MemeversePoolKeyLib.sol";
 
 /**
  * @title Trapping into the memeverse
@@ -882,7 +883,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @notice Mints POL by adding `UPT/memecoin` liquidity after the verse reaches `Stage.Locked`.
      * @dev When `amountOutDesired == 0`, the router spends up to the provided budgets and the launcher derives the
      * actual spend from post-call balances. When `amountOutDesired != 0`, the launcher first asks the router for the
-     * exact token amounts required for the target LP liquidity and then adds that exact liquidity.
+     * exact token amounts required for the target LP liquidity and then uses the router's detailed add-liquidity
+     * entrypoint to receive the actual spend directly.
      * @param verseId Memeverse id.
      * @param amountInUPTDesired Maximum UPT budget transferred into the launcher.
      * @param amountInMemecoinDesired Maximum memecoin budget transferred into the launcher.
@@ -1026,11 +1028,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 amountInMemecoinMin,
         uint256 deadline
     ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
-        uint256 uptBefore = IERC20(UPT).balanceOf(address(this));
-        uint256 memecoinBefore = IERC20(memecoin).balanceOf(address(this));
-
-        amountOut = IMemeverseSwapRouter(memeverseSwapRouter)
-            .addLiquidity(
+        (amountOut, amountInUPT, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
+            .addLiquidityDetailed(
                 Currency.wrap(UPT),
                 Currency.wrap(memecoin),
                 amountInUPTDesired,
@@ -1040,11 +1039,6 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 address(this),
                 deadline
             );
-
-        uint256 uptAfter = IERC20(UPT).balanceOf(address(this));
-        uint256 memecoinAfter = IERC20(memecoin).balanceOf(address(this));
-        amountInUPT = uptBefore - uptAfter;
-        amountInMemecoin = memecoinBefore - memecoinAfter;
     }
 
     function _mintPOLTokenWithExactLiquidity(
@@ -1056,26 +1050,19 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 deadline
     ) internal returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut) {
         require(amountOutDesired <= type(uint128).max, InvalidLength());
-        (amountInUPT, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
-            .quoteAmountsForLiquidity(UPT, memecoin, uint128(amountOutDesired));
-        if (amountInUPT > amountInUPTDesired) {
-            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(amountInUPT, amountInUPTDesired);
+        (uint256 quotedUPT, uint256 quotedMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
+            .quoteExactAmountsForLiquidity(UPT, memecoin, uint128(amountOutDesired));
+        if (quotedUPT > amountInUPTDesired) {
+            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(quotedUPT, amountInUPTDesired);
         }
-        if (amountInMemecoin > amountInMemecoinDesired) {
-            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(amountInMemecoin, amountInMemecoinDesired);
+        if (quotedMemecoin > amountInMemecoinDesired) {
+            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(quotedMemecoin, amountInMemecoinDesired);
         }
-
-        amountOut = IMemeverseSwapRouter(memeverseSwapRouter)
-            .addLiquidity(
-                Currency.wrap(UPT),
-                Currency.wrap(memecoin),
-                amountInUPT,
-                amountInMemecoin,
-                amountInUPT,
-                amountInMemecoin,
-                address(this),
-                deadline
+        (amountOut, amountInUPT, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
+            .addLiquidityDetailed(
+                Currency.wrap(UPT), Currency.wrap(memecoin), quotedUPT, quotedMemecoin, 0, 0, address(this), deadline
             );
+        if (amountOut < amountOutDesired) revert IMemeverseUniswapHook.TooMuchSlippage();
     }
 
     function _refundMintPOLTokenInputs(
@@ -1388,15 +1375,15 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         view
         returns (uint256 tokenAFee, uint256 tokenBFee)
     {
-        (uint256 fee0, uint256 fee1) =
-            IMemeverseSwapRouter(memeverseSwapRouter).previewClaimableFees(tokenA, tokenB, address(this));
+        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, memeverseUniswapHook);
+        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(memeverseUniswapHook).claimableFees(key, address(this));
         return _mapPairFees(tokenA, tokenB, fee0, fee1);
     }
 
     function _claimPairFees(address tokenA, address tokenB) internal returns (uint256 tokenAFee, uint256 tokenBFee) {
-        PoolKey memory key = IMemeverseSwapRouter(memeverseSwapRouter).getHookPoolKey(tokenA, tokenB);
-        (uint256 fee0, uint256 fee1) =
-            IMemeverseSwapRouter(memeverseSwapRouter).claimFees(key, address(this), block.timestamp, 0, 0, 0);
+        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, memeverseUniswapHook);
+        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(memeverseUniswapHook)
+            .claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: key, recipient: address(this)}));
         return _mapPairFees(tokenA, tokenB, fee0, fee1);
     }
 
