@@ -27,11 +27,13 @@
       "^\\.claude/agents/.*$",
       "^\\.codex/agents/.*$",
       "^docs/ARCHITECTURE\\.md$",
-      "^docs/memeverse-swap/[^/]+\\.md$",
+      "^docs/spec/swap/[^/]+\\.md$",
       "^docs/TRACEABILITY\\.md$",
       "^docs/VERIFICATION\\.md$",
       "^docs/GLOSSARY\\.md$",
       "^docs/SECURITY_AND_APPROVALS\\.md$",
+      "^docs/implementation-map\\.md$",
+      "^docs/operations\\.md$",
       "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
       "^solhint.*\\.config\\.js$",
       "^foundry\\.toml$",
@@ -139,6 +141,165 @@
         "node_syntax_changed_js",
         "npm_ci_when_package_changes"
       ]
+    }
+  },
+  "spec_readiness_gate": {
+    "trigger_risk_tiers": ["prod-semantic", "high-risk"],
+    "doc_exclusions": ["^docs/superpowers/"],
+    "gate_action": "block",
+    "required_reviewer": "spec-reviewer",
+    "cross_cutting_trigger_threshold": 2,
+    "cross_cutting_docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/spec/access-control.md",
+      "docs/spec/upgradeability.md",
+      "docs/operations.md",
+      "docs/spec/protocol.md",
+      "docs/implementation-map.md",
+      "docs/GLOSSARY.md"
+    ],
+    "doc_mapping": {
+      "memeverse": {
+        "rules": [
+          {
+            "id": "swap-router-core",
+            "check_docs": [
+              "docs/spec/swap/swap-flow.md",
+              "docs/spec/swap/swap-integration.md",
+              "docs/spec/swap/uniswap-v4.md",
+              "docs/spec/swap/permit2.md"
+            ]
+          },
+          {
+            "id": "swap-hook-liquidity",
+            "check_docs": [
+              "docs/spec/swap/swap-flow.md",
+              "docs/spec/swap/swap-integration.md",
+              "docs/spec/swap/uniswap-v4.md",
+              "docs/spec/invariants.md"
+            ]
+          },
+          {
+            "id": "swap-liquidity-math",
+            "check_docs": [
+              "docs/spec/swap/swap-flow.md",
+              "docs/spec/swap/swap-integration.md",
+              "docs/spec/invariants.md"
+            ]
+          },
+          {
+            "id": "launcher-core",
+            "check_docs": [
+              "docs/spec/verse/lifecycle-details.md",
+              "docs/spec/verse/state-machines.md",
+              "docs/spec/verse/config-matrix.md",
+              "docs/spec/verse/deployment.md",
+              "docs/spec/verse/accounting.md",
+              "docs/spec/invariants.md",
+              "docs/spec/swap/uniswap-v4.md"
+            ]
+          },
+          {
+            "id": "unlock-protection-safety",
+            "check_docs": [
+              "docs/spec/invariants.md"
+            ]
+          },
+          {
+            "id": "launcher-price-math",
+            "check_docs": [
+              "docs/spec/verse/lifecycle-details.md",
+              "docs/spec/verse/state-machines.md"
+            ]
+          },
+          {
+            "id": "verse-registration-core",
+            "check_docs": [
+              "docs/spec/verse/registration-details.md",
+              "docs/spec/verse/config-matrix.md"
+            ]
+          },
+          {
+            "id": "verse-dispatch-and-deployment",
+            "check_docs": [
+              "docs/spec/verse/deployment.md"
+            ]
+          },
+          {
+            "id": "governance-core",
+            "check_docs": [
+              "docs/spec/governance/governance-yield-details.md",
+              "docs/spec/events.md"
+            ]
+          },
+          {
+            "id": "interoperation-core",
+            "check_docs": [
+              "docs/spec/interoperation/interoperation-details.md",
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/events.md"
+            ]
+          },
+          {
+            "id": "token-core",
+            "check_docs": [
+              "docs/spec/verse/accounting.md",
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/events.md"
+            ]
+          },
+          {
+            "id": "yield-core",
+            "check_docs": [
+              "docs/spec/governance/governance-yield-details.md",
+              "docs/spec/interoperation/interoperation-details.md",
+              "docs/spec/events.md"
+            ]
+          },
+          {
+            "id": "common-lz-endpoint-registry",
+            "check_docs": [
+              "docs/spec/interoperation/layerzero-oapp-oft.md"
+            ]
+          },
+          {
+            "id": "common-token-init",
+            "check_docs": [
+              "docs/spec/common/common-foundations.md"
+            ]
+          },
+          {
+            "id": "common-oapp-init",
+            "check_docs": [
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/common/common-foundations.md"
+            ]
+          },
+          {
+            "id": "common-oft-init",
+            "check_docs": [
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/common/common-foundations.md"
+            ]
+          },
+          {
+            "id": "common-token-governance-init",
+            "check_docs": []
+          },
+          {
+            "id": "common-foundations",
+            "check_docs": [
+              "docs/spec/common/common-foundations.md"
+            ]
+          },
+          {
+            "id": "unlock-protection-dedicated-tests",
+            "check_docs": [
+              "docs/spec/invariants.md"
+            ]
+          }
+        ]
+      }
     }
   },
   "hard_blocks": [

@@ -52,8 +52,12 @@ Every file that will be modified or created must match a surface pattern in poli
 1. **Classify** — Read `.harness/policy.json`. Determine surface, risk_tier, writer_role, review_roles, verification_profile.
 2. **Explore** (optional) — If surface/risk unclear, dispatch `solidity-explorer`. Use structured findings to re-classify.
 3. **Spec Readiness Gate** — When risk_tier is prod-semantic or high-risk:
-   - Check whether product documentation under `docs/` (excluding `docs/superpowers/`) already reflects the intended change.
-   - If documentation is missing or outdated:
+   - Identify which doc_mapping rules match the changed files (via test_mapping paths).
+   - Collect `check_docs` from matching rules.
+   - If the change touches ≥ `cross_cutting_trigger_threshold` rules, also collect `cross_cutting_docs`.
+   - Only check the collected docs — never scan all docs under `docs/`.
+   - Exclude any path matching `doc_exclusions` (e.g. `docs/superpowers/`).
+   - If any collected doc is missing or outdated:
      - Block code implementation.
      - Dispatch `process-implementer` to update documentation first.
      - Documentation updates must pass full review cycle with `spec-reviewer` (see remediation_policy).
@@ -70,19 +74,20 @@ Every file that will be modified or created must match a surface pattern in poli
    - high-risk → `logic-reviewer` + `gas-reviewer` + `security-reviewer`
    - If review_triggers match (spec file changes) → also dispatch `spec-reviewer`.
 6. **Remediation cycle** — max 5 rounds (from remediation_policy.max_cycles):
-   - All findings info/minor → continue to step 6.
+   - All findings info/minor → continue to step 7.
    - Severity ≥ major → forward reviewer's raw output to the appropriate writer → re-review.
    - Severity = critical → block, present findings to user for decision.
    - User override critical → record residual risk, continue.
    - Reviewer conflict → resolve by conflict_priority order (security-reviewer > gas-reviewer > logic-reviewer).
-6. **Security tests** — If risk_tier=high-risk AND security_test_writer_trigger matches, dispatch `security-test-writer`.
-7. **Verify** — Dispatch `verifier` to run `bash script/harness/gate.sh --profile <profile>`. Report exit code + stdout.
-8. **Conclude** — Report final verdict based on latest gate output. Do not claim completion without fresh gate evidence.
+7. **Security tests** — If risk_tier=high-risk AND security_test_writer_trigger matches, dispatch `security-test-writer`.
+8. **Verify** — Dispatch `verifier` to run `bash script/harness/gate.sh --profile <profile>`. Report exit code + stdout.
+9. **Conclude** — Report final verdict based on latest gate output. Do not claim completion without fresh gate evidence.
 
 ### Retry routing
 
 - surface=solidity_prod/test → route back to `solidity-implementer`
 - surface=harness_control → route back to `process-implementer`
+- spec readiness gate failure → route to `process-implementer` for doc update
 - security test fixes → route back to `security-test-writer`
 
 ### When NOT to trigger harness
