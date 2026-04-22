@@ -27,6 +27,7 @@
       "^\\.claude/agents/.*$",
       "^\\.codex/agents/.*$",
       "^docs/ARCHITECTURE\\.md$",
+      "^docs/testing/.*\\.md$",
       "^docs/spec/swap/[^/]+\\.md$",
       "^docs/TRACEABILITY\\.md$",
       "^docs/VERIFICATION\\.md$",
