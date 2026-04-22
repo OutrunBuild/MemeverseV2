@@ -13,6 +13,7 @@
     "review_matrix",
     "review_triggers",
     "verification_profiles",
+    "spec_readiness_gate",
     "hard_blocks",
     "testing_gaps",
     "test_mapping"
