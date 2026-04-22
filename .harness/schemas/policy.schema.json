@@ -160,6 +160,9 @@
       },
       "additionalProperties": false
     },
+    "spec_readiness_gate": {
+      "$ref": "#/$defs/specReadinessGate"
+    },
     "hard_blocks": {
       "type": "array",
       "items": {
@@ -496,6 +499,114 @@
         }
       },
       "additionalProperties": true
+    },
+    "specReadinessRiskTierArray": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "prod-semantic",
+          "high-risk"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "nonUniqueStringArray": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "specReadinessRule": {
+      "type": "object",
+      "required": [
+        "id",
+        "check_docs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "check_docs": {
+          "$ref": "#/$defs/nonUniqueStringArray"
+        }
+      },
+      "additionalProperties": false
+    },
+    "specReadinessDocMappingEntry": {
+      "type": "object",
+      "required": [
+        "rules"
+      ],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specReadinessRule"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "specReadinessDocMapping": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/specReadinessDocMappingEntry"
+      }
+    },
+    "specReadinessGate": {
+      "type": "object",
+      "required": [
+        "trigger_risk_tiers",
+        "doc_exclusions",
+        "gate_action",
+        "required_reviewer",
+        "cross_cutting_trigger_threshold",
+        "cross_cutting_docs",
+        "doc_mapping"
+      ],
+      "properties": {
+        "trigger_risk_tiers": {
+          "$ref": "#/$defs/specReadinessRiskTierArray"
+        },
+        "doc_exclusions": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "gate_action": {
+          "type": "string",
+          "enum": [
+            "block"
+          ]
+        },
+        "required_reviewer": {
+          "type": "string",
+          "enum": [
+            "spec-reviewer"
+          ]
+        },
+        "cross_cutting_trigger_threshold": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cross_cutting_docs": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "doc_mapping": {
+          "$ref": "#/$defs/specReadinessDocMapping"
+        }
+      },
+      "additionalProperties": false
     },
     "blockRule": {
       "type": "object",
