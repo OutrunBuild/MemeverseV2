@@ -51,17 +51,25 @@ Every file that will be modified or created must match a surface pattern in poli
 
 1. **Classify** — Read `.harness/policy.json`. Determine surface, risk_tier, writer_role, review_roles, verification_profile.
 2. **Explore** (optional) — If surface/risk unclear, dispatch `solidity-explorer`. Use structured findings to re-classify.
-3. **Implement** — Dispatch the appropriate writer:
+3. **Spec Readiness Gate** — When risk_tier is prod-semantic or high-risk:
+   - Check whether product documentation under `docs/` (excluding `docs/superpowers/`) already reflects the intended change.
+   - If documentation is missing or outdated:
+     - Block code implementation.
+     - Dispatch `process-implementer` to update documentation first.
+     - Documentation updates must pass full review cycle with `spec-reviewer` (see remediation_policy).
+     - Only after documentation review passes does the flow proceed to step 4.
+   - non-semantic and test-semantic changes skip this gate entirely.
+4. **Implement** — Dispatch the appropriate writer:
    - surface=solidity → `solidity-implementer`
    - surface=harness_control → `process-implementer`
    - Mixed surface → hard block, ask user to split.
-4. **Review** (parallel) — Dispatch reviewers by risk_tier:
+5. **Review** (parallel) — Dispatch reviewers by risk_tier:
    - non-semantic → skip review
    - test-semantic → `logic-reviewer`
    - prod-semantic → `logic-reviewer` + `gas-reviewer` + `security-reviewer`
    - high-risk → `logic-reviewer` + `gas-reviewer` + `security-reviewer`
    - If review_triggers match (spec file changes) → also dispatch `spec-reviewer`.
-5. **Remediation cycle** — max 5 rounds (from remediation_policy.max_cycles):
+6. **Remediation cycle** — max 5 rounds (from remediation_policy.max_cycles):
    - All findings info/minor → continue to step 6.
    - Severity ≥ major → forward reviewer's raw output to the appropriate writer → re-review.
    - Severity = critical → block, present findings to user for decision.

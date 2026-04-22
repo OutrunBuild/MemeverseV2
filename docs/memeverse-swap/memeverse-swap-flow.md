@@ -141,7 +141,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[普通 swap] --> B[Router 校验]
-    B --> C[Hook 动态费 + launch fee window]
+    B --> C[Hook 动态费<br/>adverse per-address + vol per-pool + short per-pool<br/>取 max(dynamicFee, launchFee)]
     C --> D[成功则返回 delta，失败则回退]
 
     E[launch settlement] --> F[Launcher 调 Hook.executeLaunchSettlement]
