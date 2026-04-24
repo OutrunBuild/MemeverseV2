@@ -15,7 +15,7 @@ interface IMemeverseRegistrationCenter {
         string[] communities; // Community, index -> 0:Website, 1:X, 2:Discord, 3:Telegram, >4:Others
         uint256 durationDays; // DurationDays of genesis stage
         uint32[] omnichainIds; // ChainIds of the token's omnichain(EVM)
-        address UPT; // UPT of Memeverse
+        address uAsset; // uAsset of Memeverse
         bool flashGenesis; // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
     }
 
@@ -96,12 +96,12 @@ interface IMemeverseRegistrationCenter {
     ) external payable;
 
     /**
-     * @notice Enables or disables a UPT token for registration funding.
+     * @notice Enables or disables a uAsset token for registration funding.
      * @dev Token allowlist gate for verse creation.
-     * @param UPT UPT token address.
+     * @param uAsset uAsset token address.
      * @param isSupported Support status to apply.
      */
-    function setSupportedUPT(address UPT, bool isSupported) external;
+    function setSupportedUAsset(address uAsset, bool isSupported) external;
 
     /**
      * @notice Updates allowed genesis duration range for new verses.
@@ -122,7 +122,7 @@ interface IMemeverseRegistrationCenter {
 
     event RemoveGasDust(address indexed receiver, uint256 dust);
 
-    event SetSupportedUPT(address UPT, bool isSupported);
+    event SetSupportedUAsset(address uAsset, bool isSupported);
 
     event SetDurationDaysRange(uint128 minDurationDays, uint128 maxDurationDays);
 
@@ -130,7 +130,7 @@ interface IMemeverseRegistrationCenter {
 
     error ZeroInput();
 
-    error InvalidUPT();
+    error InvalidUAsset();
 
     error InvalidInput();
 

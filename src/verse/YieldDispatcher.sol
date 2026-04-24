@@ -69,7 +69,7 @@ contract YieldDispatcher is IYieldDispatcher, TokenHelper, Ownable {
                 _safeApproveInf(token, receiver);
                 IMemecoinYieldVault(receiver).accumulateYields(amount);
             }
-        } else if (tokenType == TokenType.UPT) {
+        } else if (tokenType == TokenType.UASSET) {
             if (receiver.code.length == 0) {
                 IBurnable(token).burn(amount);
                 isBurned = true;

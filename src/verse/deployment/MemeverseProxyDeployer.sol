@@ -133,7 +133,7 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
     /// @dev Both proxies are deployed deterministically from `uniqueId`, then initialized with the freshly deployed
     /// verse token contracts and the current quorum configuration.
     /// @param memecoinName Human-readable memecoin name used to derive the DAO name.
-    /// @param UPT Verse fundraising token.
+    /// @param uAsset Verse fundraising asset.
     /// @param memecoin Verse memecoin contract.
     /// @param pol Verse POL contract.
     /// @param yieldVault Verse yield-vault contract.
@@ -143,7 +143,7 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
     /// @return incentivizer Newly deployed incentivizer proxy address.
     function deployGovernorAndIncentivizer(
         string calldata memecoinName,
-        address UPT,
+        address uAsset,
         address memecoin,
         address pol,
         address yieldVault,
@@ -181,7 +181,7 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
                 upgradeSupermajorityRatio
             );
         address[] memory initFundTokens = new address[](4);
-        initFundTokens[0] = UPT;
+        initFundTokens[0] = uAsset;
         initFundTokens[1] = memecoin;
         initFundTokens[2] = pol;
         initFundTokens[3] = yieldVault;

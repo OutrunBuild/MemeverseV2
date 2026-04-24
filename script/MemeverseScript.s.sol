@@ -299,8 +299,8 @@ contract MemeverseScript is BaseScript {
             IMessageLibManager(localEndpoint).setConfig(centerAddr, receiveLib, params);
         }
 
-        IMemeverseRegistrationCenter(centerAddr).setSupportedUPT(UETH, true);
-        IMemeverseRegistrationCenter(centerAddr).setSupportedUPT(UUSD, true);
+        IMemeverseRegistrationCenter(centerAddr).setSupportedUAsset(UETH, true);
+        IMemeverseRegistrationCenter(centerAddr).setSupportedUAsset(UUSD, true);
         IMemeverseRegistrationCenter(centerAddr).setRegisterGasLimit(1000000);
         IMemeverseRegistrationCenter(centerAddr).setDurationDaysRange(1, 3);
 

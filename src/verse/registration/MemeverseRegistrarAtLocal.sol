@@ -47,11 +47,11 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
             uri: param.uri,
             desc: param.desc,
             communities: param.communities,
-            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, currentNonce + 1, param.UPT))),
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, currentNonce + 1, param.uAsset))),
             endTime: endTime,
             unlockTime: unlockTime,
             omnichainIds: omnichainIds,
-            UPT: param.UPT,
+            uAsset: param.uAsset,
             flashGenesis: param.flashGenesis
         });
         (lzFee,,) = IMemeverseRegistrationCenter(registrationCenter).quoteSend(omnichainIds, abi.encode(memeverseParam));

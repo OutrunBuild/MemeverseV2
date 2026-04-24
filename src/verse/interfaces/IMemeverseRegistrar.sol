@@ -17,7 +17,7 @@ interface IMemeverseRegistrar {
         uint64 endTime; // EndTime of launchPool
         uint64 unlockTime; // UnlockTime of liquidity
         uint32[] omnichainIds; // ChainIds of the token's omnichain(EVM)
-        address UPT; // UPT of Memeverse
+        address uAsset; // uAsset of Memeverse
         bool flashGenesis; // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
     }
 

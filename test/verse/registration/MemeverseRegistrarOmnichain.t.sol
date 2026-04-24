@@ -32,7 +32,7 @@ contract MockOmnichainLauncher {
     /// @param endTime See implementation.
     /// @param unlockTime See implementation.
     /// @param omnichainIds See implementation.
-    /// @param UPT See implementation.
+    /// @param uAsset See implementation.
     /// @param flashGenesis See implementation.
     function registerMemeverse(
         string memory name,
@@ -41,7 +41,7 @@ contract MockOmnichainLauncher {
         uint128 endTime,
         uint128 unlockTime,
         uint32[] memory omnichainIds,
-        address UPT,
+        address uAsset,
         bool flashGenesis
     ) external {
         name;
@@ -50,7 +50,7 @@ contract MockOmnichainLauncher {
         unlockTime;
         omnichainIds;
         lastRegisteredUniqueId = uniqueId;
-        lastRegisteredUPT = UPT;
+        lastRegisteredUPT = uAsset;
         lastRegisteredFlashGenesis = flashGenesis;
     }
 
@@ -280,7 +280,7 @@ contract MemeverseRegistrarOmnichainTest is Test {
         registrar.lzReceive(origin, bytes32("guid"), abi.encode(param), address(0), "");
 
         assertEq(launcher.lastRegisteredUniqueId(), param.uniqueId);
-        assertEq(launcher.lastRegisteredUPT(), param.UPT);
+        assertEq(launcher.lastRegisteredUPT(), param.uAsset);
         assertEq(launcher.lastRegisteredFlashGenesis(), param.flashGenesis);
         assertEq(launcher.lastExternalInfoUniqueId(), param.uniqueId);
         assertEq(launcher.lastUri(), param.uri);
@@ -321,7 +321,7 @@ contract MemeverseRegistrarOmnichainTest is Test {
         param.omnichainIds[0] = CENTER_CHAIN_ID;
         param.omnichainIds[1] = uint32(block.chainid);
         param.omnichainIds[2] = 202;
-        param.UPT = address(0x7777);
+        param.uAsset = address(0x7777);
         param.flashGenesis = true;
     }
 
@@ -336,7 +336,7 @@ contract MemeverseRegistrarOmnichainTest is Test {
         param.endTime = uint64(block.timestamp + 3 days);
         param.unlockTime = uint64(block.timestamp + 8 days);
         param.omnichainIds = registrationParam.omnichainIds;
-        param.UPT = registrationParam.UPT;
+        param.uAsset = registrationParam.uAsset;
         param.flashGenesis = registrationParam.flashGenesis;
     }
 }

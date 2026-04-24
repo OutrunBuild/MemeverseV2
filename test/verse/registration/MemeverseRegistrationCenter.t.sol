@@ -124,7 +124,7 @@ contract MockCenterRegistrar {
     /// @param param See implementation.
     function localRegistration(IMemeverseRegistrar.MemeverseParam calldata param) external {
         lastUniqueId = param.uniqueId;
-        lastUPT = param.UPT;
+        lastUPT = param.uAsset;
         lastFlashGenesis = param.flashGenesis;
         lastEndTime = param.endTime;
         lastUnlockTime = param.unlockTime;
@@ -157,7 +157,7 @@ contract MemeverseRegistrationCenterTest is Test {
         registry.setLzEndpointIds(_endpointPairs());
 
         vm.startPrank(OWNER);
-        center.setSupportedUPT(address(0x7777), true);
+        center.setSupportedUAsset(address(0x7777), true);
         center.setDurationDaysRange(1, 10);
         center.setRegisterGasLimit(150);
         center.setPeer(REMOTE_EID, bytes32(uint256(uint160(address(0xBEEF)))));
@@ -168,7 +168,7 @@ contract MemeverseRegistrationCenterTest is Test {
     /// @notice Test config setters and preview registration.
     function testConfigSettersAndPreviewRegistration() external {
         vm.prank(OWNER);
-        center.setSupportedUPT(address(0x8888), true);
+        center.setSupportedUAsset(address(0x8888), true);
         vm.prank(OWNER);
         center.setDurationDaysRange(2, 12);
         vm.prank(OWNER);
@@ -196,7 +196,7 @@ contract MemeverseRegistrationCenterTest is Test {
     function testConfigSettersRejectInvalidInputs() external {
         vm.prank(OWNER);
         vm.expectRevert(IMemeverseRegistrationCenter.ZeroInput.selector);
-        center.setSupportedUPT(address(0), true);
+        center.setSupportedUAsset(address(0), true);
 
         vm.prank(OWNER);
         vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
@@ -278,11 +278,11 @@ contract MemeverseRegistrationCenterTest is Test {
             uri: param.uri,
             desc: param.desc,
             communities: param.communities,
-            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.uAsset))),
             endTime: expectedEndTime,
             unlockTime: uint64(expectedEndTime + 365 days),
             omnichainIds: param.omnichainIds,
-            UPT: param.UPT,
+            uAsset: param.uAsset,
             flashGenesis: param.flashGenesis
         });
         bytes memory expectedOptions =
@@ -308,14 +308,14 @@ contract MemeverseRegistrationCenterTest is Test {
 
         center.registration{value: 0.5 ether}(param);
 
-        uint256 expectedUniqueId = uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT)));
+        uint256 expectedUniqueId = uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.uAsset)));
         (uint256 uniqueId, uint64 endTime, uint192 nonce) = center.symbolRegistry(param.symbol);
         assertEq(uniqueId, expectedUniqueId);
         assertEq(endTime, uint64(block.timestamp + param.durationDays * center.DAY()));
         assertEq(nonce, 1);
 
         assertEq(registrar.lastUniqueId(), expectedUniqueId);
-        assertEq(registrar.lastUPT(), param.UPT);
+        assertEq(registrar.lastUPT(), param.uAsset);
         assertEq(registrar.lastFlashGenesis(), param.flashGenesis);
         assertEq(registrar.lastEndTime(), uint64(block.timestamp + param.durationDays * center.DAY()));
         assertEq(registrar.lastUnlockTime(), uint64(block.timestamp + param.durationDays * center.DAY() + 365 days));
@@ -332,7 +332,7 @@ contract MemeverseRegistrationCenterTest is Test {
 
         center.registration(param);
 
-        assertEq(registrar.lastUPT(), param.UPT);
+        assertEq(registrar.lastUPT(), param.uAsset);
         assertEq(registrar.lastName(), param.name);
         assertEq(registrar.lastSymbol(), param.symbol);
         assertEq(endpoint.lastDstEid(), 0);
@@ -363,7 +363,7 @@ contract MemeverseRegistrationCenterTest is Test {
         center.registration{value: 0.5 ether}(param);
         (uint256 firstUniqueId, uint64 firstEndTime, uint192 firstNonce) = center.symbolRegistry(param.symbol);
 
-        assertEq(firstUniqueId, uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))));
+        assertEq(firstUniqueId, uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.uAsset))));
         assertEq(firstNonce, 1);
 
         vm.warp(firstEndTime + 1);
@@ -373,7 +373,7 @@ contract MemeverseRegistrationCenterTest is Test {
         (uint256 historyUniqueId, uint64 historyEndTime, uint192 historyNonce) =
             center.symbolHistory(param.symbol, firstUniqueId);
 
-        assertEq(secondUniqueId, uint256(keccak256(abi.encodePacked(param.symbol, uint192(2), param.UPT))));
+        assertEq(secondUniqueId, uint256(keccak256(abi.encodePacked(param.symbol, uint192(2), param.uAsset))));
         assertTrue(secondUniqueId != firstUniqueId);
         assertEq(secondNonce, 2);
         assertEq(historyUniqueId, firstUniqueId);
@@ -391,8 +391,8 @@ contract MemeverseRegistrationCenterTest is Test {
         center.registration(param);
 
         param = _registrationParam();
-        param.UPT = address(0x9999);
-        vm.expectRevert(IMemeverseRegistrationCenter.InvalidUPT.selector);
+        param.uAsset = address(0x9999);
+        vm.expectRevert(IMemeverseRegistrationCenter.InvalidUAsset.selector);
         center.registration(param);
 
         param = _registrationParam();
@@ -479,7 +479,7 @@ contract MemeverseRegistrationCenterTest is Test {
         vm.prank(address(endpoint));
         center.lzReceive(origin, bytes32("guid"), abi.encode(param), address(0), "");
 
-        assertEq(registrar.lastUPT(), param.UPT);
+        assertEq(registrar.lastUPT(), param.uAsset);
         assertEq(registrar.lastName(), param.name);
         assertEq(registrar.lastSymbol(), param.symbol);
     }
@@ -525,7 +525,7 @@ contract MemeverseRegistrationCenterTest is Test {
         param.omnichainIds = new uint32[](2);
         param.omnichainIds[0] = uint32(block.chainid);
         param.omnichainIds[1] = REMOTE_CHAIN_ID;
-        param.UPT = address(0x7777);
+        param.uAsset = address(0x7777);
         param.flashGenesis = true;
     }
 

@@ -31,8 +31,8 @@ contract InitialPriceCalculatorTest is Test {
     /// @notice Exposes the `fundBasedAmount` helper for external revert assertions.
     /// @dev Allows `vm.expectRevert` to target the library via an external call.
     /// @param memecoin The memecoin address.
-    /// @param upt The UPT address.
-    /// @param fundBasedAmount The memecoin units minted per 1 UPT.
+    /// @param upt The uAsset address.
+    /// @param fundBasedAmount The memecoin units minted per 1 uAsset.
     /// @return sqrtPriceX96 The computed Uniswap v4 start price.
     function calculateMemecoinStartPriceX96External(address memecoin, address upt, uint256 fundBasedAmount)
         external
@@ -66,8 +66,8 @@ contract InitialPriceCalculatorTest is Test {
         assertEq(sqrtPriceX96, Q96 / 2);
     }
 
-    /// @notice Verifies `fundBasedAmount` mapping when UPT sorts as token0.
-    /// @dev When UPT is token0, `fundBasedAmount` maps directly to the pool price.
+    /// @notice Verifies `fundBasedAmount` mapping when uAsset sorts as token0.
+    /// @dev When uAsset is token0, `fundBasedAmount` maps directly to the pool price.
     function testCalculateMemecoinStartPriceX96UsesFundBasedAmountWhenUptSortsFirst() external pure {
         uint160 sqrtPriceX96 = InitialPriceCalculator.calculateMemecoinStartPriceX96(HIGHER, LOWER, 4);
         assertEq(sqrtPriceX96, Q96 * 2);

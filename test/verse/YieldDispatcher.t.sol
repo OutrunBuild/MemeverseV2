@@ -142,7 +142,7 @@ contract YieldDispatcherTest is Test {
         dispatcher.lzCompose(
             address(token),
             bytes32("gov-guid"),
-            abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UPT, uptAmount),
+            abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UASSET, uptAmount),
             address(0),
             ""
         );
@@ -156,7 +156,7 @@ contract YieldDispatcherTest is Test {
         bytes32 guid = bytes32("done");
         token.setExecuted(guid, true);
         bytes memory composeMessage = abi.encodePacked(
-            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UPT)
+            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UASSET)
         );
         bytes memory message = OFTComposeMsgCodec.encode(1, 101, 1 ether, composeMessage);
 
@@ -172,7 +172,7 @@ contract YieldDispatcherTest is Test {
         token.mint(address(dispatcher), amount);
 
         bytes memory composeMessage = abi.encodePacked(
-            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UPT)
+            bytes32(uint256(uint160(ALICE))), abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UASSET)
         );
         bytes memory message = OFTComposeMsgCodec.encode(1, 101, amount, composeMessage);
 

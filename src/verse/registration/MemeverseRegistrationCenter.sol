@@ -35,7 +35,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
     // Symbol history mapping, storing all valid registration records
     mapping(string symbol => mapping(uint256 uniqueId => SymbolRegistration)) public symbolHistory;
 
-    mapping(address UPT => bool) private supportedUPTs;
+    mapping(address uAsset => bool) private supportedUAssets;
 
     /**
      * @notice Constructor
@@ -133,7 +133,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         uint192 nextNonce = currentNonce + 1;
         uint64 endTime = uint64(endTimeRaw);
         uint64 unlockTime = uint64(endTimeRaw + FIXED_LOCKUP_DURATION);
-        uint256 uniqueId = uint256(keccak256(abi.encodePacked(param.symbol, nextNonce, param.UPT)));
+        uint256 uniqueId = uint256(keccak256(abi.encodePacked(param.symbol, nextNonce, param.uAsset)));
         currentRegistration.uniqueId = uniqueId;
         currentRegistration.endTime = endTime;
         currentRegistration.nonce = nextNonce;
@@ -148,7 +148,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
             endTime: endTime,
             unlockTime: unlockTime,
             omnichainIds: param.omnichainIds,
-            UPT: param.UPT,
+            uAsset: param.uAsset,
             flashGenesis: param.flashGenesis
         });
         _omnichainSend(param.omnichainIds, memeverseParam);
@@ -226,7 +226,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
         require(bytes(param.symbol).length > 0 && bytes(param.symbol).length < 32, InvalidLength());
         require(bytes(param.uri).length > 0, InvalidLength());
         require(bytes(param.desc).length > 0 && bytes(param.desc).length < 256, InvalidLength());
-        require(supportedUPTs[param.UPT], InvalidUPT());
+        require(supportedUAssets[param.uAsset], InvalidUAsset());
 
         uint32[] memory omnichainIds = param.omnichainIds;
         require(omnichainIds.length > 0 && omnichainIds.length < 32, InvalidLength());
@@ -303,13 +303,13 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
 
     /// @notice Updates whether a fundraising token is accepted for new registrations.
     /// @dev Only callable by the owner.
-    /// @param UPT Fundraising token address to update.
+    /// @param uAsset Fundraising token address to update.
     /// @param isSupported Whether the token should be accepted for future registrations.
-    function setSupportedUPT(address UPT, bool isSupported) external override onlyOwner {
-        require(UPT != address(0), ZeroInput());
-        supportedUPTs[UPT] = isSupported;
+    function setSupportedUAsset(address uAsset, bool isSupported) external override onlyOwner {
+        require(uAsset != address(0), ZeroInput());
+        supportedUAssets[uAsset] = isSupported;
 
-        emit SetSupportedUPT(UPT, isSupported);
+        emit SetSupportedUAsset(uAsset, isSupported);
     }
 
     /// @notice Updates the allowed registration duration range.

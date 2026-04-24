@@ -53,7 +53,7 @@ interface IMemeverseProxyDeployer {
      * @notice Deploys governor and incentivizer proxies for a verse.
      * @dev Wires token addresses and governance thresholds into deployment payload.
      * @param memecoinName Governance display name derived from memecoin metadata.
-     * @param UPT Verse quote asset address.
+     * @param uAsset Verse quote asset address.
      * @param memecoin Deployed memecoin proxy address.
      * @param pol Deployed POL proxy address.
      * @param yieldVault Deployed yield vault proxy address.
@@ -64,7 +64,7 @@ interface IMemeverseProxyDeployer {
      */
     function deployGovernorAndIncentivizer(
         string calldata memecoinName,
-        address UPT,
+        address uAsset,
         address memecoin,
         address pol,
         address yieldVault,

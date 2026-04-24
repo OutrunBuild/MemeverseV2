@@ -37,7 +37,7 @@ abstract contract MemeverseRegistrarAbstract is IMemeverseRegistrar, Ownable {
                 param.endTime,
                 param.unlockTime,
                 param.omnichainIds,
-                param.UPT,
+                param.uAsset,
                 param.flashGenesis
             );
         IMemeverseLauncher(MEMEVERSE_LAUNCHER).setExternalInfo(param.uniqueId, param.uri, param.desc, param.communities);

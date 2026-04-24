@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 interface IMemeverseOFTEnum {
     enum TokenType {
-        UPT,
+        UASSET,
         POL,
         MEMECOIN
     }

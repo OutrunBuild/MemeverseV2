@@ -150,7 +150,7 @@ contract MemeverseProxyDeployerTest is Test {
     /// @notice Test compute governor and incentivizer matches deployed proxies and initializes them.
     function testComputeGovernorAndIncentivizerMatchesDeployedProxiesAndInitializesThem() external {
         uint256 uniqueId = 42;
-        address UPT = address(0x1111);
+        address uAsset = address(0x1111);
         address memecoin = address(mockMemecoin);
         address pol = address(0x3333);
         address yieldVault = address(0x4444);
@@ -160,7 +160,7 @@ contract MemeverseProxyDeployerTest is Test {
 
         vm.prank(LAUNCHER);
         (address governor, address incentivizer) =
-            deployer.deployGovernorAndIncentivizer("MEME", UPT, memecoin, pol, yieldVault, uniqueId, 123);
+            deployer.deployGovernorAndIncentivizer("MEME", uAsset, memecoin, pol, yieldVault, uniqueId, 123);
 
         assertEq(governor, predictedGovernor);
         assertEq(incentivizer, predictedIncentivizer);
@@ -180,7 +180,7 @@ contract MemeverseProxyDeployerTest is Test {
 
         MockDeployerIncentivizer incentivizerProxy = MockDeployerIncentivizer(incentivizer);
         assertEq(incentivizerProxy.governor(), governor);
-        assertEq(incentivizerProxy.initFundToken(0), UPT);
+        assertEq(incentivizerProxy.initFundToken(0), uAsset);
         assertEq(incentivizerProxy.initFundToken(1), memecoin);
         assertEq(incentivizerProxy.initFundToken(2), pol);
         assertEq(incentivizerProxy.initFundToken(3), yieldVault);

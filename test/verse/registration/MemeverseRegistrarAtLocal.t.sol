@@ -50,7 +50,7 @@ contract MockAtLocalRegistrationCenter {
     /// @param param See implementation.
     function registration(IMemeverseRegistrationCenter.RegistrationParam calldata param) external payable {
         require(msg.value >= quotedFee, IMemeverseRegistrationCenter.InsufficientLzFee());
-        lastRegistrationUPT = param.UPT;
+        lastRegistrationUPT = param.uAsset;
         lastRegistrationFlashGenesis = param.flashGenesis;
         lastRegistrationValue = msg.value;
     }
@@ -72,7 +72,7 @@ contract MockAtLocalLauncher {
     /// @param endTime See implementation.
     /// @param unlockTime See implementation.
     /// @param omnichainIds See implementation.
-    /// @param UPT See implementation.
+    /// @param uAsset See implementation.
     /// @param flashGenesis See implementation.
     function registerMemeverse(
         string memory name,
@@ -81,7 +81,7 @@ contract MockAtLocalLauncher {
         uint128 endTime,
         uint128 unlockTime,
         uint32[] memory omnichainIds,
-        address UPT,
+        address uAsset,
         bool flashGenesis
     ) external {
         name;
@@ -90,7 +90,7 @@ contract MockAtLocalLauncher {
         unlockTime;
         omnichainIds;
         lastRegisteredUniqueId = uniqueId;
-        lastRegisteredUPT = UPT;
+        lastRegisteredUPT = uAsset;
         lastRegisteredFlashGenesis = flashGenesis;
     }
 
@@ -145,11 +145,11 @@ contract MemeverseRegistrarAtLocalTest is Test {
             uri: param.uri,
             desc: param.desc,
             communities: param.communities,
-            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.uAsset))),
             endTime: expectedEndTime,
             unlockTime: expectedUnlockTime,
             omnichainIds: param.omnichainIds,
-            UPT: param.UPT,
+            uAsset: param.uAsset,
             flashGenesis: param.flashGenesis
         });
 
@@ -185,11 +185,11 @@ contract MemeverseRegistrarAtLocalTest is Test {
             uri: param.uri,
             desc: param.desc,
             communities: param.communities,
-            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.uAsset))),
             endTime: expectedEndTime,
             unlockTime: expectedUnlockTime,
             omnichainIds: expectedIds,
-            UPT: param.UPT,
+            uAsset: param.uAsset,
             flashGenesis: param.flashGenesis
         });
 
@@ -216,11 +216,11 @@ contract MemeverseRegistrarAtLocalTest is Test {
             uri: param.uri,
             desc: param.desc,
             communities: param.communities,
-            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.UPT))),
+            uniqueId: uint256(keccak256(abi.encodePacked(param.symbol, uint192(1), param.uAsset))),
             endTime: expectedEndTime,
             unlockTime: expectedUnlockTime,
             omnichainIds: param.omnichainIds,
-            UPT: param.UPT,
+            uAsset: param.uAsset,
             flashGenesis: param.flashGenesis
         });
 
@@ -245,7 +245,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
         registrar.localRegistration(param);
 
         assertEq(launcher.lastRegisteredUniqueId(), param.uniqueId);
-        assertEq(launcher.lastRegisteredUPT(), param.UPT);
+        assertEq(launcher.lastRegisteredUPT(), param.uAsset);
         assertEq(launcher.lastRegisteredFlashGenesis(), param.flashGenesis);
         assertEq(launcher.lastExternalInfoUniqueId(), param.uniqueId);
         assertEq(launcher.lastUri(), param.uri);
@@ -260,7 +260,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
 
         registrar.registerAtCenter{value: 1 ether}(param, uint128(1 ether));
         assertEq(registrationCenter.lastRegistrationValue(), 1 ether);
-        assertEq(registrationCenter.lastRegistrationUPT(), param.UPT);
+        assertEq(registrationCenter.lastRegistrationUPT(), param.uAsset);
         assertEq(registrationCenter.lastRegistrationFlashGenesis(), param.flashGenesis);
 
         vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
@@ -303,7 +303,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
         registrar.registerAtCenter{value: 1.25 ether}(param, uint128(1.25 ether));
 
         assertEq(registrationCenter.lastRegistrationValue(), 1.25 ether);
-        assertEq(registrationCenter.lastRegistrationUPT(), param.UPT);
+        assertEq(registrationCenter.lastRegistrationUPT(), param.uAsset);
         assertEq(registrationCenter.lastRegistrationFlashGenesis(), param.flashGenesis);
     }
 
@@ -318,7 +318,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
         param.omnichainIds = new uint32[](2);
         param.omnichainIds[0] = uint32(block.chainid);
         param.omnichainIds[1] = 101;
-        param.UPT = address(0x7777);
+        param.uAsset = address(0x7777);
         param.flashGenesis = true;
     }
 
@@ -333,7 +333,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
         param.endTime = uint64(block.timestamp + 3 days);
         param.unlockTime = uint64(block.timestamp + 8 days);
         param.omnichainIds = registrationParam.omnichainIds;
-        param.UPT = registrationParam.UPT;
+        param.uAsset = registrationParam.uAsset;
         param.flashGenesis = registrationParam.flashGenesis;
     }
 }

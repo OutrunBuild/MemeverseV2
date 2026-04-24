@@ -47,7 +47,7 @@ contract TestScript is BaseScript {
         // ids[2] = 97;
 
         param.omnichainIds = ids;
-        param.UPT = UETH;
+        param.uAsset = UETH;
 
         // Center Chain - MemeverseRegistrarAtLocal
         // uint256 totalFee = IMemeverseRegistrar(MEMEVERSE_REGISTRAR).quoteRegister(param, 0);
