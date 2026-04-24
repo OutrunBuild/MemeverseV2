@@ -134,7 +134,7 @@ function swap(
 ### 3.2 Router 报价入口
 
 ```solidity
-function quoteSwap(PoolKey calldata key, SwapParams calldata params)
+function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
     external
     view
     returns (SwapQuote memory quote);

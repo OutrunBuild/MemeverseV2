@@ -141,8 +141,11 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[普通 swap] --> B[Router 校验]
-    B --> C[Hook 动态费<br/>adverse per-address + vol per-pool + short per-pool<br/>取 max(dynamicFee, launchFee)]
-    C --> D[成功则返回 delta，失败则回退]
+    B --> C{存在 EWVWAP 历史且交易回归 EWVWAP?}
+    C -- 是 --> C1[跳过全部动态费组件<br/>effectiveFee = max(baseFee, launchFee)]
+    C -- 否 --> C2[Hook 动态费<br/>adverse per-address + vol per-pool + short per-pool<br/>取 max(dynamicFee, launchFee)]
+    C1 --> D[成功则返回 delta，失败则回退]
+    C2 --> D
 
     E[launch settlement] --> F[Launcher 调 Hook.executeLaunchSettlement]
     F --> G[Hook 校验 launcher 绑定]

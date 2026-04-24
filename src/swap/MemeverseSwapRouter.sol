@@ -102,14 +102,15 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     /// @dev This router-first facade keeps quote logic centralized while reusing the hook's internal math.
     /// @param key Pool key being quoted.
     /// @param params Swap parameters that define direction, amount, and slippage posture.
+    /// @param trader Address whose per-address batch state determines the adverse fee component.
     /// @return quote A projected swap quote describing fees, estimated user input/output, and protocol split.
-    function quoteSwap(PoolKey calldata key, SwapParams calldata params)
+    function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
         external
         view
         override
         returns (IMemeverseUniswapHook.SwapQuote memory quote)
     {
-        return hook.quoteSwap(key, params);
+        return hook.quoteSwap(key, params, trader);
     }
 
     /// @notice Derive the hook-managed pool key that corresponds to a given token pair.
@@ -584,7 +585,11 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
             poolManager.unlock(
                 abi.encode(
                     CallbackData({
-                        payer: address(this), recipient: recipient, key: key, params: params, hookData: hookData
+                        payer: address(this),
+                        recipient: recipient,
+                        key: key,
+                        params: params,
+                        hookData: hookData
                     })
                 )
             ),

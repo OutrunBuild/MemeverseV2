@@ -691,10 +691,10 @@ contract MemeverseSwapRouterTest is Test {
         _matureLaunchWindow();
 
         IMemeverseUniswapHook.SwapQuote memory normalQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this));
         hook.setEmergencyFlag(true);
         IMemeverseUniswapHook.SwapQuote memory emergencyQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this));
 
         assertEq(emergencyQuote.feeBps, 100, "base fee only");
         assertGe(normalQuote.feeBps, emergencyQuote.feeBps, "normal fee not below emergency fee");
@@ -709,7 +709,7 @@ contract MemeverseSwapRouterTest is Test {
         manager.setQuoteAlignedSwapMath(true);
 
         IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury0Before = token0.balanceOf(treasury);
@@ -743,7 +743,7 @@ contract MemeverseSwapRouterTest is Test {
         manager.setQuoteAlignedSwapMath(true);
 
         IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
@@ -790,10 +790,10 @@ contract MemeverseSwapRouterTest is Test {
         );
 
         IMemeverseUniswapHook.SwapQuote memory normalQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
         hook.setEmergencyFlag(true);
         IMemeverseUniswapHook.SwapQuote memory emergencyQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury0Before = token0.balanceOf(treasury);
@@ -848,9 +848,9 @@ contract MemeverseSwapRouterTest is Test {
             })
         );
 
-        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(key, params, address(this));
         hook.setEmergencyFlag(true);
-        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(key, params, address(this));
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
@@ -961,7 +961,7 @@ contract MemeverseSwapRouterTest is Test {
 
         assertLt(int256(delta.amount0()), 0, "delta0");
         assertGt(int256(delta.amount1()), 0, "delta1");
-        assertLt(gasUsed, 555_000, "swap gas ceiling");
+        assertLt(gasUsed, 590_000, "swap gas ceiling");
     }
 
     /// @notice Verifies routed swaps do not pay for a redundant launch-fee quote round-trip.
@@ -1125,7 +1125,7 @@ contract MemeverseSwapRouterTest is Test {
         token0.approve(address(hook), type(uint256).max);
 
         IMemeverseUniswapHook.SwapQuote memory quoteAtLaunch = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit})
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}), address(this)
         );
         assertEq(quoteAtLaunch.feeBps, 5000, "public launch fee");
 
@@ -1245,8 +1245,8 @@ contract MemeverseSwapRouterTest is Test {
 
         SwapParams memory followUpParams =
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0});
-        IMemeverseUniswapHook.SwapQuote memory settledQuote = hook.quoteSwap(key, followUpParams);
-        IMemeverseUniswapHook.SwapQuote memory pristineQuote = pristineHook.quoteSwap(pristineKey, followUpParams);
+        IMemeverseUniswapHook.SwapQuote memory settledQuote = hook.quoteSwap(key, followUpParams, address(this));
+        IMemeverseUniswapHook.SwapQuote memory pristineQuote = pristineHook.quoteSwap(pristineKey, followUpParams, address(this));
 
         assertGt(settledQuote.feeBps, pristineQuote.feeBps, "settlement quote should carry dynamic state");
     }
@@ -1493,7 +1493,7 @@ contract MemeverseSwapRouterTest is Test {
         });
         _setProtocolFeeCurrency(key.currency1);
         manager.setQuoteAlignedSwapMath(true);
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
@@ -1786,7 +1786,7 @@ contract MemeverseSwapRouterTest is Test {
     function testPreviewSwap_ExactOutputInputSideIncludesFeeInUserInput() external {
         _setProtocolFeeCurrency(key.currency0);
         IMemeverseUniswapHook.SwapQuote memory preview =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
 
         assertTrue(preview.protocolFeeOnInput, "protocolFeeOnInput");
         assertEq(preview.estimatedUserOutputAmount, 100 ether, "net output");
@@ -1805,8 +1805,8 @@ contract MemeverseSwapRouterTest is Test {
         _setProtocolFeeCurrency(key.currency0);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0});
 
-        IMemeverseUniswapHook.SwapQuote memory hookQuote = hook.quoteSwap(key, params);
-        IMemeverseUniswapHook.SwapQuote memory routerQuote = router.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory hookQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory routerQuote = router.quoteSwap(key, params, address(this));
 
         assertEq(routerQuote.feeBps, hookQuote.feeBps, "feeBps");
         assertEq(routerQuote.estimatedUserInputAmount, hookQuote.estimatedUserInputAmount, "user input");

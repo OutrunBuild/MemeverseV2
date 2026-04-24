@@ -68,7 +68,7 @@ contract RouterSettlementAccountingHandler is Test {
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
 
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("regular"));
@@ -92,7 +92,7 @@ contract RouterSettlementAccountingHandler is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("public-swap"));
@@ -154,7 +154,7 @@ contract RouterSettlementSpoofHandler is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         try router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("public-swap")) returns (

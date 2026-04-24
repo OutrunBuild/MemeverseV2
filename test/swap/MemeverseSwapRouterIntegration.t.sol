@@ -22,7 +22,7 @@ contract MemeverseSwapRouterIntegrationTest is RealisticSwapIntegrationBase {
         SwapParams memory params = SwapParams({
             zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
         });
-        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 payer0Before = token0.balanceOf(address(this));
         uint256 payer1Before = token1.balanceOf(address(this));
         uint256 treasury0Before = token0.balanceOf(treasury);
@@ -52,7 +52,7 @@ contract MemeverseSwapRouterIntegrationTest is RealisticSwapIntegrationBase {
         SwapParams memory params = SwapParams({
             zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
         });
-        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 payer0Before = token0.balanceOf(address(this));
         uint256 payer1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);

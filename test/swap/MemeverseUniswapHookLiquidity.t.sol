@@ -260,16 +260,24 @@ contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
         return _spotX18FromSqrtPrice(sqrtPriceX96);
     }
 
-    function exposedPriceMovePpmCappedToShort(uint160 preSqrtPriceX96, uint160 postSqrtPriceX96)
+    function exposedPriceMovePpmCapped(uint160 preSqrtPriceX96, uint160 postSqrtPriceX96)
         external
         pure
         returns (uint256)
     {
-        return _priceMovePpmCappedToShort(preSqrtPriceX96, postSqrtPriceX96);
+        return _priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
     }
 
     function exposedCachedLpTotalSupply(PoolId poolId) external view returns (uint256) {
         return cachedLpTotalSupply[poolId];
+    }
+
+    function exposedSetBatchState(PoolId poolId, address account, uint192 accumPpm, uint64 startTs) external {
+        _addressBatchState[account][poolId] = AddressBatchState({batchAccumPpm: accumPpm, batchStartTs: startTs});
+    }
+
+    function exposedVolatilitySqrtFeeBps(uint256 accumulator) external pure returns (uint256) {
+        return _volatilitySqrtFeeBps(accumulator);
     }
 
     function exposedPopulateDynamicFeeQuote(
@@ -294,7 +302,7 @@ contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
         state.shortImpactPpm = shortImpactPpm;
         state.shortLastTs = shortLastTs;
 
-        _populateDynamicFeeQuoteFromState(quote, state);
+        _populateDynamicFeeQuoteFromState(quote, state, PoolId.wrap(bytes32(0)), address(0));
     }
 }
 
@@ -355,7 +363,8 @@ contract ReentrantExitRecipient {
                 tickSpacing: 200,
                 hooks: IHooks(address(hook))
             }),
-            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: 0})
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: 0}),
+            address(this)
         ) returns (
             IMemeverseUniswapHook.SwapQuote memory
         ) {
@@ -389,10 +398,10 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     uint256 internal constant Q128 = uint256(1) << 128;
     uint256 internal constant E18 = 1e18;
     uint256 internal constant PPM_BASE = 1_000_000;
-    uint256 internal constant SHORT_CAP_PPM = 150_000;
+    uint256 internal constant SHORT_CAP_PPM = 100_000;
     uint256 internal constant SHORT_FLOOR_PPM = 20_000;
-    uint256 internal constant SHORT_COEFF_BPS = 2_000;
-    uint256 internal constant PIF_CAP_PPM = 60_000;
+    uint256 internal constant SHORT_COEFF_BPS = 2_500;
+    uint256 internal constant PIF_CAP_PPM = 150_000;
     uint256 internal constant FEE_BASE_BPS = 100;
     uint256 internal constant FEE_DFF_MAX_PPM = 800_000;
     uint256 internal constant BPS_BASE = 10_000;
@@ -768,7 +777,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         hook.setProtocolFeeCurrency(key.currency0);
 
         IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
 
         vm.prank(address(mockManager));
         hook.beforeSwap(
@@ -830,7 +839,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
 
         vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
-        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
 
         vm.prank(address(mockManager));
         vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
@@ -990,13 +999,13 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Covers the `CurrencyNotSupported` branch in fee-context resolution.
     function testQuoteSwapReverts_WhenProtocolFeeCurrencyUnsupported() external {
         vm.expectRevert(IMemeverseUniswapHook.CurrencyNotSupported.selector);
-        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
     }
 
     function testQuoteSwapReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
-        hook.quoteSwap(nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+        hook.quoteSwap(nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
     }
 
     function testDirectManagerSwapReverts_WhenPairUsesNativeCurrency() external {
@@ -1068,7 +1077,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         vm.warp(block.timestamp + 900);
 
         IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
         uint256 expectedPoolInput = quote.estimatedUserInputAmount - quote.estimatedLpFeeAmount;
         uint256 treasury0Before = token0.balanceOf(hook.treasury());
 
@@ -1249,17 +1258,17 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         hook.setProtocolFeeCurrency(key.currency0);
 
         IMemeverseUniswapHook.SwapQuote memory initialQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
         assertEq(initialQuote.feeBps, 5000, "initial launch fee");
 
         vm.warp(block.timestamp + 900);
 
         IMemeverseUniswapHook.SwapQuote memory maturedQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}));
+            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
         assertEq(maturedQuote.feeBps, 100, "matured fee");
     }
 
-    function testDynamicFeeQuote_RevertingTradeStillPaysVolatilityAndShortImpact() external view {
+    function testDynamicFeeQuote_RevertingTradePaysBaseFeeOnly() external view {
         MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
             pifPpm: 50_000,
             spotBeforeX18: 1.3e18,
@@ -1273,13 +1282,9 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         assertFalse(quote.isAdverse, "reverting quote should not be adverse");
         assertEq(quote.adverseImpactPartBps, 0, "reverting quote adverse impact");
-        assertGt(quote.volatilityPartBps, 0, "reverting quote volatility surcharge");
-        assertGt(quote.shortImpactPartBps, 0, "reverting quote short-impact surcharge");
-        assertEq(
-            quote.feeBps,
-            hook.exposedBaseFeeBps() + quote.volatilityPartBps + quote.shortImpactPartBps,
-            "reverting quote fee composition"
-        );
+        assertEq(quote.volatilityPartBps, 0, "reverting quote volatility surcharge");
+        assertEq(quote.shortImpactPartBps, 0, "reverting quote short-impact surcharge");
+        assertEq(quote.feeBps, hook.exposedBaseFeeBps(), "reverting quote fee is base only");
     }
 
     function testDynamicFeeQuote_AdverseTradeStillPaysAllThreeSurcharges() external view {
@@ -1305,7 +1310,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
-    function testDynamicFeeQuote_RevertingTradeCostsLessThanAdverseButMoreThanBase() external view {
+    function testDynamicFeeQuote_RevertingTradeCostsBaseAndLessThanAdverse() external view {
         MemeverseUniswapHook.DynamicFeeQuote memory revertingQuote = hook.exposedPopulateDynamicFeeQuote({
             pifPpm: 50_000,
             spotBeforeX18: 1.3e18,
@@ -1328,8 +1333,48 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         });
 
         uint256 baseFeeBps = hook.exposedBaseFeeBps();
-        assertGt(revertingQuote.feeBps, baseFeeBps, "reverting quote above base");
+        assertEq(revertingQuote.feeBps, baseFeeBps, "reverting quote equals base");
         assertLt(revertingQuote.feeBps, adverseQuote.feeBps, "reverting quote below adverse");
+    }
+
+    function testDynamicFeeQuote_BatchAccumulationIncreasesAdverseFee() external {
+        // Pre-populate batch state with accumulated PIF.
+        // exposedPopulateDynamicFeeQuote uses PoolId.wrap(bytes32(0)) and address(0) internally,
+        // so we must match those exact keys for the batch lookup to find our state.
+        uint192 existingAccum = 50_000; // 50K ppm already accumulated
+        hook.exposedSetBatchState(PoolId.wrap(bytes32(0)), address(0), existingAccum, uint64(block.timestamp));
+
+        // No EWVWAP history => always adverse. The batch accumulator adds 50K ppm on top of
+        // the single-trade pifPpm, so the adverse fee part must be strictly positive.
+        MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
+            pifPpm: 10_000,
+            spotBeforeX18: 1e18,
+            spotAfterX18: 1.01e18,
+            weightedVolume0: 0,
+            ewVWAPX18: 0,
+            volDeviationAccumulator: 0,
+            shortImpactPpm: 0,
+            shortLastTs: 0
+        });
+
+        assertGt(quote.adverseImpactPartBps, 0, "batch adverse fee > 0");
+    }
+
+    function testVolatilitySqrtFeeBps_ZeroAccumulator() external view {
+        assertEq(hook.exposedVolatilitySqrtFeeBps(0), 0, "zero accumulator must yield 0 bps");
+    }
+
+    function testVolatilitySqrtFeeBps_MaxAccumulator_IsExactly50Bps() external view {
+        assertEq(
+            hook.exposedVolatilitySqrtFeeBps(1_500_000),
+            50,
+            "max accumulator must yield exactly VOL_MAX_FEE_BPS"
+        );
+    }
+
+    function testVolatilitySqrtFeeBps_HalfAccumulator() external view {
+        // sqrt(0.5) * 50 ≈ 35.35 → 35 bps with integer truncation
+        assertEq(hook.exposedVolatilitySqrtFeeBps(750_000), 35, "half accumulator");
     }
 
     function testMath_SpotX18FromSqrtPrice_ExactAtReferencePoints() external view {
@@ -1365,60 +1410,58 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
-    function testMath_PriceMovePpmCappedToShort_ReturnsZeroWhenUnchanged() external view {
-        assertEq(hook.exposedPriceMovePpmCappedToShort(SQRT_PRICE_1_1, SQRT_PRICE_1_1), 0, "unchanged");
+    function testMath_PriceMovePpmCapped_ReturnsZeroWhenUnchanged() external view {
+        assertEq(hook.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, SQRT_PRICE_1_1), 0, "unchanged");
     }
 
-    function testMath_PriceMovePpmCappedToShort_MatchesKnownLowerBoundSample() external view {
+    function testMath_PriceMovePpmCapped_MatchesKnownLowerBoundSample() external view {
         uint160 pre = TickMath.MIN_SQRT_PRICE + 1;
         uint160 post = pre + 500_000;
 
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, post), 232, "hook lower bound");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, post), 232, "hook lower bound");
     }
 
-    function testMath_PriceMovePpmCappedToShort_SaturatesAtCapInBothDirections() external view {
+    function testMath_PriceMovePpmCapped_SaturatesAtCapInBothDirections() external view {
         uint160 pre = SQRT_PRICE_1_1;
 
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, TickMath.MAX_SQRT_PRICE - 1), SHORT_CAP_PPM, "up saturates");
-        assertEq(
-            hook.exposedPriceMovePpmCappedToShort(pre, TickMath.MIN_SQRT_PRICE + 1), SHORT_CAP_PPM, "down saturates"
-        );
+        assertEq(hook.exposedPriceMovePpmCapped(pre, TickMath.MAX_SQRT_PRICE - 1), PIF_CAP_PPM, "up saturates");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, TickMath.MIN_SQRT_PRICE + 1), PIF_CAP_PPM, "down saturates");
     }
 
-    function testMath_PriceMovePpmCappedToShort_Preserves59999And60000BoundariesUp() external view {
+    function testMath_PriceMovePpmCapped_Preserves59999And60000BoundariesUp() external view {
         uint160 pre = SQRT_PRICE_1_1;
 
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_59_999_UP_POST), 59_999, "hook 59999 up");
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_60_000_UP_POST), 60_000, "hook 60000 up");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_59_999_UP_POST), 59_999, "hook 59999 up");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_60_000_UP_POST), 60_000, "hook 60000 up");
     }
 
-    function testMath_PriceMovePpmCappedToShort_Preserves59999And60000BoundariesDown() external view {
+    function testMath_PriceMovePpmCapped_Preserves59999And60000BoundariesDown() external view {
         uint160 pre = SQRT_PRICE_1_1;
 
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_59_999_DOWN_POST), 59_999, "hook 59999 down");
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_60_000_DOWN_POST), 60_000, "hook 60000 down");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_59_999_DOWN_POST), 59_999, "hook 59999 down");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_60_000_DOWN_POST), 60_000, "hook 60000 down");
     }
 
-    function testMath_PriceMovePpmCappedToShort_Preserves149999And150000BoundariesUp() external view {
+    function testMath_PriceMovePpmCapped_Preserves149999And150000BoundariesUp() external view {
         uint160 pre = SQRT_PRICE_1_1;
 
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_149_999_UP_POST), 149_999, "hook 149999 up");
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_150_000_UP_POST), 150_000, "hook 150000 up");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_149_999_UP_POST), 149_999, "hook 149999 up");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_150_000_UP_POST), 150_000, "hook 150000 up");
     }
 
-    function testMath_PriceMovePpmCappedToShort_Preserves149999And150000BoundariesDown() external view {
+    function testMath_PriceMovePpmCapped_Preserves149999And150000BoundariesDown() external view {
         uint160 pre = SQRT_PRICE_1_1;
 
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_149_999_DOWN_POST), 149_999, "hook 149999 down");
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_150_000_DOWN_POST), 150_000, "hook 150000 down");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_149_999_DOWN_POST), 149_999, "hook 149999 down");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_150_000_DOWN_POST), 150_000, "hook 150000 down");
     }
 
-    function testMath_PriceMovePpmCappedToShort_UsesExactFallbackOutsideCapEdges() external view {
+    function testMath_PriceMovePpmCapped_UsesExactFallbackOutsideCapEdges() external view {
         uint160 pre = SQRT_PRICE_1_1;
         uint160 post = PRICE_MOVE_AMBIGUOUS_POST;
 
         assertEq(_approxRatioMovePpm(pre, post), 999, "approx candidate");
-        assertEq(hook.exposedPriceMovePpmCappedToShort(pre, post), 1000, "hook exact");
+        assertEq(hook.exposedPriceMovePpmCapped(pre, post), 1000, "hook exact");
     }
 
     function testMath_DynamicFeeQuote_Tracks59999And60000AdverseFeeBoundary() external view {
@@ -1426,7 +1469,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         uint256 spotBefore = hook.exposedSpotX18FromSqrtPrice(pre);
 
         MemeverseUniswapHook.DynamicFeeQuote memory quote59999 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_59_999_UP_POST),
+            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_59_999_UP_POST),
             spotBeforeX18: spotBefore,
             spotAfterX18: hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_59_999_UP_POST),
             weightedVolume0: 0,
@@ -1436,7 +1479,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             shortLastTs: 0
         });
         MemeverseUniswapHook.DynamicFeeQuote memory quote60000 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_60_000_UP_POST),
+            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_60_000_UP_POST),
             spotBeforeX18: spotBefore,
             spotAfterX18: hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_60_000_UP_POST),
             weightedVolume0: 0,
@@ -1448,8 +1491,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         assertEq(quote59999.pifPpm, 59_999, "pif 59999");
         assertEq(quote60000.pifPpm, 60_000, "pif 60000");
-        assertEq(quote59999.feeBps, _expectedAdverseFeeBps(59_999), "fee 59999");
-        assertEq(quote60000.feeBps, _expectedAdverseFeeBps(60_000), "fee 60000");
+        assertEq(quote59999.feeBps, _expectedFeeBps(59_999), "fee 59999");
+        assertEq(quote60000.feeBps, _expectedFeeBps(60_000), "fee 60000");
         assertLt(quote59999.feeBps, quote60000.feeBps, "fee boundary ordering");
     }
 
@@ -1460,21 +1503,21 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         uint256 spot150000 = hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_150_000_UP_POST);
 
         MemeverseUniswapHook.DynamicFeeQuote memory quote149999 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_149_999_UP_POST),
+            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_149_999_UP_POST),
             spotBeforeX18: spotBefore,
             spotAfterX18: spot149999,
-            weightedVolume0: 1,
-            ewVWAPX18: spot149999,
+            weightedVolume0: 0,
+            ewVWAPX18: 0,
             volDeviationAccumulator: 0,
             shortImpactPpm: 0,
             shortLastTs: 0
         });
         MemeverseUniswapHook.DynamicFeeQuote memory quote150000 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCappedToShort(pre, PRICE_MOVE_150_000_UP_POST),
+            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_150_000_UP_POST),
             spotBeforeX18: spotBefore,
             spotAfterX18: spot150000,
-            weightedVolume0: 1,
-            ewVWAPX18: spot150000,
+            weightedVolume0: 0,
+            ewVWAPX18: 0,
             volDeviationAccumulator: 0,
             shortImpactPpm: 0,
             shortLastTs: 0
@@ -1482,8 +1525,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         assertEq(quote149999.pifPpm, 149_999, "pif 149999");
         assertEq(quote150000.pifPpm, 150_000, "pif 150000");
-        assertEq(quote149999.shortImpactPartBps, 259, "short 149999");
-        assertEq(quote150000.shortImpactPartBps, 260, "short 150000");
+        assertEq(quote149999.shortImpactPartBps, _expectedShortBps(149_999), "short 149999");
+        assertEq(quote150000.shortImpactPartBps, _expectedShortBps(150_000), "short 150000");
     }
 
     /// @notice Verifies launch settlement can only be initiated by the bound launcher.
@@ -1611,13 +1654,20 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     function _expectedAdverseFeeBps(uint256 pifPpm) internal pure returns (uint256) {
-        uint256 cappedPif = pifPpm > PIF_CAP_PPM ? PIF_CAP_PPM : pifPpm;
-        uint256 satPpm = FullMath.mulDiv(cappedPif, PPM_BASE, cappedPif + PIF_CAP_PPM);
+        uint256 satPpm = FullMath.mulDiv(pifPpm, PPM_BASE, pifPpm + PIF_CAP_PPM);
         uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
-        uint256 dynamicPpm = FullMath.mulDiv(dffPpm, cappedPif, PPM_BASE);
-        uint256 shortPpm = pifPpm > SHORT_FLOOR_PPM ? pifPpm - SHORT_FLOOR_PPM : 0;
-        uint256 shortImpactPartBps = FullMath.mulDiv(shortPpm, SHORT_COEFF_BPS, PPM_BASE);
-        return FEE_BASE_BPS + (dynamicPpm / (PPM_BASE / BPS_BASE)) + shortImpactPartBps;
+        uint256 dynamicPpm = FullMath.mulDiv(dffPpm, pifPpm, PPM_BASE);
+        return dynamicPpm / (PPM_BASE / BPS_BASE);
+    }
+
+    function _expectedShortBps(uint256 pifPpm) internal pure returns (uint256) {
+        uint256 projected = pifPpm > SHORT_CAP_PPM ? SHORT_CAP_PPM : pifPpm;
+        uint256 chargeable = projected > SHORT_FLOOR_PPM ? projected - SHORT_FLOOR_PPM : 0;
+        return FullMath.mulDiv(chargeable, SHORT_COEFF_BPS, PPM_BASE);
+    }
+
+    function _expectedFeeBps(uint256 pifPpm) internal pure returns (uint256) {
+        return FEE_BASE_BPS + _expectedAdverseFeeBps(pifPpm) + _expectedShortBps(pifPpm);
     }
 
     /// @notice Funds the test account and initializes a native-input pool.

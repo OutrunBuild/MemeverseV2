@@ -69,8 +69,9 @@ interface IMemeverseSwapRouter {
     /// @dev This router-first facade keeps quote logic centralized while reusing the hook's internal math.
     /// @param key Pool key being quoted.
     /// @param params Swap parameters that define direction, amount, and slippage posture.
+    /// @param trader Address whose per-address batch state determines the adverse fee component.
     /// @return quote A projected swap quote describing fees, estimated user input/output, and protocol split.
-    function quoteSwap(PoolKey calldata key, SwapParams calldata params)
+    function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
         external
         view
         returns (IMemeverseUniswapHook.SwapQuote memory quote);

@@ -27,7 +27,7 @@ contract MemeverseDynamicFeeSimulation is Test {
     uint256 internal constant DEFAULT_HIGH_FREQUENCY_SWAPS = 300;
     uint256 internal constant DEFAULT_HIGH_FREQUENCY_INTERVAL_SEC = 1;
     uint256 internal constant DEFAULT_INITIAL_LIQUIDITY_SCALE_X = 1;
-    uint256 internal constant DEFAULT_RETAIL_FLOW_DURATION_SEC = 3600;
+    uint256 internal constant DEFAULT_RETAIL_FLOW_DURATION_SEC = 600; // reduced from 3600 to avoid OOG with per-swap batch storage overhead
     uint256 internal constant DEFAULT_RETAIL_FLOW_MIN_TX_PER_SEC = 1;
     uint256 internal constant DEFAULT_RETAIL_FLOW_MAX_TX_PER_SEC = 5;
     uint256 internal constant DEFAULT_RETAIL_FLOW_MAX_FEE_BPS = 500;
@@ -45,12 +45,13 @@ contract MemeverseDynamicFeeSimulation is Test {
         uint24 volFilterPeriodSec;
         uint24 volDecayPeriodSec;
         uint24 volDecayFactorBps;
-        uint24 volQuadraticFeeControl;
+        uint24 volMaxFeeBps;
         uint24 volMaxDeviationAccumulator;
         uint24 shortDecayWindowSec;
         uint24 shortCoeffBps;
         uint24 shortFloorPpm;
         uint24 shortCapPpm;
+        uint24 volIncrementPerStep; // matches production VOL_INCREMENT_PER_STEP
     }
 
     struct EWVWAPParams {
@@ -117,8 +118,19 @@ contract MemeverseDynamicFeeSimulation is Test {
         uint256 lastExecutedImpactBps;
     }
 
+    uint256 internal constant ADDRESS_BATCH_WINDOW_SEC = 3;
+
+    address internal constant ADDR_ATTACKER = address(0x1);
+    address internal constant ADDR_VICTIM = address(0x2);
+
+    struct AddressBatchState {
+        uint192 batchAccumPpm;
+        uint64 batchStartTs;
+    }
+
     PoolConfig internal cfg;
     EWVWAPParams internal ewState;
+    mapping(address => AddressBatchState) internal addrBatch;
     uint160 internal simPrice;
     uint128 internal simLiquidity;
     uint128 internal initialLiquidity;
@@ -137,17 +149,18 @@ contract MemeverseDynamicFeeSimulation is Test {
             dffMaxPpm: 800_000,
             baseFeeBps: 100,
             maxFeeBps: 10_000,
-            pifCapPpm: 60_000,
+            pifCapPpm: 150_000,
             volDeviationStepBps: 1,
             volFilterPeriodSec: 10,
             volDecayPeriodSec: 60,
             volDecayFactorBps: 5_000,
-            volQuadraticFeeControl: 4_500_000,
-            volMaxDeviationAccumulator: 350_000,
+            volMaxFeeBps: 50,
+            volMaxDeviationAccumulator: 1_500_000,
             shortDecayWindowSec: 15,
-            shortCoeffBps: 2_000,
+            shortCoeffBps: 2_500,
             shortFloorPpm: 20_000,
-            shortCapPpm: 150_000
+            shortCapPpm: 100_000,
+            volIncrementPerStep: 1_000
         });
     }
 
@@ -165,6 +178,8 @@ contract MemeverseDynamicFeeSimulation is Test {
             shortImpactPpm: 0,
             shortLastTs: 0
         });
+        addrBatch[ADDR_ATTACKER] = AddressBatchState(0, 0);
+        addrBatch[ADDR_VICTIM] = AddressBatchState(0, 0);
     }
 
     function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -226,16 +241,21 @@ contract MemeverseDynamicFeeSimulation is Test {
         return ((sqrtRatioX18 - PRECISION) * BPS_BASE * 2) / (uint256(cfg.volDeviationStepBps) * PRECISION);
     }
 
-    function _volatilityQuadraticFeeBps() internal view returns (uint256) {
-        if (ewState.volDeviationAccumulator == 0 || cfg.volDeviationStepBps == 0 || cfg.volQuadraticFeeControl == 0) {
-            return 0;
-        }
+    function _volatilitySqrtFeeBps() internal view returns (uint256) {
+        if (ewState.volDeviationAccumulator == 0) return 0;
+        return _sqrt(
+            ewState.volDeviationAccumulator * uint256(cfg.volMaxFeeBps) ** 2 / uint256(cfg.volMaxDeviationAccumulator)
+        );
+    }
 
-        uint256 scaledAccumulator = ewState.volDeviationAccumulator * uint256(cfg.volDeviationStepBps);
-        scaledAccumulator *= scaledAccumulator;
-        uint256 variableFeeNumerator =
-            (scaledAccumulator * uint256(cfg.volQuadraticFeeControl) + 100_000_000_000 - 1) / 100_000_000_000;
-        return variableFeeNumerator / 100_000;
+    function _sqrt(uint256 x) internal pure returns (uint256 z) {
+        if (x == 0) return 0;
+        z = x;
+        uint256 y = (x + 1) / 2;
+        while (y < z) {
+            z = y;
+            y = (x / y + y) / 2;
+        }
     }
 
     function _predictPostSqrtPrice(uint160 preSqrtPriceX96, bool zeroForOne, uint256 amountIn)
@@ -244,7 +264,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         returns (uint160)
     {
         if (zeroForOne) {
-            uint256 reserveIn = (uint256(simLiquidity) * uint256(preSqrtPriceX96)) / Q96;
+            uint256 reserveIn = (uint256(simLiquidity) * Q96) / uint256(preSqrtPriceX96);
             uint256 newReserveIn = reserveIn + amountIn;
             uint256 next = FullMath.mulDiv(uint256(simLiquidity), Q96, newReserveIn);
             return next == 0 ? 1 : uint160(next);
@@ -280,7 +300,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         return ((500 + (draw % 1_501)) * U) * retailFlowOrderScaleX;
     }
 
-    function _quoteDynamicFeeBps(uint160 prePrice, uint160 postPrice)
+    function _quoteDynamicFeeBps(address sender, uint160 prePrice, uint160 postPrice)
         internal
         view
         returns (uint256 feeBps, uint256 pifPpm)
@@ -297,13 +317,18 @@ contract MemeverseDynamicFeeSimulation is Test {
             if (distAfter <= distBefore) return (feeBps, pifPpm);
         }
 
-        uint256 cappedPif = pifPpm > cfg.pifCapPpm ? cfg.pifCapPpm : pifPpm;
-        uint256 satPpm = (cappedPif * PPM_BASE) / (cappedPif + cfg.pifCapPpm);
+        uint256 effectivePifPpm = pifPpm;
+        AddressBatchState memory bs = addrBatch[sender];
+        if (bs.batchStartTs > 0 && block.timestamp - uint256(bs.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC) {
+            effectivePifPpm = uint256(bs.batchAccumPpm) + pifPpm;
+        }
+
+        uint256 satPpm = (effectivePifPpm * PPM_BASE) / (effectivePifPpm + cfg.pifCapPpm);
         uint256 dffPpm = (uint256(cfg.dffMaxPpm) * satPpm) / PPM_BASE;
-        uint256 dynamicPpm = (dffPpm * cappedPif) / PPM_BASE;
+        uint256 dynamicPpm = (dffPpm * effectivePifPpm) / PPM_BASE;
         uint256 adverseImpactPartBps = _ppmToBps(dynamicPpm);
 
-        uint256 volatilityPartBps = _volatilityQuadraticFeeBps();
+        uint256 volatilityPartBps = _volatilitySqrtFeeBps();
 
         uint256 decayedShortPpm = _decayLinearPpm(ewState.shortImpactPpm, ewState.shortLastTs);
         uint256 projectedShortPpm = decayedShortPpm + pifPpm;
@@ -315,7 +340,15 @@ contract MemeverseDynamicFeeSimulation is Test {
         if (feeBps > cfg.maxFeeBps) feeBps = cfg.maxFeeBps;
     }
 
-    function _updateStateAfterSwap(uint160 postPrice, uint256 volume0, uint256 pifPpm) internal {
+    function _updateStateAfterSwap(address sender, uint160 postPrice, uint256 volume0, uint256 pifPpm) internal {
+        // per-address batch accumulator
+        AddressBatchState storage bs = addrBatch[sender];
+        if (bs.batchStartTs > 0 && block.timestamp - uint256(bs.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC) {
+            bs.batchAccumPpm = uint192(uint256(bs.batchAccumPpm) + pifPpm);
+        } else {
+            bs.batchAccumPpm = uint192(pifPpm);
+            bs.batchStartTs = uint64(block.timestamp);
+        }
         uint256 decayedShortPpm = _decayLinearPpm(ewState.shortImpactPpm, ewState.shortLastTs);
         uint256 updatedShortPpm = decayedShortPpm + pifPpm;
         if (updatedShortPpm > cfg.shortCapPpm) updatedShortPpm = cfg.shortCapPpm;
@@ -323,7 +356,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         ewState.shortLastTs = block.timestamp;
 
         uint256 deltaSteps = _volatilityDeltaSteps(ewState.volAnchorSqrtPriceX96, postPrice);
-        uint256 updatedVolAccumulator = ewState.volCarryAccumulator + deltaSteps * BPS_BASE;
+        uint256 updatedVolAccumulator = ewState.volCarryAccumulator + deltaSteps * uint256(cfg.volIncrementPerStep);
         if (updatedVolAccumulator > cfg.volMaxDeviationAccumulator) {
             updatedVolAccumulator = cfg.volMaxDeviationAccumulator;
         }
@@ -348,7 +381,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         }
     }
 
-    function _simulateOneSwap(uint256 inputU, bool zeroForOne)
+    function _simulateOneSwap(address sender, uint256 inputU, bool zeroForOne)
         internal
         returns (uint256 feeBps, uint256 impactBps, uint256 feeAmount, uint256 volume0)
     {
@@ -357,7 +390,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         _refreshVolatilityAnchorAndCarry(pre);
 
         uint256 pifPpm;
-        (feeBps, pifPpm) = _quoteDynamicFeeBps(pre, post);
+        (feeBps, pifPpm) = _quoteDynamicFeeBps(sender, pre, post);
 
         feeAmount = (inputU * feeBps) / BPS_BASE;
         impactBps = _ppmToBps(pifPpm);
@@ -370,7 +403,7 @@ contract MemeverseDynamicFeeSimulation is Test {
             volume0 = reserve0Before > reserve0After ? reserve0Before - reserve0After : reserve0After - reserve0Before;
         }
 
-        _updateStateAfterSwap(post, volume0, pifPpm);
+        _updateStateAfterSwap(sender, post, volume0, pifPpm);
         simPrice = post;
     }
 
@@ -383,7 +416,8 @@ contract MemeverseDynamicFeeSimulation is Test {
         out.n = n;
 
         _resetSimulation();
-        (out.oneBigFeeBps, out.oneBigImpactBps, out.oneBigFeeAmount,) = _simulateOneSwap(totalInputU, false);
+        (out.oneBigFeeBps, out.oneBigImpactBps, out.oneBigFeeAmount,) =
+            _simulateOneSwap(ADDR_ATTACKER, totalInputU, false);
 
         _resetSimulation();
         uint256 basePer = totalInputU / n;
@@ -395,7 +429,7 @@ contract MemeverseDynamicFeeSimulation is Test {
             uint256 thisInput = basePer;
             if (i == n) thisInput += rem;
 
-            (uint256 feeBps, uint256 impactBps, uint256 feeAmount,) = _simulateOneSwap(thisInput, false);
+            (uint256 feeBps, uint256 impactBps, uint256 feeAmount,) = _simulateOneSwap(ADDR_ATTACKER, thisInput, false);
             out.batchFeeAmount += feeAmount;
             sumFee += feeBps;
             sumImpact += impactBps;
@@ -424,7 +458,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         out.victimInputU = victimInputU;
 
         _resetSimulation();
-        (out.baselineVictimFeeBps, out.baselineVictimImpactBps,,) = _simulateOneSwap(victimInputU, false);
+        (out.baselineVictimFeeBps, out.baselineVictimImpactBps,,) = _simulateOneSwap(ADDR_VICTIM, victimInputU, false);
 
         _resetSimulation();
         uint256 sumFee;
@@ -435,7 +469,7 @@ contract MemeverseDynamicFeeSimulation is Test {
             uint256 thisInput = out.attackerPerSwapInputU;
             if (i == attackerN) thisInput += attackerTotalInputU % attackerN;
 
-            (uint256 feeBps, uint256 impactBps, uint256 feeAmount,) = _simulateOneSwap(thisInput, false);
+            (uint256 feeBps, uint256 impactBps, uint256 feeAmount,) = _simulateOneSwap(ADDR_ATTACKER, thisInput, false);
             totalAttackerFee += feeAmount;
             sumFee += feeBps;
             sumImpact += impactBps;
@@ -450,12 +484,13 @@ contract MemeverseDynamicFeeSimulation is Test {
         out.attackerEffectiveFeeBps = (totalAttackerFee * BPS_BASE) / attackerTotalInputU;
 
         if (perSecond) vm.warp(block.timestamp + 1);
-        (out.victimFeeWithHistoryBps, out.victimImpactWithHistoryBps,,) = _simulateOneSwap(victimInputU, false);
+        (out.victimFeeWithHistoryBps, out.victimImpactWithHistoryBps,,) =
+            _simulateOneSwap(ADDR_VICTIM, victimInputU, false);
 
         uint160 preservedPrice = simPrice;
         _resetSimulation();
         simPrice = preservedPrice;
-        (out.victimFeeNoHistoryBps, out.victimImpactNoHistoryBps,,) = _simulateOneSwap(victimInputU, false);
+        (out.victimFeeNoHistoryBps, out.victimImpactNoHistoryBps,,) = _simulateOneSwap(ADDR_VICTIM, victimInputU, false);
     }
 
     function _simulateRetailFlow(
@@ -490,6 +525,7 @@ contract MemeverseDynamicFeeSimulation is Test {
             for (uint256 tradeIndex = 0; tradeIndex < txCountThisSecond; tradeIndex++) {
                 bool zeroForOne = (_rand(seed, secondIndex, tradeIndex, 4) % PPM_BASE) >= buyBiasPpm;
                 uint256 inputU = _sampleRetailTradeInputU(seed, secondIndex, tradeIndex);
+                address trader = address(uint160(_rand(seed, secondIndex, tradeIndex, 5)));
 
                 out.candidateTrades++;
                 out.candidateVolumeU += inputU;
@@ -498,7 +534,7 @@ contract MemeverseDynamicFeeSimulation is Test {
 
                 uint160 prePrice = simPrice;
                 uint160 postPrice = _predictPostSqrtPrice(prePrice, zeroForOne, inputU);
-                (uint256 quotedFeeBps,) = _quoteDynamicFeeBps(prePrice, postPrice);
+                (uint256 quotedFeeBps,) = _quoteDynamicFeeBps(trader, prePrice, postPrice);
 
                 sumQuotedFeeBps += quotedFeeBps;
                 if (quotedFeeBps > out.maxQuotedFeeBps) out.maxQuotedFeeBps = quotedFeeBps;
@@ -509,7 +545,7 @@ contract MemeverseDynamicFeeSimulation is Test {
                     continue;
                 }
 
-                (uint256 feeBps, uint256 impactBps,,) = _simulateOneSwap(inputU, zeroForOne);
+                (uint256 feeBps, uint256 impactBps,,) = _simulateOneSwap(trader, inputU, zeroForOne);
                 out.executedTrades++;
                 out.executedVolumeU += inputU;
                 out.lastExecutedFeeBps = feeBps;
@@ -624,7 +660,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         uint256 sumFeeBps;
 
         for (uint256 i = 1; i <= swaps; i++) {
-            (lastFeeBps, lastImpactBps,,) = _simulateOneSwap(perSwapInputU, false);
+            (lastFeeBps, lastImpactBps,,) = _simulateOneSwap(ADDR_ATTACKER, perSwapInputU, false);
             sumFeeBps += lastFeeBps;
 
             if (logSampleOrders && (swaps <= 200 || i == 1 || i == swaps / 2 || i == swaps)) {
@@ -664,7 +700,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         uint256 lastFeeBps;
         uint256 volatileFeeSum;
         for (uint256 i = 0; i < volatileSwaps; i++) {
-            (lastFeeBps,,,) = _simulateOneSwap(volatileSwapInput, false);
+            (lastFeeBps,,,) = _simulateOneSwap(ADDR_ATTACKER, volatileSwapInput, false);
             volatileFeeSum += lastFeeBps;
             if (i < volatileSwaps - 1) vm.warp(block.timestamp + volatileIntervalSec);
         }
@@ -672,7 +708,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         assertGt(accumulatorBeforeCalm, 0, "accumulator must be non-zero after volatile swaps");
 
         // Record volatility part during volatile regime for comparison.
-        uint256 volatileVolPartBps = _volatilityQuadraticFeeBps();
+        uint256 volatileVolPartBps = _volatilitySqrtFeeBps();
         assertGt(volatileVolPartBps, 0, "volatility part must be positive during volatile regime");
 
         // 2. Warp past full decay: 120s > VOL_DECAY_PERIOD_SEC (60).
@@ -682,7 +718,7 @@ contract MemeverseDynamicFeeSimulation is Test {
         //    is immediately zeroed before any fee quote reads it.
         _refreshVolatilityAnchorAndCarry(simPrice);
         assertEq(ewState.volDeviationAccumulator, 0, "accumulator must be zero after full decay and refresh");
-        uint256 postCalmVolPartBps = _volatilityQuadraticFeeBps();
+        uint256 postCalmVolPartBps = _volatilitySqrtFeeBps();
         assertEq(postCalmVolPartBps, 0, "volatility part must be zero after full decay");
 
         // 4. Compare: if the bug were present (no sync), the quoted volatility part for the

@@ -85,9 +85,13 @@ interface IMemeverseUniswapHook {
      * available for custom routers, aggregators, and other advanced on-chain integrations.
      * @param key The pool key being quoted.
      * @param params The swap parameters being quoted.
+     * @param trader The address whose per-address batch state determines the adverse fee component.
      * @return quote The projected fee amounts, side, and estimated user/pool flows.
      */
-    function quoteSwap(PoolKey calldata key, SwapParams calldata params) external view returns (SwapQuote memory quote);
+    function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
+        external
+        view
+        returns (SwapQuote memory quote);
 
     /// @notice Exposes the launcher consulted for post-unlock public-swap protection.
     /// @dev Returns the explicit launcher binding used by hook implementations for launch-state checks.

@@ -111,9 +111,10 @@
 - Launch fee 是在 token launch 阶段（池初始化后的一段时间窗口内）对 swap 施加的额外费率保护。
 - 每个池的 launch 时间戳在 `beforeInitialize` 中记录为 `poolLaunchTimestamp[poolId]`。
 - Launch fee 与动态费叠加取 max：`effectiveFeeBps = max(dynamicFeeBps, launchFeeBps)`。
-- 动态费率由三部分组成：
+- **EWVWAP 豁免**：当池存在 EWVWAP 历史且交易方向回归 EWVWAP（即交易后 spot 距离 EWVWAP 更近）时，跳过全部动态费组件（adverse + volatility + short），直接返回 `baseFeeBps`。无历史时视为 adverse。此豁免大幅降低零售用户回归方向的费率负担。
+- 当不满足 EWVWAP 豁免时，动态费率由三部分组成：
   - **Adverse（per-address）**：基于 per-address 3 秒窗口内的累积 PIF 计算的逆向冲击费。同一地址在 3 秒内连续交易的 PIF 会累积，使拆单攻击面临与大单等同的费率。3 秒窗口从 batch 首笔交易开始计时，到期后重置。普通用户单笔交易不受影响。公式为软饱和曲线：`adverse = dffMax × effectivePif / (effectivePif + pifCap) × effectivePif / 1e6`。
-  - **Volatility（per-pool）**：基于波动率偏差累加器计算的波动费。使用 sqrt 曲线平滑费率响应（避免二元跳变），累加器按价格偏差步数增长，经 10 秒 filter period 和 60 秒 decay period 衰减。上限约 50 bps，由 `sqrt(acc × volQuadraticFeeControl) / 56125` 推导。
+  - **Volatility（per-pool）**：基于波动率偏差累加器计算的波动费。使用 sqrt 曲线平滑费率响应（避免二元跳变），累加器按价格偏差步数增长，经 10 秒 filter period 和 60 秒 decay period 衰减。实现采用整数公式 `floor(sqrt(accumulator * VOL_MAX_FEE_BPS^2 / VOL_MAX_DEVIATION_ACCUMULATOR))`；其中 `VOL_MAX_FEE_BPS = 50`、`VOL_MAX_DEVIATION_ACCUMULATOR = 1_500_000`，当累加器达到上限时精确得到 `50` bps，低累加器区间会因整数除法与整数开方产生截断。
   - **Short-term（per-pool）**：基于短期冲击累加器的快速交易惩罚。15 秒线性衰减窗口，2% floor 保护普通用户（累积 PIF 低于 floor 不收费），cap 限制最大 200 bps。
 - `dynamicFeeBps = baseFeeBps + adverseBps + volatilityBps + shortBps`，硬上限 `maxFeeBps = 10000`。
 

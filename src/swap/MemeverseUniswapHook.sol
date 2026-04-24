@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -83,17 +84,19 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     uint24 internal constant FEE_BASE_BPS = 100; // Minimum fee in bps.
     uint24 internal constant LAUNCH_SETTLEMENT_FEE_BPS = 100; // Fixed fee for preorder settlement swaps.
     uint24 internal constant FEE_MAX_BPS = 10_000; // Maximum fee in bps.
-    uint24 internal constant PIF_CAP_PPM = 60_000; // PIF cap for fee growth, ppm domain.
+    uint24 internal constant PIF_CAP_PPM = 150_000; // PIF cap for fee growth, ppm domain.
     uint24 internal constant VOL_DEVIATION_STEP_BPS = 1; // Reference-price deviation step in bps.
     uint24 internal constant VOL_FILTER_PERIOD_SEC = 10; // Time below this keeps current volatility anchor/carry.
     uint24 internal constant VOL_DECAY_PERIOD_SEC = 60; // Time above this fully clears carried volatility state.
     uint24 internal constant VOL_DECAY_FACTOR_BPS = 5_000; // Partial carry-over factor inside decay window.
-    uint24 internal constant VOL_QUADRATIC_FEE_CONTROL = 4_500_000; // Quadratic volatility fee control.
-    uint24 internal constant VOL_MAX_DEVIATION_ACCUMULATOR = 350_000; // Cap for volatility deviation state.
+    uint24 internal constant VOL_MAX_FEE_BPS = 50; // Max volatility fee when accumulator is at cap.
+    uint24 internal constant VOL_MAX_DEVIATION_ACCUMULATOR = 1_500_000; // Cap for volatility deviation state.
     uint24 internal constant SHORT_DECAY_WINDOW_SEC = 15; // Linear decay window for short-term impact state.
-    uint24 internal constant SHORT_COEFF_BPS = 2_000; // Short-term impact surcharge coefficient.
+    uint24 internal constant SHORT_COEFF_BPS = 2_500; // Short-term impact surcharge coefficient.
     uint24 internal constant SHORT_FLOOR_PPM = 20_000; // Free short-impact allowance before charging starts.
-    uint24 internal constant SHORT_CAP_PPM = 150_000; // Cap for short-term impact accumulator.
+    uint24 internal constant SHORT_CAP_PPM = 100_000; // Cap for short-term impact accumulator.
+    uint24 internal constant VOL_INCREMENT_PER_STEP = 1_000;
+    uint256 internal constant ADDRESS_BATCH_WINDOW_SEC = 3;
     uint256 internal constant UP_SHORT_BUCKET = 1072380529476360830;
     uint256 internal constant DOWN_SHORT_BUCKET = 921954445729288731;
     uint8 internal constant UNLOCK_ACTION_MODIFY_LIQUIDITY = 0;
@@ -122,6 +125,11 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         uint24 volCarryAccumulator; // Carried-over accumulator after filter/decay handling.
         uint24 shortImpactPpm; // Short-term cumulative impact accumulator (decay applied on read/update).
         uint40 shortLastTs; // Last timestamp for short-term impact decay.
+    }
+
+    struct AddressBatchState {
+        uint192 batchAccumPpm;
+        uint64 batchStartTs;
     }
 
     struct DynamicFeeQuote {
@@ -161,6 +169,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
     bool public emergencyFlag;
     mapping(PoolId => EWVWAPParams) public poolEWVWAPParams;
+    mapping(address => mapping(PoolId => AddressBatchState)) internal _addressBatchState;
 
     /// @param _manager Uniswap v4 pool manager.
     /// @param _owner Contract owner.
@@ -211,8 +220,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     /// is the intended router-side guardrail candidate for `amountInMaximum`.
     /// @param key The pool key being quoted.
     /// @param params The swap parameters being quoted.
+    /// @param trader Address whose per-address batch state determines the adverse fee component.
     /// @return quote The projected fee side, user flows, and fee split.
-    function quoteSwap(PoolKey calldata key, SwapParams calldata params)
+    function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
         external
         view
         override
@@ -225,7 +235,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
 
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        DynamicFeeQuote memory feeQuote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        DynamicFeeQuote memory feeQuote =
+            _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput, trader);
         uint256 lpFeeBps = _lpFeeBps(feeQuote.feeBps);
         uint256 protocolFeeBps = _protocolFeeBps(feeQuote.feeBps);
 
@@ -351,7 +362,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         _refreshVolatilityAnchorAndCarry(poolId, preSqrtPriceX96);
-        DynamicFeeQuote memory quote = _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput);
+        DynamicFeeQuote memory quote =
+            _quoteDynamicFee(poolId, params, preSqrtPriceX96, ctx.protocolFeeOnInput, tx.origin);
         uint256 dynamicFeeBps = quote.feeBps;
 
         uint256 lpFeeBps = _lpFeeBps(dynamicFeeBps);
@@ -412,7 +424,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         PoolId poolId = key.toId();
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
         (uint256 feeBps, uint160 preSqrtPriceX96,) = MemeverseTransientState.consumeCurrentSwapContext(poolId);
-        _updateDynamicStateAfterSwap(poolId, delta, preSqrtPriceX96);
+        if (!emergencyFlag) {
+            _updateDynamicStateAfterSwap(poolId, delta, preSqrtPriceX96, tx.origin);
+        }
 
         uint256 lpFeeBps = _lpFeeBps(feeBps);
         uint256 protocolFeeBps = _protocolFeeBps(feeBps);
@@ -722,7 +736,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         (uint160 preSwapSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
 
         BalanceDelta swapDelta = poolManager.swap(data.key, data.params, ZERO_BYTES);
-        _updateDynamicStateAfterSwap(poolId, swapDelta, preSwapSqrtPriceX96);
+        _updateDynamicStateAfterSwap(poolId, swapDelta, preSwapSqrtPriceX96, data.payer);
         int128 amount0 = swapDelta.amount0();
         int128 amount1 = swapDelta.amount1();
 
@@ -1090,11 +1104,13 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
     /// @dev Dynamic fee quote. Returns base-fee pricing in emergency mode and for zero-sized/zero-liquidity cases.
     /// Still estimates swap flow in emergency mode so exact-output callers receive usable input/output guardrails.
-    function _quoteDynamicFee(PoolId poolId, SwapParams calldata params, uint160 preSqrtPriceX96, bool feeOnInput)
-        internal
-        view
-        returns (DynamicFeeQuote memory quote)
-    {
+    function _quoteDynamicFee(
+        PoolId poolId,
+        SwapParams calldata params,
+        uint160 preSqrtPriceX96,
+        bool feeOnInput,
+        address sender
+    ) internal view returns (DynamicFeeQuote memory quote) {
         uint256 launchFeeBps = _quoteLaunchFeeBps(poolId);
         quote.feeBps = launchFeeBps > FEE_BASE_BPS ? launchFeeBps : FEE_BASE_BPS;
         if (params.amountSpecified == 0) return quote;
@@ -1112,7 +1128,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
                 params.amountSpecified,
                 feeOnInput,
                 true,
-                launchFeeBps
+                launchFeeBps,
+                poolId,
+                sender
             );
         }
 
@@ -1124,7 +1142,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             params.amountSpecified,
             feeOnInput,
             false,
-            launchFeeBps
+            launchFeeBps,
+            poolId,
+            sender
         );
     }
 
@@ -1154,7 +1174,9 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         int256 amountSpecified,
         bool feeOnInput,
         bool emergencyMode,
-        uint256 launchFeeBps
+        uint256 launchFeeBps,
+        PoolId poolId,
+        address sender
     ) internal view returns (DynamicFeeQuote memory quote) {
         quote.feeBps = launchFeeBps > FEE_BASE_BPS ? launchFeeBps : FEE_BASE_BPS;
         if (amountSpecified == 0 || liquidity == 0) return quote;
@@ -1176,8 +1198,8 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             if (!emergencyMode) {
                 quote.spotBeforeX18 = _spotX18FromSqrtPrice(preSqrtPriceX96);
                 quote.spotAfterX18 = _spotX18FromSqrtPrice(postSqrtPriceX96);
-                quote.pifPpm = _priceMovePpmCappedToShort(preSqrtPriceX96, postSqrtPriceX96);
-                _populateDynamicFeeQuoteFromState(quote, state);
+                quote.pifPpm = _priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
+                _populateDynamicFeeQuoteFromState(quote, state, poolId, sender);
             }
 
             if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
@@ -1216,7 +1238,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return quote;
     }
 
-    function _populateDynamicFeeQuoteFromState(DynamicFeeQuote memory quote, EWVWAPParams memory state) internal view {
+    function _populateDynamicFeeQuoteFromState(
+        DynamicFeeQuote memory quote,
+        EWVWAPParams memory state,
+        PoolId poolId,
+        address sender
+    ) internal view {
         bool hasHistory = state.weightedVolume0 > 0 && state.ewVWAPX18 > 0;
         if (hasHistory) {
             uint256 distBefore = _absDiff(quote.spotBeforeX18, state.ewVWAPX18);
@@ -1226,17 +1253,24 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             quote.isAdverse = true;
         }
 
-        if (quote.isAdverse) {
-            uint256 cappedPif = quote.pifPpm > PIF_CAP_PPM ? PIF_CAP_PPM : quote.pifPpm;
-            uint256 satPpm = FullMath.mulDiv(cappedPif, PPM_BASE, cappedPif + PIF_CAP_PPM);
+        if (hasHistory && !quote.isAdverse) {
+            quote.feeBps = FEE_BASE_BPS;
+            return;
+        }
+
+        {
+            uint256 effectivePifPpm = quote.pifPpm;
+            AddressBatchState memory bs = _addressBatchState[sender][poolId];
+            if (bs.batchStartTs > 0 && block.timestamp - uint256(bs.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC) {
+                effectivePifPpm = uint256(bs.batchAccumPpm) + quote.pifPpm;
+            }
+            uint256 satPpm = FullMath.mulDiv(effectivePifPpm, PPM_BASE, effectivePifPpm + PIF_CAP_PPM);
             uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
-            uint256 dynamicPpm = FullMath.mulDiv(dffPpm, cappedPif, PPM_BASE);
+            uint256 dynamicPpm = FullMath.mulDiv(dffPpm, effectivePifPpm, PPM_BASE);
             quote.adverseImpactPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
         }
 
-        quote.volatilityPartBps = _volatilityQuadraticFeeBps(
-            state.volDeviationAccumulator, VOL_DEVIATION_STEP_BPS, VOL_QUADRATIC_FEE_CONTROL
-        );
+        quote.volatilityPartBps = _volatilitySqrtFeeBps(state.volDeviationAccumulator);
 
         uint256 decayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
         uint256 projectedShortPpm = decayedShortPpm + quote.pifPpm;
@@ -1294,12 +1328,22 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
     }
 
     /// @dev Updates ewVWAP, reference-price volatility state, and short-term impact state using the realized swap outcome.
-    function _updateDynamicStateAfterSwap(PoolId poolId, BalanceDelta delta, uint160 preSqrtPriceX96) internal {
+    function _updateDynamicStateAfterSwap(PoolId poolId, BalanceDelta delta, uint160 preSqrtPriceX96, address sender)
+        internal
+    {
         if (preSqrtPriceX96 == 0) return;
 
         (uint160 postSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        uint256 pifPpm = _priceMovePpmCappedToShort(preSqrtPriceX96, postSqrtPriceX96);
+        uint256 pifPpm = _priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
         EWVWAPParams storage state = poolEWVWAPParams[poolId];
+
+        AddressBatchState storage bs = _addressBatchState[sender][poolId];
+        if (bs.batchStartTs > 0 && block.timestamp - uint256(bs.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC) {
+            bs.batchAccumPpm = uint192(uint256(bs.batchAccumPpm) + pifPpm);
+        } else {
+            bs.batchAccumPpm = uint192(pifPpm);
+            bs.batchStartTs = uint64(block.timestamp);
+        }
 
         uint256 decayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
         uint256 updatedShortPpm = decayedShortPpm + pifPpm;
@@ -1373,7 +1417,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
 
         uint256 deltaSteps =
             _volatilityDeltaSteps(state.volAnchorSqrtPriceX96, postSqrtPriceX96, VOL_DEVIATION_STEP_BPS);
-        uint256 updatedAccumulator = uint256(state.volCarryAccumulator) + deltaSteps * BPS_BASE;
+        uint256 updatedAccumulator = uint256(state.volCarryAccumulator) + deltaSteps * uint256(VOL_INCREMENT_PER_STEP);
         if (updatedAccumulator > VOL_MAX_DEVIATION_ACCUMULATOR) updatedAccumulator = VOL_MAX_DEVIATION_ACCUMULATOR;
         state.volDeviationAccumulator = uint24(updatedAccumulator);
 
@@ -1382,17 +1426,12 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         }
     }
 
-    function _volatilityQuadraticFeeBps(uint256 accumulator, uint256 stepBps, uint256 feeControl)
-        internal
-        pure
-        returns (uint256)
-    {
-        if (accumulator == 0 || stepBps == 0 || feeControl == 0) return 0;
-
-        uint256 scaledAccumulator = accumulator * stepBps;
-        scaledAccumulator *= scaledAccumulator;
-        uint256 variableFeeNumerator = (scaledAccumulator * feeControl + 100_000_000_000 - 1) / 100_000_000_000;
-        return variableFeeNumerator / 100_000;
+    function _volatilitySqrtFeeBps(uint256 accumulator) internal pure returns (uint256) {
+        if (accumulator == 0) return 0;
+        // volFeeBps = sqrt(acc / maxAcc) * maxFee, rearranged to avoid precision loss:
+        // sqrt(acc * maxFee^2 / maxAcc). Integer division truncates for accumulator < 600
+        // (fee would be < 1 bps, so the dead zone is negligible).
+        return Math.sqrt(accumulator * uint256(VOL_MAX_FEE_BPS) ** 2 / uint256(VOL_MAX_DEVIATION_ACCUMULATOR));
     }
 
     function _volatilityDeltaSteps(uint160 referenceSqrtPriceX96, uint160 currentSqrtPriceX96, uint256 stepBps)
@@ -1422,18 +1461,19 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
         return a > b ? a - b : b - a;
     }
 
-    function _priceMovePpmCappedToShort(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
+
+    function _priceMovePpmCapped(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
         if (preSqrtPrice == postSqrtPrice) return 0;
 
         uint256 sqrtRatioX18 = FullMath.mulDiv(uint256(postSqrtPrice), EWVWAP_PRECISION, uint256(preSqrtPrice));
 
         if (postSqrtPrice > preSqrtPrice) {
-            if (sqrtRatioX18 > UP_SHORT_BUCKET) return SHORT_CAP_PPM;
+            if (sqrtRatioX18 > UP_SHORT_BUCKET) return PIF_CAP_PPM;
 
             uint256 upSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
             uint256 candidate = (upSquaredRatioX18 - EWVWAP_PRECISION) / 1e12;
             if (
-                candidate < SHORT_CAP_PPM
+                candidate < PIF_CAP_PPM
                     && _wideSquareTimesSmallGte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE + candidate + 1)
             ) {
                 ++candidate;
@@ -1441,7 +1481,7 @@ contract MemeverseUniswapHook is IMemeverseUniswapHook, IUnlockCallback, BaseHoo
             return candidate;
         }
 
-        if (sqrtRatioX18 < DOWN_SHORT_BUCKET) return SHORT_CAP_PPM;
+        if (sqrtRatioX18 < DOWN_SHORT_BUCKET) return PIF_CAP_PPM;
 
         uint256 downSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
         uint256 candidatePpm = (EWVWAP_PRECISION - downSquaredRatioX18) / 1e12;

@@ -75,7 +75,7 @@ contract Permit2AccountingHandler is Test {
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swapWithPermit2(
@@ -101,7 +101,7 @@ contract Permit2AccountingHandler is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
@@ -194,7 +194,7 @@ contract Permit2SpoofHandler is Test {
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params);
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         try router.swapWithPermit2(
