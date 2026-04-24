@@ -1,6 +1,6 @@
 name = "process-implementer"
 description = "Write harness control files, scripts, configs, and documentation. Handles harness_control surface changes."
-model = "gpt-5.4"
+model = "gpt-5.5"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

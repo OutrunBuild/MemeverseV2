@@ -1,6 +1,6 @@
 name = "security-test-writer"
 description = "Write dedicated security test cases covering attack vectors and boundary conditions identified during high-risk reviews."
-model = "gpt-5.4"
+model = "gpt-5.5"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
