@@ -323,6 +323,10 @@ userLeveragedYT = totalLeveragedYT * userBorrowedAmount / totalLeveragedDebt
 
 - 普通份额手续费全归普通创世用户
 - 杠杆份额手续费全归 DAO treasury
+- 远端 treasury 的杠杆 `PT fee` 不得直接发送 `PT`，必须走 `Splitter.bridgeRedeemPT`
+- `settled` 前这类 `PT fee` 只累计 `bridgedPTRedeemed`
+- `settle` 统一 burn 对应本地 backing；`settled` 后新的 `bridgeRedeemPT` 立即 burn 本次 `PT` 与等量本地 `uAsset`，并同步扣减 `settlementUAsset`
+- 这部分本地 backing 不 transfer 给任何人；`InsufficientSettlementUAsset` 仅作为不变量保护
 - `Unlocked` 后未赎回 LP 产生的新手续费全部归 DAO treasury
 
 ### 9.3 普通创世手续费基准
@@ -360,11 +364,22 @@ claimablePT = entitledPT - claimedPTFee
 `Splitter.settle(verseId)` 的意义是：
 
 1. 将 `POL collateral` burn 掉
-2. 赎回底层 `uAsset + memecoin`
-3. 写入 `settlementUAsset`
-4. 写入 `settlementMemecoin`
+2. 赎回底层，先得到 `grossSettlementUAsset + settlementMemecoin`
+3. 对 `bridgedPTRedeemed` 对应的本地 `uAsset` 统一 burn
+4. 写入 `settlementUAsset = grossSettlementUAsset - bridgedPTRedeemed`
+5. 写入 `settlementMemecoin`
 
 `settlementUAsset` 与 `settlementMemecoin` 是后续 PT / YT 兑付的唯一结算池来源。
+
+`bridgeRedeemPT` 的完整语义如下：
+
+1. `settled` 前：调用时只累计 `bridgedPTRedeemed += ptAmount`，不在调用点 burn 本地 backing `uAsset`
+2. `settle` 时：对累计的 `bridgedPTRedeemed` 对应本地 `uAsset` 一次性 burn，并从 `grossSettlementUAsset` 中扣除
+3. `settled` 后：新的 `bridgeRedeemPT` 立即 burn 本次 `PT` 与 Splitter 当前持有的等量本地 `uAsset`，并同步扣减 `settlementUAsset`
+
+远端价值分发继续走既有跨链路径；本地不把这部分 backing transfer 给任何人。
+
+`InsufficientSettlementUAsset` 只是不可达保护 / 不变量保护，不是正常业务分支。
 
 ## 12. PT / YT 兑付
 
