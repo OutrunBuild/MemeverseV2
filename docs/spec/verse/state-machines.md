@@ -18,8 +18,8 @@
 
 | 当前状态 | 触发 | 条件 | 下一状态 | 关键副作用 | 规则状态 |
 | --- | --- | --- | --- | --- | --- |
-| `Genesis` | `changeStage` | `flashGenesis && meetMinTotalFund` | `Locked` | 部署治理组件 + 建立两条初始池 + preorder 结算 | 当前规则（代码已证） |
-| `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 当前规则（代码已证） |
+| `Genesis` | `changeStage` | `flashGenesis && meetMinTotalFund` | `Locked` | 部署治理组件 + 按 POLend 四池目标模型建立 `memecoin/uAsset`、`POL/uAsset`、`PT/uAsset`、`PT/POL` + preorder 结算 | 目标规则（见 `docs/spec/polend/polend.md`） |
+| `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 目标规则（见 `docs/spec/polend/polend.md`） |
 | `Genesis` | `changeStage` | `currentTime > endTime && !meetMinTotalFund` | `Refund` | 允许 `refund/refundPreorder` | 当前规则（代码已证） |
 | `Genesis` | `changeStage` | 其他条件 | 回退 `StillInGenesisStage` | 无 | 当前规则（代码已证） |
 | `Locked` | `changeStage` | `currentTime > unlockTime` | `Unlocked` | 开放赎回路径；并按该次交易时间 + 固定 `24 hours` 为受保护池写入公开 swap 恢复时间 | 当前规则（代码已证） |
@@ -39,10 +39,11 @@
 | `genesis` | 允许 | 禁止 | 禁止 | 禁止 | 当前规则（代码已证） |
 | `preorder` | 允许 | 禁止 | 禁止 | 禁止 | 当前规则（代码已证） |
 | `refund` / `refundPreorder` | 禁止 | 允许（每地址一次） | 禁止 | 禁止 | 当前规则（代码已证） |
-| `claimPOLToken` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（代码已证） |
+| `claimNormalYT` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（POLend 四池） |
 | `mintPOLToken` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（代码已证） |
 | `redeemAndDistributeFees` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（代码已证） |
-| `redeemMemecoinLiquidity` / `redeemPolLiquidity` | 禁止 | 禁止 | 禁止 | 允许 | 当前规则（代码已证） |
+| `redeemMemecoinLiquidity` / `redeemAuxiliaryLiquidity` | 禁止 | 禁止 | 禁止 | 允许 | 当前规则（POLend 四池） |
+| `POLSplitter.redeemPT` / `POLSplitter.redeemYT` | 禁止 | 禁止 | 禁止 | 允许（settle 后） | 当前规则（POLend 四池） |
 | `claimUnlockedPreorderMemecoin` | 禁止 | 禁止 | 允许（按线性解锁） | 允许 | 当前规则（代码已证） |
 
 ### 2.4 `Unlocked` 后的流动性保护窗口
@@ -50,7 +51,7 @@
 - 安全要求：当 verse 从 `Locked` 进入解锁阶段后，不得立即开放“公开 swap + LP 赎回”并存的状态。
 - 必须存在一个 `post-unlock liquidity protection period`，用于保护 POL / genesis liquidity 的赎回公平性，并为依赖全局结算窗口的上层模块（如 POL Lend / PT-YT 语义）提供稳定结算基准。
 - 在该保护窗口内：
-  - 应允许：`redeemMemecoinLiquidity`、`redeemPolLiquidity`
+  - 应允许：`redeemMemecoinLiquidity`、普通辅助池 LP 领取、PT/YT 兑付
   - 可按产品定义允许：与保护机制兼容的补池/加池行为
   - 必须禁止：普通公开 swap
   - 必须禁止：绕过公开入口的等价 swap 路径

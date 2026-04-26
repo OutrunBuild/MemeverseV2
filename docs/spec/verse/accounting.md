@@ -7,81 +7,107 @@
 
 ## 2. Genesis 与 Preorder 入账
 
-### 2.1 Genesis 拆分
+### 2.1 普通 Genesis
 
-- 每笔 `genesis(amountInUPT)` 拆分为：
-  - `memecoinFund = amountInUPT * 3/4`
-  - `polFund = amountInUPT * 1/4`
-- `userGenesisData[verseId][user].genesisFund` 按用户累计，不是覆盖。
-- 全局累计在 `genesisFunds.totalMemecoinFunds/totalPolFunds`。
+- 普通创世不再使用旧 `75/25`、`GenesisFund`、`totalMemecoinFunds/totalPolFunds` 拆账模型。
+- `genesis(verseId, amount, user)` 只接受该 verse 的 `uAsset`，累加：
+  - `totalNormalFunds += amount`
+  - `userGenesisFund += amount`
+- `totalNormalFunds` 不包含 preorder、杠杆利息或杠杆债务。
 
-### 2.2 Preorder 入账
+### 2.2 杠杆 Genesis
 
-- preorder 仅 Genesis 阶段可入金，入账到 `preorderStates.totalFunds` 与 `userPreorderData.funds`。
-- 容量上限：`totalPreorderFunds <= totalMemecoinFunds * preorderCapRatio / 10000`。
+- 杠杆创世由 `POLend` 记录用户支付的利息，并按 market 固定利率推导债务：
+`totalLeveragedDebt = totalLeveragedInterest * 1e18 / market.interestRate`
+- `Genesis` 阶段不 mint 杠杆 `uAsset`；只有成功进入 `Locked` 时才由 `POLend.finalizeLeveragedGenesis` mint 推导债务并计入按 `uAsset` 维度的系统债务。
+- 杠杆退款、初始 `YT`、残值、PT fee 预兑付与全局结算规则以 `docs/spec/polend/polend.md` 为准。
+
+### 2.3 Preorder 入账
+
+- preorder 是独立账本，不参与四池部署本金。
+- preorder 容量只基于主池 memecoin 侧资金计算：
+`preorderCap = (totalNormalFunds + totalLeveragedDebt) * 70% * preorderCapRatio / RATIO`
+- `totalLeveragedDebt` 由当前 market 利率和 `totalLeveragedInterest` 推导；无杠杆参与时视为 0。
+- `Refund` 状态下，preorder 用户按 `userPreorderFunds` 一次性退回该 verse 的 `uAsset`。
 
 ## 3. Locked 时的初始资金部署
 
-### 3.1 初始 memecoin 侧
+### 3.1 Genesis -> Locked 资金口径
 
-- 首次铸币量：`memecoinAmount = totalMemecoinFunds * fundBasedAmount`。
-- launcher 把 `memecoinAmount + totalMemecoinFunds(UPT)` 加到 `memecoin/UPT` 池。
+- 成功部署资金口径：
+`totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`
+- `totalGenesisFunds` 不等于退款资金池，也不包含 preorder。
+- `POLSplitter.initializeVerse` 在四池部署前调用；PT/YT 初始化不依赖是否有杠杆参与。
 
-### 3.2 preorder 结算
+### 3.2 四池部署
 
-- 若 `preorderStates.totalFunds > 0`，launcher 在进入 Locked 时执行一次 launch settlement swap，把 preorder 的 UPT 预算换成 memecoin。
-- 结果记为：
-  - `settledMemecoin`
-  - `settlementTimestamp`
-  用于后续线性解锁领取。
+- `totalGenesisFunds` 统一按 `70/30` 拆分：
+  - `70%` 进入 `memecoin/uAsset` 主池。
+  - `30%` 进入三个辅助池路径。
+- 四池为：
+  - `memecoin/uAsset`
+  - `POL/uAsset`
+  - `PT/uAsset`
+  - `PT/POL`
+- POL、PT、YT 的拆分比例、辅助池资产配比和 LP 记录以 `docs/spec/polend/polend.md` 为准。
 
-### 3.3 POL 侧与两类 LP 账
+### 3.3 preorder 结算
 
-- launcher 先按 `memecoinLiquidity` 等量 mint POL 到自己。
-- 其中 `deployedPOL = memecoinLiquidity / 3` 用于创建 `POL/UPT` 首池。
-- 记账：
-  - `totalPolLiquidity = polPoolLiquidity`
-  - `totalClaimablePOL = memecoinLiquidity - deployedPOL`
+- `Launcher` 先部署 `memecoin/uAsset` 主池，再使用托管 preorder `uAsset` 执行首笔交易买入 `memecoin`。
+- 买出的 `memecoin` 由 `Launcher` 托管，并按 `userPreorderFunds / totalPreorderFunds` 线性释放。
 
 ## 4. 用户份额公式
 
-### 4.1 POL 领取
+### 4.1 初始 YT
 
-- 可领 POL（未领取时）：
-`claimable = totalClaimablePOL * userGenesisFund / (totalMemecoinFunds + totalPolFunds)`
+- 四池部署时 split 得到的 `YT` 按资金占比分配：
+`totalNormalClaimableYT = totalYT * totalNormalFunds / totalGenesisFunds`
+`totalLeveragedYT = totalYT - totalNormalClaimableYT`
+- 普通初始 `YT` 由 `Launcher` 托管并按 `userGenesisFund / totalNormalFunds` 领取。
+- 杠杆初始 `YT` 由 `POLend` 托管并按 `userInterestPaid / totalLeveragedInterest` 领取。
 
 ### 4.2 preorder 线性解锁
 
 - 用户总可得 preorder memecoin：
-`purchased = settledMemecoin * userPreorderFunds / preorderTotalFunds`
+`purchased = settledMemecoin * userPreorderFunds / totalPreorderFunds`
 - 线性释放窗口：`preorderVestingDuration`，已领数量累计在 `claimedMemecoin`。
 
 ### 4.3 Unlocked 后退出
 
 - `redeemMemecoinLiquidity`：burn `amountInPOL`，按 1:1 转出 memecoin LP。
-- `redeemPolLiquidity`：一次性按比例赎回 POL LP：
-`amountInLP = totalPolLiquidity * userGenesisFund / totalGenesisFunds`。
+- `redeemAuxiliaryLiquidity`：普通用户在 `Unlocked` 后一次性领取三个辅助池普通份额 LP token，份额基准为 `userGenesisFund / totalNormalFunds`。
+- 若存在杠杆债务，`Locked -> Unlocked` 的同一笔交易内先执行 POLend 全局结算并切走杠杆份额 LP；普通用户只能领取结算后剩余的普通份额。
+- 杠杆残值由 `POLend` 记录并按 `userInterestPaid / totalLeveragedInterest` 领取；残值不属于 `POLSplitter` 的 PT/YT 兑付池。
+- 旧 `claimable POL` / `redeemPolLiquidity` 两池语义不再作为当前规则。
 
 ## 5. Fee 记账与分发
 
-### 5.1 fee 来源与映射
+### 5.1 主池 fee
 
-- launcher 从两池 claim fee：
-  - `memecoin/UPT` 池 -> `(memecoinFee, UPTFee_part1)`
-  - `POL/UPT` 池 -> `(liquidProofFee, UPTFee_part2)`
-- `UPTFee = part1 + part2`。
-- `liquidProofFee` 在 launcher 内直接 burn，不进入收益分发。
+- `memecoin/uAsset` 主池 fee 沿用 Memeverse 原规则：
+  - `uAsset` fee 走 Memeverse DAO governor 路径。
+  - `memecoin` fee 给 `yieldVault`。
 
-### 5.2 执行者奖励与治理收入
+### 5.2 辅助池 fee
 
-- `executorReward = UPTFee * executorRewardRate / 10000`。
-- `govFee = UPTFee - executorReward`。
+- 辅助池为 `POL/uAsset`、`PT/uAsset`、`PT/POL`。
+- `POL` fee 全部 burn。
+- `Locked` 阶段的 `uAsset fee / PT fee` 按 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt` 切分：
+  - 普通侧进入 `normalFeeStates`，用户按 `userGenesisFund / totalNormalFunds` 领取。
+  - 杠杆侧最终转换为 `uAsset` 后进入 Memeverse DAO governor 路径，不进入 `POLend.protocolTreasury`。
+- `Unlocked` 后新产生的辅助池非 `POL` fee 全部归 Memeverse DAO governor，普通用户仍可补领历史 `Locked` 阶段普通侧 fee。
+- PT fee 的预兑付、settle 后 redeem、pending auxiliary gov fee 规则以 `docs/spec/polend/polend.md` 为准。
+
+### 5.3 执行者奖励与治理收入
+
+- 对进入 DAO governor 路径的 `uAsset` fee，`executorReward = uAssetFee * executorRewardRate / 10000`。
+- `govFee = uAssetFee - executorReward`。
 - 执行者奖励直接发给 `rewardReceiver`。
 
-### 5.3 治理链本地/异链分发
+### 5.4 治理链本地/异链分发
 
 - 若治理链为本链：
-  - `govFee(UPT)` -> `yieldDispatcher` -> `Governor.receiveTreasuryIncome`
+  - `govFee(uAsset)` -> `yieldDispatcher` -> `Governor.receiveTreasuryIncome`
   - `memecoinFee` -> `yieldDispatcher` -> `YieldVault.accumulateYields`
 - 若治理链为异链：
   - 分别构建两笔 OFT send

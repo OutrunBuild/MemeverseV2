@@ -2,10 +2,11 @@
 
 ## 1. 文档目的与来源边界
 
-本文档描述 MemeverseV2 当前“产品真相层”规则，不做逐行代码注释。
+本文档描述 MemeverseV2 “产品真相层”规则，不做逐行代码注释。
 
 规则分层（从高到低）：
-- 当前规则真源：`docs/spec/*.md`（含本文档）。
+- POLend / POLSplitter 目标产品真源：`docs/spec/polend/polend.md`。
+- 其他当前规则真源：`docs/spec/*.md`（含本文档）。
 - 落地证据：`src/**` 与 `test/**` 可验证行为。
 
 ## 2. 系统目标
@@ -28,6 +29,7 @@
 | `MemecoinYieldVault` | memecoin 收益累积、份额化与延迟赎回 | 质押收益、请求赎回与延迟执行 | 当前规则（代码已证） |
 | `MemecoinDaoGovernorUpgradeable` + `GovernanceCycleIncentivizerUpgradeable` | DAO treasury 与投票激励周期 | 国库收入记录、周期奖励结算 | 当前规则（代码已证） |
 | `YieldDispatcher` / `MemeverseOmnichainInteroperation` / `OmnichainMemecoinStaker` | 跨链收益与跨链 staking 路径 | 异链 fee 要求、到帐目标（Governor / Vault） | 当前规则（代码已证） |
+| `POLend` / `POLSplitter` | 杠杆创世、PT/YT、辅助池、settlement、残值领取 | 杠杆 YT、PT/YT 兑付、辅助池退出、杠杆残值 | 目标规则（见 `docs/spec/polend/polend.md`；当前实现差异不得覆盖目标规范） |
 
 ## 4. 用户可见主流程
 
@@ -37,24 +39,26 @@
 - 外部信息后续也可由 governor 更新；当前更新语义是增量覆盖，不会自动清空未提供字段。
 
 ### 4.2 Genesis 与 Preorder
-- Genesis 入金 token 为 UPT；每笔按 75% / 25% 拆分到 memecoin 侧与 POL 侧资金池。
+- Genesis 入金 token 为 uAsset；普通创世与杠杆创世资金统一汇总后按 `70/30` 拆分到主池与辅助池路径（四池模型）。
 - Preorder 仅在 Genesis 可入金，容量受 `preorderCapRatio` 限制。
+- POLend/POLSplitter 的四池、杠杆、PT/YT、settlement 详细规则由 `docs/spec/polend/polend.md` 管辖。
 
 ### 4.3 阶段推进
 - `changeStage` 把 `Genesis -> Locked/Refund`，以及解锁后推进到退出阶段。
 - `flashGenesis=true` 且达最小募资时可提前进入 Locked。
 
 ### 4.4 Locked 后行为
-- 可领取 Genesis 对应 POL。
-- 可继续用 `UPT + memecoin` 加池并 mint 新 POL。
+- 普通创世参与者可通过 `claimNormalYT` 领取初始 YT。
+- 杠杆创世参与者可通过 POLend `claimLeveragedYT` 领取初始 YT。
+- `mintPOLToken` 仅用于 Locked 后用户主动用 `uAsset + memecoin` 加池并 mint 新 POL；`UPT` 仅作为历史命名 / legacy alias，不定义新的资产语义。
 - 可触发 LP fee 赎回与分发（含执行者奖励）。
 - preorder 份额按线性解锁领取 memecoin。
 
 ### 4.5 Unlocked 后退出
 - 从产品安全要求看，`unlockTime` 到达后不能立即恢复无限制公开 swap。
 - 该保护窗口必须优先保障：
-  - POL 持有人按 1:1 burn POL 赎回 memecoin/UPT LP
-  - Genesis 参与者按出资比例一次性赎回 POL/UPT LP
+  - POL 持有人通过主池 POL burn 退出 `memecoin/uAsset` 主池权益
+  - 普通创世参与者按 POLend 规则领取辅助池 LP 权益
   - 依赖 POL 全局结算窗口的上层模块（如 POL Lend）按一致基准结算
 - 当前接受的产品规则是：有效的公开 swap 恢复时刻锚定在实际 `changeStage()` 完成 `Locked -> Unlocked` 的交易时间，再加上固定 `24 hours`。
 - 当前实现把这套语义落在 `Launcher` 于解锁迁移时向 `Hook` 写入每个受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 按该时间阻断公开 swap。
@@ -67,8 +71,8 @@
 | 注册前 | RegistrationCenter / Registrar | 参数校验、symbol 可用性检查、报价 |
 | Genesis | Launcher | `genesis`、`preorder`、`changeStage` |
 | Refund | Launcher | `refund`、`refundPreorder` |
-| Locked | Launcher + Swap + Governance/Yield | `claimPOLToken`、`mintPOLToken`、`redeemAndDistributeFees`、preorder 线性领取 |
-| Unlocked | Launcher + Swap | 保护窗口内优先退出；窗口结束后恢复公开 swap |
+| Locked | Launcher + POLend + POLSplitter + Swap + Governance/Yield | `claimNormalYT`、`claimLeveragedYT`、`mintPOLToken`、`redeemAndDistributeFees`、preorder 线性领取 |
+| Unlocked | Launcher + POLend + POLSplitter + Swap | `redeemMemecoinLiquidity`、`redeemAuxiliaryLiquidity`、`POLSplitter.redeemPT`、`POLSplitter.redeemYT`、POLend leveraged residual claims；保护窗口内优先退出 / 结算，窗口结束后恢复公开 swap |
 | 全程跨链 | Interoperation / YieldDispatcher | 跨链 staking、跨链收益投递 |
 
 ## 6. 非目标（当前文档与协议范围外）

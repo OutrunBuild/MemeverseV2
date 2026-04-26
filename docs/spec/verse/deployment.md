@@ -51,7 +51,7 @@
  - deployer 部署并初始化 `yieldVault/governor/incentivizer`
 3. 若治理链非本链：
  - 仅预测 `yieldVault/governor/incentivizer` 地址，不在本链初始化
-4. launcher 创建 `memecoin/UPT` 与 `POL/UPT` 两池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
+4. launcher 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
 
 以上为 `[代码已证]`。
 

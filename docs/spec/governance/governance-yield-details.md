@@ -12,7 +12,7 @@
   - 管理延迟赎回队列
 - `MemecoinDaoGovernorUpgradeable`
   - 作为 DAO treasury 入口
-  - 接收 UPT treasury 收入
+  - 接收 uAsset treasury 收入；`UPT` 仅作为 legacy alias
   - 执行治理动作
 - `GovernanceCycleIncentivizerUpgradeable`
   - 记录 treasury / reward 周期账本
@@ -21,17 +21,25 @@
 
 ## 3. fee 到治理与收益的分流
 
-launcher 从两池 claim fee 后，当前主分流为：
+launcher 从 `memecoin/uAsset` 主池与三个辅助池捕获 fee 后，目标主分流为：
 
-- `liquidProofFee`：直接 burn
-- `UPTFee`
-  - 拆成 `executorReward + govFee`
-- `memecoinFee`
+- 主池 `memecoin/uAsset` fee
+  - `memecoin` fee 进入 yield 路径
+  - `uAsset` fee 拆成 `executorReward + govFee`
+- 辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` fee
+  - POL fee burn
+  - 普通侧 `uAsset/PT` fee 进入普通 fee 领取账本
+  - 杠杆侧 `uAsset` fee 进入 governor treasury 路径
+  - 杠杆侧 `PT` fee 在 settle 前通过 `preRedeemPTFee` 预兑付成 `uAsset` 后分发；settle 后通过 `POLSplitter.redeemPT` 兑成 `uAsset` 后分发
+  - settle 前捕获但未主动分发的杠杆侧 PT fee 记为 pending，后续 settled 后再 `redeemPT` 分发
+- `memecoin` yield
   - 进入 yield 路径
+
+`liquidProofFee` / `UPTFee` 是旧费用名；只能作为 legacy alias 解读，不是 POLend 四池目标术语。
 
 进一步流向：
 
-- `govFee(UPT)` -> `YieldDispatcher` -> `Governor.receiveTreasuryIncome`
+- `govFee(uAsset)` -> `YieldDispatcher` -> `Governor.receiveTreasuryIncome`
 - `memecoinFee` -> `YieldDispatcher` -> `YieldVault.accumulateYields`
 
 ## 4. YieldVault 的份额模型
@@ -163,8 +171,8 @@ Incentivizer 负责把 treasury ledger 的一部分，按周期转成 reward led
 
 ## 11. 相关真源与证据
 
-- `docs/spec/accounting.md`
+- `docs/spec/verse/accounting.md`
 - `docs/spec/access-control.md`
-- `docs/spec/deployment.md`
-- `docs/spec/implementation-map.md`
+- `docs/spec/verse/deployment.md`
+- `docs/implementation-map.md`
 - `docs/TRACEABILITY.md`

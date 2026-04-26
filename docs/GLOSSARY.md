@@ -8,16 +8,15 @@
 - **Genesis**：募资阶段，允许 `genesis` 与 `preorder` 入金。
 - **flashGenesis**：达到最小募资即允许提前结束 Genesis 并进入 Locked 的开关。
 - **Refund**：募资失败后的退款阶段（终态）。
-- **Locked**：募资成功后、流动性锁定阶段；允许领取 POL、加池 mint POL、分发 fee。
-- **Unlocked**：当前实现中锁定结束后的退出阶段；需在 `unlockTime` 之后实际执行 `changeStage()` 才进入，赎回可用，但受保护公开 swap 要等该次迁移时间加上 `unlockProtectionWindow` 后才恢复。
+- **Locked**：募资成功后、流动性锁定阶段；允许领取初始 YT、加池 mint POL、分发 fee。
+- **Unlocked**：当前实现中锁定结束后的退出阶段；需在 `unlockTime` 之后实际执行 `changeStage()` 才进入，赎回可用，但受保护公开 swap 要等该次迁移时间加上固定 `24 hours` 的 `UNLOCK_PROTECTION_WINDOW` 后才恢复。
 - **post-unlock liquidity protection period**：unlock 后的受保护退出窗口；其目标是保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供统一结算窗口。
 - **Preorder**：Genesis 内的额外 UPT 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
 - **launch settlement**：启动结算专用 swap 通道，走显式 `Launcher -> Hook.executeLaunchSettlement(...)` 路径，固定 1% 总费。
 - **launch fee window**：池初始化后的费用衰减窗口（默认从 5000 bps 衰减到 100 bps）。
 - **LP token**：Hook 为每个池发行的流动性份额代币。
-- **memecoin LP / POL LP**：分别指 `memecoin/UPT` 与 `POL/UPT` 池的 LP 代币。
-- **totalClaimablePOL**：Genesis 参与者可按比例领取的 POL 总量。
-- **totalPolLiquidity**：初始 POL 池铸造出的总 LP 份额基数。
+- **main pool LP / POL**：`memecoin/uAsset` 主池 LP token，也是 POL。
+- **auxiliary LP**：三个辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` 的 LP token；普通创世参与者在 `Unlocked` 后按份额领取。
 - **executorRewardRate**：`UPTFee` 中给执行者的比例（基数 10000）。
 - **Governor**：DAO 治理与 treasury 合约，接收 UPT 国库收入。
 - **Yield Vault**：memecoin 收益池，接收并累计 memecoin 收益。

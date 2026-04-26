@@ -39,7 +39,7 @@
 | `MemeverseLauncher` 配置面 | `set*`、`pause/unpause`、`removeGasDust` 为 `onlyOwner` | `src/verse/MemeverseLauncher.sol:1127`, `:1138`, `:1155`, `:1181`, `:1194`, `:1207`, `:1220`, `:1235`, `:1256`, `:1270`, `:1290` |
 | `MemeverseLauncher.registerMemeverse` | 仅 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol:936-947` |
 | `MemeverseLauncher.setExternalInfo` | `governor` 或 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol:1307-1314` |
-| Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimPOLToken`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol:318`, `:382`, `:619`, `:671`, `:719`, `:813`, `:841`, `:884` |
+| Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimNormalYT`/POLend `claimLeveragedYT`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol:318`, `:382`, `:619`, `:671`, `:719`, `:813`, `:841`, `:884` |
 | `MemeverseRegistrationCenter` | `registration` 对外开放；参数配置和 gas dust 清理是 `onlyOwner` | `src/verse/registration/MemeverseRegistrationCenter.sol:115`, `:158`, `:308`, `:319`, `:332`, `:344` |
 | `MemeverseRegistrarAtLocal` | `localRegistration` 仅 center；`setRegistrationCenter` 仅 owner | `src/verse/registration/MemeverseRegistrarAtLocal.sol:57-60`, `:80` |
 | `MemeverseRegistrarOmnichain` | `setRegistrationGasLimit` 仅 owner | `src/verse/registration/MemeverseRegistrarOmnichain.sol:122` |
@@ -52,8 +52,8 @@
 | `OmnichainMemecoinStaker` | `lzCompose` 仅 `localEndpoint` | `src/interoperation/OmnichainMemecoinStaker.sol:30-40` |
 | `MemeverseRegistrationCenter` dispatcher 封装 | `lzSend` 仅合约自身可调用；`_lzReceive` 校验 origin.sender 为 registrar | `src/verse/registration/MemeverseRegistrationCenter.sol:173-183`, `:296-297` |
 | `MemeverseOmnichainInteroperation` | staking 入口 permissionless；`setGasLimits` 仅 owner | `src/interoperation/MemeverseOmnichainInteroperation.sol:93`, `:135` |
-| `MemecoinDaoGovernorUpgradeable` | treasury 支出与升级授权仅治理执行；reward payout 资产由 governor 托管，`disburseReward(...)` 为 `Incentivizer` 专用 payout 路径 | `docs/spec/governance-yield-details.md`; `docs/spec/accounting.md` |
-| `GovernanceCycleIncentivizerUpgradeable` | `recordTreasuryIncome(...)` / `recordTreasuryAssetSpend(...)` 仅 governor；`claimReward()` 为用户入口；`finalizeCurrentCycle()` 可 permissionless | `docs/spec/governance-yield-details.md`; `docs/spec/accounting.md`; `docs/spec/access-control.md` |
+| `MemecoinDaoGovernorUpgradeable` | treasury 支出与升级授权仅治理执行；reward payout 资产由 governor 托管，`disburseReward(...)` 为 `Incentivizer` 专用 payout 路径 | `docs/spec/governance/governance-yield-details.md`; `docs/spec/verse/accounting.md` |
+| `GovernanceCycleIncentivizerUpgradeable` | `recordTreasuryIncome(...)` / `recordTreasuryAssetSpend(...)` 仅 governor；`claimReward()` 为用户入口；`finalizeCurrentCycle()` 可 permissionless | `docs/spec/governance/governance-yield-details.md`; `docs/spec/verse/accounting.md`; `docs/spec/access-control.md` |
 
 ## 4. Governance Reward Path 边界
 
@@ -69,10 +69,10 @@
 
 ## 5. 与当前规则文档的对齐
 
-- Launcher 的 owner / registrar / governor / permissionless 边界与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
-- Swap 的“Router 公开入口 + Hook 核心引擎 + 显式 `Launcher -> Hook` launch settlement 路径”与 `docs/spec/protocol.md`、`docs/spec/state-machines.md` 一致。
+- Launcher 的 owner / registrar / governor / permissionless 边界与 `docs/spec/protocol.md`、`docs/spec/verse/state-machines.md` 一致。
+- Swap 的“Router 公开入口 + Hook 核心引擎 + 显式 `Launcher -> Hook` launch settlement 路径”与 `docs/spec/protocol.md`、`docs/spec/verse/state-machines.md` 一致。
 - Router / Hook 绑定在 launcher 配置时必须做双重校验；launcher 侧 `memeverseUniswapHook` 为 write-once，不允许后续改绑到新 hook；hook owner 后续 retarget `launcher` 仍属于同一 trust boundary 内的接受配置权。
-- 注册中心和 registrar 的边界与 `docs/spec/state-machines.md` 一致。
+- 注册中心和 registrar 的边界与 `docs/spec/verse/state-machines.md` 一致。
 
 ## 6. 确定性边界
 

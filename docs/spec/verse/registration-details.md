@@ -122,30 +122,49 @@ center 当前负责检查：
 
 ## 10. launcher 侧执行顺序
 
-注册成功后，launcher 侧执行顺序应是：
+注册成功后，launcher 侧目标产品执行顺序应是：
 
-1. 通过 deployer 部署 memecoin / POL
-2. 初始化资产合约
+1. 校验 `registrar` 权限，且 `polend` 与 `polSplitter` 已配置
+2. 通过 deployer 部署并初始化 memecoin / POL
 3. 按 `omnichainIds` 配置 peer
-4. 记录 verse 基础信息、反向索引并发出 `RegisterMemeverse`
-5. registrar 再单独调用 `setExternalInfo` 写入 `uri/desc/communities`
+4. 写入 verse 基础信息与反向索引
+5. 在同一笔 `registerMemeverse(...)` 交易内调用 `POLend.registerLendMarket(verseId)`，注册 lend market，并记录 / 复制该 verse 的 `uAsset`、利率和初始状态
+6. 发出 `RegisterMemeverse`
+7. registrar 后续再调用 `setExternalInfo` 写入 `uri/desc/communities`
 
 这样设计意味着：
 
 - 注册并不是“只写一个数据库记录”
-- 它会同时完成资产层初始化
+- 它会同时完成 memecoin / POL 部署初始化和 lend market 注册
+- `polend` / `polSplitter` 是注册前必备前置配置
+- `POLSplitter.initializeVerse(...)` 不在注册时执行，而是在 `Genesis -> Locked` 流程中由 launcher 调用
 - `external info` 不在 `registerMemeverse(...)` 同一次函数体内写入，而是由 registrar 在后续调用中补写
 
-## 11. 当前实现提醒
+## 11. POLend 注册 ABI 与初始化边界
+
+POLend 目标产品规范以 `docs/spec/polend/polend.md` 为准：
+
+- `Launcher.registerMemeverse(...)` 同交易内只调用 `POLend.registerLendMarket(verseId)`
+- `registerLendMarket` 从 launcher 读取 verse 的 `uAsset` 并复制当前 `defaultInterestRate`
+- 注册阶段不初始化 `PT / YT`
+- `POLSplitter.initializeVerse(...)` 只在 `Genesis -> Locked` 的四池部署流程中执行
+
+当前实现差异 / 待迁移：
+
+- 若当前代码仍为 `registerLendMarket(verseId, pol, name, symbol)`，这是实现差异，不是目标 ABI
+- 若当前注册阶段同时部署或初始化 `PT / YT`，这是实现差异，不是目标 timing
+- 其他文档不得把上述差异标成 POLend 产品真源或目标规则的 `[代码已证]`
+
+## 12. 当前实现提醒
 
 - 当前时间语义存在 `DAY=180` 与 `24*3600` 的偏差
 - 这不是文档描述差异，而是当前实现中的真实不一致
 - Agent 在分析注册和解锁行为时，必须优先相信 center 写入值
 
-## 12. 相关真源与证据
+## 13. 相关真源与证据
 
-- `docs/spec/state-machines.md`
+- `docs/spec/verse/state-machines.md`
 - `docs/spec/protocol.md`
-- `docs/spec/deployment.md`
+- `docs/spec/verse/deployment.md`
 - `docs/spec/invariants.md`
 - `docs/TRACEABILITY.md`

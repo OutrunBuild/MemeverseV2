@@ -100,5 +100,5 @@ swap 栈是显式例外：
 
 - `docs/spec/access-control.md`
 - `docs/spec/upgradeability.md`
-- `docs/spec/integrations/layerzero-oapp-oft.md`
-- `docs/spec/implementation-map.md`
+- `docs/spec/interoperation/layerzero-oapp-oft.md`
+- `docs/implementation-map.md`

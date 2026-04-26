@@ -7,8 +7,8 @@
 本文补充：
 
 - `docs/spec/protocol.md`
-- `docs/spec/state-machines.md`
-- `docs/spec/accounting.md`
+- `docs/spec/verse/state-machines.md`
+- `docs/spec/verse/accounting.md`
 - `docs/spec/invariants.md`
 
 本文不替代上述真源；若与实现冲突，以真源和源码锚点为准。
@@ -58,14 +58,18 @@ MemeverseV2 的主路径可以概括为：
 - `genesis`
 - `preorder`
 
-### 4.2 资金拆分
+### 4.2 资金模型
 
-每笔 `genesis` 入金按当前 V2 语义拆成两部分：
+普通 Genesis 入金不再逐笔拆成 memecoin 侧与 POL 侧资金，而是按 POLend 模型累计：
 
-- `75%` 进入 memecoin 侧资金
-- `25%` 进入 POL 侧资金
+- `totalNormalFunds`
+- `userGenesisFund`
 
-这已经不是 V1 的 `4/5 + 1/5` 语义。
+杠杆 Genesis 入金先支付利息，再派生 `totalLeveragedDebt`。募资成功部署时使用：
+
+- `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`
+
+随后按 POLend 四池模型执行 `70/30` 规则，进入 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池路径。
 
 ### 4.3 preorder 语义
 
@@ -94,7 +98,7 @@ MemeverseV2 的主路径可以概括为：
 
 - 部署 memecoin / POL
 - 按治理链位置决定是否部署或预测 `yieldVault / governor / incentivizer`
-- 创建 `memecoin/UPT` 与 `POL/UPT` 两池
+- 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池
 - 若存在 preorder，则执行 launch settlement
 
 这一时刻是“资产、池子、治理与收益组件同时就位”的分水岭。
@@ -107,19 +111,19 @@ MemeverseV2 的主路径可以概括为：
 
 用户可以：
 
-- 领取 Genesis 对应的 POL
-- 用 `UPT + memecoin` 加池 mint 新 POL
+- 通过 `claimNormalYT` 领取普通创世初始 YT
+- 通过 POLend `claimLeveragedYT` 领取杠杆创世初始 YT
+- 用 `uAsset + memecoin` 加池 mint 新 POL；`UPT` 仅作为历史命名 / legacy alias
 - 领取线性解锁的 preorder memecoin
 
 ### 6.2 协议动作
 
 协议可以：
 
-- 从两池 claim fee
-- 把 `liquidProofFee` burn
-- 把 `UPTFee` 拆成 `executorReward + govFee`
-- 把 `memecoinFee` 送到 yield 路径
-- 把 `govFee` 送到 governor treasury 路径
+- 从 `memecoin/uAsset` 主池与三个辅助池捕获 fee
+- 主池 `memecoin/uAsset` fee 沿用 Memeverse 分流：`memecoin` fee 进入 yield 路径，`uAsset` fee 拆成 `executorReward + govFee` 后进入执行者奖励与 governor treasury 路径
+- 辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` fee 按 POLend 四池规则拆分：POL fee burn，普通侧 fee 进入普通领取账本，杠杆侧 `uAsset` fee 分发到 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前走 `preRedeemPTFee`，settle 后走 `redeemPT`
+- `liquidProofFee` / `UPTFee` 仅作为 legacy 名称，不再定义目标四池费用语义
 
 ### 6.3 启动期保护
 
@@ -163,7 +167,9 @@ V2 当前已实现的启动保护是：
 ### 7.2 保护窗口内应允许什么
 
 - `redeemMemecoinLiquidity`
-- `redeemPolLiquidity`
+- `redeemAuxiliaryLiquidity`
+- `POLSplitter.redeemPT / redeemYT`
+- POLend leveraged residual claims
 - 按产品定义允许的兼容性补池行为
 
 ### 7.3 保护窗口内必须禁止什么
@@ -217,9 +223,9 @@ V2 当前已实现的启动保护是：
 
 ## 10. 生命周期中的关键资金流
 
-- Genesis 入金先拆成 memecoin 侧与 POL 侧两部分。
+- Genesis 入金按 POLend 四池规则进入主池与辅助池路径。
 - preorder 单独积累，直到进入 `Locked` 时统一换成 memecoin。
-- `Locked` 期产生的两池 fee 会拆成 burn、执行者奖励、governor treasury 收入与 yield 收入。
+- `Locked` 期主池与辅助池 fee 会按 POLend 四池规则拆成 burn、执行者奖励、governor treasury 收入、普通 fee 与 yield 收入。
 - 实际 `Locked -> Unlocked` 迁移完成后，协议应优先保障 POL 与 Genesis LP 的退出，而不是立即恢复公开市场竞争。
 
 ## 11. 当前实现与目标规则差异
@@ -238,8 +244,8 @@ V2 当前已实现的启动保护是：
 ## 12. 相关真源与证据
 
 - `docs/spec/protocol.md`
-- `docs/spec/state-machines.md`
-- `docs/spec/accounting.md`
+- `docs/spec/verse/state-machines.md`
+- `docs/spec/verse/accounting.md`
 - `docs/spec/invariants.md`
 - `docs/TRACEABILITY.md`
 - `docs/memeverse-swap/memeverse-swap-flow.md`

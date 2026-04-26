@@ -37,11 +37,11 @@
 - 价值：防止任意调用者伪造启动结算路径，并避免 router / hook / launcher 绑定失配或 unlock 保护漂移到错误 hook namespace。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:594-608`，`src/swap/MemeverseUniswapHook.sol:572-627`，`src/verse/MemeverseLauncher.sol:1224-1240`
 
-### INV-05 Genesis 费用分发恒等式
+### INV-05 Locked 费用分发恒等式
 
-- 约束：`UPTFee = executorReward + govFee`，其中 `executorReward = UPTFee * executorRewardRate / 10000`；`liquidProofFee` 必先 burn。`[代码已证]`
-- 价值：保证 fee 分账守恒与 burn 顺序可审计。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:742-747`
+- 约束：主池 `memecoin/uAsset` 的 `uAssetFee = executorReward + govFee`，其中 `executorReward = uAssetFee * executorRewardRate / 10000`；主池 `memecoin` fee 进入 yield 路径。辅助池 fee 按 POLend 四池目标规则分流：POL fee burn，普通侧 `uAsset/PT` fee 进入普通领取账本，杠杆侧 `uAsset` fee 进入 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前预兑付或 settle 后 redeem 后分发。`liquidProofFee` / `UPTFee` 仅作为 legacy alias。`[目标规范]`
+- 价值：保证主池与辅助池 fee 分账守恒、burn 顺序和 PT fee pending/settle 语义可审计。
+- 主要真源：`docs/spec/polend/polend.md`，`docs/spec/verse/accounting.md`
 
 ### INV-06 远端分发与远端 staking 要求 `msg.value` 精确匹配报价
 
