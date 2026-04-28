@@ -62,6 +62,7 @@ Every file that will be modified or created must match a surface pattern in poli
      - Dispatch `process-implementer` to update documentation first.
      - Documentation updates must pass full review cycle with `spec-reviewer` (see remediation_policy).
      - Only after documentation review passes does the flow proceed to step 4.
+   - Any spec document change (new, missing, or updated) must be presented to the user for explicit human confirmation before implementation proceeds.
    - non-semantic and test-semantic changes skip this gate entirely.
 4. **Implement** — Dispatch the appropriate writer:
    - surface=solidity → `solidity-implementer`
