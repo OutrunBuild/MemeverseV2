@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-profile="full"
+profile="fast"
 changed_files_arg=""
 all_mode=0
 
