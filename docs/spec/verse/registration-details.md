@@ -26,9 +26,8 @@
 center 当前负责检查：
 
 - `durationDays` 是否落在允许区间
-- `lockupDays` 是否落在允许区间
 - `name/symbol/uri/desc` 长度是否合法
-- `UPT` 是否在支持列表内
+- `uAsset` 是否在支持列表内
 - `omnichainIds` 长度是否合法
 - `omnichainIds` 去重后再继续分发
 
@@ -67,16 +66,17 @@ center 当前负责检查：
 并且 center 当前使用：
 
 - `DAY = 180` 秒
+- 固定锁定期 `365 days`
 
 而本地 registrar 的报价辅助仍按：
 
-- `24 * 3600`
+- `registrationCenter.DAY()`
 
 这意味着：
 
-- 本地 quote 的“天数”只是估算
-- 真正写入 launcher 的 `endTime/unlockTime` 以 center 为准
-- 当前实现中的“天数”并不等于自然日
+- 本地 quote 与 center 写入使用同一个 `DAY` 来源
+- 真正写入 launcher 的 `endTime/unlockTime` 以 center 为准，且 `unlockTime = endTime + 365 days`
+- 当前实现中的 `durationDays` 由 center 的 `DAY` 定义；锁定期固定为自然时间 `365 days`
 
 ## 7. 本链注册路径
 
@@ -157,8 +157,8 @@ POLend 目标产品规范以 `docs/spec/polend/polend.md` 为准：
 
 ## 12. 当前实现提醒
 
-- 当前时间语义存在 `DAY=180` 与 `24*3600` 的偏差
-- 这不是文档描述差异，而是当前实现中的真实不一致
+- 当前时间语义由 registration center 的 `DAY` 定义
+- 本地 quote 读取同一个 `DAY` 来源，不存在独立自然日换算分支
 - Agent 在分析注册和解锁行为时，必须优先相信 center 写入值
 
 ## 13. 相关真源与证据

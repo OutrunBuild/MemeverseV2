@@ -50,7 +50,7 @@
 ### 4.4 Locked 后行为
 - 普通创世参与者可通过 `claimNormalYT` 领取初始 YT。
 - 杠杆创世参与者可通过 POLend `claimLeveragedYT` 领取初始 YT。
-- `mintPOLToken` 仅用于 Locked 后用户主动用 `uAsset + memecoin` 加池并 mint 新 POL；`UPT` 仅作为历史命名 / legacy alias，不定义新的资产语义。
+- `mintPOLToken` 仅用于 Locked 后用户主动用 `uAsset + memecoin` 加池并 mint 新 POL。
 - 可触发 LP fee 赎回与分发（含执行者奖励）。
 - preorder 份额按线性解锁领取 memecoin。
 
@@ -93,6 +93,7 @@
 - 这部分属于当前用户可见行为。
 
 ### 7.3 注册时间单位
-- `MemeverseRegistrationCenter` 当前把 `DAY` 定义为 `180` 秒（测试常量），`durationDays/lockupDays` 在中心链按此单位换算。
-- `MemeverseRegistrarAtLocal.quoteRegister` 的报价辅助仍按 `24 * 3600` 秒换算 end/unlock 时间。
-- 因此“天数”在当前实现里不是统一的自然日语义。
+- `MemeverseRegistrationCenter` 当前把 `DAY` 定义为 `180` 秒（测试常量），`durationDays` 在中心链按此单位换算。
+- `unlockTime` 由中心链按 `endTime + 365 days` 固定派生。
+- `MemeverseRegistrarAtLocal.quoteRegister` 读取 `registrationCenter.DAY()` 换算 end 时间，并使用固定 `365 days` 派生 unlock 时间。
+- 因此“天数”在当前实现里由 registration center 的 `DAY` 语义决定。

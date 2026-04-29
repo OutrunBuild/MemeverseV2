@@ -77,7 +77,7 @@
 - 本链目标：直接调用 `MemeverseRegistrarAtLocal.localRegistration`。
 - 异链目标：通过 LayerZero `lzSend` 下发消息到 `MemeverseRegistrarOmnichain`。
 - Registrar 只做转发注册：`registerMemeverse` + `setExternalInfo`。
-- 当前中心链时间换算单位 `DAY=180` 秒；本地 registrar 的 `quoteRegister` 仍用 `24*3600` 秒估算时间。
+- 当前中心链时间换算单位来自 `RegistrationCenter.DAY`；本地 registrar 的 `quoteRegister` 读取中心 `DAY`，最终时间以中心写入为准，且锁仓固定为 `365 days`。
 
 ### 3.3 Launcher 跨链配置边界
 

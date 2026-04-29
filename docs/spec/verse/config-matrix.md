@@ -19,13 +19,12 @@
 | `MemeverseLauncher` | `polend` | `setPolend` | owner setter；非零；注册前必配；未配置时 `registerMemeverse(...)` 直接回退 | 目标规范：注册时同交易内调用 `POLend.registerLendMarket(verseId)`；若当前实现仍传 `pol/name/symbol`，属于当前实现差异 / 待迁移 | 目标规范见 `docs/spec/polend/polend.md` |
 | `MemeverseLauncher` | `polSplitter` | `setPolSplitter` | owner setter；非零；注册前必配；未配置时 `registerMemeverse(...)` 直接回退 | 目标规范：注册前必配，但 `PT/YT` 初始化发生在 `Genesis -> Locked`，不发生在注册阶段 | 目标规范见 `docs/spec/polend/polend.md` |
 | `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
-| `MemeverseLauncher` | `fundMetaDatas[UPT] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
+| `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`minTotalFund <= 2^64-1`；`fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
 | `MemeverseLauncher` | `preorderCapRatio`,`preorderVestingDuration` | `setPreorderConfig` | 非零；`capRatio <= 10000` | preorder 容量和线性释放 | `[代码已证]` |
 | `MemeverseLauncher` | `oftReceiveGasLimit`,`yieldDispatcherGasLimit` | `setGasLimits` | 两者 `>0` | 远端分发 OFT options | `[代码已证]` |
-| `MemeverseRegistrationCenter` | `supportedUPTs` | `setSupportedUPT` | UPT 非零 | 注册可用募资币种白名单 | `[代码已证]` |
+| `MemeverseRegistrationCenter` | `supportedUAssets` | `setSupportedUAsset` | uAsset 非零 | 注册可用募资币种白名单 | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `min/maxDurationDays` | `setDurationDaysRange` | 非零，且 min < max | 注册 durationDays 校验 | `[代码已证]` |
-| `MemeverseRegistrationCenter` | `min/maxLockupDays` | `setLockupDaysRange` | 非零，且 min < max | 注册 lockupDays 校验 | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `registerGasLimit` | `setRegisterGasLimit` | `>0` | center 向远端 registrar fan-out 的 receive gas | `[代码已证]` |
 | `MemeverseRegistrarAtLocal` | `registrationCenter` | `setRegistrationCenter` | 非零 | 本地 registrar 信任中心地址 | `[代码已证]` |
 | `MemeverseRegistrarOmnichain` | `registrationGasLimit`（base/local/omnichain） | `setRegistrationGasLimit` | owner-only（数值不做额外边界） | remote registrar -> center 的 quote/send gas 预算 | `[代码已证]` |
@@ -44,13 +43,15 @@
 | --- | --- | --- | --- | --- |
 | `MemeverseLauncher` | `RATIO` | `10000` | 比率基数 | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `DAY` | `180` 秒 | 注册时间单位（中心链实际生效） | `[代码已证]` |
-| `MemeverseRegistrarAtLocal` | `DAY` | `24*3600` 秒 | 本地报价使用，不是最终权威写入 | `[代码已证]` |
+| `MemeverseRegistrationCenter` | `FIXED_LOCKUP_DURATION` | `365 days` | 注册时固定锁定期；`unlockTime = endTime + 365 days`，不是注册参数或 owner 配置项 | `[代码已证]` |
+| `MemeverseRegistrarAtLocal` | `registrationCenter.DAY()` | 中心链配置值 | 本地报价读取 registration center 的时间单位 | `[代码已证]` |
+| `MemeverseRegistrarAtLocal` | unlock 辅助计算 | `365 days` | 本地报价辅助使用固定锁定期，与中心链最终写入语义一致 | `[代码已证]` |
 | `MemeverseUniswapHook` | `PROTOCOL_FEE_RATIO_BPS` | `3000` | `feeBps` 中 protocol fee 占比 30% | `[代码已证]` |
 | `MemeverseUniswapHook` | `TICK_SPACING` | `200` | 只接受该 tick spacing | `[代码已证]` |
 | `MemeverseUniswapHook` | `LAUNCH_SETTLEMENT_FEE_BPS` | `100` | 启动结算固定 1% | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig` 初始值 | `start=5000,min=100,decay=900s` | 构造时初始化，可后续改 | `[代码已证]` |
 | `MemeverseSwapRouter` | `hook`,`permit2` | 构造注入（immutable） | 外部依赖地址，部署后不可改 | `[代码已证]` |
-| `MemeverseLauncher` | `UNLOCK_PROTECTION_WINDOW` | 固定常量 | `24 hours`；不再暴露 owner 配置面 | `Locked -> Unlocked` 后受保护公开 swap 的固定恢复窗口 | `[代码已证]` |
+| `MemeverseLauncher` | `UNLOCK_PROTECTION_WINDOW` | `24 hours` 固定常量 | 不再暴露 owner 配置面；用于 `Locked -> Unlocked` 后受保护公开 swap 的固定恢复窗口 | `[代码已证]` |
 | `GovernanceCycleIncentivizerUpgradeable` | `CYCLE_DURATION` | `90 days` | 治理周期长度 | `[代码已证]` |
 | `MemecoinYieldVault` | `REDEEM_DELAY` | `1 days` | 赎回延迟 | `[代码已证]` |
 | `MemecoinYieldVault` | `MAX_REDEEM_REQUESTS` | `5` | 每地址最大排队赎回数 | `[代码已证]` |
@@ -62,7 +63,7 @@
 | swap 启动保护 | 启动期保护机制 | 当前主路径为 execute-or-revert + launch fee 衰减 + 显式 `Launcher -> Hook.executeLaunchSettlement(...)` | 以当前实现为准 |
 | unlock 后公开 swap 保护 | 公开交易恢复时机 | `changeStage()` 在 `Locked -> Unlocked` 时按 `block.timestamp + 24 hours` 调用 hook 的 pair-based `setPublicSwapResumeTime(address,address,uint40)`，由 hook 本地解析 poolId 并写入 `publicSwapResumeTime` | 以当前实现为准 |
 | launch fee 时间单位 | launch fee 的时间语义 | 代码使用 `decayDurationSeconds`（秒） | 以秒语义解读 |
-| 注册天数语义 | 注册时长的时间语义 | 中心链写入用 `DAY=180` 秒；本地 quote 用 24h | 当前链上语义与自然日存在偏差 |
+| 注册天数语义 | 注册时长的时间语义 | 中心链写入与本地 quote 均使用 registration center 的 `DAY` | 当前链上语义由 center 配置决定 |
 | 异链 fee 判定 | 异链报价后的支付约束 | 关键路径要求 `msg.value == quotedFee` | 以代码为准 |
 
 ## 5. 确定性边界

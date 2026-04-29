@@ -75,9 +75,9 @@
 
 ### INV-11 注册时间权威值来自注册中心写入
 
-- 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价使用 `24*3600`，中心写入使用 `DAY=180` 秒常量。`[代码已证]`
+- 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价读取注册中心 `DAY`，中心写入为最终来源，并写入固定 `unlockTime = endTime + 365 days`。`[代码已证]`
 - 价值：链上最终时间语义由中心写入决定，报价仅供参考。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:956-958`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:35-36`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:131`，`:145`
+- 主要锚点：`src/verse/MemeverseLauncher.sol:956-958`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:38-43`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:130`，`:135`
 
 ### INV-12 解锁后必须先经过保护窗口，再恢复公开 swap
 

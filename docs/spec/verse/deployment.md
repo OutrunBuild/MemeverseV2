@@ -72,5 +72,5 @@
 
 - `[未知]` 各链真实部署地址与是否已升级后的实现地址。
 - `[未知]` 生产环境 owner/delegate/multisig/timelock 实际控制关系。
-- `[未知]` 生产环境实际 `supportedUPTs`、gasLimit、fee 配置最终值。
+- `[未知]` 生产环境实际 `supportedUAssets`、gasLimit、fee 配置最终值。
 - `[未知]` 哪条链实际作为 registration center 主链与治理主链（需看部署参数，不在仓库固定）。

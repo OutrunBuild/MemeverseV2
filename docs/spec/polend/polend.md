@@ -980,9 +980,10 @@ settle 后：
 
 错误命名：
 
-- `SplitClosed`：`split / merge` 已关闭
-- `InvalidSettlementStage`：`settle` 阶段不正确
+- `AlreadyUnlocked`：`split / merge` 已关闭（verse 已 Unlocked 或 settle 已完成）
+- `NotUnlocked`：`settle` 阶段不正确（verse 尚未 Unlocked）
 - `NotSettled`：redeem 前尚未 settle
+- `AlreadyDeployed`：`initializeVerse` 重复调用
 - 不保留 `InsufficientSettlementUAsset`
 
 ## 20. PT fee 预兑付与分发
@@ -1075,12 +1076,6 @@ event PreRedeemPTFee(uint256 indexed verseId, address indexed uAsset, uint256 pt
 - 不能由调用方传入 token 地址
 
 `preRedeemedPT = 0` 时，`Splitter.settle` 直接跳过 `burnPreRedeemedBacking`。
-
-事件：
-
-```solidity
-event BurnPreRedeemedBacking(uint256 indexed verseId, address indexed uAsset, uint256 amount);
-```
 
 ### 20.3 settle 后：直接 redeemPT
 
@@ -1395,11 +1390,12 @@ Launcher 调 IOFT.send
 
 `POLend.initialize` 必须配置：
 
-- `launcher`
-- `splitter`
-- `protocolTreasury`
+- `initialOwner`
 - `defaultInterestRate`
 - `leveragedDebtFactor`
+- `protocolTreasury`
+- `launcher`
+- `splitter`
 
 `protocolTreasury` 必须非零。
 
@@ -1429,7 +1425,7 @@ Launcher 调 IOFT.send
 | `finalizeLeveragedGenesis` | `Launcher` | `Genesis -> Locked` 流程；market 为 `Genesis` | `totalLeveragedDebt > 0` | 状态改为 `Locked`，mint debt，转 treasury |
 | `recordLeveragedYT` | `Launcher` | market 为 `Locked` | `yt != address(0)`，`totalLeveragedYT > 0`，防重复 | 记录杠杆初始 `YT` |
 | `preRedeemPTFee` | `Launcher` | market 为 `Locked`，Splitter 未 settled | `ptAmount > 0`，`mintTo != address(0)` | `PreRedeemPTFee`，增加 debt |
-| `burnPreRedeemedBacking` | `Splitter` | Splitter settle 流程 | `amount == preRedeemedPT`，不能传 token 地址 | `BurnPreRedeemedBacking`，减少 debt |
+| `burnPreRedeemedBacking` | `Splitter` | Splitter settle 流程 | `amount > 0`；`amount == preRedeemedPT` 由 `onlySplitter` 调用约束保证，不由 POLend 运行时校验 | 减少 debt |
 | `executeGlobalSettlement` | `Launcher` | `Locked -> Unlocked` 编排；market 为 `Locked` | 只处理一次，要求 `recoveredUAsset >= verseDebt` | 状态改为 `Settled` |
 | `claimRefund` | 用户 | market 为 `Refund` | `to != address(0)`，有未领取利息 | 标记 `refundClaimed` |
 | `claimLeveragedYT` | 用户 | market 为 `Locked / Settled` | `to != address(0)`，有未领取杠杆利息份额 | 标记 `leveragedYTClaimed` |
@@ -1455,7 +1451,7 @@ Launcher 调 IOFT.send
 `POLend` 外部目标 ABI：
 
 ```solidity
-function initialize(address launcher, address splitter, address protocolTreasury, uint256 defaultInterestRate, uint256 leveragedDebtFactor) external;
+function initialize(address initialOwner, uint256 defaultInterestRate, uint256 leveragedDebtFactor, address protocolTreasury, address launcher, address splitter) external;
 function registerLendMarket(uint256 verseId) external;
 function leveragedGenesis(uint256 verseId, uint256 interestAmount) external;
 function markRefundable(uint256 verseId) external;
@@ -1469,11 +1465,14 @@ function claimLeveragedYT(uint256 verseId, address to) external;
 function claimResidual(uint256 verseId, address to) external;
 function setProtocolTreasury(address newTreasury) external;
 function setDefaultInterestRate(uint256 newRate) external;
+function pause() external;
+function unpause() external;
 function getLendMarket(uint256 verseId) external view returns (LendMarket memory);
 function getTotalLeveragedDebt(uint256 verseId) external view returns (uint256);
 function getUserLeveragedDebt(uint256 verseId, address user) external view returns (uint256);
 function getLeveragedDebtInfo(uint256 verseId) external view returns (LeveragedDebtInfo memory);
 function getTotalDebtByUAsset(address uAsset) external view returns (uint256);
+function getTotalLeveragedInterest(uint256 verseId) external view returns (uint256);
 ```
 
 `POLSplitter` 外部目标 ABI：
@@ -1486,9 +1485,36 @@ function settle(uint256 verseId) external;
 function preRedeemPTFee(uint256 verseId, uint256 ptAmount) external;
 function redeemPT(uint256 verseId, uint256 ptAmount, address to) external;
 function redeemYT(uint256 verseId, uint256 ytAmount, address to) external;
+function previewRedeemYTUAsset(uint256 verseId, uint256 ytAmount) external view returns (uint256 uAssetAmount);
+function splitInfos(uint256 verseId) external view returns (address pt, address yt, address pol, address memecoin, address uAsset, uint256 totalPOLCollateral, uint256 settlementUAsset, uint256 settlementMemecoin, bool settled);
 ```
 
 ## 28. 错误语义
+
+`InvalidState`：状态前置条件不满足。
+
+`POLend` 侧 `InvalidState` 使用场景：
+
+- `registerLendMarket`：market 已注册
+- `leveragedGenesis`：market 未注册或非 None/Genesis，Launcher verse 非 Genesis
+- `markRefundable`：market 非 Genesis
+- `finalizeLeveragedGenesis`：market 非 Genesis
+- `recordLeveragedYT`：market 非 Locked 或已记录
+- `preRedeemPTFee`：market 非 Locked
+- `executeGlobalSettlement`：market 非 Locked
+- `claimRefund`：market 非 Refund
+- `claimLeveragedYT`：market 非 Locked/Settled
+- `claimResidual`：market 非 Settled
+- `getLeveragedDebtInfo`：market 未注册
+- `getUserLeveragedDebt`：market 未注册
+
+`POLSplitter` 侧 `InvalidState` 等价错误：
+
+- `AlreadyUnlocked`：split/merge 时 verse 已 Unlocked 或 settle 已完成
+- `NotUnlocked`：settle 时 verse 尚未 Unlocked
+- `AlreadySettled`：重复 settle，或 preRedeemPTFee 时已 settled
+- `NotSettled`：redeemPT/redeemYT 时尚未 settled
+- `AlreadyDeployed`：`initializeVerse` 重复调用
 
 统一使用 `InvalidClaim` 覆盖无份额或重复领取：
 
@@ -1499,8 +1525,11 @@ function redeemYT(uint256 verseId, uint256 ytAmount, address to) external;
 - `redeemAuxiliaryLiquidity`
 - 普通 refund
 - preorder refund
+- `redeemYT`：`outstandingYT == 0`
 
 不保留 `InvalidRefund / InvalidRedeem` 这种分裂错误。
+
+`POLend` 与 `POLSplitter` 的重入锁使用 `ReentrancyGuardReentrantCall` 错误。
 
 `ptAmount = 0` 时 `Launcher` 不应调用 `preRedeemPTFee`，`Splitter` 不需要专门处理。
 

@@ -70,4 +70,4 @@
 
 ## 6. 已知实现差异提醒
 
-- 注册“天数”换算：`RegistrationCenter.DAY=180` 秒，而 `RegistrarAtLocal.quoteRegister` 使用 `24*3600`；最终写入以中心链为准。`[代码已证]`
+- 注册“天数”换算：`RegistrarAtLocal.quoteRegister` 读取 `RegistrationCenter.DAY`；最终写入以中心链为准，中心写入固定 `unlockTime = endTime + 365 days`。`[代码已证]`
