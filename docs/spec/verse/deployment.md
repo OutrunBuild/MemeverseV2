@@ -40,18 +40,24 @@
 2. launcher 通过 deployer 部署 memecoin/POL clone
 3. launcher 立即调用两者 `initialize(...)`
 4. launcher 依据 `omnichainIds` 对 memecoin/POL 调 `setPeer(...)`
-5. registrar 继续调 `launcher.setExternalInfo(...)`
+5. launcher 写入 verse 基础信息与反向索引
+6. launcher 同交易调用 `POLend.registerLendMarket(verseId)`
+7. registrar 后续调 `launcher.setExternalInfo(...)`
 
 以上为 `[代码已证]`。
 
 ### 3.2 `Genesis -> Locked` 时的部署动作
 
 1. launcher 判断是否达标并进入 `_deployAndSetupMemeverse`
-2. 若治理链是本链：
- - deployer 部署并初始化 `yieldVault/governor/incentivizer`
-3. 若治理链非本链：
- - 仅预测 `yieldVault/governor/incentivizer` 地址，不在本链初始化
+2. 若 `getTotalLeveragedDebt(verseId) > 0`，launcher 调用 `POLend.finalizeLeveragedGenesis(verseId)`
+3. launcher 调用 `POLSplitter.initializeVerse`
 4. launcher 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
+5. 若治理链是本链：
+ - deployer 部署并初始化 `yieldVault/governor/incentivizer`
+6. 若治理链非本链：
+ - 仅预测 `yieldVault/governor/incentivizer` 地址，不在本链初始化
+
+以上动作发生在同一笔 `changeStage` 交易内；任一步失败都会回滚整笔 `Genesis -> Locked` 迁移。
 
 以上为 `[代码已证]`。
 

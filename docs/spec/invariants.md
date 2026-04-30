@@ -87,6 +87,14 @@
 - 当前实现状态：保护窗口没有单独阶段，而是通过 `Stage.Unlocked + hook 按 pool-level resume time 阻断公开 swap` 落地；赎回路径与公开 swap 可用性由不同模块分离控制。保护窗口为固定 `24 hours` 产品常量，不再存在 owner 配置面。`[代码已证]`
 - 主要锚点：`src/verse/MemeverseLauncher.sol:132-142`，`src/verse/MemeverseLauncher.sol:996-1000`，`src/swap/MemeverseUniswapHook.sol:309-377`
 
+### INV-13 POLend 全局结算只能用 bounded reserve 覆盖 dust
+
+- 约束：`POLend.executeGlobalSettlement(verseId)` 的债务偿还必须满足 `recoveredUAsset + consumedSettlementDustReserve >= verseDebt`。若 `recoveredUAsset < verseDebt`，则 `consumedSettlementDustReserve == verseDebt - recoveredUAsset`，且必须同时满足 `consumedSettlementDustReserve <= maxSettlementDustByUAsset[uAsset]` 与 `consumedSettlementDustReserve <= settlementDustReserveBeforeSettlement[verseId]`。`settlementDustReserveBeforeSettlement[verseId]` 是执行 `executeGlobalSettlement` 前读取的 reserve 快照；settlement 成功后链上 `settlementDustReserve[verseId]` 会被清零。`[目标规范]`
+- 约束：`settlementDustReserve[verseId]` 只来自 `finalizeLeveragedGenesis` 自动预留的杠杆利息或 `fundSettlementDustReserve` 手动注入；不得通过 mint、残值扣减、普通侧 LP 扣减或 treasury 隐式透支产生。`[目标规范]`
+- 约束：settlement 成功后，未消耗的 `settlementDustReserve[verseId]` 必须转入 `POLend.protocolTreasury` 并清零；被消耗的 reserve 不进入 `residualUAsset`。`[目标规范]`
+- 价值：C1 只允许 wei 级整数舍入缺口通过 reserve 解决，不把真实资不抵债、价格模型错误或资金流错误伪装成 dust。
+- 主要真源：`docs/spec/polend/polend.md`
+
 ## 3. 确定性边界
 
 - 高确定性：以上不变量均有函数级源码锚点。

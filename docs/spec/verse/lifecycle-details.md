@@ -166,7 +166,7 @@ V2 当前已实现的启动保护是：
 
 ### 7.2 保护窗口内应允许什么
 
-- `redeemMemecoinLiquidity`
+- `redeemMemecoinLiquidity(verseId, amountInPOL)` / `redeemMemecoinLiquidity(verseId, amountInPOL, unwrap)`：burn `amountInPOL` 后令 `amountInLP = amountInPOL`；`unwrap=false` 转出 `memecoin/uAsset` LP token，`unwrap=true` 移除 LP 并发送底层 `memecoin` 与 `uAsset`
 - `redeemAuxiliaryLiquidity`
 - `POLSplitter.redeemPT / redeemYT`
 - POLend leveraged residual claims

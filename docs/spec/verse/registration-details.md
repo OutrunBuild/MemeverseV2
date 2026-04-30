@@ -120,6 +120,20 @@ center 当前负责检查：
 
 因此一次注册成功，不只是参数合法，还要求所有目标链的 fan-out 前提成立。
 
+### Registration gas dust semantics
+
+`quoteRegister` / `quoteSend` 返回的是最低或预估 native fee 需求，不是所有路径都必须精确支付的统一规则。
+
+路径差异：
+
+- spoke/source omnichain registrar -> hub：source 链 LayerZero send 使用 `refundAddress = user/caller`，source 侧超额 native fee 可退回 caller。
+- local registrar -> center：`msg.value` 必须等于转发给 center 的 `value` 参数；该转发预算可以高于 center quote。
+- hub/center -> other spokes fan-out：center 要求 `msg.value >= totalFee`；每个 outbound send 使用对应目标链的 `fee`；LayerZero `refundAddress` 是 center 自身；剩余或退回 native 作为 center gas dust 留在 center。
+
+center gas dust 不可由用户认领，只能由 owner 通过 `removeGasDust(receiver)` 清理。
+
+前端默认应使用 quote 的精确值；只有明确需要 hub gas buffer 时才额外加 buffer，且 hub 残余不保证退回原用户。
+
 ## 10. launcher 侧执行顺序
 
 注册成功后，launcher 侧目标产品执行顺序应是：

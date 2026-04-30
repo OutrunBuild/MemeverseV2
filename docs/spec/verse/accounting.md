@@ -74,7 +74,11 @@
 
 ### 4.3 Unlocked 后退出
 
-- `redeemMemecoinLiquidity`：burn `amountInPOL`，按 1:1 转出 memecoin LP。
+- `redeemMemecoinLiquidity(verseId, amountInPOL)` 等价于 `unwrap=false`。
+- `redeemMemecoinLiquidity(verseId, amountInPOL, unwrap)`：先 burn `amountInPOL`，再令 `amountInLP = amountInPOL`。
+  - `unwrap=false`：按 `amountInLP` 转出 `memecoin/uAsset` LP token。
+  - `unwrap=true`：按 `amountInLP` 移除 `memecoin/uAsset` LP，并发送底层 `memecoin` 与 `uAsset`。
+- 该路径是 `Unlocked` 退出路径；解锁后保护窗口内仍允许执行，但不是公开 swap。
 - `redeemAuxiliaryLiquidity`：普通用户在 `Unlocked` 后一次性领取三个辅助池普通份额 LP token，份额基准为 `userGenesisFund / totalNormalFunds`。
 - 若存在杠杆债务，`Locked -> Unlocked` 的同一笔交易内先执行 POLend 全局结算并切走杠杆份额 LP；普通用户只能领取结算后剩余的普通份额。
 - 杠杆残值由 `POLend` 记录并按 `userInterestPaid / totalLeveragedInterest` 领取；残值不属于 `POLSplitter` 的 PT/YT 兑付池。

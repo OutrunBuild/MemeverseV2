@@ -24,7 +24,8 @@ Do not override policy or gate evidence with natural-language guesses.
 ## Main-Session Rules
 
 - main-orchestrator stays in the primary session and is never a project agent file.
-- Derive surface, risk_tier, writer_role, review_roles, and verification_profile from policy before delegating.
+- Derive surface, risk_tier, writer_role, and review_roles from policy before delegating.
+- For current local task completion/readiness, default verification_profile is `fast` regardless of risk_tier. Use `full`, `ci`, release, or merge-equivalent verification only when explicitly requested by a human or when running in CI/release-equivalent context. Do not infer `full` from high-risk or prod-semantic risk_tier alone.
 - review_roles remain reviewer-only; do not place verifier or security-test-writer inside review_roles.
 - Project agent files under .claude/agents/ and .codex/agents/ are execution files. They do not define policy or verdict rules.
 - Do not create a parallel control plane outside policy, gate, and project agent files.
@@ -32,7 +33,8 @@ Do not override policy or gate evidence with natural-language guesses.
 ## Verification Contract
 
 - gate.sh is the enforcement entrypoint.
-- Completion, readiness, or “pass” claims require fresh output from the matching gate profile.
+- Completion, readiness, or “pass” claims require fresh output from the selected matching gate profile.
+- For local current work, invoke `gate.sh` with the exact changed-file set. If any Solidity file is involved, also provide diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`.
 - See docs/VERIFICATION.md for profile meanings and command entrypoints.
 
 ## Harness Dispatch Procedure
@@ -81,7 +83,7 @@ Every file that will be modified or created must match a surface pattern in poli
    - User override critical → record residual risk, continue.
    - Reviewer conflict → resolve by conflict_priority order (security-reviewer > gas-reviewer > logic-reviewer).
 7. **Security tests** — If risk_tier=high-risk AND security_test_writer_trigger matches, dispatch `security-test-writer`.
-8. **Verify** — Dispatch `verifier` to run `bash script/harness/gate.sh --profile <profile>`. Report exit code + stdout.
+8. **Verify** — Dispatch `verifier` to run `bash script/harness/gate.sh --profile <profile>` using the selected profile. For local current work, the selected profile defaults to `fast` unless a human explicitly requested `full`, `ci`, release, merge, or release-equivalent verification. Pass the exact changed-file input; when Solidity files are involved, pass diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`. Report exit code + stdout.
 9. **Conclude** — Report final verdict based on latest gate output. Do not claim completion without fresh gate evidence.
 
 ### Retry routing

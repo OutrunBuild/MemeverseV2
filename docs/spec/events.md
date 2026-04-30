@@ -18,18 +18,19 @@
 | `Registration(uniqueId,param)` | `MemeverseRegistrationCenter` | 中心链注册成功后 | 跟踪 symbol 占用与参数快照 |
 | `RegisterMemeverse(verseId,verse)` | `MemeverseLauncher` | launcher 完成新 verse 写入 | 建立 verse 主索引 |
 | `Genesis(verseId,user,...)` | `MemeverseLauncher` | Genesis 入金成功 | 跟踪募资累计 |
+| `Preorder(verseId,caller,user,amountInUAsset)` | `MemeverseLauncher` | Preorder 入金成功 | preorder 资金流入与累计索引；区分 caller 与 user 覆盖 relayer 场景 |
 | `ChangeStage(verseId,currentStage)` | `MemeverseLauncher` | `changeStage` 每次成功执行 | 生命周期状态索引 |
 | `Refund(verseId,receiver,amount)` | `MemeverseLauncher` | Genesis 退款成功 | 退款账本 |
 | `RefundPreorder(uint256 indexed verseId,address indexed receiver,uint256 refundAmount)` | `MemeverseLauncher` | Preorder 退款成功 | preorder 退款账本；目标事件规格 |
 | `ClaimNormalYT(...)` | `MemeverseLauncher` | 普通创世初始 YT 领取成功 | 初始 YT claim 索引 |
+| `ClaimPreorderMemecoin(verseId,user,amount)` | `MemeverseLauncher` | Unlocked 后 preorder memecoin 领取成功 | preorder memecoin vested claim 索引 |
 | `MintPOLToken(...)` | `MemeverseLauncher` | Locked 后用户主动加池并 mint POL 成功 | 加池 POL 头寸变动；不代表 Genesis 初始 POL claim |
 | `RedeemMemecoinLiquidity(...)` | `MemeverseLauncher` | unlock 后主池退出成功 | 主池退出路径索引 |
+| `RedeemAuxiliaryLiquidity(verseId,user,polUAssetLpAmount,ptUAssetLpAmount,ptPolLpAmount)` | `MemeverseLauncher` | Unlocked 后辅助池 LP 退出成功 | 辅助池退出路径索引；携带三类 LP 精确金额 |
 | `RedeemAndDistributeFees(...)` | `MemeverseLauncher` | 费用赎回分发成功 | 执行者奖励与收益分账 |
 | `SetExternalInfo(...)` | `MemeverseLauncher` | 外部元数据更新 | 前端展示元数据刷新 |
 
 除标注为目标事件规格的条目外，以上均为 `[代码已证]`。
-
-已知缺口：`redeemAuxiliaryLiquidity` 是 POLend 四池模式下的辅助池退出入口，当前实现未 emit 专用事件。
 
 ### 2.2 POLend / POLSplitter 目标事件面
 
@@ -37,15 +38,20 @@
 
 | 事件 | 触发模块 | 触发时机 | 用途 | 状态 |
 | --- | --- | --- | --- | --- |
-| `LeveragedGenesis(uint256 indexed verseId,address indexed user,uint256 interestAmount)` | `POLend` | 用户在 Genesis 支付杠杆利息成功 | 杠杆创世参与与利息累计索引 | 目标-only；未 emit 时为当前缺口 |
-| `ClaimLeveragedYT(...)` | `POLend` | 杠杆创世初始 YT 领取成功 | leveraged YT claim 索引 | 目标-only；未 emit 时为当前缺口 |
-| `ClaimResidual(...)` | `POLend` | 全局结算后杠杆残值领取成功 | leveraged residual claims 索引 | 目标-only；未 emit 时为当前缺口 |
-| `PreRedeemPTFee(uint256 indexed verseId,address indexed uAsset,uint256 ptAmount,address mintTo)` | `POLend` | settle 前杠杆侧 PT fee 预兑付 | PT fee 预兑付、债务增加与后续 backing 对账 | 目标-only；未 emit 时为当前缺口 |
-| `DefaultInterestRateChanged(uint256 oldRate,uint256 newRate)` | `POLend` | owner 修改默认利率 | 新注册 market 利率参数索引；不影响已注册 market | 目标-only；未 emit 时为当前缺口 |
-| `ProtocolTreasuryChanged(address indexed oldTreasury,address indexed newTreasury)` | `POLend` | owner 修改 POLend protocol treasury | 杠杆利息 treasury 变更索引；与 Memeverse DAO governor treasury 不同 | 目标-only；未 emit 时为当前缺口 |
-| `RedeemPT(...)` / `RedeemYT(...)` | `POLSplitter` | settle 后 PT 或 YT 兑付 | PT/YT 兑付流水索引 | 目标-only；未 emit 时为当前缺口 |
+| `LeveragedGenesis(uint256 indexed verseId,address indexed user,uint256 interestAmount)` | `POLend` | 用户在 Genesis 支付杠杆利息成功 | 杠杆创世参与与利息累计索引 | `[代码已证]` |
+| `ClaimLeveragedYT(uint256 indexed verseId,address indexed user,address indexed to,uint256 amount)` | `POLend` | 杠杆创世初始 YT 领取成功 | leveraged YT claim 索引 | `[代码已证]` |
+| `ClaimResidual(uint256 indexed verseId,address indexed user,address indexed to,uint256 uAssetAmount,uint256 memecoinAmount)` | `POLend` | 全局结算后杠杆残值领取成功 | leveraged residual claims 索引 | `[代码已证]` |
+| `PreRedeemPTFee(uint256 indexed verseId,address indexed uAsset,uint256 ptAmount,address mintTo)` | `POLend` | settle 前杠杆侧 PT fee 预兑付 | PT fee 预兑付、债务增加与后续 backing 对账 | `[代码已证]` |
+| `DefaultInterestRateChanged(uint256 oldRate,uint256 newRate)` | `POLend` | owner 修改默认利率 | 新注册 market 利率参数索引；不影响已注册 market | `[代码已证]` |
+| `ProtocolTreasuryChanged(address indexed oldTreasury,address indexed newTreasury)` | `POLend` | owner 修改 POLend protocol treasury | 杠杆利息 treasury 变更索引；与 Memeverse DAO governor treasury 不同 | `[代码已证]` |
+| `MaxSettlementDustChanged(address indexed uAsset,uint256 oldDust,uint256 newDust)` | `POLend` | owner 修改某 `uAsset` 的 settlement dust 上限 | C1 dust 补偿上限审计 | `[代码已证]` |
+| `SettlementDustReserved(uint256 indexed verseId,address indexed uAsset,uint256 totalLeveragedInterest,uint256 autoReserve,uint256 treasuryInterest)` | `POLend` | `finalizeLeveragedGenesis` 自动预留 reserve 并转出剩余利息 | 自动 reserve 与 treasury 利息拆分审计 | `[代码已证]` |
+| `SettlementDustReserveFunded(uint256 indexed verseId,address indexed funder,address indexed uAsset,uint256 amount)` | `POLend` | 任意地址为 Locked market 手动注入 settlement dust reserve | reserve 来源与人工补足流水审计 | `[代码已证]` |
+| `GlobalSettlementExecuted(uint256 indexed verseId,address indexed uAsset,uint256 verseDebt,uint256 recoveredUAsset,uint256 consumedSettlementDustReserve,uint256 unusedSettlementDustReserve,uint256 residualUAsset,uint256 residualMemecoin)` | `POLend` | `executeGlobalSettlement` 成功完成 | 债务偿还、reserve 消耗、未用 reserve 归集与 residual 记账审计 | `[代码已证]` |
+| `RedeemPT(uint256 indexed verseId,address indexed from,address indexed to,uint256 ptAmount)` | `POLSplitter` | settle 后 PT 兑付 | PT 兑付流水索引 | `[代码已证]` |
+| `RedeemYT(uint256 indexed verseId,address indexed from,address indexed to,uint256 ytAmount,uint256 uAssetAmount,uint256 memecoinAmount)` | `POLSplitter` | settle 后 YT 兑付 | YT 兑付流水索引 | `[代码已证]` |
 
-目标事件面还应覆盖 `POLend.executeGlobalSettlement(...)` 产生的 leveraged residual 记账结果，至少让索引器能区分：杠杆初始 YT 领取、PT/YT 兑付、杠杆残值领取三类权益。若实现只依赖 token transfer 或内部状态变化，则属于事件面缺口。
+目标事件面必须覆盖 `POLend.executeGlobalSettlement(...)` 产生的 leveraged residual 与 settlement dust reserve 记账结果。若实现只依赖 token transfer 或内部状态变化，则属于事件面缺口。
 
 ### 2.3 Swap 与 LP
 
@@ -81,9 +87,9 @@
 
 ## 4. 已知事件缺口与解释
 
-- `preorder(...)`、`claimUnlockedPreorderMemecoin(...)` 没有专用事件。`[已知缺口]`
+- `preorder(...)`、`claimUnlockedPreorderMemecoin(...)`、`redeemAuxiliaryLiquidity(...)` 已实现专用事件（`Preorder`、`ClaimPreorderMemecoin`、`RedeemAuxiliaryLiquidity`）。不再属于 Launcher 事件面缺口。
 - `refundPreorder(...)` 的目标事件规格为 `RefundPreorder(uint256 indexed verseId,address indexed receiver,uint256 refundAmount)`；实现 emit 后不再属于 Launcher 事件面缺口。
-- POLend / POLSplitter 目标事件若当前代码未 emit，索引器不能用 `[代码已证]` 口径声明已具备完整 leveraged genesis、YT/residual claims、PT fee 预兑付、default interest / protocol treasury 变更事件面；`burnPreRedeemedBacking` 保持可调用 settle 行为，但不要求专用 emitted event。`[已知缺口]`
+- POLend / POLSplitter 目标事件面全部已实现。`burnPreRedeemedBacking` 保持可调用 settle 行为，但不要求专用 emitted event。
 - Router 自身没有业务事件（swap/add/remove/permit2 路径）；链上索引主要依赖 Hook 事件与 token transfer。`[已知缺口]`
 - `changeStage` 在 `Locked` 且未到 `unlockTime` 时也会发 `ChangeStage(..., Locked)`；索引器不能仅凭事件判断“是否真的迁移”。`[已知缺口]`
 - 当前实现没有“保护窗口开始/结束”的专用阶段或专用事件，也没有 dedicated event 单独标记 `publicSwapResumeTime` 的激活或到期；索引器需要结合 stage、实际 `Locked -> Unlocked` 迁移交易时间、固定 `24 hours` 窗口与 swap 成败联合判断“unlock 后保护中”与“完全开放交易”的状态。`[已知缺口]`
