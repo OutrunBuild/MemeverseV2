@@ -1567,10 +1567,19 @@ Launcher 调 IOFT.send
 
 ## 27. Target ABI
 
-`POLend` 外部目标 ABI：
+本节区分 deployment / proxy 初始化 ABI 与 runtime integration ABI。
+
+`initialize(...)` 是 proxy 初始化入口，用于部署编排和升级工具，不属于 Launcher / POLend / POLSplitter 运行期集成接口。`IPOLend` 与 `IPOLSplitter` 表达 runtime integration ABI；若部署脚本需要强类型 initializer，可使用单独的 initializer-only interface，不能把初始化入口误解为 per-verse 产品动作。
+
+`POLend` deployment / proxy 初始化 ABI：
 
 ```solidity
 function initialize(address initialOwner, uint256 defaultInterestRate, uint256 leveragedDebtFactor, address protocolTreasury, address launcher, address splitter) external;
+```
+
+`POLend` runtime integration ABI：
+
+```solidity
 function registerLendMarket(uint256 verseId) external;
 function leveragedGenesis(uint256 verseId, uint256 interestAmount) external returns (uint256 borrowedAmount);
 function markRefundable(uint256 verseId) external;
@@ -1599,10 +1608,15 @@ function settlementDustReserve(uint256 verseId) external view returns (uint256);
 function maxSettlementDustByUAsset(address uAsset) external view returns (uint256);
 ```
 
-`POLSplitter` 外部目标 ABI：
+`POLSplitter` deployment / proxy 初始化 ABI：
 
 ```solidity
 function initialize(address initialOwner, address launcher) external;
+```
+
+`POLSplitter` runtime integration ABI：
+
+```solidity
 function initializeVerse(uint256 verseId, address pol, address memecoin, address uAsset, string calldata name, string calldata symbol) external returns (address pt, address yt);
 function split(uint256 verseId, uint256 polAmount) external returns (uint256 ptAmount, uint256 ytAmount);
 function merge(uint256 verseId, uint256 ptAmount) external returns (uint256 polAmount);

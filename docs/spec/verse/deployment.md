@@ -74,7 +74,7 @@
 - `MemeverseLauncher.removeGasDust(address receiver)` 是 owner-only 运维清理入口，用于转出 Launcher 合约上的 native balance。`[代码已证]`
 - 该余额不是用户可 claim 资金，且与 `RegistrationCenter` gas dust 是不同边界。`[代码已证]`
 - 目标边界：`redeemAndDistributeFees` 要求 `msg.value` 精确等于 required fee；本地分发、无跨链要求或无 fee 分发时 required fee 为 `0`。精确 native payment 下，费用分发不应产生预期 Launcher dust。
-- 当前缺口：当前实现可能在无 fee 分发时先 early return，导致误带的非零 native value 留作 Launcher dust，待代码修复。
+- 无 fee 分发时，`redeemAndDistributeFees` 在返回零值前必须拒绝非零 `msg.value`，避免误带 native value 留作 Launcher dust。`[代码已证]`
 - 当前代码按实现行为描述，不额外声明 zero-address receiver 校验。`[代码已证]`
 
 ## 6. 脚本层可见事实（非最终清单）

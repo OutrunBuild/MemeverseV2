@@ -131,7 +131,6 @@
   - 分别构建两笔 OFT send
 - 目标：`redeemAndDistributeFees` 的 native payment 必须精确等于 required fee；underpay 与 overpay 都会 revert（实现要求“等于”，不是“大于等于”）。
 - 目标：若本次没有任何 fee 被分发，required fee 为 `0`，因此非零 `msg.value` 应 revert。
-- 当前缺口：当前实现可能在无 fee 分发时先 early return，尚未检查非零 `msg.value`；这不是接受的产品行为，待代码修复。
 
 ## 6. Treasury / Yield / Governance 周期语义
 
