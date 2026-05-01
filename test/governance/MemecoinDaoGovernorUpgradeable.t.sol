@@ -243,6 +243,26 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         assertTrue(secondProposalId != 0);
     }
 
+    /// @notice Test propose allows new proposal after unfinalized proposal reaches Succeeded state.
+    function testProposeAllowsNewProposalAfterSucceededState() external {
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _proposalPayload();
+
+        vm.prank(ALICE);
+        uint256 firstProposalId = governor.propose(targets, values, calldatas, "proposal-1");
+
+        // Vote and pass the proposal → Succeeded state
+        vm.roll(block.number + 1);
+        vm.prank(ALICE);
+        governor.castVote(firstProposalId, 1);
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        assertEq(uint8(governor.state(firstProposalId)), uint8(IGovernor.ProposalState.Succeeded));
+
+        // Proposer should be able to submit a new proposal while the first is still Succeeded
+        vm.prank(ALICE);
+        uint256 secondProposalId = governor.propose(targets, values, calldatas, "proposal-2");
+        assertTrue(secondProposalId != firstProposalId, "new proposal id differs");
+    }
+
     /// @notice Test cast vote accumulates cycle votes on incentivizer.
     function testCastVoteAccumulatesCycleVotesOnIncentivizer() external {
         (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _proposalPayload();

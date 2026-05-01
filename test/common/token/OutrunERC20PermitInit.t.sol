@@ -96,4 +96,17 @@ contract OutrunERC20PermitInitTest is Test {
         vm.expectRevert();
         token.permit(OWNER, SPENDER, 7 ether, block.timestamp + 1 days, v, r, s);
     }
+
+    /// @notice Test permit rejects replay of the same signature.
+    function testPermitRejectsReplayOfSameSignature() external {
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 digest = token.permitDigest(OWNER, SPENDER, 7 ether, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(OWNER_PK, digest);
+
+        token.permit(OWNER, SPENDER, 7 ether, deadline, v, r, s);
+        assertEq(token.nonces(OWNER), 1);
+
+        vm.expectRevert();
+        token.permit(OWNER, SPENDER, 7 ether, deadline, v, r, s);
+    }
 }

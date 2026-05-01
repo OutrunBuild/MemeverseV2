@@ -89,6 +89,21 @@ contract OutrunERC20InitTest is Test {
         _assertTransferFromCallFails(token, ALICE, BOB, 1 ether);
     }
 
+    /// @notice Test infinite allowance is not decremented by transferFrom.
+    function testInfiniteAllowanceNotDecrementedByTransferFrom() external {
+        token.mintTest(ALICE, 100 ether);
+
+        vm.prank(ALICE);
+        token.approve(BOB, type(uint256).max);
+        assertEq(token.allowance(ALICE, BOB), type(uint256).max);
+
+        vm.prank(BOB);
+        _assertTransferFrom(token, ALICE, BOB, 50 ether);
+        assertEq(token.allowance(ALICE, BOB), type(uint256).max);
+        assertEq(token.balanceOf(ALICE), 50 ether);
+        assertEq(token.balanceOf(BOB), 50 ether);
+    }
+
     /// @notice Test burn reduces supply.
     function testBurnReducesSupply() external {
         token.mintTest(ALICE, 4 ether);

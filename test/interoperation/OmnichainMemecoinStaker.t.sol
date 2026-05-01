@@ -206,4 +206,17 @@ contract OmnichainMemecoinStakerTest is Test {
         vm.expectRevert(IOmnichainMemecoinStaker.AlreadyExecuted.selector);
         staker.lzCompose(address(memecoin), guid, message, address(0xCAFE), "");
     }
+
+    /// @notice Test lz compose reverts on malformed compose message.
+    function testLzComposeRevertsOnMalformedComposeMessage() external {
+        bytes32 guid = bytes32("malformed");
+        memecoin.mint(address(staker), 1 ether);
+
+        // ComposeMsg contains only the receiver prefix but no (address, address) tuple for abi.decode.
+        bytes memory message = OFTComposeMsgCodec.encode(1, 101, 1 ether, hex"deadbeef");
+
+        vm.prank(LOCAL_ENDPOINT);
+        vm.expectRevert();
+        staker.lzCompose(address(memecoin), guid, message, address(0), "");
+    }
 }

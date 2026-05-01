@@ -59,4 +59,21 @@ contract OutrunNoncesInitTest is Test {
         vm.expectRevert(abi.encodeWithSelector(OutrunNoncesInit.InvalidAccountNonce.selector, ALICE, 1));
         harness.useCheckedNonce(ALICE, 0);
     }
+
+    /// @notice Test nonces are isolated across different addresses.
+    function testNonceIsolationAcrossAddresses() external {
+        address bob = address(0xB0B);
+
+        assertEq(harness.nonces(ALICE), 0);
+        assertEq(harness.nonces(bob), 0);
+
+        harness.useNonce(ALICE);
+        harness.useNonce(ALICE);
+        assertEq(harness.nonces(ALICE), 2);
+        assertEq(harness.nonces(bob), 0);
+
+        harness.useNonce(bob);
+        assertEq(harness.nonces(ALICE), 2);
+        assertEq(harness.nonces(bob), 1);
+    }
 }

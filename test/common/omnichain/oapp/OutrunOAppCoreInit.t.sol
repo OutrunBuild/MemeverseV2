@@ -72,6 +72,14 @@ contract OutrunOAppCoreInitTest is Test {
         assertEq(address(harness.endpoint()), address(endpoint));
     }
 
+    /// @notice Test initialize rejects re-initialization.
+    function testInitializeRejectsReinitialization() external {
+        harness.initialize(OWNER, DELEGATE);
+
+        vm.expectRevert();
+        harness.initialize(OWNER, DELEGATE);
+    }
+
     /// @notice Test set peer and get peer are owner gated.
     function testSetPeerAndGetPeerAreOwnerGated() external {
         harness.initialize(OWNER, DELEGATE);
