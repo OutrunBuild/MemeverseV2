@@ -24,6 +24,7 @@
 | `Refund(verseId,receiver,amount)` | `MemeverseLauncher` | Genesis 退款成功 | 退款账本 |
 | `RefundPreorder(uint256 indexed verseId,address indexed receiver,uint256 refundAmount)` | `MemeverseLauncher` | Preorder 退款成功 | preorder 退款账本；目标事件规格 |
 | `ClaimNormalYT(...)` | `MemeverseLauncher` | 普通创世初始 YT 领取成功 | 初始 YT claim 索引 |
+| `ClaimNormalFees(verseId,receiver,uAssetAmount,ptAmount)` | `MemeverseLauncher` | 普通侧辅助池手续费领取成功 | 普通侧 uAsset/PT fee claim 索引；settled 后 PT 已兑换为 uAsset，ptAmount=0 |
 | `ClaimPreorderMemecoin(verseId,user,amount)` | `MemeverseLauncher` | Unlocked 后 preorder memecoin 领取成功 | preorder memecoin vested claim 索引 |
 | `MintPOLToken(...)` | `MemeverseLauncher` | Locked 后用户主动加池并 mint POL 成功 | 加池 POL 头寸变动；不代表 Genesis 初始 POL claim |
 | `RedeemMemecoinLiquidity(...)` | `MemeverseLauncher` | unlock 后主池退出成功 | 主池退出路径索引 |

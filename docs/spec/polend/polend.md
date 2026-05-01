@@ -993,12 +993,15 @@ ptPolLpAmount = auxiliaryLiquidities.ptPolLpAmount * userGenesisFund / totalNorm
 `settle` 语义：
 
 ```text
+settled = true                     （重入守卫，在外部调用前设置）
 burn POL collateral
 -> 得到 totalRedeemedUAsset + settlementMemecoin
--> 若 preRedeemedPT > 0，POLend repay Splitter 持有的 preRedeemedPT backing
--> settlementUAsset = totalRedeemedUAsset - preRedeemedPT
--> delete preRedeemedPT
--> settled = true
+-> 若 preRedeemedPT > 0：
+     Splitter approve 该 verse uAsset 给 POLend，金额为 preRedeemedPT
+     POLend repay Splitter 持有的 preRedeemedPT backing
+     settlementUAsset = totalRedeemedUAsset - preRedeemedPT
+     delete preRedeemedPT
+-> 写入 settlementUAsset / settlementMemecoin
 ```
 
 `totalRedeemedUAsset` 表示 burn `POL collateral` 后赎回出的全部 `uAsset`，尚未扣除已预兑付 `PT fee` backing。

@@ -17,6 +17,7 @@ broadcast
 
 # Docs
 docs/superpowers
+docs/review
 
 # Dotenv file
 .env

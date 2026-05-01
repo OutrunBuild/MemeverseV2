@@ -16,8 +16,8 @@
 | `MemeverseLauncher` | `lzEndpointRegistry` | `setLzEndpointRegistry` | 非零 | 注册 peer 配置、跨链 endpoint 映射 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseRegistrar` | `setMemeverseRegistrar` | 非零 | 注册入口权限边界 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseProxyDeployer` | `setMemeverseProxyDeployer` | 非零 | per-verse token/vault/governor 部署 | `[代码已证]` |
-| `MemeverseLauncher` | `polend` | `setPolend` | owner setter；非零；注册前必配；未配置时 `registerMemeverse(...)` 直接回退 | 目标规范：注册时同交易内调用 `POLend.registerLendMarket(verseId)`；若当前实现仍传 `pol/name/symbol`，属于当前实现差异 / 待迁移 | 目标规范见 `docs/spec/polend/polend.md` |
-| `MemeverseLauncher` | `polSplitter` | `setPolSplitter` | owner setter；非零；注册前必配；未配置时 `registerMemeverse(...)` 直接回退 | 目标规范：注册前必配，但 `PT/YT` 初始化发生在 `Genesis -> Locked`，不发生在注册阶段 | 目标规范见 `docs/spec/polend/polend.md` |
+| `MemeverseLauncher` | `polend` | constructor | 非零；不可变；注册前必配；未配置时 `registerMemeverse(...)` 直接回退 | 目标规范：注册时同交易内调用 `POLend.registerLendMarket(verseId)`；若当前实现仍传 `pol/name/symbol`，属于当前实现差异 / 待迁移 | 目标规范见 `docs/spec/polend/polend.md` |
+| `MemeverseLauncher` | `polSplitter` | constructor | 非零；不可变；注册前必配；未配置时 `registerMemeverse(...)` 直接回退 | 目标规范：注册前必配，但 `PT/YT` 初始化发生在 `Genesis -> Locked`，不发生在注册阶段 | 目标规范见 `docs/spec/polend/polend.md` |
 | `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
 | `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`minTotalFund <= 2^64-1`；`fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
