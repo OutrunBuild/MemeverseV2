@@ -204,7 +204,8 @@ contract MemecoinDaoGovernorUpgradeable is
         // Restrict each address from submitting new proposals while it has unfinalized proposal
         uint256 unfinalizedProposalId = $.userUnfinalizedProposalId[msg.sender];
         require(
-            unfinalizedProposalId == 0 || state(unfinalizedProposalId) == ProposalState.Defeated,
+            unfinalizedProposalId == 0 || state(unfinalizedProposalId) == ProposalState.Defeated
+                || state(unfinalizedProposalId) == ProposalState.Succeeded,
             UserHasUnfinalizedProposal()
         );
 

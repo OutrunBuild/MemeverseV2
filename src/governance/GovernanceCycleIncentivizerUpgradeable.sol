@@ -62,13 +62,9 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
     }
 
     modifier onlyGovernance() {
-        _onlyGovernance();
-        _;
-    }
-
-    function _onlyGovernance() internal view {
         GovernanceCycleIncentivizerStorage storage $ = _getGovernanceCycleIncentivizerStorage();
         require(msg.sender == $._governor, PermissionDenied());
+        _;
     }
 
     constructor() {
