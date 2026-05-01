@@ -6,6 +6,7 @@
 标签说明：
 
 - `[代码已证]`：当前实现直接 `emit`
+- `[目标规格]`：目标事件规格，当前实现尚未直接 `emit`
 - `[已知缺口]`：业务动作存在，但没有对应事件或难以完整重建
 - `[未知]`：需依赖链外系统或外部协议事件
 
@@ -43,6 +44,7 @@
 | `ClaimResidual(uint256 indexed verseId,address indexed user,address indexed to,uint256 uAssetAmount,uint256 memecoinAmount)` | `POLend` | 全局结算后杠杆残值领取成功 | leveraged residual claims 索引 | `[代码已证]` |
 | `PreRedeemPTFee(uint256 indexed verseId,address indexed uAsset,uint256 ptAmount,address mintTo)` | `POLend` | settle 前杠杆侧 PT fee 预兑付 | PT fee 预兑付、债务增加与后续 backing 对账 | `[代码已证]` |
 | `DefaultInterestRateChanged(uint256 oldRate,uint256 newRate)` | `POLend` | owner 修改默认利率 | 新注册 market 利率参数索引；不影响已注册 market | `[代码已证]` |
+| `LeveragedDebtFactorChanged(uint256 oldFactor,uint256 newFactor)` | `POLend` | owner 修改全局杠杆债务上限系数 | 新增杠杆创世 debt cap 参数索引；不影响已 mint 债务 | `[代码已证]` |
 | `ProtocolTreasuryChanged(address indexed oldTreasury,address indexed newTreasury)` | `POLend` | owner 修改 POLend protocol treasury | 杠杆利息 treasury 变更索引；与 Memeverse DAO governor treasury 不同 | `[代码已证]` |
 | `MaxSettlementDustChanged(address indexed uAsset,uint256 oldDust,uint256 newDust)` | `POLend` | owner 修改某 `uAsset` 的 settlement dust 上限 | C1 dust 补偿上限审计 | `[代码已证]` |
 | `SettlementDustReserved(uint256 indexed verseId,address indexed uAsset,uint256 totalLeveragedInterest,uint256 autoReserve,uint256 treasuryInterest)` | `POLend` | `finalizeLeveragedGenesis` 自动预留 reserve 并转出剩余利息 | 自动 reserve 与 treasury 利息拆分审计 | `[代码已证]` |
@@ -85,11 +87,15 @@
 - Interoperation：`SetGasLimits`
 - ProxyDeployer：`SetQuorumNumerator`
 
+运维清理事件（均 `[代码已证]`）：
+
+- Launcher：`RemoveGasDust(address indexed receiver,uint256 dust)`，owner-only 清理 Launcher native gas dust 时发出。
+
 ## 4. 已知事件缺口与解释
 
 - `preorder(...)`、`claimUnlockedPreorderMemecoin(...)`、`redeemAuxiliaryLiquidity(...)` 已实现专用事件（`Preorder`、`ClaimPreorderMemecoin`、`RedeemAuxiliaryLiquidity`）。不再属于 Launcher 事件面缺口。
 - `refundPreorder(...)` 的目标事件规格为 `RefundPreorder(uint256 indexed verseId,address indexed receiver,uint256 refundAmount)`；实现 emit 后不再属于 Launcher 事件面缺口。
-- POLend / POLSplitter 目标事件面全部已实现。`burnPreRedeemedBacking` 保持可调用 settle 行为，但不要求专用 emitted event。
+- POLend / POLSplitter 目标事件面已实现。`burnPreRedeemedBacking` 保持可调用 settle 行为，但不要求专用 emitted event。
 - Router 自身没有业务事件（swap/add/remove/permit2 路径）；链上索引主要依赖 Hook 事件与 token transfer。`[已知缺口]`
 - `changeStage` 在 `Locked` 且未到 `unlockTime` 时也会发 `ChangeStage(..., Locked)`；索引器不能仅凭事件判断“是否真的迁移”。`[已知缺口]`
 - 当前实现没有“保护窗口开始/结束”的专用阶段或专用事件，也没有 dedicated event 单独标记 `publicSwapResumeTime` 的激活或到期；索引器需要结合 stage、实际 `Locked -> Unlocked` 迁移交易时间、固定 `24 hours` 窗口与 swap 成败联合判断“unlock 后保护中”与“完全开放交易”的状态。`[已知缺口]`

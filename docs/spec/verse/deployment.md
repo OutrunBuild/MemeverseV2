@@ -69,12 +69,20 @@
 - 跨链分发与 staking 的 gas 参数来自 launcher/interoperation 的可配置 gas limits。`[代码已证]`
 - `MemeverseProxyDeployer.quorumNumerator` 仅影响后续新部署 governor 初始化，不回溯既有实例。`[代码已证]`
 
-## 5. 脚本层可见事实（非最终清单）
+## 5. Launcher 原生 gas dust 边界
+
+- `MemeverseLauncher.removeGasDust(address receiver)` 是 owner-only 运维清理入口，用于转出 Launcher 合约上的 native balance。`[代码已证]`
+- 该余额不是用户可 claim 资金，且与 `RegistrationCenter` gas dust 是不同边界。`[代码已证]`
+- 目标边界：`redeemAndDistributeFees` 要求 `msg.value` 精确等于 required fee；本地分发、无跨链要求或无 fee 分发时 required fee 为 `0`。精确 native payment 下，费用分发不应产生预期 Launcher dust。
+- 当前缺口：当前实现可能在无 fee 分发时先 early return，导致误带的非零 native value 留作 Launcher dust，待代码修复。
+- 当前代码按实现行为描述，不额外声明 zero-address receiver 校验。`[代码已证]`
+
+## 6. 脚本层可见事实（非最终清单）
 
 - `script/MemeverseScript.s.sol` 给出了环境变量命名、测试网链表与部署函数模板。`[代码已证]`
 - 该脚本包含注释掉的分步部署/查询调用，不能视为“已执行部署记录”。`[代码已证]`
 
-## 6. 明确未知项
+## 7. 明确未知项
 
 - `[未知]` 各链真实部署地址与是否已升级后的实现地址。
 - `[未知]` 生产环境 owner/delegate/multisig/timelock 实际控制关系。

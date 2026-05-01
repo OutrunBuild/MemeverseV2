@@ -30,6 +30,19 @@
 - `totalLeveragedDebt` 由当前 market 利率和 `totalLeveragedInterest` 推导；无杠杆参与时视为 0。
 - `Refund` 状态下，preorder 用户按 `userPreorderFunds` 一次性退回该 verse 的 `uAsset`。
 
+### 2.4 公开预览接口
+
+- `previewPreorderCapacity(uint256 verseId) returns (uint256 remaining)` 是 view/preview 口径，不产生状态迁移。
+- ABI 前置条件：`verseId == 0` 时 revert `ZeroInput`；非零未注册/无效 verse 因读取 `POLend.getTotalLeveragedDebt(verseId)` 走当前 POLend invalid-market 路径 revert。
+- 计算口径：
+  - `base = totalNormalFunds + totalLeveragedDebt`
+  - `cap = base * 70% * preorderCapRatio / RATIO`
+  - `remaining = max(cap - preorderState.totalFunds, 0)`
+- `totalLeveragedDebt` 来自 `POLend`。
+- `previewGenesisMakerFees(uint256 verseId) returns (uint256 uAssetFee,uint256 memecoinFee)` 预览可分发 genesis maker fee。
+- ABI 前置条件：校验 `verseId` 有效，且 verse stage 必须 `>= Locked`；无效 verse 或阶段不满足时按当前实现错误 revert。
+- 该预览聚合主池 `memecoin/uAsset` claimable fees 与辅助池 gov-fee pools：`uAsset` 侧走 DAO/governor 路径，`memecoin` 侧走 yield vault 路径。
+
 ## 3. Locked 时的初始资金部署
 
 ### 3.1 Genesis -> Locked 资金口径
@@ -110,12 +123,15 @@
 
 ### 5.4 治理链本地/异链分发
 
+- 目标：`quoteDistributionLzFee(verseId)` 返回 Launcher 费用分发所需的 required native fee；本地分发或无跨链要求时返回 `0`。
 - 若治理链为本链：
   - `govFee(uAsset)` -> `yieldDispatcher` -> `Governor.receiveTreasuryIncome`
   - `memecoinFee` -> `yieldDispatcher` -> `YieldVault.accumulateYields`
 - 若治理链为异链：
   - 分别构建两笔 OFT send
-  - `msg.value` 必须等于两笔报价和（实现要求“等于”，不是“大于等于”）
+- 目标：`redeemAndDistributeFees` 的 native payment 必须精确等于 required fee；underpay 与 overpay 都会 revert（实现要求“等于”，不是“大于等于”）。
+- 目标：若本次没有任何 fee 被分发，required fee 为 `0`，因此非零 `msg.value` 应 revert。
+- 当前缺口：当前实现可能在无 fee 分发时先 early return，尚未检查非零 `msg.value`；这不是接受的产品行为，待代码修复。
 
 ## 6. Treasury / Yield / Governance 周期语义
 

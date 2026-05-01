@@ -115,7 +115,7 @@ defaultInterestRate
 
 `defaultInterestRate` 是一次性创世利息比例，不是年化利率。
 
-`setDefaultInterestRate(newRate)` 只影响未来新注册 verse，不影响任何已注册 market。
+`setDefaultInterestRate(newRate)` 只影响未来新注册 verse，不影响任何已注册 market。setter 必须用当前 `leveragedDebtFactor` 与 `newRate` 校验默认配置仍满足杠杆约束，保证后续注册可用。
 
 `Launcher.registerMemeverse` 必须在同一交易内调用：
 
@@ -475,9 +475,11 @@ totalLeveragedDebt <= fullPrecisionMulDiv(leveragedDebtFactor, debtCapBase, 1e18
 
 `leveragedDebtFactor` 是全局杠杆债务上限系数，所有 verse 共享，不是单用户倍数。对单个 verse 而言，其总杠杆债务上限 = `fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)`。
 
-约束：`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。该条件是纯杠杆创世独立达到成功门槛的前提。`leveragedDebtFactor` 无独立下限，只与注册时的 `interestRate` 联合约束。
+约束：`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。该条件是纯杠杆创世独立达到成功门槛的前提。`leveragedDebtFactor` 无独立下限，只与 `interestRate` 联合约束。market 注册在复制当前默认配置前校验该约束；全局配置 setter 也必须保持同一约束，保证后续注册可用。
 
 `MAX_SUPPORTED_FUND_BASED_AMOUNT = 2^64 - 1` 是系统支持的最大 fund base。`leveragedDebtFactor` 必须有有界上限校验：在 `debtCapBase <= MAX_SUPPORTED_FUND_BASED_AMOUNT`、`interestRate <= 1e18`、`totalLeveragedInterest <= MAX_SUPPORTED_FUND_BASED_AMOUNT` 的边界下，所有 `leveragedDebtFactor` 相关计算必须能用全精度 `mulDiv` 或等价 overflow-safe 实现安全完成。
+
+`setLeveragedDebtFactor(newFactor)` 只影响仍可新增杠杆创世的未来 debt cap / `remainingAdditionalInterest` 计算，即 market 为 `None / Genesis` 且 Launcher verse 仍处于 `Genesis` 的情形。setter 不改变已注册 market 的固定 `interestRate`，不改变已 mint 债务，不改变 `Locked / Settled / Refund` 的结算或 claim 语义。降低 `leveragedDebtFactor` 后，若已有 Genesis market 的累计债务已达到或超过新 cap，后续 `leveragedGenesis` 可能被阻止，但既有利息不会被追溯 revert。`finalizeLeveragedGenesis` 仍不重复检查 debt cap。
 
 即使普通资金为 0，也允许杠杆债务达到：
 
@@ -1483,7 +1485,7 @@ Launcher 调 IOFT.send
 
 `protocolTreasury` 必须非零。
 
-`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。该约束在注册时校验。`leveragedDebtFactor` 必须按 §10 的 `MAX_SUPPORTED_FUND_BASED_AMOUNT = 2^64 - 1` 做有界上限校验，在最大支持 fund base、最大支持利率和最大支持利息输入边界下，所有相关计算必须使用全精度 `mulDiv` 或等价 overflow-safe 实现。
+`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。market 注册在复制当前默认配置前校验该约束；全局配置 setter 也必须保持同一约束，保证后续注册可用。`leveragedDebtFactor` 必须按 §10 的 `MAX_SUPPORTED_FUND_BASED_AMOUNT = 2^64 - 1` 做有界上限校验，在最大支持 fund base、最大支持利率和最大支持利息输入边界下，所有相关计算必须使用全精度 `mulDiv` 或等价 overflow-safe 实现。
 
 `setProtocolTreasury(newTreasury)`：
 
@@ -1496,8 +1498,18 @@ Launcher 调 IOFT.send
 
 - 仅 owner
 - `0 < newRate <= 1e18`
+- 使用当前 `leveragedDebtFactor` 与 `newRate` 校验 `fullPrecisionMulDiv(leveragedDebtFactor, newRate, 1) >= 1e36`，并满足 §10 的 `leveragedDebtFactor` 有界上限要求
 - 只影响未来注册 market
 - 事件 `event DefaultInterestRateChanged(uint256 oldRate, uint256 newRate);`
+
+`setLeveragedDebtFactor(newFactor)`：
+
+- 仅 owner
+- `newFactor != 0`
+- 使用 `newFactor` 与当前 `defaultInterestRate` 校验 `fullPrecisionMulDiv(newFactor, defaultInterestRate, 1) >= 1e36`
+- 按 §10 的 `MAX_SUPPORTED_FUND_BASED_AMOUNT = 2^64 - 1` 做有界上限校验，在最大支持 fund base、最大支持利率和最大支持利息输入边界下，所有相关计算必须使用全精度 `mulDiv` 或等价 overflow-safe 实现
+- 只影响仍处于 `None / Genesis` 且 Launcher verse 仍处于 `Genesis` 的 market 后续 debt cap / `remainingAdditionalInterest` 计算；不改变已注册 market 利率、已 mint 债务或 `Locked / Settled / Refund` 结算 / claim 语义
+- 事件 `event LeveragedDebtFactorChanged(uint256 oldFactor, uint256 newFactor);`
 
 `setMaxSettlementDust(address uAsset, uint256 maxDust)`：
 
@@ -1534,7 +1546,8 @@ Launcher 调 IOFT.send
 | `claimLeveragedYT` | 用户 | market 为 `Locked / Settled` | `to != address(0)`，有未领取杠杆利息份额 | 标记 `leveragedYTClaimed` |
 | `claimResidual` | 用户 | market 为 `Settled` | `to != address(0)`，有有效利息且未领取；四舍五入向下后 payout 可为 0 | 标记 `residualClaimed` |
 | `setProtocolTreasury` | owner | 任意 | `newTreasury != address(0)` | 仅影响未来杠杆利息收入与未消耗 reserve 归集地址 |
-| `setDefaultInterestRate` | owner | 任意 | `0 < newRate <= 1e18` | 仅影响未来注册 market |
+| `setDefaultInterestRate` | owner | 任意 | `0 < newRate <= 1e18`；当前 `leveragedDebtFactor` 与 `newRate` 满足杠杆约束 | 仅影响未来注册 market |
+| `setLeveragedDebtFactor` | owner | 任意 | `newFactor != 0`；满足 `MAX_SUPPORTED_FUND_BASED_AMOUNT` 有界上限；`newFactor` 与当前 `defaultInterestRate` 满足杠杆约束 | 仅影响可继续新增杠杆创世的 `None / Genesis` market 后续 debt cap / `remainingAdditionalInterest` |
 | `setMaxSettlementDust` | owner | 任意 | `uAsset != address(0)` | 配置该 `uAsset` settlement dust 上限 |
 | upgrade authorization | proxy admin / owner policy | 按升级框架 | 新实现初始化与存储布局必须兼容 | 不改变既有 market 语义 |
 | pause behavior | pauser / owner policy | 任意 | pause 不得阻断必要的 unlock / refund / repay 安全出口；`fundSettlementDustReserve` 视为 unlock / repay 安全出口 | pause 只限制新增资金入口和非必要领取入口。受 `whenNotPaused` 阻断的函数清单：`MemeverseLauncher.genesis`、`MemeverseLauncher.preorder`、`MemeverseLauncher.claimNormalYT`、`MemeverseLauncher.claimNormalFees`、`MemeverseLauncher.redeemAuxiliaryLiquidity`、`MemeverseLauncher.claimUnlockedPreorderMemecoin`、`MemeverseLauncher.redeemAndDistributeFees`、`POLend.leveragedGenesis`。不受 pause 阻断的安全出口：`POLend.claimRefund`、`POLend.claimLeveragedYT`、`POLend.claimResidual`、`POLend.fundSettlementDustReserve`、`POLend.executeGlobalSettlement`、`POLSplitter.redeemPT`、`POLSplitter.redeemYT`、`POLSplitter.settle` |
@@ -1572,6 +1585,7 @@ function claimLeveragedYT(uint256 verseId, address to) external returns (uint256
 function claimResidual(uint256 verseId, address to) external returns (uint256 uAssetAmount, uint256 memecoinAmount);
 function setProtocolTreasury(address newTreasury) external;
 function setDefaultInterestRate(uint256 newRate) external;
+function setLeveragedDebtFactor(uint256 newFactor) external;
 function setMaxSettlementDust(address uAsset, uint256 maxDust) external;
 function pause() external;
 function unpause() external;
