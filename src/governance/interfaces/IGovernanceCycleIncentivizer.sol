@@ -16,17 +16,6 @@ interface IGovernanceCycleIncentivizer {
         address[] rewardTokenList;
     }
 
-    struct GovernanceCycleIncentivizerStorage {
-        uint128 _rewardRatio;
-        uint128 _currentCycleId;
-        address _governor;
-        address[] _rewardTokenList;
-        address[] _treasuryTokenList;
-        mapping(uint128 cycleId => Cycle) _cycles;
-        mapping(address token => bool) _rewardTokens;
-        mapping(address token => bool) _treasuryTokens;
-    }
-
     /**
      * @notice Initializes the incentivizer and seeds the first cycle token sets.
      * @dev Must be called once by the paired governor deployment flow.

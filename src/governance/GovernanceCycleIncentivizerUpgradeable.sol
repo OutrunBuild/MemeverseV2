@@ -20,6 +20,18 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
     uint256 public constant CYCLE_DURATION = 90 days;
     uint256 public constant MAX_TOKENS_LIMIT = 50;
 
+    /// @custom:storage-location erc7201:outrun.storage.GovernanceCycleIncentivizer
+    struct GovernanceCycleIncentivizerStorage {
+        uint128 _rewardRatio;
+        uint128 _currentCycleId;
+        address _governor;
+        address[] _rewardTokenList;
+        address[] _treasuryTokenList;
+        mapping(uint128 cycleId => Cycle) _cycles;
+        mapping(address token => bool) _rewardTokens;
+        mapping(address token => bool) _treasuryTokens;
+    }
+
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.GovernanceCycleIncentivizer")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant GOVERNANCE_CYCLE_INCENTIVIZER_STORAGE_LOCATION =
         0x173bbd0db440ff8dcb0efb05aced4279e21e45a07b4974973a371552ef840a00;

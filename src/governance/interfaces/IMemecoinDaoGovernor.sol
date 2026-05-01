@@ -3,21 +3,10 @@ pragma solidity ^0.8.28;
 
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
-import {IGovernanceCycleIncentivizer} from "./IGovernanceCycleIncentivizer.sol";
-
 /**
  * @title MemecoinDaoGovernor interface
  */
 interface IMemecoinDaoGovernor {
-    struct MemecoinDaoGovernorStorage {
-        IGovernanceCycleIncentivizer _governanceCycleIncentivizer;
-        mapping(address => uint256) userUnfinalizedProposalId;
-        uint256 _minQuorum;
-        uint256 _governanceStartTime;
-        uint256 _maxTreasurySpendRatio;
-        uint256 _upgradeSupermajorityRatio;
-    }
-
     /**
      * @notice Initializes governor parameters and binds the cycle incentivizer.
      * @dev Called once during verse deployment; wires governance token and quorum configuration.

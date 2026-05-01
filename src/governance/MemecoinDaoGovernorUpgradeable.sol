@@ -24,7 +24,8 @@ import {
 } from "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorVotesQuorumFractionUpgradeable.sol";
 
 import {OutrunSafeERC20} from "../yield/libraries/OutrunSafeERC20.sol";
-import {IVotes, IMemecoinDaoGovernor, IGovernanceCycleIncentivizer} from "./interfaces/IMemecoinDaoGovernor.sol";
+import {IVotes, IMemecoinDaoGovernor} from "./interfaces/IMemecoinDaoGovernor.sol";
+import {IGovernanceCycleIncentivizer} from "./interfaces/IGovernanceCycleIncentivizer.sol";
 
 /**
  * @title Memecoin DAO Governor
@@ -43,6 +44,16 @@ contract MemecoinDaoGovernorUpgradeable is
     UUPSUpgradeable
 {
     using OutrunSafeERC20 for IERC20;
+
+    /// @custom:storage-location erc7201:outrun.storage.MemecoinDaoGovernor
+    struct MemecoinDaoGovernorStorage {
+        IGovernanceCycleIncentivizer _governanceCycleIncentivizer;
+        mapping(address => uint256) userUnfinalizedProposalId;
+        uint256 _minQuorum;
+        uint256 _governanceStartTime;
+        uint256 _maxTreasurySpendRatio;
+        uint256 _upgradeSupermajorityRatio;
+    }
 
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.MemecoinDaoGovernor")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MEMECOIN_DAO_GOVERNOR_STORAGE_LOCATION =
