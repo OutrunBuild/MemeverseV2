@@ -296,10 +296,7 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when the pool fee configuration is not set to dynamic fee.
     error FeeMustBeDynamic();
 
-    /// @notice Reverts when initial liquidity does not meet the minimum requirement.
-    error LiquidityDoesntMeetMinimum();
-
-    /// @notice Reverts when only protocol-locked minimum liquidity remains and no LP shares can earn fees.
+    /// @notice Reverts when pool liquidity exists but no tracked LP shares can earn fees.
     error NoActiveLiquidityShares();
 
     /// @notice Reverts when a restricted hook-only function is called by an external sender.

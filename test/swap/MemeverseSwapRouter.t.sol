@@ -15,6 +15,7 @@ import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
+import {LiquidityQuote} from "../../src/swap/libraries/LiquidityQuote.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
@@ -400,11 +401,6 @@ contract TestableMemeverseUniswapHookForRouter is MemeverseUniswapHook {
         address liquidityToken = poolInfo[id].liquidityToken;
         if (liquidityToken == address(0)) revert PoolNotInitialized();
 
-        if (cachedLpTotalSupply[id] == 0) {
-            UniswapLP(liquidityToken).mint(address(0), MINIMUM_LIQUIDITY);
-            cachedLpTotalSupply[id] = MINIMUM_LIQUIDITY;
-        }
-
         UniswapLP(liquidityToken).mint(owner, activeShares);
         cachedLpTotalSupply[id] += activeShares;
     }
@@ -690,11 +686,13 @@ contract MemeverseSwapRouterTest is Test {
         _setProtocolFeeCurrency(key.currency0);
         _matureLaunchWindow();
 
-        IMemeverseUniswapHook.SwapQuote memory normalQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         hook.setEmergencyFlag(true);
-        IMemeverseUniswapHook.SwapQuote memory emergencyQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
 
         assertEq(emergencyQuote.feeBps, 100, "base fee only");
         assertGe(normalQuote.feeBps, emergencyQuote.feeBps, "normal fee not below emergency fee");
@@ -708,8 +706,9 @@ contract MemeverseSwapRouterTest is Test {
         hook.setEmergencyFlag(true);
         manager.setQuoteAlignedSwapMath(true);
 
-        IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury0Before = token0.balanceOf(treasury);
@@ -742,8 +741,9 @@ contract MemeverseSwapRouterTest is Test {
         hook.setEmergencyFlag(true);
         manager.setQuoteAlignedSwapMath(true);
 
-        IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
@@ -789,11 +789,13 @@ contract MemeverseSwapRouterTest is Test {
             ""
         );
 
-        IMemeverseUniswapHook.SwapQuote memory normalQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         hook.setEmergencyFlag(true);
-        IMemeverseUniswapHook.SwapQuote memory emergencyQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury0Before = token0.balanceOf(treasury);
@@ -1030,6 +1032,42 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
+    /// @notice Verifies public-swap protection blocks swaps until resumeTime and allows them after.
+    function testSwap_PublicProtectionWindowBlocksUntilResumeTime() external {
+        _setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+        hook.setLauncher(address(this));
+
+        uint40 resumeTime = uint40(block.timestamp + 24 hours);
+        (bool setOk, bytes memory setData) =
+            _setPublicSwapResumeTime(address(hook), address(token0), address(token1), resumeTime);
+        assertTrue(setOk, string(setData));
+
+        vm.expectRevert(PUBLIC_SWAP_DISABLED_SELECTOR);
+        router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+
+        vm.warp(resumeTime);
+        BalanceDelta delta = router.swap(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            100 ether,
+            ""
+        );
+        assertLt(delta.amount0(), 0, "post-resume swap input");
+        assertGt(delta.amount1(), 0, "post-resume swap output");
+    }
+
     /// @notice Verifies a blocked pool does not leak protection to unrelated pools.
     /// @dev `publicSwapResumeTime == 0` must remain a no-op for other pool ids.
     function testSwap_LocalProtectionBlocksOnlyTargetPool() external {
@@ -1125,7 +1163,9 @@ contract MemeverseSwapRouterTest is Test {
         token0.approve(address(hook), type(uint256).max);
 
         IMemeverseUniswapHook.SwapQuote memory quoteAtLaunch = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}), address(this)
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
+            address(this)
         );
         assertEq(quoteAtLaunch.feeBps, 5000, "public launch fee");
 
@@ -1246,7 +1286,8 @@ contract MemeverseSwapRouterTest is Test {
         SwapParams memory followUpParams =
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0});
         IMemeverseUniswapHook.SwapQuote memory settledQuote = hook.quoteSwap(key, followUpParams, address(this));
-        IMemeverseUniswapHook.SwapQuote memory pristineQuote = pristineHook.quoteSwap(pristineKey, followUpParams, address(this));
+        IMemeverseUniswapHook.SwapQuote memory pristineQuote =
+            pristineHook.quoteSwap(pristineKey, followUpParams, address(this));
 
         assertGt(settledQuote.feeBps, pristineQuote.feeBps, "settlement quote should carry dynamic state");
     }
@@ -1785,8 +1826,9 @@ contract MemeverseSwapRouterTest is Test {
     /// @dev Covers quote semantics for exact-output swaps.
     function testPreviewSwap_ExactOutputInputSideIncludesFeeInUserInput() external {
         _setProtocolFeeCurrency(key.currency0);
-        IMemeverseUniswapHook.SwapQuote memory preview =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory preview = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
 
         assertTrue(preview.protocolFeeOnInput, "protocolFeeOnInput");
         assertEq(preview.estimatedUserOutputAmount, 100 ether, "net output");
@@ -2081,8 +2123,8 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(liquidity, liquidityDesired, "exact quote mints target liquidity");
     }
 
-    /// @notice Verifies the exact-liquidity quote also covers the hook's first-mint burn on an initialized empty pool.
-    /// @dev Guards exact-liquidity callers that quote against a fresh pool before any active LP shares exist.
+    /// @notice Verifies the exact-liquidity quote uses the requested liquidity on an initialized empty pool.
+    /// @dev Fresh pools no longer require an extra first-mint locked-liquidity buffer.
     function testQuoteExactAmountsForLiquidity_FeedsDetailedAddLiquidityOnInitializedEmptyPool() external {
         uint128 liquidityDesired = 10 ether;
         MockERC20 freshToken0 = new MockERC20("Fresh0", "F0", 18);
@@ -2099,13 +2141,20 @@ contract MemeverseSwapRouterTest is Test {
         manager.initialize(freshKey, SQRT_PRICE_1_1);
         manager.setLiquidity(freshPoolId, 0);
 
+        uint256 expectedToken0 =
+            SqrtPriceMath.getAmount0Delta(SQRT_PRICE_1_1, LiquidityQuote.MAX_SQRT_PRICE_X96, liquidityDesired, true);
+        uint256 expectedToken1 =
+            SqrtPriceMath.getAmount1Delta(LiquidityQuote.MIN_SQRT_PRICE_X96, SQRT_PRICE_1_1, liquidityDesired, true);
         (uint256 amountToken0, uint256 amountToken1) =
             router.quoteExactAmountsForLiquidity(address(freshToken0), address(freshToken1), liquidityDesired);
+        assertEq(amountToken0, expectedToken0, "amount0 has no first-mint buffer");
+        assertEq(amountToken1, expectedToken1, "amount1 has no first-mint buffer");
+
         (uint128 liquidity,,) = router.addLiquidityDetailed(
             freshKey.currency0, freshKey.currency1, amountToken0, amountToken1, 0, 0, address(this), block.timestamp
         );
 
-        assertEq(liquidity, liquidityDesired, "exact quote mints target liquidity after first-mint burn");
+        assertEq(liquidity, liquidityDesired, "exact quote mints target liquidity");
     }
 
     /// @notice Verifies liquidity-related router selectors remain aligned with the public interface.

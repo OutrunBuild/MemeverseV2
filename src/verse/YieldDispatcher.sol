@@ -35,15 +35,11 @@ contract YieldDispatcher is IYieldDispatcher, TokenHelper, Ownable {
     /// @param token Bridged token being routed.
     /// @param guid LayerZero compose guid used for replay protection.
     /// @param message Encoded treasury-routing payload.
-    /// @param executor Compose executor reported by LayerZero.
-    /// @param extraData Extra compose metadata, currently ignored.
-    function lzCompose(address token, bytes32 guid, bytes calldata message, address executor, bytes calldata extraData)
+    function lzCompose(address token, bytes32 guid, bytes calldata message, address, bytes calldata)
         external
         payable
         override
     {
-        executor;
-        extraData;
         require(msg.sender == localEndpoint || msg.sender == memeverseLauncher, PermissionDenied());
         if (msg.sender == localEndpoint) {
             require(!IOFTCompose(token).getComposeTxExecutedStatus(guid), AlreadyExecuted());

@@ -67,10 +67,10 @@ contract MemeverseRegistrarAtLocal is IMemeverseRegistrarAtLocal, MemeverseRegis
     }
 
     /// @notice Forwards a local registration request into the registration center.
-    /// @dev `value` is the exact native fee forwarded into `MemeverseRegistrationCenter.registration(...)` so the
-    /// center can pay for any outbound remote registration messages.
+    /// @dev `value` is the forwarded center gas/native budget and must match `msg.value`; it may exceed the
+    /// center's current quote, with any hub/center residual handled by the registration center as gas dust.
     /// @param param Registration request to submit.
-    /// @param value Exact native fee forwarded to the registration center.
+    /// @param value Forwarded center gas/native budget; must equal `msg.value`.
     function registerAtCenter(IMemeverseRegistrationCenter.RegistrationParam calldata param, uint128 value)
         external
         payable
