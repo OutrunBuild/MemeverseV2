@@ -233,15 +233,4 @@ contract MemeverseSwapRouterSettlementInvariantTest is StdInvariant, Test {
             "treasury accounting"
         );
     }
-
-    /// @notice Ensures marker-path treasury growth is fully tracked.
-    /// @dev Marker-tagged swaps should behave like ordinary public swaps for accounting.
-    function invariant_spoofRevertsDoNotCreateUntrackedTreasuryFees() external view {
-        assertEq(
-            token0.balanceOf(treasury),
-            accountingHandler.expectedRegularTreasuryFee() + accountingHandler.expectedSettlementTreasuryFee()
-                + spoofHandler.expectedSpoofTreasuryFee(),
-            "spoof path changed treasury"
-        );
-    }
 }

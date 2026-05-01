@@ -190,6 +190,35 @@ contract MemecoinYieldVaultTest is Test {
         assertEq(actualShares, previewedShares, "preview deposit");
     }
 
+    /// @notice Verifies requestRedeem locks the asset amount at request time regardless of later deposits.
+    /// @dev Yield accumulation or new deposits after requestRedeem must not change the queued redemption amount.
+    function testRequestRedeem_LocksAssetAmountAgainstSubsequentDeposits() external {
+        // A deposits 10 ether, gets 10 shares (1:1 at initial state)
+        vm.prank(ATTACKER);
+        uint256 sharesA = vault.deposit(10 ether, ATTACKER);
+        assertEq(sharesA, 10 ether, "initial shares");
+
+        // Yield accumulates: totalAssets goes from 10 to 15, share price = 1.5
+        vm.prank(ATTACKER);
+        vault.accumulateYields(5 ether);
+
+        vm.prank(ATTACKER);
+        uint256 lockedAssets = vault.requestRedeem(sharesA, ATTACKER);
+        assertGt(lockedAssets, 10 ether, "locked reflects yield");
+
+        vm.prank(VICTIM);
+        vault.deposit(30 ether, VICTIM);
+
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 attackerBalanceBefore = asset.balanceOf(ATTACKER);
+        vm.prank(ATTACKER);
+        uint256 redeemed = vault.executeRedeem();
+
+        assertEq(redeemed, lockedAssets, "redeemed amount matches locked");
+        assertEq(asset.balanceOf(ATTACKER), attackerBalanceBefore + lockedAssets, "attacker received locked amount");
+    }
+
     /// @notice Verifies `reAccumulateYields` rebooks the withdrawn compose amount into managed assets.
     /// @dev Models the retry path used when a LayerZero compose call to `accumulateYields` previously failed.
     function testReAccumulateYieldsAddsWithdrawnAmountToManagedAssets() external {

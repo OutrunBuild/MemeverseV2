@@ -502,6 +502,18 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(resumeTime, 0, "resume time cleared");
     }
 
+    function testPublicSwapResumeTime_StoresAndReadsResumeTime() external {
+        hook.setLauncher(address(this));
+
+        uint40 resumeTime = uint40(block.timestamp + 1 hours);
+        (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(address(token0), address(token1), resumeTime);
+        assertTrue(setOk, string(setData));
+
+        (bool resumeOk, uint40 storedResumeTime) = _readPublicSwapResumeTime(poolId);
+        assertTrue(resumeOk, "resume getter missing");
+        assertEq(storedResumeTime, resumeTime, "resumeTime");
+    }
+
     /// @notice Executes test add liquidity uses unlock flow.
     /// @dev Confirms the hook uses the unlock flow before minting liquidity.
     function testAddLiquidity_UsesUnlockFlow() external {
@@ -771,13 +783,14 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Verifies LP fee growth uses the live-share supply and Q128 precision.
-    /// @dev The protocol-locked `MINIMUM_LIQUIDITY` must not dilute fee growth for the first real LP.
+    /// @dev With no permanently locked LP, all minted liquidity participates in fee growth.
     function testLpFeeGrowth_UsesEffectiveSupplyAndQ128Accumulator() external {
         uint128 liquidity = _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
 
-        IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
 
         vm.prank(address(mockManager));
         hook.beforeSwap(
@@ -826,11 +839,11 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
-    /// @notice Verifies swaps and launch settlement fail closed when only protocol-locked minimum liquidity remains.
-    /// @dev Once effective LP supply is zero, charging LP fees would strand funds because no claimable shares remain.
-    function testFeeChargingReverts_WhenOnlyMinimumLiquidityRemains() external {
+    /// @notice Verifies all LP shares and pool liquidity can be removed after the final burn.
+    /// @dev Removing the last user position must not leave protocol-locked LP dust behind.
+    function testFullRemovalLeavesNoLockedLiquidityOrSupply() external {
         uint128 liquidity = _addLiquidity();
-        hook.setProtocolFeeCurrency(key.currency0);
+        (address lpToken,,) = hook.poolInfo(poolId);
 
         hook.removeLiquidityCore(
             IMemeverseUniswapHook.RemoveLiquidityCoreParams({
@@ -838,29 +851,10 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             })
         );
 
-        vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
-        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
-
-        vm.prank(address(mockManager));
-        vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
-        hook.beforeSwap(
-            address(this),
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-            bytes("")
-        );
-
-        hook.setLauncher(address(this));
-        token1.mint(address(mockManager), 1_000_000 ether);
-
-        vm.expectRevert(IMemeverseUniswapHook.NoActiveLiquidityShares.selector);
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
-                key: key,
-                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-                recipient: address(this)
-            })
-        );
+        assertEq(UniswapLP(lpToken).totalSupply(), 0, "no locked LP supply");
+        assertEq(UniswapLP(lpToken).balanceOf(address(0)), 0, "zero address LP balance");
+        assertEq(hook.exposedCachedLpTotalSupply(poolId), 0, "cached supply");
+        assertEq(mockManager.getLiquidity(poolId), 0, "pool liquidity");
     }
 
     /// @notice Verifies the hook's cached LP total supply stays in sync with the actual LP token contract.
@@ -886,7 +880,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
         assertEq(cachedSupply, actualSupply, "cached supply after partial remove");
 
-        // After full removal: still in sync (only MINIMUM_LIQUIDITY remains)
+        // After full removal: still in sync with no permanently locked supply
         hook.removeLiquidityCore(
             IMemeverseUniswapHook.RemoveLiquidityCoreParams({
                 currency0: key.currency0,
@@ -899,7 +893,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         actualSupply = UniswapLP(lpToken).totalSupply();
         cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
         assertEq(cachedSupply, actualSupply, "cached supply after full remove");
-        assertEq(actualSupply, 1000, "only MINIMUM_LIQUIDITY remains"); // 1000 = MINIMUM_LIQUIDITY constant
+        assertEq(actualSupply, 0, "no locked supply remains");
+        assertEq(mockManager.getLiquidity(poolId), 0, "pool liquidity after full remove");
     }
 
     /// @notice Verifies liquidity cannot be minted directly to the zero address.
@@ -917,11 +912,12 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
-    /// @notice Verifies the protocol-locked zero address LP balance never becomes fee-earning state.
-    /// @dev The `MINIMUM_LIQUIDITY` lock should not surface as claimable fees or pending fee accrual.
-    function testZeroAddressLockedLiquidity_DoesNotAccrueClaimableOrPendingFees() external {
+    /// @notice Verifies the first liquidity add does not mint permanently locked LP shares.
+    /// @dev Zero address remains fee-neutral because it receives no LP balance.
+    function testFirstLiquidityAdd_DoesNotMintLockedZeroAddressShares() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
+        (address lpToken,,) = hook.poolInfo(poolId);
 
         vm.prank(address(mockManager));
         hook.beforeSwap(
@@ -930,6 +926,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             bytes("")
         );
+
+        assertEq(UniswapLP(lpToken).balanceOf(address(0)), 0, "zero address LP balance");
 
         (uint256 fee0Amount, uint256 fee1Amount) = hook.claimableFees(key, address(0));
         assertEq(fee0Amount, 0, "zero address claimable fee0");
@@ -999,13 +997,17 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @dev Covers the `CurrencyNotSupported` branch in fee-context resolution.
     function testQuoteSwapReverts_WhenProtocolFeeCurrencyUnsupported() external {
         vm.expectRevert(IMemeverseUniswapHook.CurrencyNotSupported.selector);
-        hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
     }
 
     function testQuoteSwapReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
-        hook.quoteSwap(nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        hook.quoteSwap(
+            nativeKey, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
     }
 
     function testDirectManagerSwapReverts_WhenPairUsesNativeCurrency() external {
@@ -1018,7 +1020,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Covers the local direct/core fail-closed branch for exact-input underfills without router checks.
-    /// @dev Uses the hook-liquidity manager mock to witness fee-accounting rollback on revert.
+    /// @custom:dev-only-harness Uses the hook-liquidity manager mock to witness fee-accounting rollback on revert.
     function testDirectManagerSwapReverts_WhenExactInputPartialFills() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency1);
@@ -1029,55 +1031,26 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         vm.warp(block.timestamp + 900);
         mockManager.setNextExactInputPoolInputAmount(poolId, 99 ether);
 
-        uint256 payer0Before = token0.balanceOf(address(this));
-        uint256 payer1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(hook.treasury());
-        uint256 treasury1Before = token1.balanceOf(hook.treasury());
-        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
-        (
-            uint256 wv0Before,,
-            uint256 ewVWAPBefore,
-            uint160 volAnchorBefore,,
-            uint24 volDevBefore,,
-            uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        RollbackSnapshot memory s = _snapshotRollback();
 
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
         mockManager.swapAsUnlocked(
             key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
         );
 
-        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
-        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
-        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
-        assertEq(token0.balanceOf(hook.treasury()), treasury0Before, "treasury token0 unchanged");
-        assertEq(token1.balanceOf(hook.treasury()), treasury1Before, "treasury token1 unchanged");
-        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
-        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
-
-        (
-            uint256 wv0After,,
-            uint256 ewVWAPAfter,
-            uint160 volAnchorAfter,,
-            uint24 volDevAfter,,
-            uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
-        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
-        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
-        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
-        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        _assertRollbackUnchanged(s);
     }
 
     /// @notice Covers the local direct/core branch where output-fee exact-input swaps consume the net pool input from `beforeSwap`.
-    /// @dev Locks hook-side handling under the local hook-liquidity manager mock instead of proving full v4 execution semantics.
+    /// @custom:dev-only-harness Locks hook-side handling under the local hook-liquidity manager mock instead of proving full v4 execution semantics.
     function testDirectManagerSwapPasses_WhenOneForZeroExactInputUsesNetPoolInputOnOutputFeePool() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
         vm.warp(block.timestamp + 900);
 
-        IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         uint256 expectedPoolInput = quote.estimatedUserInputAmount - quote.estimatedLpFeeAmount;
         uint256 treasury0Before = token0.balanceOf(hook.treasury());
 
@@ -1092,7 +1065,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     /// @notice Covers the local direct/core fail-closed branch for exact-input underfills on input-side fee pools.
-    /// @dev Uses the hook-liquidity manager mock to witness atomic rollback instead of proving production partial-fill semantics.
+    /// @custom:dev-only-harness Uses the hook-liquidity manager mock to witness atomic rollback instead of proving production partial-fill semantics.
     function testDirectManagerSwapReverts_WhenExactInputPartialFillsOnInputFeePool() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0); // input-side fee for zeroForOne=true
@@ -1103,46 +1076,18 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         vm.warp(block.timestamp + 900);
         mockManager.setNextExactInputPoolInputAmount(poolId, 99 ether);
 
-        uint256 payer0Before = token0.balanceOf(address(this));
-        uint256 payer1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(hook.treasury());
-        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
-        (
-            uint256 wv0Before,,
-            uint256 ewVWAPBefore,
-            uint160 volAnchorBefore,,
-            uint24 volDevBefore,,
-            uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        RollbackSnapshot memory s = _snapshotRollback();
 
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
         mockManager.swapAsUnlocked(
             key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
         );
 
-        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
-        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
-        assertEq(token0.balanceOf(hook.treasury()), treasury0Before, "treasury token0 unchanged");
-        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
-        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
-        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
-
-        (
-            uint256 wv0After,,
-            uint256 ewVWAPAfter,
-            uint160 volAnchorAfter,,
-            uint24 volDevAfter,,
-            uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
-        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
-        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
-        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
-        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        _assertRollbackUnchanged(s);
     }
 
     /// @notice Covers the mirrored local direct/core fail-closed branch for one-for-zero exact-input underfills on output-fee pools.
-    /// @dev Uses the hook-liquidity manager mock to witness rollback symmetry instead of proving production partial-fill semantics.
+    /// @custom:dev-only-harness Uses the hook-liquidity manager mock to witness rollback symmetry instead of proving production partial-fill semantics.
     function testDirectManagerSwapReverts_WhenOneForZeroExactInputPartialFillsOnOutputFeePool() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
@@ -1153,48 +1098,18 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         vm.warp(block.timestamp + 900);
         mockManager.setNextExactInputPoolInputAmount(poolId, 99 ether);
 
-        uint256 payer0Before = token0.balanceOf(address(this));
-        uint256 payer1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(hook.treasury());
-        uint256 treasury1Before = token1.balanceOf(hook.treasury());
-        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
-        (
-            uint256 wv0Before,,
-            uint256 ewVWAPBefore,
-            uint160 volAnchorBefore,,
-            uint24 volDevBefore,,
-            uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        RollbackSnapshot memory s = _snapshotRollback();
 
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
         mockManager.swapAsUnlocked(
             key, SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), bytes("")
         );
 
-        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
-        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
-        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
-        assertEq(token0.balanceOf(hook.treasury()), treasury0Before, "treasury token0 unchanged");
-        assertEq(token1.balanceOf(hook.treasury()), treasury1Before, "treasury token1 unchanged");
-        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
-        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
-
-        (
-            uint256 wv0After,,
-            uint256 ewVWAPAfter,
-            uint160 volAnchorAfter,,
-            uint24 volDevAfter,,
-            uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
-        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
-        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
-        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
-        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
+        _assertRollbackUnchanged(s);
     }
 
     /// @notice Covers the local launch-settlement fail-closed branch for exact-input underfills.
-    /// @dev Uses the hook-liquidity manager mock to witness rollback for balances, fee growth, and dynamic state.
+    /// @custom:dev-only-harness Uses the hook-liquidity manager mock to witness rollback for balances, fee growth, and dynamic state.
     function testExecuteLaunchSettlement_RevertsWhenExactInputPartiallyFills() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
@@ -1206,19 +1121,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
         mockManager.setNextExactInputPoolInputAmount(poolId, 98 ether);
 
-        uint256 payer0Before = token0.balanceOf(address(this));
-        uint256 payer1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(hook.treasury());
-        uint256 treasury1Before = token1.balanceOf(hook.treasury());
+        RollbackSnapshot memory s = _snapshotRollback();
         uint256 hookToken0Before = token0.balanceOf(address(hook));
-        (, uint256 fee0PerShareBefore, uint256 fee1PerShareBefore) = hook.poolInfo(poolId);
-        (
-            uint256 wv0Before,,
-            uint256 ewVWAPBefore,
-            uint160 volAnchorBefore,,
-            uint24 volDevBefore,,
-            uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
 
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
         hook.executeLaunchSettlement(
@@ -1229,27 +1133,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             })
         );
 
-        (, uint256 fee0PerShareAfter, uint256 fee1PerShareAfter) = hook.poolInfo(poolId);
-        assertEq(token0.balanceOf(address(this)), payer0Before, "payer token0 unchanged");
-        assertEq(token1.balanceOf(address(this)), payer1Before, "payer token1 unchanged");
-        assertEq(token0.balanceOf(hook.treasury()), treasury0Before, "treasury token0 unchanged");
-        assertEq(token1.balanceOf(hook.treasury()), treasury1Before, "treasury token1 unchanged");
+        _assertRollbackUnchanged(s);
         assertEq(token0.balanceOf(address(hook)), hookToken0Before, "hook token0 unchanged");
-        assertEq(fee0PerShareAfter, fee0PerShareBefore, "fee0 per share unchanged");
-        assertEq(fee1PerShareAfter, fee1PerShareBefore, "fee1 per share unchanged");
-
-        (
-            uint256 wv0After,,
-            uint256 ewVWAPAfter,
-            uint160 volAnchorAfter,,
-            uint24 volDevAfter,,
-            uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
-        assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
-        assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
-        assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
-        assertEq(volDevAfter, volDevBefore, "volatility unchanged");
-        assertEq(shortImpactAfter, shortImpactBefore, "short impact unchanged");
     }
 
     /// @notice Verifies launch fee floor dominates immediately after pool initialization and decays to the minimum fee.
@@ -1257,14 +1142,16 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     function testQuoteSwap_UsesLaunchFeeFloorAndDecaysToMinFee() external {
         hook.setProtocolFeeCurrency(key.currency0);
 
-        IMemeverseUniswapHook.SwapQuote memory initialQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory initialQuote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         assertEq(initialQuote.feeBps, 5000, "initial launch fee");
 
         vm.warp(block.timestamp + 900);
 
-        IMemeverseUniswapHook.SwapQuote memory maturedQuote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory maturedQuote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         assertEq(maturedQuote.feeBps, 100, "matured fee");
     }
 
@@ -1365,11 +1252,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     function testVolatilitySqrtFeeBps_MaxAccumulator_IsExactly50Bps() external view {
-        assertEq(
-            hook.exposedVolatilitySqrtFeeBps(1_500_000),
-            50,
-            "max accumulator must yield exactly VOL_MAX_FEE_BPS"
-        );
+        assertEq(hook.exposedVolatilitySqrtFeeBps(1_500_000), 50, "max accumulator must yield exactly VOL_MAX_FEE_BPS");
     }
 
     function testVolatilitySqrtFeeBps_HalfAccumulator() external view {
@@ -1621,6 +1504,46 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(startFeeBps, 4000, "start fee");
         assertEq(minFeeBps, 100, "min fee");
         assertEq(decayDurationSeconds, 900, "duration");
+    }
+
+    struct RollbackSnapshot {
+        uint256 payer0;
+        uint256 payer1;
+        uint256 treasury0;
+        uint256 treasury1;
+        uint256 fee0PerShare;
+        uint256 fee1PerShare;
+        uint256 wv0;
+        uint256 ewVWAP;
+        uint160 volAnchor;
+        uint24 volDev;
+        uint24 shortImpact;
+    }
+
+    function _snapshotRollback() internal view returns (RollbackSnapshot memory s) {
+        s.payer0 = token0.balanceOf(address(this));
+        s.payer1 = token1.balanceOf(address(this));
+        s.treasury0 = token0.balanceOf(hook.treasury());
+        s.treasury1 = token1.balanceOf(hook.treasury());
+        (, s.fee0PerShare, s.fee1PerShare) = hook.poolInfo(poolId);
+        (s.wv0,, s.ewVWAP, s.volAnchor,, s.volDev,, s.shortImpact,) = hook.poolEWVWAPParams(poolId);
+    }
+
+    function _assertRollbackUnchanged(RollbackSnapshot memory s) internal view {
+        assertEq(token0.balanceOf(address(this)), s.payer0, "payer token0 unchanged");
+        assertEq(token1.balanceOf(address(this)), s.payer1, "payer token1 unchanged");
+        assertEq(token0.balanceOf(hook.treasury()), s.treasury0, "treasury token0 unchanged");
+        assertEq(token1.balanceOf(hook.treasury()), s.treasury1, "treasury token1 unchanged");
+        (, uint256 fee0, uint256 fee1) = hook.poolInfo(poolId);
+        assertEq(fee0, s.fee0PerShare, "fee0 per share unchanged");
+        assertEq(fee1, s.fee1PerShare, "fee1 per share unchanged");
+        (uint256 wv0,, uint256 ewvwap, uint160 volAnchor,, uint24 volDev,, uint24 shortImpact,) =
+            hook.poolEWVWAPParams(poolId);
+        assertEq(wv0, s.wv0, "ewvwap weightedVolume0 unchanged");
+        assertEq(ewvwap, s.ewVWAP, "ewvwap unchanged");
+        assertEq(volAnchor, s.volAnchor, "vol anchor unchanged");
+        assertEq(volDev, s.volDev, "volatility unchanged");
+        assertEq(shortImpact, s.shortImpact, "short impact unchanged");
     }
 
     /// @notice Adds liquidity via the hook core to seed tests.

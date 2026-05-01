@@ -731,6 +731,38 @@ contract MemeverseDynamicFeeSimulation is Test {
         );
     }
 
+    /// @notice Proves that volatility accumulator is non-zero but reduced at volDecayPeriodSec - 1.
+    /// @dev Warps to exactly one second before full decay and verifies the carry-based decay path.
+    function testQuoteSwap_VolatilityDecayIsPartialAtBoundaryMinusOne() external {
+        _resetSimulation();
+
+        uint256 volatileSwapInput = 500 * U;
+        uint256 volatileSwaps = 50;
+        uint256 volatileIntervalSec = 1;
+
+        for (uint256 i = 0; i < volatileSwaps; i++) {
+            _simulateOneSwap(ADDR_ATTACKER, volatileSwapInput, false);
+            if (i < volatileSwaps - 1) vm.warp(block.timestamp + volatileIntervalSec);
+        }
+        uint256 accumulatorBeforeCalm = ewState.volDeviationAccumulator;
+        assertGt(accumulatorBeforeCalm, 0, "accumulator must be non-zero after volatile swaps");
+
+        // Warp to volDecayPeriodSec - 1: decay has not completed.
+        vm.warp(block.timestamp + cfg.volDecayPeriodSec - 1);
+
+        _refreshVolatilityAnchorAndCarry(simPrice);
+
+        assertGt(ewState.volCarryAccumulator, 0, "carry accumulator must be non-zero before full decay");
+        assertEq(
+            ewState.volDeviationAccumulator, ewState.volCarryAccumulator, "deviation must equal carry after refresh"
+        );
+        assertLt(
+            ewState.volDeviationAccumulator,
+            accumulatorBeforeCalm,
+            "decayed accumulator must be lower than pre-calm value"
+        );
+    }
+
     /// @notice Spec: simulates one hour of retail-like random flow with 1-5 trades per second and a 5% fee ceiling.
     /// @dev Candidate users refuse any trade whose quoted fee is above `feeToleranceBps`.
     function testCPMM_RetailFlow_OneHour_Random1To5PerSecond_5PctTolerance() external {

@@ -46,15 +46,21 @@ contract LaunchFeeQuoteHandler is Test {
         uint256 amount = bound(amountSeed, 1 ether, 10_000 ether);
         uint256 expectedFee = _currentQuoteFee();
 
-        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactInput =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: 0}), address(this));
-        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactOutput =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: int256(amount), sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactInput = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: 0}), address(this)
+        );
+        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactOutput = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: int256(amount), sqrtPriceLimitX96: 0}), address(this)
+        );
         IMemeverseUniswapHook.SwapQuote memory oneForZeroExactInput = hook.quoteSwap(
-            key, SwapParams({zeroForOne: false, amountSpecified: -int256(amount), sqrtPriceLimitX96: SQRT_PRICE_1_1}), address(this)
+            key,
+            SwapParams({zeroForOne: false, amountSpecified: -int256(amount), sqrtPriceLimitX96: SQRT_PRICE_1_1}),
+            address(this)
         );
         IMemeverseUniswapHook.SwapQuote memory oneForZeroExactOutput = hook.quoteSwap(
-            key, SwapParams({zeroForOne: false, amountSpecified: int256(amount), sqrtPriceLimitX96: SQRT_PRICE_1_1}), address(this)
+            key,
+            SwapParams({zeroForOne: false, amountSpecified: int256(amount), sqrtPriceLimitX96: SQRT_PRICE_1_1}),
+            address(this)
         );
 
         assertEq(zeroForOneExactInput.feeBps, expectedFee, "zfo exact-input fee");
@@ -64,9 +70,10 @@ contract LaunchFeeQuoteHandler is Test {
     }
 
     function _currentQuoteFee() internal view returns (uint256 feeBps) {
-        return
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this))
-            .feeBps;
+        return hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        )
+        .feeBps;
     }
 }
 
@@ -239,8 +246,9 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
     function invariant_quoteFeeMatchesLaunchDecayFormula() external view {
         uint256 expectedFee = _expectedLaunchFee();
 
-        IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
 
         assertEq(quote.feeBps, expectedFee, "launch quote mismatch");
         assertGe(quote.feeBps, 100, "fee below min");
@@ -410,8 +418,9 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
 
     /// @notice Test helper for invariant_directSettlementNeverBreaksPublicQuoteFloor.
     function invariant_directSettlementNeverBreaksPublicQuoteFloor() external view {
-        IMemeverseUniswapHook.SwapQuote memory quote =
-            hook.quoteSwap(key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
+            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        );
         assertGe(quote.feeBps, 100, "public fee floor");
     }
 

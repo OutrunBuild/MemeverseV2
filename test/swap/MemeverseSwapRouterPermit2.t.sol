@@ -315,11 +315,6 @@ contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
         address liquidityToken = poolInfo[id].liquidityToken;
         if (liquidityToken == address(0)) revert PoolNotInitialized();
 
-        if (cachedLpTotalSupply[id] == 0) {
-            UniswapLP(liquidityToken).mint(address(0), MINIMUM_LIQUIDITY);
-            cachedLpTotalSupply[id] = MINIMUM_LIQUIDITY;
-        }
-
         UniswapLP(liquidityToken).mint(owner, activeShares);
         cachedLpTotalSupply[id] += activeShares;
     }
