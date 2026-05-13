@@ -91,8 +91,17 @@
 - `emergencyFlag` 启用后，所有 swap 的动态费计算回退为仅收 base fee（`FEE_BASE_BPS = 100`，即 1%），adverse / volatility / short-term 分量全部跳过；launch fee 衰减下限不受影响。`[代码已证]`
 - Launcher owner 配置 router / hook 时，会同时校验 `router.hook()==hook` 且 `hook.launcher()==launcher`，配置不一致会直接拒绝；其中 `memeverseUniswapHook` 仅允许首次设置。`[代码已证]`
 - Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内运维能力，不否定 set-time 双重校验的必要性。`[代码已证]`
+- `createPoolAndAddLiquidity(...)` 的 `onlyLauncher` 是有意设计；建池要求 `Launcher -> Router` 调用链，并要求 Hook 的 `poolInitializer` 授权 Router。部署或配置变更后必须复核：`launcher.memeverseSwapRouter()==router`、`launcher.memeverseUniswapHook()==hook`、`router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`。`[代码已证]`
+- Launcher pause 不会直接阻断 `changeStage(...)` 驱动的建池，因为 `changeStage(...)` 不是 `whenNotPaused`；但 Hook 的 `launcher` retarget 或 Router/Hook/Initializer 配置漂移会阻断后续新池创建。`[代码已证]`
 
-### 3.7 unlock 后保护窗口运维语义
+### 3.7 POLend / POLSplitter 运维边界
+
+- Launcher 构造时保存 `POLend` 与 `POLSplitter` 的 proxy 地址，当前规范不支持地址级替换，也不支持降级为零地址模式。`[代码已证]`
+- 这不等于实现不可升级：`POLend` 与 `POLSplitter` 是 UUPS proxy，`_authorizeUpgrade(...)` 为 `onlyOwner`。`[代码已证]`
+- 地址级替换、迁移或从零地址恢复不在当前规范内；如需支持，必须先给出显式迁移设计。`[代码已证]`
+- `SettlementDustExceeded` 出现在回退交易上时，不会留下可用事件日志，不能按失败交易已发事件监控。keeper/monitor 应在目标区块状态用 `eth_call` 或 fork simulation 预执行 `MemeverseLauncher.changeStage(verseId)` 的 `Locked -> Unlocked` 路径；如需单独模拟内部结算步骤，可预执行 `POLend.executeGlobalSettlement(verseId)`。若模拟回退 `SettlementDustExceeded(uint256 deficit,uint256 maxSettlementDust,uint256 availableReserve)`，需解码 custom error：`deficit > maxSettlementDust` 表示不是可接受 dust，应告警/升级，不按常规 dust top-up 自动注资；`deficit <= maxSettlementDust && deficit > availableReserve` 表示在可接受 dust 范围内但 reserve 不足，keeper 可按运维策略通过 `fundSettlementDustReserve(verseId, deficit - availableReserve)` 补足后重试 settlement / `changeStage`。当前合约没有暴露完整 side-effect-free preview 来提前得出 `recoveredUAsset`，因为 settlement 会通过移除 LP、POL redemption、PT redemption 路径回收 uAsset。`[代码已证]`
+
+### 3.8 unlock 后保护窗口运维语义
 
 - 按产品安全要求，unlock 后应先进入 `post-unlock liquidity protection period`
 - 在该窗口内，运维与 keeper 应优先支持退出/结算，而不是开放普通公开 swap

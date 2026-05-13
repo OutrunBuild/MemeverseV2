@@ -12,7 +12,8 @@
 
 ### 2.1 Periphery（推荐公开入口）
 
-- `MemeverseSwapRouter` 负责对外 `quote/swap/liquidity/claimFees` 与可选 Permit2 拉资。
+- `MemeverseSwapRouter` 负责对外 `quote/swap/addLiquidity/removeLiquidity/claimFees` 与可选 Permit2 拉资（swap 与流动性操作）。
+- 池创建 (`createPoolAndAddLiquidity`) 为 `onlyLauncher` 门控，不对外暴露；这是有意设计，建池必须经 `Launcher -> Router`，再由 Hook 的 `poolInitializer` 授权 Router 完成初始化。`createPoolAndAddLiquidityWithPermit2` 已移除，池创建不再支持 Permit2 路径。
 - Router 内部固定构造 pool key：`fee = DYNAMIC_FEE_FLAG`、`tickSpacing = 200`、`hooks = configured hook`。
 - exact-output 强制 `amountInMaximum`；所有 swap 为 execute-or-revert。
 
@@ -54,7 +55,18 @@
 - 解锁后的公开 swap 保护由 launcher 在 `Locked -> Unlocked` 迁移时写入各受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 执行；未到该时间前，受保护 pair 的公开 swap 会被拒绝。
 - swap API 保持单路径结算语义。
 
-## 5. 运维配置边界
+## 5. LP 总量与零供给语义
+
+- `cachedLpTotalSupply[poolId]` 追踪每池 LP token 真实总量，无 `MINIMUM_LIQUIDITY` 锁定，所有 LP token 均参与 fee 分配。
+- `_activeLpSupplyForSwap`：`cachedLpTotalSupply == 0` 时 fallback 到 `poolManager.getLiquidity(poolId)`。
+  - 两者均为 0 → 返回 0，允许零流动性 quote 语义正常执行。
+  - 缓存为 0 但 pool liquidity > 0 → revert `NoActiveLiquidityShares`（不一致状态，不应出现）。
+- LP 全部移除后：swap 走零流动性路径不 revert，但 `_collectLaunchSettlementInputFees` 检测到 `effectiveSupply == 0` 时 revert，因为没有 LP 可接收 fee 分配。
+- 此行为与移除 `MINIMUM_LIQUIDITY` 前不同：之前 1000 单位永久锁定保证最小 supply，现在无此保证，零供给由上述 fallback 逻辑显式处理。
+
+`[代码已证]`
+
+## 6. 运维配置边界
 
 - Hook owner 可改：
  - `treasury`
@@ -65,10 +77,12 @@
 - Launcher owner 配置 router / hook 时，必须同时校验 `router.hook()==hook` 且 `hook.launcher()==launcher`；其中 launcher 侧 `memeverseUniswapHook` 是 write-once。
 - Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内配置权，不视为额外越权模型。
 - Router 的 `hook/permit2` 为构造不可变参数。
+- 建池可用性依赖五个配置不变量同时成立：`launcher.memeverseSwapRouter()==router`、`launcher.memeverseUniswapHook()==hook`、`router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`。
+- Launcher pause 不会直接阻断 `changeStage(...)` 驱动的建池，因为 `changeStage(...)` 不是 `whenNotPaused`；但 Hook `launcher` retarget、Router/Hook 指针不一致或 `poolInitializer` 漂移会阻断新池创建。
 
 `[代码已证]`
 
-## 6. 已知缺口与外部依赖
+## 7. 已知缺口与外部依赖
 
 - Router 不发业务事件，索引主要依赖 Hook 事件与 token transfer。`[代码已证]`
 - PoolManager 实例地址、Factory/部署策略属于部署环境，不在仓库固定。`[未知]`

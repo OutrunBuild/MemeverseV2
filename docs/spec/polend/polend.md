@@ -125,6 +125,8 @@ POLend.registerLendMarket(verseId)
 
 `registerLendMarket` 只能由 `Launcher` 调用，每个 `verseId` 只能调用一次。
 
+已注册判断使用 `market.uAsset != address(0)`。注册时从 `Launcher` 读取的 verse `uAsset` 必须非零；若为零，`registerLendMarket` revert `ZeroInput`，不创建 market。
+
 注册时：
 
 - 从 `Launcher` 读取该 verse 的 `uAsset`
@@ -136,8 +138,6 @@ POLend.registerLendMarket(verseId)
 - 不存储 `totalLeveragedDebt`
 
 `market.interestRate` 注册后固定不变。
-
-已注册判断使用 `market.interestRate != 0`。`uAsset == address(0)` 不作为正常产品分支；注册中心 / `Launcher` 必须保证注册的 verse 有有效 `uAsset`。
 
 ## 6. POLend 状态
 
@@ -1388,6 +1388,18 @@ Settlement dust reserve 不属于用户级 floor allocation dust。它只在 `ex
 
 `POLend` 不重复维护 supported asset 鉴权。
 
+### 24.1 uAsset 信任边界（无回调要求）
+
+`uAsset` 必须是受信任且**无外部回调**语义的资产实现。
+
+具体要求：
+
+- `transfer / transferFrom / approve / mint / repay` 不得在执行过程中触发任意外部回调（包括但不限于对调用方、接收方、第三方 hook 的同步可重入调用）。
+- 不支持带“转账钩子 / 回调执行器 / 可插拔外部逻辑”的 `uAsset` 变体作为产品资产。
+- 该约束由注册中心、部署流程与治理配置共同保证；违反该约束的资产不属于本协议支持范围。
+
+该要求是产品级前置条件，不依赖运行时检测；其目的是确保 `POLend` 与 `Launcher` 的资金路径在面对 `uAsset` 调用时不引入额外可重入攻击面。
+
 `POLend` 必须拥有对所有 supported `uAsset` 的 mint 权限，用于：
 
 - `finalizeLeveragedGenesis`
@@ -1552,7 +1564,7 @@ Launcher 调 IOFT.send
 | `setDefaultInterestRate` | owner | 任意 | `0 < newRate <= 1e18`；当前 `leveragedDebtFactor` 与 `newRate` 满足杠杆约束 | 仅影响未来注册 market |
 | `setLeveragedDebtFactor` | owner | 任意 | `newFactor != 0`；满足 `MAX_SUPPORTED_FUND_BASED_AMOUNT` 有界上限；`newFactor` 与当前 `defaultInterestRate` 满足杠杆约束 | 仅影响可继续新增杠杆创世的 `None / Genesis` market 后续 debt cap / `remainingAdditionalInterest` |
 | `setMaxSettlementDust` | owner | 任意 | `uAsset != address(0)` | 配置该 `uAsset` settlement dust 上限 |
-| upgrade authorization | proxy admin / owner policy | 按升级框架 | 新实现初始化与存储布局必须兼容 | 不改变既有 market 语义 |
+| upgrade authorization | owner（UUPS `_authorizeUpgrade`） | 按升级框架 | 新实现初始化与存储布局必须兼容 | 不改变既有 market 语义 |
 | pause behavior | pauser / owner policy | 任意 | pause 不得阻断必要的 unlock / refund / repay 安全出口；`fundSettlementDustReserve` 视为 unlock / repay 安全出口 | pause 只限制新增资金入口和非必要领取入口。受 `whenNotPaused` 阻断的函数清单：`MemeverseLauncher.genesis`、`MemeverseLauncher.preorder`、`MemeverseLauncher.claimNormalYT`、`MemeverseLauncher.claimNormalFees`、`MemeverseLauncher.redeemAuxiliaryLiquidity`、`MemeverseLauncher.claimUnlockedPreorderMemecoin`、`MemeverseLauncher.redeemAndDistributeFees`、`POLend.leveragedGenesis`。不受 pause 阻断的安全出口：`POLend.claimRefund`、`POLend.claimLeveragedYT`、`POLend.claimResidual`、`POLend.fundSettlementDustReserve`、`POLend.executeGlobalSettlement`、`POLSplitter.redeemPT`、`POLSplitter.redeemYT`、`POLSplitter.settle` |
 
 ### 26.2 输入校验矩阵
@@ -1646,7 +1658,7 @@ function splitInfos(uint256 verseId) external view returns (address pt, address 
 
 `POLend` 侧 `InvalidState` 使用场景：
 
-- `registerLendMarket`：market 已注册
+- `registerLendMarket`：market 已注册；Launcher 返回的 verse `uAsset == address(0)` 时 `ZeroInput`
 - `leveragedGenesis`：market 未注册或非 None/Genesis，Launcher verse 非 Genesis
 - `markRefundable`：market 非 Genesis
 - `finalizeLeveragedGenesis`：market 非 Genesis

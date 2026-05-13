@@ -32,8 +32,10 @@
 | **最小代理 clone（不可升级）** | | | | |
 | `Memecoin` / `MemePol` / `MemecoinYieldVault` | EIP-1167 clone | 外部 `initialize`（单次） | 无实现内升级入口 | `src/verse/deployment/MemeverseProxyDeployer.sol:93-117`; `src/token/Memecoin.sol:24`; `src/token/MemePol.sol:37`; `src/yield/MemecoinYieldVault.sol:37` |
 | **UUPS 可升级** | | | | |
-| `MemecoinDaoGovernorUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:141-150`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:76`, `:252` |
-| `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:141-150`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:83`, `:640` |
+| `MemecoinDaoGovernorUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:148-169`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:103`, `:377` |
+| `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:148-169`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:86`, `:656` |
+| `POLend` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, interestRate_, leveragedDebtFactor_, treasury_, launcher_, splitter_)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLend.sol:18`, `:54`, `:68`, `:520` |
+| `POLSplitter` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, _launcher)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLSplitter.sol:18`, `:85`, `:99`, `:282` |
 
 ## 3. 初始化约束（当前代码实际支持）
 
@@ -70,10 +72,12 @@
   - 证据：`src/verse/deployment/MemeverseProxyDeployer.sol:29-36`, `:93`, `:103`, `:113`, `:139`
 - governor 与 incentivizer 使用 `Create2 + ERC1967Proxy`，部署后立即执行 `initialize(...)`。
   - 证据：`src/verse/deployment/MemeverseProxyDeployer.sol:141-150`, `:153-169`
-- UUPS 升级授权绑定治理：
-  - governor 自身升级授权 `onlyGovernance`
-  - incentivizer 升级授权 `onlyGovernance`（实际校验 `msg.sender == governor`）
-  - 证据：`src/governance/MemecoinDaoGovernorUpgradeable.sol:252`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:68-71`, `:640`
+- 当前治理组件采用 UUPS，不存在透明代理模式下的独立 `ProxyAdmin`；`upgradeToAndCall(...)` 进入实现合约后，由 `_authorizeUpgrade(...)` 决定是否放行。
+  - governor：`_authorizeUpgrade(...) => onlyGovernance`
+  - incentivizer：`_authorizeUpgrade(...) => onlyGovernance`（实际校验 `msg.sender == governor`）
+  - 证据：`src/governance/MemecoinDaoGovernorUpgradeable.sol:377`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:68-71`, `:656`
+- `POLend` 与 `POLSplitter` 不由 `MemeverseProxyDeployer` 部署；它们通过外部脚本/工厂独立部署，并以构造参数形式传入 Launcher（`_polend`、`_polSplitter`）。其 proxy 部署与升级授权独立于 ProxyDeployer。`[代码已证]`
+- Launcher 保存的是 `POLend` / `POLSplitter` 的 proxy 地址，当前规范不提供 setter、地址级替换、迁移或降级零地址模式；这只约束 proxy 地址本身，不否定 proxy 实现升级。`POLend` 与 `POLSplitter` 均为 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行。`[代码已证]`
 
 ## 5. 与文档链的关系
 
@@ -86,6 +90,6 @@
   - 合约是否声明 UUPS / initializer、是否通过 clone/proxy 部署，均可由源码直接判定。
   - governor / incentivizer 的 proxy 初始化与 `upgradeToAndCall` 授权路径已有执行级测试证据。
 - 中确定性
-  - 线上部署是否额外加 timelock、多签或 owner 转移，不在仓库证据范围内。
+  - 线上部署是否额外挂接 timelock、多签或其他治理执行者封装，不在仓库证据范围内。
 - 未知项
-  - 当前仓库未给出“生产链部署清单 + 实际 proxy admin 关系”文档，因此无法给出环境级最终控制人结论。
+  - 当前仓库未给出“生产链部署清单 + 环境级治理执行者配置”文档，因此无法给出环境级最终控制人结论；但从源码可证，当前 UUPS surface 不存在独立 `ProxyAdmin` 角色。

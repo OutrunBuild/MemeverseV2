@@ -33,7 +33,7 @@
 ### 2.4 公开预览接口
 
 - `previewPreorderCapacity(uint256 verseId) returns (uint256 remaining)` 是 view/preview 口径，不产生状态迁移。
-- ABI 前置条件：`verseId == 0` 时 revert `ZeroInput`；非零未注册/无效 verse 因读取 `POLend.getTotalLeveragedDebt(verseId)` 走当前 POLend invalid-market 路径 revert。
+- ABI 前置条件：未注册/无效 `verseId` revert `InvalidVerseId`；`previewPreorderCapacity` 不再使用 `ZeroInput` 作为错误语义。
 - 计算口径：
   - `base = totalNormalFunds + totalLeveragedDebt`
   - `cap = base * 70% * preorderCapRatio / RATIO`

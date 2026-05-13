@@ -155,7 +155,6 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
 - `removeLiquidityWithPermit2(...)`
 - `claimFees(...)`
 - `createPoolAndAddLiquidity(...)`
-- `createPoolAndAddLiquidityWithPermit2(...)`
 
 `claimFees` 支持两种调用模式：
 
@@ -174,7 +173,8 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
 Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注意：
 
 - `permit2()` 可用于确认 Router 绑定的 Permit2 合约地址
-- `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` / `createPoolAndAddLiquidityWithPermit2(...)` 只负责签名拉资
+- `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` 只负责签名拉资
+- 池创建仅走 `Launcher -> Router.createPoolAndAddLiquidity(...)`，Router 侧受 `onlyLauncher` 限制，不是 Permit2 路径
 - Permit2 拉资后，deadline、slippage、Hook 语义与普通入口一致
 - Permit2 只处理 ERC20；swap 栈不接受 native 资产，也不接受 `msg.value`
 - 签名里的 `spender` 必须是 Router 地址，`transferDetails.to` 必须是 Router

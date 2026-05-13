@@ -26,9 +26,11 @@ Do not override policy or gate evidence with natural-language guesses.
 - main-orchestrator stays in the primary session and is never a project agent file.
 - Derive surface, risk_tier, writer_role, and review_roles from policy before delegating.
 - For current local task completion/readiness, default verification_profile is `fast` regardless of risk_tier. Use `full`, `ci`, release, or merge-equivalent verification only when explicitly requested by a human or when running in CI/release-equivalent context. Do not infer `full` from high-risk or prod-semantic risk_tier alone.
+- Current Solidity contracts are still pre-deployment development artifacts. Unless a human explicitly asks about deployed production compatibility or says a deployed production contract must be preserved, do not add or raise residual risk about upgrade/backward-compatibility machinery, storage-layout preservation workarounds, legacy selector fallbacks, migration paths, deployment-order constraints, or external-integrator recompilation/interface compatibility during normal review of current work.
 - review_roles remain reviewer-only; do not place verifier or security-test-writer inside review_roles.
 - Project agent files under .claude/agents/ and .codex/agents/ are execution files. They do not define policy or verdict rules.
 - Do not create a parallel control plane outside policy, gate, and project agent files.
+- Deleting untracked files from the current git working tree requires explicit human confirmation before proceeding.
 
 ## Verification Contract
 
