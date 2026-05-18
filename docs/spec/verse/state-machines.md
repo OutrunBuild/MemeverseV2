@@ -18,8 +18,8 @@
 
 | 当前状态 | 触发 | 条件 | 下一状态 | 关键副作用 | 规则状态 |
 | --- | --- | --- | --- | --- | --- |
-| `Genesis` | `changeStage` | `flashGenesis && meetMinTotalFund` | `Locked` | 部署治理组件 + 按 POLend 四池目标模型建立 `memecoin/uAsset`、`POL/uAsset`、`PT/uAsset`、`PT/POL` + preorder 结算 | 目标规则（见 `docs/spec/polend/polend.md`） |
-| `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 目标规则（见 `docs/spec/polend/polend.md`） |
+| `Genesis` | `changeStage` | `flashGenesis && meetMinTotalFund` | `Locked` | 部署治理组件 + 按 POLend 四池目标模型建立 `memecoin/uAsset`、`POL/uAsset`、`PT/uAsset`、`PT/POL` + preorder 结算 | 目标规则（见 [docs/spec/polend/polend.md](../polend/polend.md)） |
+| `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 目标规则（见 [docs/spec/polend/polend.md](../polend/polend.md)） |
 | `Genesis` | `changeStage` | `currentTime > endTime && !meetMinTotalFund` | `Refund` | 允许 `refund/refundPreorder` | 当前规则（代码已证） |
 | `Genesis` | `changeStage` | 其他条件 | 回退 `StillInGenesisStage` | 无 | 当前规则（代码已证） |
 | `Locked` | `changeStage` | `currentTime > unlockTime` | `Unlocked` | 开放赎回路径；并按该次交易时间 + 固定 `24 hours` 为受保护池写入公开 swap 恢复时间 | 当前规则（代码已证） |

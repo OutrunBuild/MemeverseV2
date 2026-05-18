@@ -11,15 +11,15 @@
 
 | 模块 | 参数 | 写入方式 | 主要约束 | 作用范围 | 来源 |
 | --- | --- | --- | --- | --- | --- |
-| `MemeverseLauncher` | `memeverseSwapRouter` | `setMemeverseSwapRouter` | 非零；且 set-time 必须同时满足 `router.hook()==hook`、`hook.launcher()==launcher` | 启动建池、公开 router、preorder 结算 hook 绑定 | `[代码已证]` |
+| `MemeverseLauncher` | `memeverseSwapRouter` | `setMemeverseSwapRouter` | 非零；且 set-time 必须同时满足 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；`Genesis -> Locked` 前会做 launch-time preflight 复核 | 启动建池、公开 router、preorder 结算 hook 绑定 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseUniswapHook` | `setMemeverseUniswapHook` | 非零；`hook.launcher()==launcher`；且仅允许首次设置，后续再次设置会 `revert HookAlreadyConfigured()` | preorder 显式结算 + post-unlock 保护写入绑定 | `[代码已证]` |
 | `MemeverseLauncher` | `lzEndpointRegistry` | `setLzEndpointRegistry` | 非零 | 注册 peer 配置、跨链 endpoint 映射 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseRegistrar` | `setMemeverseRegistrar` | 非零 | 注册入口权限边界 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseProxyDeployer` | `setMemeverseProxyDeployer` | 非零 | per-verse token/vault/governor 部署 | `[代码已证]` |
-| `MemeverseLauncher` | `polend` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | 目标规范：Launcher 保存 `POLend` proxy 地址；注册时同交易内调用 `POLend.registerLendMarket(verseId)`；proxy 实现可按 UUPS `onlyOwner` 升级，地址级迁移不在当前规范内 | 目标规范见 `docs/spec/polend/polend.md` |
-| `MemeverseLauncher` | `polSplitter` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | 目标规范：Launcher 保存 `POLSplitter` proxy 地址；注册前必配，但 `PT/YT` 初始化发生在 `Genesis -> Locked`，不发生在注册阶段；proxy 实现可按 UUPS `onlyOwner` 升级，地址级迁移不在当前规范内 | 目标规范见 `docs/spec/polend/polend.md` |
+| `MemeverseLauncher` | `polend` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | 目标规范：Launcher 保存 `POLend` proxy 地址；注册时同交易内调用 `POLend.registerLendMarket(verseId)`；proxy 实现可按 UUPS `onlyOwner` 升级，地址级迁移不在当前规范内 | 目标规范见 [docs/spec/polend/polend.md](../polend/polend.md) |
+| `MemeverseLauncher` | `polSplitter` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | 目标规范：Launcher 保存 `POLSplitter` proxy 地址；注册前必配，但 `PT/YT` 初始化发生在 `Genesis -> Locked`，不发生在注册阶段；proxy 实现可按 UUPS `onlyOwner` 升级，地址级迁移不在当前规范内 | 目标规范见 [docs/spec/polend/polend.md](../polend/polend.md) |
 | `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
-| `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`minTotalFund <= 2^64-1`；`fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
+| `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；目标实现中仅 `fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[目标规范]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
 | `MemeverseLauncher` | `preorderCapRatio`,`preorderVestingDuration` | `setPreorderConfig` | 非零；`capRatio <= 10000` | preorder 容量和线性释放 | `[代码已证]` |
 | `MemeverseLauncher` | `oftReceiveGasLimit`,`yieldDispatcherGasLimit` | `setGasLimits` | 两者 `>0` | 远端分发 OFT options | `[代码已证]` |

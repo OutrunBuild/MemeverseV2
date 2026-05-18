@@ -95,36 +95,39 @@
 ## 2. 文档分层
 
 1. Harness Contract 层
-   - `AGENTS.md`
-   - `CLAUDE.md`
+   - [AGENTS.md](../AGENTS.md)
+   - [CLAUDE.md](../CLAUDE.md)
    - `.harness/policy.json`
    - `script/harness/gate.sh`
-   - `README.md`
+   - [README.md](../README.md)
    - `.github/workflows/test.yml`
    - `.githooks/*`
    - `.claude/settings.json`
 2. Product Truth 层（当前规则真源）
-   - `docs/spec/protocol.md`
-   - `docs/spec/verse/state-machines.md`
-   - `docs/spec/verse/accounting.md`
-   - `docs/spec/access-control.md`
-   - `docs/spec/upgradeability.md`
-   - `docs/spec/verse/lifecycle-details.md`
-   - `docs/spec/verse/registration-details.md`
-   - `docs/spec/governance/governance-yield-details.md`
-   - `docs/spec/interoperation/interoperation-details.md`
-   - `docs/spec/common/common-foundations.md`
-   - `docs/implementation-map.md`
-   - `docs/ARCHITECTURE.md`
-   - `docs/GLOSSARY.md`
-   - `docs/TRACEABILITY.md`
-   - `docs/VERIFICATION.md`
-   - `docs/SECURITY_AND_APPROVALS.md`
+   - [docs/spec/protocol.md](spec/protocol.md)
+   - [docs/spec/verse/state-machines.md](spec/verse/state-machines.md)
+   - [docs/spec/verse/accounting.md](spec/verse/accounting.md)
+   - [docs/spec/access-control.md](spec/access-control.md)
+   - [docs/spec/upgradeability.md](spec/upgradeability.md)
+   - [docs/spec/verse/lifecycle-details.md](spec/verse/lifecycle-details.md)
+   - [docs/spec/verse/registration-details.md](spec/verse/registration-details.md)
+   - [docs/spec/governance/governance-yield-details.md](spec/governance/governance-yield-details.md)
+   - [docs/spec/interoperation/interoperation-details.md](spec/interoperation/interoperation-details.md)
+   - [docs/spec/common/common-foundations.md](spec/common/common-foundations.md)
+   - [docs/spec/swap/swap-flow.md](spec/swap/swap-flow.md)
+   - [docs/spec/swap/swap-integration.md](spec/swap/swap-integration.md)
+   - [docs/spec/swap/uniswap-v4.md](spec/swap/uniswap-v4.md)
+   - [docs/spec/swap/permit2.md](spec/swap/permit2.md)
+   - [docs/implementation-map.md](implementation-map.md)
+   - [docs/ARCHITECTURE.md](ARCHITECTURE.md)
+   - [docs/GLOSSARY.md](GLOSSARY.md)
+   - [docs/TRACEABILITY.md](TRACEABILITY.md)
+   - [docs/VERIFICATION.md](VERIFICATION.md)
+   - [docs/SECURITY_AND_APPROVALS.md](SECURITY_AND_APPROVALS.md)
 3. Implementation Evidence 层（规则落地证据）
    - `src/**`
    - `test/**`
 4. Topic Guides 层（设计稿与专题补充，不是当前规则真源）
-   - `docs/memeverse-swap/*`
    - `docs/superpowers/specs/*`
    - `docs/superpowers/plans/*`
 
@@ -136,15 +139,15 @@
 
 ## 3. 推荐阅读顺序
 
-1. `CLAUDE.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/GLOSSARY.md`
-4. `docs/spec/protocol.md`
-5. `docs/spec/verse/state-machines.md`
-6. `docs/spec/verse/accounting.md`
-7. `docs/spec/access-control.md`
-8. `docs/spec/upgradeability.md`
-9. `docs/TRACEABILITY.md` + `docs/VERIFICATION.md`
+1. [CLAUDE.md](../CLAUDE.md)
+2. [docs/ARCHITECTURE.md](ARCHITECTURE.md)
+3. [docs/GLOSSARY.md](GLOSSARY.md)
+4. [docs/spec/protocol.md](spec/protocol.md)
+5. [docs/spec/verse/state-machines.md](spec/verse/state-machines.md)
+6. [docs/spec/verse/accounting.md](spec/verse/accounting.md)
+7. [docs/spec/access-control.md](spec/access-control.md)
+8. [docs/spec/upgradeability.md](spec/upgradeability.md)
+9. [docs/TRACEABILITY.md](TRACEABILITY.md) + [docs/VERIFICATION.md](VERIFICATION.md)
 
 ## 4. Transient Storage (EIP-1153) 在 Hook Swap 流程中的使用
 

@@ -11,66 +11,62 @@ Project commands:
 
 Harness commands:
 
-- `npm run gate:fast` — rapid feedback: fmt + lint + build + changed/mapped tests only
-- `npm run gate` — local final gate: full test suite + coverage + Slither (when risk tier requires)
-- `npm run gate:ci` — same scope as `gate`, emits a timestamped run record to `.harness/.runs/`
+- `npm run gate:fast` - rapid local feedback: fmt, lint, build, and changed/mapped tests
+- `npm run gate` - default local gate, same as `gate:fast`
+- `npm run gate:full` - release-like local gate
+- `npm run gate:ci` - CI gate; CI must pass explicit changed-file input
 
-Which commands actually run depends on what changed. The gate classifies diffs, determines risk, and selects a verification profile — it does not blindly run everything every time.
+`script/harness/gate.sh --classify-only` emits policy-derived orchestration fields without running verification commands.
 
-## How the gate works
+## How The Gate Works
 
-`script/harness/gate.sh` reads `.harness/policy.json` and executes this pipeline:
+1. **Classify surfaces** - every changed file is matched against `.harness/policy.json`.
+2. **Classify change class** - Solidity diffs are parsed for semantic changes while ignoring comments, whitespace, and punctuation-only lines.
+3. **Select orchestration** - gate emits `orchestration_profile`, `selected_writer_roles`, and `selected_review_roles`.
+4. **Run verification** - normal gate profiles run commands selected by profile and changed-file scope.
+5. **Emit run record** - when `RUN_RECORD_PATH` is set, the gate writes classification, orchestration, command results, and final verdict.
 
-1. **Classify surfaces** — every changed file is matched against surface patterns:
-   - `solidity_prod` → `src/**/*.sol`, `script/**/*.sol`, `lib/**`
-   - `solidity_test` → `test/**/*.sol`
-   - `harness_control` → `AGENTS.md`, `README.md`, `CLAUDE.md`, `package.json`, `.githooks/*`, `script/harness/*`, `.harness/*`, docs, CI config, etc.
-2. **Enforce hard blocks** — mixed `harness_control` + `solidity_*` in one diff is blocked. Multiple writer roles in one diff is blocked.
-3. **Classify risk tier** — diffs are parsed for semantic changes (skipping comments, whitespace, punctuation-only lines):
-   - `none` — no Solidity files
-   - `non-semantic` — Solidity files changed but only comments/whitespace
-   - `test-semantic` — only test files have semantic changes
-   - `prod-semantic` — production Solidity has semantic changes
-   - `high-risk` — production changes touch `src/` paths or contain dangerous tokens (`delegatecall`, `assembly`, etc.)
-4. **Run verification** — commands selected by profile + risk tier (see table below)
-5. **Emit run record** — JSON artifact with surface, risk tier, writer role, review roles, command results, and final verdict
+Change classes: `no-op` | `non-semantic` | `test-semantic` | `prod-semantic`.
 
-Verdicts: `pass` | `fail` (verification failed) | `blocked` (policy violation) | `no-op` (nothing staged).
+Orchestration profiles:
 
-## Verification by profile and risk tier
+| Profile | Meaning |
+|---|---|
+| `direct` | main session edits; no writer/reviewer dispatch |
+| `direct-review` | main session edits; selected reviewers run |
+| `delegated` | policy-selected writer handles docs/process/control changes |
+| `full-review` | policy-selected writer plus full review matrix |
+| `full-subagent` | full review plus independent verifier |
+| `blocked` | stop before editing |
+| `no-op` | no classified changes |
+
+Production Solidity semantic changes never downgrade by static allowlist and never escalate by static keyword denylist alone. Small localized production Solidity changes may use `direct-review` only after a main-session Risk Analysis Record. If analysis is incomplete or uncertain, use at least `full-review`.
+
+## Verification Commands
 
 | Command | fast | full / ci | Condition |
 |---|---|---|---|
-| `forge fmt --check` (changed `.sol`) | yes | yes | Solidity files in diff |
-| `npx solhint` (changed `.sol`) | yes | yes | Solidity files in diff |
+| `forge fmt --check` | yes | yes | changed Solidity files |
+| `npx solhint` | yes | yes | changed Solidity files |
 | `forge build` | yes | yes | always |
-| `forge test --match-path` (changed + mapped tests) | yes | — | fast profile only |
-| `forge test -vvv` (full suite) | — | yes | full / ci |
-| `forge coverage` | — | yes | risk = `prod-semantic` or `high-risk` |
-| `slither` | — | yes | risk = `prod-semantic` or `high-risk` |
-| `bash -n` (changed `.sh`) | yes | yes | shell files in diff |
-| `node --check` (changed `.js`) | yes | yes | JS files in diff |
-| `npm ci` | yes | yes | `package.json` / lockfile changed |
+| `forge test --match-path` | yes | no | changed/mapped targeted tests |
+| `forge test -vvv` | no | yes | full / ci |
+| `forge coverage` | no | yes | `change_class=prod-semantic` and `surface_sensitivity=sensitive` |
+| `slither` | no | yes | same as coverage, only when changed production Solidity includes `src/**/*.sol` |
+| `bash -n` | yes | yes | changed shell files |
+| `node --check` | yes | yes | changed JavaScript files |
+| `npm ci` | yes | yes | package manifest or lockfile changed |
 
-## Review roles by risk tier
+## Test Mapping
 
-| Risk tier | Required reviewers |
-|---|---|
-| `non-semantic` | none |
-| `test-semantic` | logic-reviewer |
-| `prod-semantic` | logic-reviewer, security-reviewer, gas-reviewer |
-| `high-risk` | logic-reviewer, security-reviewer, gas-reviewer |
+When production Solidity changes, `gate:fast` resolves targeted tests from `policy.json -> test_mapping`. Each rule maps source paths to `change_tests` and `evidence_tests`.
 
-## Test mapping
+## Git Hooks
 
-When a production file changes, `gate:fast` resolves required tests from `policy.json → test_mapping`. Each rule maps source paths to `change_tests` (must pass) and `evidence_tests` (broader coverage). See `.harness/policy.json` for the full mapping table.
-
-## Git hooks
-
-`.githooks/` calls the same gate entrypoints when enabled (`core.hooksPath = .githooks`).
+`.githooks/` calls the same gate entrypoints when enabled with `core.hooksPath=.githooks`.
 
 Repository layout:
 
 - `src/{common,governance,interoperation,swap,token,verse,yield}`
 - `test/{common,governance,interoperation,swap,token,verse,yield}`
-- `script/**/*.sol` plus `script/deploy.sh`
+- `script/**/*.sol` plus shell deployment scripts

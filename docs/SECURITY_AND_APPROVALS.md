@@ -83,4 +83,4 @@
 
 ## 6. 与流程文档的关系
 
-当 `SECURITY_AND_APPROVALS.md` 与某条 review 建议冲突时，以本文件和 `AGENTS.md` 为准，而不是以 review 建议为准。
+当 [docs/SECURITY_AND_APPROVALS.md](SECURITY_AND_APPROVALS.md) 与某条 review 建议冲突时，以本文件和 [AGENTS.md](../AGENTS.md) 为准，而不是以 review 建议为准。

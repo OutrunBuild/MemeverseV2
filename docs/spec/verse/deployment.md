@@ -63,7 +63,7 @@
 
 ## 4. 关键部署依赖事实
 
-- Launcher 在配置 router / hook 时有 set-time 双重校验：`router.hook() == hook` 且 `hook.launcher() == launcher`；其中 `memeverseUniswapHook` 仅允许首次设置，后续不可改绑到新 hook。`[代码已证]`
+- Launcher 在配置 router / hook 时有 set-time 三重校验：`router.hook() == hook`、`hook.launcher() == launcher`、`hook.poolInitializer() == router`；其中 `memeverseUniswapHook` 仅允许首次设置，后续不可改绑到新 hook。`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
 - Hook owner 在部署后仍可 retarget `launcher`；该能力属于与 launcher owner 同一 trust boundary 的配置权，当前产品语义接受这一点。`[代码已证]`
 - RegistrationCenter/launcher/interoperation 均依赖 `LzEndpointRegistry` 的 endpointId 映射。`[代码已证]`
 - 跨链分发与 staking 的 gas 参数来自 launcher/interoperation 的可配置 gas limits。`[代码已证]`

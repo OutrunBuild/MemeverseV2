@@ -20,7 +20,7 @@
 - 杠杆创世由 `POLend` 记录用户支付的利息，并按 market 固定利率推导债务：
 `totalLeveragedDebt = totalLeveragedInterest * 1e18 / market.interestRate`
 - `Genesis` 阶段不 mint 杠杆 `uAsset`；只有成功进入 `Locked` 时才由 `POLend.finalizeLeveragedGenesis` mint 推导债务并计入按 `uAsset` 维度的系统债务。
-- 杠杆退款、初始 `YT`、残值、PT fee 预兑付与全局结算规则以 `docs/spec/polend/polend.md` 为准。
+- 杠杆退款、初始 `YT`、残值、PT fee 预兑付与全局结算规则以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
 
 ### 2.3 Preorder 入账
 
@@ -62,7 +62,7 @@
   - `POL/uAsset`
   - `PT/uAsset`
   - `PT/POL`
-- POL、PT、YT 的拆分比例、辅助池资产配比和 LP 记录以 `docs/spec/polend/polend.md` 为准。
+- POL、PT、YT 的拆分比例、辅助池资产配比和 LP 记录以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
 
 ### 3.3 preorder 结算
 
@@ -109,11 +109,15 @@
 
 - 辅助池为 `POL/uAsset`、`PT/uAsset`、`PT/POL`。
 - `POL` fee 全部 burn。
-- `Locked` 阶段的 `uAsset fee / PT fee` 按 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt` 切分：
+- `Locked` 阶段的 `uAsset fee / PT fee` 按 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt` 切分，计算必须使用 full-precision `mulDiv` 或等价 overflow-safe 实现：
+  - `govUAssetFee = fullPrecisionMulDiv(totalUAssetFee, totalLeveragedDebt, totalGenesisFunds)`
+  - `govPTFee = fullPrecisionMulDiv(totalPTFee, totalLeveragedDebt, totalGenesisFunds)`
+  - 取整差额归普通侧
   - 普通侧进入 `normalFeeStates`，用户按 `userGenesisFund / totalNormalFunds` 领取。
   - 杠杆侧最终转换为 `uAsset` 后进入 Memeverse DAO governor 路径，不进入 `POLend.protocolTreasury`。
 - `Unlocked` 后新产生的辅助池非 `POL` fee 全部归 Memeverse DAO governor，普通用户仍可补领历史 `Locked` 阶段普通侧 fee。
-- PT fee 的预兑付、settle 后 redeem、pending auxiliary gov fee 规则以 `docs/spec/polend/polend.md` 为准。
+- 若 settled 后普通侧 `claimablePT` 或 governor 路径 `pending auxiliary gov PT fee` 的 `previewPTToUAsset(...) == 0`，该 PT fee 本次不兑现、不标记为已处理，并保留为后续重试状态；同次其它可分发 fee 不受阻断。
+- PT fee 的预兑付、settle 后 redeem、pending auxiliary gov fee 规则以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
 
 ### 5.3 执行者奖励与治理收入
 

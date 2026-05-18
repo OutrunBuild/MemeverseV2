@@ -171,8 +171,8 @@ Incentivizer 负责把 treasury ledger 的一部分，按周期转成 reward led
 
 ## 11. 相关真源与证据
 
-- `docs/spec/verse/accounting.md`
-- `docs/spec/access-control.md`
-- `docs/spec/verse/deployment.md`
-- `docs/implementation-map.md`
-- `docs/TRACEABILITY.md`
+- [docs/spec/verse/accounting.md](../verse/accounting.md)
+- [docs/spec/access-control.md](../access-control.md)
+- [docs/spec/verse/deployment.md](../verse/deployment.md)
+- [docs/implementation-map.md](../../implementation-map.md)
+- [docs/TRACEABILITY.md](../../TRACEABILITY.md)

@@ -98,7 +98,7 @@ swap 栈是显式例外：
 
 ## 9. 相关真源与证据
 
-- `docs/spec/access-control.md`
-- `docs/spec/upgradeability.md`
-- `docs/spec/interoperation/layerzero-oapp-oft.md`
-- `docs/implementation-map.md`
+- [docs/spec/access-control.md](../access-control.md)
+- [docs/spec/upgradeability.md](../upgradeability.md)
+- [docs/spec/interoperation/layerzero-oapp-oft.md](../interoperation/layerzero-oapp-oft.md)
+- [docs/implementation-map.md](../../implementation-map.md)

@@ -102,8 +102,8 @@ V2 当前不是“至少足额”语义，而是“严格等于报价”。
 
 ## 9. 相关真源与证据
 
-- `docs/spec/interoperation/layerzero-oapp-oft.md`
-- `docs/spec/verse/accounting.md`
-- `docs/spec/access-control.md`
-- `docs/spec/invariants.md`
-- `docs/spec/verse/deployment.md`
+- [docs/spec/interoperation/layerzero-oapp-oft.md](layerzero-oapp-oft.md)
+- [docs/spec/verse/accounting.md](../verse/accounting.md)
+- [docs/spec/access-control.md](../access-control.md)
+- [docs/spec/invariants.md](../invariants.md)
+- [docs/spec/verse/deployment.md](../verse/deployment.md)

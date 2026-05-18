@@ -156,7 +156,7 @@ center gas dust 不可由用户认领，只能由 owner 通过 `removeGasDust(re
 
 ## 11. POLend 注册 ABI 与初始化边界
 
-POLend 目标产品规范以 `docs/spec/polend/polend.md` 为准：
+POLend 目标产品规范以 [docs/spec/polend/polend.md](../polend/polend.md) 为准：
 
 - `Launcher.registerMemeverse(...)` 同交易内只调用 `POLend.registerLendMarket(verseId)`
 - `registerLendMarket` 从 launcher 读取 verse 的 `uAsset` 并复制当前 `defaultInterestRate`
@@ -177,8 +177,8 @@ POLend 目标产品规范以 `docs/spec/polend/polend.md` 为准：
 
 ## 13. 相关真源与证据
 
-- `docs/spec/verse/state-machines.md`
-- `docs/spec/protocol.md`
-- `docs/spec/verse/deployment.md`
-- `docs/spec/invariants.md`
-- `docs/TRACEABILITY.md`
+- [docs/spec/verse/state-machines.md](state-machines.md)
+- [docs/spec/protocol.md](../protocol.md)
+- [docs/spec/verse/deployment.md](deployment.md)
+- [docs/spec/invariants.md](../invariants.md)
+- [docs/TRACEABILITY.md](../../TRACEABILITY.md)

@@ -109,13 +109,18 @@ sequenceDiagram
     U->>R: addLiquidity(...)
     R->>R: 校验 deadline / minAmount / pair 为 ERC20/ERC20
     R->>R: 准备 ERC20 输入资金
+    R->>R: 要求目标 pool 已预先完成初始化
     R->>H: addLiquidityCore(...)
-    H->>H: 如有必要初始化池
     H->>H: 计算 full-range liquidity
     H->>H: mint LP token
     H-->>R: 返回 liquidity 与 delta
     R-->>U: 返回 liquidity
 ```
+
+说明：
+
+- `addLiquidity(...)` / `addLiquidityCore(...)` 不负责初始化 pool，调用前目标 pool 必须已经存在且已初始化。
+- 初始建池路径为 `Launcher -> Router.createPoolAndAddLiquidity(...)`。
 
 ---
 
@@ -129,7 +134,7 @@ flowchart TD
     D --> E[销毁 LP 并返回底层资产]
     E --> F[Router 把资产发给 recipient]
 
-    G[用户调用 claimFees] --> H[Router 透传到 Hook.claimFeesCore]
+    G[fee owner 调用 Hook.claimFeesCore] --> H[Hook 由 msg.sender 推导 owner]
     H --> I[Hook 结算 pending fees]
     I --> J[把 fee 发给 recipient]
 ```

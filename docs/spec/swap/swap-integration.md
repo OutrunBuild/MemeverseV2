@@ -6,17 +6,23 @@
 - `MemeverseSwapRouter.quoteSwap(...)`
 - `MemeverseSwapRouter` 的可选 Permit2 入口
 
-完成 Memeverse 池子的报价、下单、LP 管理与 fee claim。
+完成 Memeverse 池子的报价、下单与 LP 管理。
+
+fee claim 需要单独区分两类能力：
+
+- `MemeverseSwapRouter.previewClaimableFees(...)`：只读预览 helper，仅返回 claimable fee 估算值
+- `MemeverseUniswapHook.claimFeesCore(...)`：可执行 self-claim 的 Hook Core 入口
 
 当前推荐的分层是：
 
-- `MemeverseSwapRouter`：公开 Periphery / 统一入口
-- `MemeverseUniswapHook`：Core 引擎 / 低层 API
+- `MemeverseSwapRouter`：公开 Periphery / 普通交易与流动性统一入口
+- `MemeverseUniswapHook`：Core 引擎 / 低层 API / 可执行 fee claim
 - 启动期建池与首笔流动性：收敛到 `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
 
 推荐理解为：
 
 - **普通集成方 / 链上 SDK：只认 `MemeverseSwapRouter`**
+- **fee claim 执行路径：直接认 `MemeverseUniswapHook.claimFeesCore(...)`**
 - **高级集成方 / 自定义 Router：可直接接 `MemeverseUniswapHook` 的 Core API**
 
 另外还有一个重要运维约束：
@@ -37,8 +43,7 @@
 
 - `MemeverseSwapRouter.addLiquidity(...)`
 - `MemeverseSwapRouter.removeLiquidity(...)`
-- `MemeverseSwapRouter.claimFees(...)`
-- `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`
+- `MemeverseSwapRouter.createPoolAndAddLiquidity(...)`（仅 Launcher 可调用的 bootstrap 入口）
 - 可选：对应 `*WithPermit2(...)` 入口
 
 原因：
@@ -46,7 +51,7 @@
 1. Router 统一处理 `deadline`、`amountOutMinimum`、`amountInMaximum`
 2. Router 对 swap 栈执行 fail-close 输入约束：任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
 3. Router 提供 pair 级 helper，如 `lpToken(...)`、`quoteAmountsForLiquidity(...)`
-4. Router 保持纯公开 surface；启动结算由 Launcher 直接走 Hook 显式路径，普通集成方无需感知专用 settlement 接线
+4. Router 对普通用户路由保持公开 surface；`createPoolAndAddLiquidity(...)` 明确划为仅 `Launcher` 可调用的启动期建池/首笔流动性入口，普通集成方无需感知专用 bootstrap / settlement 接线
 
 当前普通 swap 语义是：
 
@@ -140,7 +145,7 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
     returns (SwapQuote memory quote);
 ```
 
-当前推荐把 Router 视为统一公开入口：
+当前推荐把 Router 视为普通用户路由的统一公开入口；公开入口包含可执行用户路由与只读 helper：
 
 - `quoteSwap(...)`
 - `previewClaimableFees(...)`
@@ -153,13 +158,20 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
 - `addLiquidityWithPermit2(...)`
 - `removeLiquidity(...)`
 - `removeLiquidityWithPermit2(...)`
-- `claimFees(...)`
-- `createPoolAndAddLiquidity(...)`
 
-`claimFees` 支持两种调用模式：
+启动期 bootstrap 单独入口：
 
-- **Owner 直调**：`msg.sender == owner` 时无需签名，`v/r/s` 传零值即可。
-- **第三方中继**：`msg.sender != owner` 时必须提供 owner 的 EIP-712 签名（`v/r/s`），Hook 内部校验 nonce + deadline 防重放。签名的 digest 包含 `owner`、`recipient`、`poolId`、`nonce`、`deadline`。
+- `createPoolAndAddLiquidity(...)`（launcher-only bootstrap）
+
+其中 `previewClaimableFees(...)` 是只读 preview-only helper，用于查询当前可领取 fee 估算值，不执行任何结算。
+
+当前 fee claim 执行入口是 `MemeverseUniswapHook.claimFeesCore(...)`。
+
+- 调用方必须是 fee owner；owner 严格由 `msg.sender` 推导
+- 参数中的 `recipient` 可指定实际收款地址
+- 当前无 `owner` 显式参数
+- 当前不支持 `nonce` / `deadline` / signature
+- 当前不支持第三方 relayed claim，也不支持 EIP-712 signature-based fee claim
 
 对只知道 token pair、不想感知 `PoolKey` / Hook 细节的集成方，当前只读 helper 可以这样理解：
 
@@ -221,7 +233,7 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 - 当前路径是 `MemeverseLauncher` 直接调用 `MemeverseUniswapHook.executeLaunchSettlement(...)`。
 - Hook 侧要求 `msg.sender == launcher`。
 - 该路径固定总费 `1%`。
-- `MemeverseLauncher` 在接入 Router 时会校验 `router.hook().launcher() == launcher`。
+- `MemeverseLauncher` 在接入 Router 时会校验 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；`Genesis -> Locked` 建池前会做 launch-time preflight 复核。
 
 普通集成方不应自行构造这条路径。
 

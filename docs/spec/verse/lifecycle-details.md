@@ -6,10 +6,10 @@
 
 本文补充：
 
-- `docs/spec/protocol.md`
-- `docs/spec/verse/state-machines.md`
-- `docs/spec/verse/accounting.md`
-- `docs/spec/invariants.md`
+- [docs/spec/protocol.md](../protocol.md)
+- [docs/spec/verse/state-machines.md](state-machines.md)
+- [docs/spec/verse/accounting.md](accounting.md)
+- [docs/spec/invariants.md](../invariants.md)
 
 本文不替代上述真源；若与实现冲突，以真源和源码锚点为准。
 
@@ -71,6 +71,8 @@ MemeverseV2 的主路径可以概括为：
 
 随后按 POLend 四池模型执行 `70/30` 规则，进入 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池路径。
 
+POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑付 `uAsset` 使用 `Locked` / 四池初始化时记录的固定 backing ratio，不使用 `1 raw PT = 1 raw uAsset`。
+
 ### 4.3 preorder 语义
 
 `preorder` 是 V2 新增能力：
@@ -124,6 +126,8 @@ MemeverseV2 的主路径可以概括为：
 - 主池 `memecoin/uAsset` fee 沿用 Memeverse 分流：`memecoin` fee 进入 yield 路径，`uAsset` fee 拆成 `executorReward + govFee` 后进入执行者奖励与 governor treasury 路径
 - 辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` fee 按 POLend 四池规则拆分：POL fee burn，普通侧 fee 进入普通领取账本，杠杆侧 `uAsset` fee 分发到 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前走 `preRedeemPTFee`，settle 后走 `redeemPT`
 - `liquidProofFee` / `UPTFee` 仅作为 legacy 名称，不再定义目标四池费用语义
+
+`Locked` 后用 `uAsset + memecoin` 加池 mint 新 POL 时，实际 `uAsset` 输入必须按 POLend 固定 PT backing ratio 等于新 POL raw 对应的 PT backing，误差 `<= 1 wei`；不得用额外 `uAsset` backing 改变 YT 经济。
 
 ### 6.3 启动期保护
 
@@ -243,9 +247,9 @@ V2 当前已实现的启动保护是：
 
 ## 12. 相关真源与证据
 
-- `docs/spec/protocol.md`
-- `docs/spec/verse/state-machines.md`
-- `docs/spec/verse/accounting.md`
-- `docs/spec/invariants.md`
-- `docs/TRACEABILITY.md`
-- `docs/memeverse-swap/memeverse-swap-flow.md`
+- [docs/spec/protocol.md](../protocol.md)
+- [docs/spec/verse/state-machines.md](state-machines.md)
+- [docs/spec/verse/accounting.md](accounting.md)
+- [docs/spec/invariants.md](../invariants.md)
+- [docs/TRACEABILITY.md](../../TRACEABILITY.md)
+- [docs/spec/swap/swap-flow.md](../swap/swap-flow.md)

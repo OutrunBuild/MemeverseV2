@@ -11,7 +11,7 @@
 补充约束：
 
 - 本文档是升级性规则主文档（canonical source）。
-- `docs/implementation-map.md` 仅在各 surface 行内记录升级机制事实与定位锚点，不替代本文规则条目。
+- [docs/implementation-map.md](../implementation-map.md) 仅在各 surface 行内记录升级机制事实与定位锚点，不替代本文规则条目。
 
 ## 2. 升级面分类
 

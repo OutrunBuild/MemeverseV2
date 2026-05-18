@@ -12,7 +12,8 @@
 
 ### 2.1 Periphery（推荐公开入口）
 
-- `MemeverseSwapRouter` 负责对外 `quote/swap/addLiquidity/removeLiquidity/claimFees` 与可选 Permit2 拉资（swap 与流动性操作）。
+- `MemeverseSwapRouter` 负责对外 `quote/swap/addLiquidity/removeLiquidity` 与可选 Permit2 拉资（swap 与流动性操作）。
+- Router 的 `previewClaimableFees(...)` 仅是只读 preview-only helper，不执行 fee claim。
 - 池创建 (`createPoolAndAddLiquidity`) 为 `onlyLauncher` 门控，不对外暴露；这是有意设计，建池必须经 `Launcher -> Router`，再由 Hook 的 `poolInitializer` 授权 Router 完成初始化。`createPoolAndAddLiquidityWithPermit2` 已移除，池创建不再支持 Permit2 路径。
 - Router 内部固定构造 pool key：`fee = DYNAMIC_FEE_FLAG`、`tickSpacing = 200`、`hooks = configured hook`。
 - exact-output 强制 `amountInMaximum`；所有 swap 为 execute-or-revert。
@@ -25,7 +26,7 @@
  - 动态费计算与启动窗口费率下限
  - protocol fee 与 LP fee 归集
  - LP token per pool + fee per share 记账
- - `addLiquidityCore/removeLiquidityCore/claimFeesCore` 低层能力
+ - `addLiquidityCore/removeLiquidityCore/claimFeesCore` 低层能力；其中 fee claim 执行入口是 `claimFeesCore(...)`，fee owner 由 `msg.sender` 推导，`recipient` 可指定，当前不支持 relayed/signature-based claim
 - Hook 强制池约束：动态费 + tickSpacing=200。
 
 `[代码已证]`
@@ -74,10 +75,10 @@
  - `emergencyFlag`
  - `launcher`
  - `defaultLaunchFeeConfig`
-- Launcher owner 配置 router / hook 时，必须同时校验 `router.hook()==hook` 且 `hook.launcher()==launcher`；其中 launcher 侧 `memeverseUniswapHook` 是 write-once。
+- Launcher owner 配置 router / hook 时，必须同时校验 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；其中 launcher 侧 `memeverseUniswapHook` 是 write-once。
 - Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内配置权，不视为额外越权模型。
 - Router 的 `hook/permit2` 为构造不可变参数。
-- 建池可用性依赖五个配置不变量同时成立：`launcher.memeverseSwapRouter()==router`、`launcher.memeverseUniswapHook()==hook`、`router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`。
+- 建池可用性依赖五个配置不变量同时成立：`launcher.memeverseSwapRouter()==router`、`launcher.memeverseUniswapHook()==hook`、`router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。
 - Launcher pause 不会直接阻断 `changeStage(...)` 驱动的建池，因为 `changeStage(...)` 不是 `whenNotPaused`；但 Hook `launcher` retarget、Router/Hook 指针不一致或 `poolInitializer` 漂移会阻断新池创建。
 
 `[代码已证]`

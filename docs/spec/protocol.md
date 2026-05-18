@@ -5,7 +5,7 @@
 本文档描述 MemeverseV2 “产品真相层”规则，不做逐行代码注释。
 
 规则分层（从高到低）：
-- POLend / POLSplitter 目标产品真源：`docs/spec/polend/polend.md`。
+- POLend / POLSplitter 目标产品真源：[docs/spec/polend/polend.md](polend/polend.md)。
 - 其他当前规则真源：`docs/spec/*.md`（含本文档）。
 - 落地证据：`src/**` 与 `test/**` 可验证行为。
 
@@ -29,7 +29,7 @@
 | `MemecoinYieldVault` | memecoin 收益累积、份额化与延迟赎回 | 质押收益、请求赎回与延迟执行 | 当前规则（代码已证） |
 | `MemecoinDaoGovernorUpgradeable` + `GovernanceCycleIncentivizerUpgradeable` | DAO treasury 与投票激励周期 | 国库收入记录、周期奖励结算 | 当前规则（代码已证） |
 | `YieldDispatcher` / `MemeverseOmnichainInteroperation` / `OmnichainMemecoinStaker` | 跨链收益与跨链 staking 路径 | 异链 fee 要求、到帐目标（Governor / Vault） | 当前规则（代码已证） |
-| `POLend` / `POLSplitter` | 杠杆创世、PT/YT、辅助池、settlement、残值领取 | 杠杆 YT、PT/YT 兑付、辅助池退出、杠杆残值 | 目标规则（见 `docs/spec/polend/polend.md`；当前实现差异不得覆盖目标规范） |
+| `POLend` / `POLSplitter` | 杠杆创世、PT/YT、辅助池、settlement、残值领取 | 杠杆 YT、PT/YT 兑付、辅助池退出、杠杆残值 | 目标规则（见 [docs/spec/polend/polend.md](polend/polend.md)；当前实现差异不得覆盖目标规范） |
 
 ## 4. 用户可见主流程
 
@@ -41,7 +41,7 @@
 ### 4.2 Genesis 与 Preorder
 - Genesis 入金 token 为 uAsset；普通创世与杠杆创世资金统一汇总后按 `70/30` 拆分到主池与辅助池路径（四池模型）。
 - Preorder 仅在 Genesis 可入金，容量受 `preorderCapRatio` 限制。
-- POLend/POLSplitter 的四池、杠杆、PT/YT、settlement 详细规则由 `docs/spec/polend/polend.md` 管辖。
+- POLend/POLSplitter 的四池、杠杆、PT/YT、settlement 详细规则由 [docs/spec/polend/polend.md](polend/polend.md) 管辖。
 
 ### 4.3 阶段推进
 - `changeStage` 把 `Genesis -> Locked/Refund`，以及解锁后推进到退出阶段。
