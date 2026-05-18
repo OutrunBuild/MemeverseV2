@@ -10,112 +10,110 @@
     "surfaces",
     "write_roles",
     "risk_rules",
-    "review_matrix",
-    "review_triggers",
+    "orchestration_profiles",
+    "orchestration_writer_rules",
+    "writer_conflict_policy",
+    "orchestration_review_roles",
+    "delegated_review_rules",
+    "full_review_matrix",
+    "orchestration_rules",
     "verification_profiles",
     "spec_readiness_gate",
     "hard_blocks",
     "testing_gaps",
     "test_mapping"
   ],
+  "not": {
+    "anyOf": [
+      { "required": ["review_matrix"] },
+      { "required": ["review_triggers"] }
+    ]
+  },
   "properties": {
-    "version": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "repo": {
-      "type": "string",
-      "minLength": 1
-    },
+    "version": { "type": "integer", "minimum": 1 },
+    "repo": { "type": "string", "minLength": 1 },
     "changed_file_modes": {
       "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
-      },
+      "propertyNames": { "type": "string", "minLength": 1 },
       "additionalProperties": {
         "type": "string",
-        "enum": [
-          "added",
-          "copied",
-          "modified",
-          "renamed",
-          "deleted",
-          "type-changed",
-          "unmerged",
-          "unknown"
-        ]
+        "enum": ["added", "copied", "modified", "renamed", "deleted", "type-changed", "unmerged", "unknown"]
       }
     },
-    "surfaces": {
-      "$ref": "#/$defs/surfacePatternsMap"
-    },
-    "write_roles": {
-      "$ref": "#/$defs/surfaceOwnerMap"
-    },
+    "surfaces": { "$ref": "#/$defs/surfacePatternsMap" },
+    "write_roles": { "$ref": "#/$defs/surfaceOwnerMap" },
     "risk_rules": {
       "type": "object",
-      "required": [
-        "high_risk_paths"
-      ],
       "properties": {
-        "high_risk_paths": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "high_risk_tokens": {
-          "$ref": "#/$defs/stringArray"
-        }
-      },
-      "additionalProperties": true
-    },
-    "review_matrix": {
-      "type": "object",
-      "required": [
-        "non-semantic",
-        "test-semantic",
-        "prod-semantic",
-        "high-risk"
-      ],
-      "properties": {
-        "non-semantic": {
-          "$ref": "#/$defs/reviewRoleArray"
-        },
-        "test-semantic": {
-          "$ref": "#/$defs/reviewRoleArray"
-        },
-        "prod-semantic": {
-          "$ref": "#/$defs/reviewRoleArray"
-        },
-        "high-risk": {
-          "$ref": "#/$defs/reviewRoleArray"
-        }
+        "slither_filter_paths": { "type": "string" },
+        "slither_exclude_detectors": { "type": "string" }
       },
       "additionalProperties": false
     },
-    "review_triggers": {
+    "orchestration_profiles": {
+      "type": "object",
+      "required": ["direct", "direct-review", "delegated", "full-review", "full-subagent", "no-op", "blocked"],
+      "additionalProperties": false,
+      "properties": {
+        "direct": { "$ref": "#/$defs/orchestrationProfile" },
+        "direct-review": { "$ref": "#/$defs/orchestrationProfile" },
+        "delegated": { "$ref": "#/$defs/orchestrationProfile" },
+        "full-review": { "$ref": "#/$defs/orchestrationProfile" },
+        "full-subagent": { "$ref": "#/$defs/orchestrationProfile" },
+        "no-op": { "$ref": "#/$defs/orchestrationProfile" },
+        "blocked": { "$ref": "#/$defs/orchestrationProfile" }
+      }
+    },
+    "orchestration_writer_rules": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/reviewTrigger"
-      },
+      "items": { "$ref": "#/$defs/writerRule" },
       "uniqueItems": true
     },
+    "writer_conflict_policy": {
+      "type": "object",
+      "required": ["mixed_spec_and_code", "mixed_solidity_and_harness_control", "mixed_docs_and_solidity"],
+      "properties": {
+        "mixed_spec_and_code": { "type": "string", "minLength": 1 },
+        "mixed_solidity_and_harness_control": { "type": "string", "minLength": 1 },
+        "mixed_docs_and_solidity": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "orchestration_review_roles": {
+      "type": "object",
+      "required": ["no-op", "non-semantic", "test-semantic", "prod-semantic-risk-analysis-passed"],
+      "properties": {
+        "no-op": { "$ref": "#/$defs/reviewRoleArray" },
+        "non-semantic": { "$ref": "#/$defs/reviewRoleArray" },
+        "test-semantic": { "$ref": "#/$defs/reviewRoleArray" },
+        "prod-semantic-risk-analysis-passed": { "$ref": "#/$defs/reviewRoleArray" }
+      },
+      "additionalProperties": false
+    },
+    "delegated_review_rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/delegatedReviewRule" },
+      "uniqueItems": true
+    },
+    "full_review_matrix": {
+      "type": "object",
+      "required": ["no-op", "non-semantic", "test-semantic", "prod-semantic"],
+      "properties": {
+        "no-op": { "$ref": "#/$defs/reviewRoleArray" },
+        "non-semantic": { "$ref": "#/$defs/reviewRoleArray" },
+        "test-semantic": { "$ref": "#/$defs/reviewRoleArray" },
+        "prod-semantic": { "$ref": "#/$defs/reviewRoleArray" }
+      },
+      "additionalProperties": false
+    },
+    "orchestration_rules": { "$ref": "#/$defs/orchestrationRules" },
     "security_test_writer_trigger": {
       "type": "object",
-      "required": ["risk_tiers"],
+      "required": ["change_class", "selected_review_roles_include", "reviewer_finding_severity_to_activate"],
       "properties": {
-        "risk_tiers": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["high-risk", "prod-semantic"]
-          },
-          "minItems": 1,
-          "uniqueItems": true
-        },
-        "reviewer_finding_severity_to_activate": {
-          "type": "string",
-          "enum": ["critical", "major", "any"]
-        }
+        "change_class": { "const": "prod-semantic" },
+        "selected_review_roles_include": { "$ref": "#/$defs/reviewRoleArray" },
+        "reviewer_finding_severity_to_activate": { "type": "string", "enum": ["critical", "major", "any"] }
       },
       "additionalProperties": false
     },
@@ -123,198 +121,208 @@
       "type": "object",
       "required": ["max_cycles", "conflict_priority", "escalation"],
       "properties": {
-        "max_cycles": {
-          "type": "integer",
-          "minimum": 1
-        },
+        "max_cycles": { "type": "integer", "minimum": 1 },
         "conflict_priority": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/reviewRoleName"
-          },
+          "items": { "$ref": "#/$defs/reviewRoleName" },
           "uniqueItems": true
         },
-        "escalation": {
-          "type": "string",
-          "enum": ["user"]
-        }
+        "escalation": { "type": "string", "enum": ["user"] }
       },
       "additionalProperties": false
     },
     "verification_profiles": {
       "type": "object",
-      "required": [
-        "fast",
-        "full",
-        "ci"
-      ],
+      "required": ["fast", "full", "ci"],
       "properties": {
-        "fast": {
-          "$ref": "#/$defs/fastVerificationProfile"
-        },
-        "full": {
-          "$ref": "#/$defs/fullVerificationProfile"
-        },
-        "ci": {
-          "$ref": "#/$defs/ciVerificationProfile"
-        }
+        "fast": { "$ref": "#/$defs/fastVerificationProfile" },
+        "full": { "$ref": "#/$defs/fullVerificationProfile" },
+        "ci": { "$ref": "#/$defs/ciVerificationProfile" }
       },
       "additionalProperties": false
     },
-    "spec_readiness_gate": {
-      "$ref": "#/$defs/specReadinessGate"
-    },
+    "spec_readiness_gate": { "$ref": "#/$defs/specReadinessGate" },
     "hard_blocks": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/blockRule"
-      },
+      "items": { "$ref": "#/$defs/blockRule" },
       "uniqueItems": true
     },
     "testing_gaps": {
       "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
-      },
+      "propertyNames": { "type": "string", "minLength": 1 },
       "additionalProperties": {
         "type": "array",
-        "items": {
-          "$ref": "#/$defs/testingGap"
-        },
+        "items": { "$ref": "#/$defs/testingGap" },
         "uniqueItems": true
       }
     },
     "test_mapping": {
       "type": "object",
       "minProperties": 1,
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/testMappingEntry"
-      }
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/testMappingEntry" }
     }
   },
   "$defs": {
     "surfaceName": {
       "type": "string",
-      "enum": [
-        "solidity_prod",
-        "solidity_test",
-        "harness_control"
-      ]
+      "enum": ["solidity_prod", "solidity_test", "harness_control"]
     },
     "surfaceNameArray": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/surfaceName"
-      },
+      "items": { "$ref": "#/$defs/surfaceName" },
       "minItems": 1,
       "uniqueItems": true
     },
     "surfaceSet": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/surfaceName"
-      },
+      "items": { "$ref": "#/$defs/surfaceName" },
       "minItems": 2,
       "uniqueItems": true
     },
     "surfacePatternsMap": {
       "type": "object",
-      "required": [
-        "solidity_prod",
-        "solidity_test",
-        "harness_control"
-      ],
+      "required": ["solidity_prod", "solidity_test", "harness_control"],
       "properties": {
-        "solidity_prod": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "solidity_test": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "harness_control": {
-          "$ref": "#/$defs/stringArray"
-        }
+        "solidity_prod": { "$ref": "#/$defs/stringArray" },
+        "solidity_test": { "$ref": "#/$defs/stringArray" },
+        "harness_control": { "$ref": "#/$defs/stringArray" }
       },
       "additionalProperties": false
     },
     "surfaceOwnerMap": {
       "type": "object",
-      "required": [
-        "solidity_prod",
-        "solidity_test",
-        "harness_control"
-      ],
+      "required": ["solidity_prod", "solidity_test", "harness_control"],
       "properties": {
-        "solidity_prod": {
-          "$ref": "#/$defs/writeRoleName"
-        },
-        "solidity_test": {
-          "$ref": "#/$defs/writeRoleName"
-        },
-        "harness_control": {
-          "$ref": "#/$defs/writeRoleName"
-        }
+        "solidity_prod": { "$ref": "#/$defs/writeRoleName" },
+        "solidity_test": { "$ref": "#/$defs/writeRoleName" },
+        "harness_control": { "$ref": "#/$defs/writeRoleName" }
       },
       "additionalProperties": false
     },
     "stringArray": {
       "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
+      "items": { "type": "string", "minLength": 1 },
       "minItems": 1,
       "uniqueItems": true
     },
     "writeRoleName": {
       "type": "string",
-      "enum": [
-        "solidity-implementer",
-        "process-implementer"
-      ]
+      "enum": ["solidity-implementer", "process-implementer"]
     },
     "reviewRoleName": {
       "type": "string",
-      "enum": [
-        "spec-reviewer",
-        "logic-reviewer",
-        "security-reviewer",
-        "gas-reviewer"
-      ]
+      "enum": ["spec-reviewer", "logic-reviewer", "security-reviewer", "gas-reviewer"]
     },
     "reviewRoleArray": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/reviewRoleName"
-      },
+      "items": { "$ref": "#/$defs/reviewRoleName" },
       "uniqueItems": true
     },
-    "reviewTrigger": {
+    "orchestrationProfile": {
       "type": "object",
-      "required": [
-        "id",
-        "reviewer_role",
-        "paths"
-      ],
+      "required": ["writer", "reviewers", "verifier", "verification_profile"],
       "properties": {
-        "id": {
+        "writer": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "$ref": "#/$defs/reviewRoleArray" }
+          ]
+        },
+        "reviewers": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "$ref": "#/$defs/reviewRoleArray" }
+          ]
+        },
+        "verifier": { "type": "string", "minLength": 1 },
+        "verification_profile": {
           "type": "string",
-          "minLength": 1
-        },
-        "reviewer_role": {
-          "$ref": "#/$defs/reviewRoleName"
-        },
-        "paths": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "surfaces": {
-          "$ref": "#/$defs/surfaceNameArray"
+          "enum": ["fast", "full", "ci", "none", "selected"]
         }
+      },
+      "additionalProperties": false
+    },
+    "writerRule": {
+      "type": "object",
+      "required": ["id", "writer"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "trigger": { "type": "string", "minLength": 1 },
+        "writer": { "$ref": "#/$defs/writeRoleName" }
+      },
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["paths"] }, { "required": ["trigger"] }]
+    },
+    "delegatedReviewRule": {
+      "type": "object",
+      "required": ["id", "reviewers", "requires_human_confirmation"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "exclude_paths": { "$ref": "#/$defs/stringArray" },
+        "trigger": { "type": "string", "minLength": 1 },
+        "reviewers": { "$ref": "#/$defs/reviewRoleArray" },
+        "requires_human_confirmation": { "type": "boolean" }
+      },
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["paths"] }, { "required": ["trigger"] }]
+    },
+    "orchestrationRules": {
+      "type": "object",
+      "required": ["delegated_surface", "spec_paths", "scope_escalation", "main_session_risk_analysis_required_for", "surface_sensitivity", "full_ci_command_gates"],
+      "properties": {
+        "delegated_surface": { "const": "harness_control" },
+        "spec_paths": { "$ref": "#/$defs/stringArray" },
+        "scope_escalation": {
+          "type": "object",
+          "required": ["prod_solidity_max_files_before_full_review", "prod_solidity_max_semantic_lines_before_full_review"],
+          "properties": {
+            "prod_solidity_max_files_before_full_review": { "type": "integer", "minimum": 1 },
+            "prod_solidity_max_semantic_lines_before_full_review": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "main_session_risk_analysis_required_for": { "$ref": "#/$defs/stringArray" },
+        "surface_sensitivity": {
+          "type": "object",
+          "required": ["solidity_prod", "solidity_test", "harness_control"],
+          "properties": {
+            "solidity_prod": { "const": "sensitive" },
+            "solidity_test": { "const": "normal" },
+            "harness_control": { "const": "normal" }
+          },
+          "additionalProperties": false
+        },
+        "full_ci_command_gates": {
+          "type": "object",
+          "required": ["coverage_when_required", "slither_when_required"],
+          "properties": {
+            "coverage_when_required": { "$ref": "#/$defs/commandGate" },
+            "slither_when_required": {
+              "allOf": [
+                { "$ref": "#/$defs/commandGate" },
+                {
+                  "type": "object",
+                  "required": ["paths"],
+                  "properties": { "paths": { "$ref": "#/$defs/stringArray" } }
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "commandGate": {
+      "type": "object",
+      "required": ["change_class", "surface_sensitivity"],
+      "properties": {
+        "change_class": { "const": "prod-semantic" },
+        "surface_sensitivity": { "const": "sensitive" },
+        "paths": { "$ref": "#/$defs/stringArray" }
       },
       "additionalProperties": false
     },
@@ -335,220 +343,95 @@
     },
     "commandIdArray": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/commandId"
-      },
+      "items": { "$ref": "#/$defs/commandId" },
       "minItems": 1,
       "uniqueItems": true
     },
     "fastRequiredCommands": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/commandId"
-      },
+      "items": { "$ref": "#/$defs/commandId" },
       "minItems": 7,
       "maxItems": 7,
       "uniqueItems": true,
       "allOf": [
-        {
-          "contains": {
-            "const": "fmt_changed_solidity"
-          }
-        },
-        {
-          "contains": {
-            "const": "lint_changed_solidity"
-          }
-        },
-        {
-          "contains": {
-            "const": "forge_build"
-          }
-        },
-        {
-          "contains": {
-            "const": "targeted_tests"
-          }
-        },
-        {
-          "contains": {
-            "const": "bash_syntax_changed_shell"
-          }
-        },
-        {
-          "contains": {
-            "const": "node_syntax_changed_js"
-          }
-        },
-        {
-          "contains": {
-            "const": "npm_ci_when_package_changes"
-          }
-        }
+        { "contains": { "const": "fmt_changed_solidity" } },
+        { "contains": { "const": "lint_changed_solidity" } },
+        { "contains": { "const": "forge_build" } },
+        { "contains": { "const": "targeted_tests" } },
+        { "contains": { "const": "bash_syntax_changed_shell" } },
+        { "contains": { "const": "node_syntax_changed_js" } },
+        { "contains": { "const": "npm_ci_when_package_changes" } }
       ]
     },
     "fullRequiredCommands": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/commandId"
-      },
+      "items": { "$ref": "#/$defs/commandId" },
       "minItems": 9,
       "maxItems": 9,
       "uniqueItems": true,
       "allOf": [
-        {
-          "contains": {
-            "const": "fmt_changed_solidity"
-          }
-        },
-        {
-          "contains": {
-            "const": "lint_changed_solidity"
-          }
-        },
-        {
-          "contains": {
-            "const": "forge_build"
-          }
-        },
-        {
-          "contains": {
-            "const": "forge_test_full"
-          }
-        },
-        {
-          "contains": {
-            "const": "coverage_when_required"
-          }
-        },
-        {
-          "contains": {
-            "const": "slither_when_required"
-          }
-        },
-        {
-          "contains": {
-            "const": "bash_syntax_changed_shell"
-          }
-        },
-        {
-          "contains": {
-            "const": "node_syntax_changed_js"
-          }
-        },
-        {
-          "contains": {
-            "const": "npm_ci_when_package_changes"
-          }
-        }
+        { "contains": { "const": "fmt_changed_solidity" } },
+        { "contains": { "const": "lint_changed_solidity" } },
+        { "contains": { "const": "forge_build" } },
+        { "contains": { "const": "forge_test_full" } },
+        { "contains": { "const": "coverage_when_required" } },
+        { "contains": { "const": "slither_when_required" } },
+        { "contains": { "const": "bash_syntax_changed_shell" } },
+        { "contains": { "const": "node_syntax_changed_js" } },
+        { "contains": { "const": "npm_ci_when_package_changes" } }
       ]
     },
     "verificationProfileBase": {
       "type": "object",
-      "required": [
-        "required_commands"
-      ],
+      "required": ["required_commands"],
       "properties": {},
       "additionalProperties": true
     },
     "fastVerificationProfile": {
       "allOf": [
-        {
-          "$ref": "#/$defs/verificationProfileBase"
-        },
-        {
-          "properties": {
-            "required_commands": {
-              "$ref": "#/$defs/fastRequiredCommands"
-            }
-          }
-        }
+        { "$ref": "#/$defs/verificationProfileBase" },
+        { "properties": { "required_commands": { "$ref": "#/$defs/fastRequiredCommands" } } }
       ]
     },
     "fullVerificationProfile": {
       "allOf": [
-        {
-          "$ref": "#/$defs/verificationProfileBase"
-        },
-        {
-          "properties": {
-            "required_commands": {
-              "$ref": "#/$defs/fullRequiredCommands"
-            }
-          }
-        }
+        { "$ref": "#/$defs/verificationProfileBase" },
+        { "properties": { "required_commands": { "$ref": "#/$defs/fullRequiredCommands" } } }
       ]
     },
     "ciVerificationProfile": {
       "allOf": [
-        {
-          "$ref": "#/$defs/verificationProfileBase"
-        },
-        {
-          "properties": {
-            "required_commands": {
-              "$ref": "#/$defs/fullRequiredCommands"
-            }
-          }
-        }
+        { "$ref": "#/$defs/verificationProfileBase" },
+        { "properties": { "required_commands": { "$ref": "#/$defs/fullRequiredCommands" } } }
       ]
     },
-    "verificationProfile": {
-      "properties": {
-        "required_commands": {
-          "$ref": "#/$defs/commandIdArray"
-        }
-      },
-      "additionalProperties": true
-    },
-    "specReadinessRiskTierArray": {
+    "changeClassArray": {
       "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "prod-semantic",
-          "high-risk"
-        ]
-      },
+      "items": { "type": "string", "enum": ["prod-semantic"] },
       "minItems": 1,
       "uniqueItems": true
     },
     "nonUniqueStringArray": {
       "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
+      "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
     },
     "specReadinessRule": {
       "type": "object",
-      "required": [
-        "id",
-        "check_docs"
-      ],
+      "required": ["id", "check_docs"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "check_docs": {
-          "$ref": "#/$defs/nonUniqueStringArray"
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "check_docs": { "$ref": "#/$defs/nonUniqueStringArray" }
       },
       "additionalProperties": false
     },
     "specReadinessDocMappingEntry": {
       "type": "object",
-      "required": [
-        "rules"
-      ],
+      "required": ["rules"],
       "properties": {
         "rules": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/specReadinessRule"
-          },
+          "items": { "$ref": "#/$defs/specReadinessRule" },
           "minItems": 1,
           "uniqueItems": true
         }
@@ -558,18 +441,13 @@
     "specReadinessDocMapping": {
       "type": "object",
       "minProperties": 1,
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/specReadinessDocMappingEntry"
-      }
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/specReadinessDocMappingEntry" }
     },
     "specReadinessGate": {
       "type": "object",
       "required": [
-        "trigger_risk_tiers",
+        "trigger_change_classes",
         "doc_exclusions",
         "gate_action",
         "required_reviewer",
@@ -578,206 +456,86 @@
         "doc_mapping"
       ],
       "properties": {
-        "trigger_risk_tiers": {
-          "$ref": "#/$defs/specReadinessRiskTierArray"
-        },
-        "doc_exclusions": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "gate_action": {
-          "type": "string",
-          "enum": [
-            "block"
-          ]
-        },
-        "required_reviewer": {
-          "type": "string",
-          "enum": [
-            "spec-reviewer"
-          ]
-        },
-        "cross_cutting_trigger_threshold": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "cross_cutting_docs": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "doc_mapping": {
-          "$ref": "#/$defs/specReadinessDocMapping"
-        }
+        "trigger_change_classes": { "$ref": "#/$defs/changeClassArray" },
+        "doc_exclusions": { "$ref": "#/$defs/stringArray" },
+        "gate_action": { "type": "string", "enum": ["block"] },
+        "required_reviewer": { "type": "string", "enum": ["spec-reviewer"] },
+        "cross_cutting_trigger_threshold": { "type": "integer", "minimum": 1 },
+        "cross_cutting_docs": { "$ref": "#/$defs/stringArray" },
+        "doc_mapping": { "$ref": "#/$defs/specReadinessDocMapping" }
       },
       "additionalProperties": false
     },
     "blockRule": {
       "type": "object",
-      "required": [
-        "id",
-        "message"
-      ],
+      "required": ["id", "message"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "paths": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "tokens": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "commands": {
-          "$ref": "#/$defs/commandIdArray"
-        },
-        "surfaces": {
-          "$ref": "#/$defs/surfaceNameArray"
-        },
+        "id": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "tokens": { "$ref": "#/$defs/stringArray" },
+        "commands": { "$ref": "#/$defs/commandIdArray" },
+        "surfaces": { "$ref": "#/$defs/surfaceNameArray" },
         "writer_roles": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/writeRoleName"
-          },
+          "items": { "$ref": "#/$defs/writeRoleName" },
           "minItems": 1,
           "uniqueItems": true
         },
         "mixed_surface_sets": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/surfaceSet"
-          },
+          "items": { "$ref": "#/$defs/surfaceSet" },
           "minItems": 1,
           "uniqueItems": true
         },
-        "legacy_roots": {
-          "type": "boolean"
-        }
+        "legacy_roots": { "type": "boolean" }
       },
       "additionalProperties": false,
       "anyOf": [
-        {
-          "required": [
-            "paths"
-          ]
-        },
-        {
-          "required": [
-            "tokens"
-          ]
-        },
-        {
-          "required": [
-            "commands"
-          ]
-        },
-        {
-          "required": [
-            "surfaces"
-          ]
-        },
-        {
-          "required": [
-            "writer_roles"
-          ]
-        },
-        {
-          "required": [
-            "mixed_surface_sets"
-          ]
-        },
-        {
-          "required": [
-            "legacy_roots"
-          ]
-        }
+        { "required": ["paths"] },
+        { "required": ["tokens"] },
+        { "required": ["commands"] },
+        { "required": ["surfaces"] },
+        { "required": ["writer_roles"] },
+        { "required": ["mixed_surface_sets"] },
+        { "required": ["legacy_roots"] }
       ]
     },
     "testingGap": {
       "type": "object",
-      "required": [
-        "id",
-        "paths",
-        "status",
-        "enforcement"
-      ],
+      "required": ["id", "paths", "status", "enforcement"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "paths": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "status": {
-          "type": "string",
-          "minLength": 1
-        },
-        "enforcement": {
-          "type": "string",
-          "enum": [
-            "residual-risk",
-            "risk-upgrade"
-          ]
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "status": { "type": "string", "minLength": 1 },
+        "enforcement": { "type": "string", "enum": ["residual-risk", "full-review"] }
       },
       "additionalProperties": false
     },
     "mappedRule": {
       "type": "object",
-      "required": [
-        "id",
-        "paths",
-        "change_tests",
-        "evidence_tests"
-      ],
+      "required": ["id", "paths", "change_tests", "evidence_tests"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "paths": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "change_tests": {
-          "$ref": "#/$defs/stringArray"
-        },
-        "evidence_tests": {
-          "$ref": "#/$defs/stringArray"
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "change_tests": { "$ref": "#/$defs/stringArray" },
+        "evidence_tests": { "$ref": "#/$defs/stringArray" }
       },
       "additionalProperties": false
     },
     "testMappingEntry": {
       "type": "object",
       "properties": {
-        "tests": {
-          "$ref": "#/$defs/stringArray"
-        },
+        "tests": { "$ref": "#/$defs/stringArray" },
         "rules": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/mappedRule"
-          },
+          "items": { "$ref": "#/$defs/mappedRule" },
           "minItems": 1,
           "uniqueItems": true
         }
       },
       "additionalProperties": false,
-      "anyOf": [
-        {
-          "required": [
-            "tests"
-          ]
-        },
-        {
-          "required": [
-            "rules"
-          ]
-        }
-      ]
+      "anyOf": [{ "required": ["tests"] }, { "required": ["rules"] }]
     }
   }
 }

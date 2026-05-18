@@ -4,12 +4,13 @@ set -euo pipefail
 profile="fast"
 changed_files_arg=""
 all_mode=0
+classify_only=0
 
 declare -a cleanup_paths=()
 
 usage() {
     cat >&2 <<'EOF'
-Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>] [--all]
+Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>] [--all] [--classify-only]
 EOF
 }
 
@@ -79,6 +80,14 @@ array_contains() {
     done
 
     return 1
+}
+
+list_worktree_changed_files() {
+    {
+        git diff --cached --name-only --diff-filter=ACMRD
+        git diff --name-only --diff-filter=ACMRD
+        git ls-files --others --exclude-standard
+    } | awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' | awk '!seen[$0]++'
 }
 
 append_finding() {
@@ -425,6 +434,10 @@ while [ "$#" -gt 0 ]; do
             all_mode=1
             shift
             ;;
+        --classify-only)
+            classify_only=1
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -467,8 +480,6 @@ fi
 mapfile -t solidity_prod_patterns < <(jq -r '.surfaces.solidity_prod[]' "$policy_file")
 mapfile -t solidity_test_patterns < <(jq -r '.surfaces.solidity_test[]' "$policy_file")
 mapfile -t harness_control_patterns < <(jq -r '.surfaces.harness_control[]' "$policy_file")
-mapfile -t high_risk_path_patterns < <(jq -r '.risk_rules.high_risk_paths[]' "$policy_file")
-mapfile -t high_risk_token_patterns < <(jq -r '.risk_rules.high_risk_tokens[]? // empty' "$policy_file")
 
 declare -a selected_surfaces=()
 declare -a unmatched_files=()
@@ -551,7 +562,7 @@ else
     elif [ "$profile" = "ci" ]; then
         die "--changed-files is required when --profile ci is used"
     else
-        mapfile -t changed_files < <(git diff --cached --name-only --diff-filter=ACMRD | awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' | awk '!seen[$0]++')
+        mapfile -t changed_files < <(list_worktree_changed_files)
     fi
 
 for changed_file in "${changed_files[@]}"; do
@@ -617,7 +628,7 @@ done
 fi
 
 if [ "${#selected_surfaces[@]}" -eq 0 ]; then
-    echo "[gate] profile=$profile verdict=no-op risk=none writer=none"
+    echo "[gate] profile=$profile verdict=no-op change_class=no-op orchestration_profile=no-op writer=none"
     echo "[gate] no changed files matched any surface pattern"
     exit 0
 fi
@@ -625,8 +636,6 @@ fi
 selected_solidity_json="$(json_array_from_values "${existing_solidity_files[@]}")"
 solidity_prod_json="$(json_array_from_values "${solidity_prod_files[@]}")"
 solidity_test_json="$(json_array_from_values "${solidity_test_files[@]}")"
-high_risk_paths_json="$(json_array_from_values "${high_risk_path_patterns[@]}")"
-high_risk_tokens_json="$(json_array_from_values "${high_risk_token_patterns[@]}")"
 
 for classification_solidity_file in "${solidity_prod_files[@]}" "${solidity_test_files[@]}"; do
     append_unique classification_solidity_files "$classification_solidity_file"
@@ -692,8 +701,7 @@ if [ "${#selected_writer_roles[@]}" -gt 1 ]; then
     if [ "$all_mode" -eq 1 ]; then
         append_finding residual_risks_json "verifier" "multiple writer roles present in --all mode: ${selected_writer_roles[*]}" "writer-role-conflict" "info"
     else
-        hard_blocked=1
-        append_finding blocking_findings_json "main-orchestrator" "changed surfaces resolve to multiple writer roles: ${selected_writer_roles[*]}" "writer-role-conflict" "error"
+        append_finding residual_risks_json "main-orchestrator" "multiple writer roles present: ${selected_writer_roles[*]}" "writer-role-mixed" "info"
     fi
 fi
 
@@ -781,8 +789,6 @@ fi
 classification_json="$(
     PROD_FILES_JSON="$solidity_prod_json" \
     TEST_FILES_JSON="$solidity_test_json" \
-    HIGH_RISK_PATHS_JSON="$high_risk_paths_json" \
-    HIGH_RISK_TOKENS_JSON="$high_risk_tokens_json" \
     PATCH_FILE="$patch_file" \
     ALL_MODE="$all_mode" \
     node <<'EOF'
@@ -790,8 +796,6 @@ const fs = require('fs');
 
 const prodFiles = JSON.parse(process.env.PROD_FILES_JSON || '[]');
 const testFiles = JSON.parse(process.env.TEST_FILES_JSON || '[]');
-const highRiskPaths = JSON.parse(process.env.HIGH_RISK_PATHS_JSON || '[]');
-const highRiskTokens = JSON.parse(process.env.HIGH_RISK_TOKENS_JSON || '[]');
 const patchPath = process.env.PATCH_FILE || '';
 const allMode = process.env.ALL_MODE === '1';
 const patch = patchPath && fs.existsSync(patchPath) ? fs.readFileSync(patchPath, 'utf8') : '';
@@ -810,23 +814,13 @@ function isNonSemanticLine(line) {
   return trimmed === '' || isCommentLine(trimmed) || isPunctuationOnly(trimmed);
 }
 
-const analysis = new Map(trackedFiles.map((file) => [file, { semantic: false, tokenHits: new Set() }]));
+const analysis = new Map(trackedFiles.map((file) => [file, { semantic: false, semanticLines: 0 }]));
 
 if (allMode) {
   for (const file of trackedFiles) {
     const entry = analysis.get(file);
     entry.semantic = true;
-    if (fs.existsSync(file)) {
-      try {
-        const content = fs.readFileSync(file, 'utf8');
-        for (const tokenPattern of highRiskTokens) {
-          const regex = new RegExp(tokenPattern, 'i');
-          if (regex.test(content)) {
-            entry.tokenHits.add(tokenPattern);
-          }
-        }
-      } catch (e) { /* ignore read errors */ }
-    }
+    entry.semanticLines = 1;
   }
 } else if (patch !== '') {
   let currentFile = null;
@@ -847,12 +841,7 @@ if (allMode) {
     if (isNonSemanticLine(content)) continue;
     const fileEntry = analysis.get(currentFile);
     fileEntry.semantic = true;
-    for (const tokenPattern of highRiskTokens) {
-      const regex = new RegExp(tokenPattern, 'i');
-      if (regex.test(content)) {
-        fileEntry.tokenHits.add(tokenPattern);
-      }
-    }
+    fileEntry.semanticLines += 1;
   }
 }
 
@@ -860,79 +849,32 @@ const semanticProdFiles = prodFiles.filter((file) => analysis.get(file)?.semanti
 const semanticTestFiles = testFiles.filter((file) => analysis.get(file)?.semantic);
 const nonSemanticProdFiles = prodFiles.filter((file) => !analysis.get(file)?.semantic);
 const nonSemanticTestFiles = testFiles.filter((file) => !analysis.get(file)?.semantic);
-const highRiskReasons = [];
+const semanticProdLineCount = semanticProdFiles.reduce((sum, file) => sum + (analysis.get(file)?.semanticLines || 0), 0);
+const semanticTestLineCount = semanticTestFiles.reduce((sum, file) => sum + (analysis.get(file)?.semanticLines || 0), 0);
 
-for (const file of semanticProdFiles) {
-  for (const pattern of highRiskPaths) {
-    if (new RegExp(pattern).test(file)) {
-      highRiskReasons.push(`path:${file}~/${pattern}/`);
-    }
-  }
-  const entry = analysis.get(file);
-  if (!entry) continue;
-  for (const tokenPattern of entry.tokenHits) {
-    highRiskReasons.push(`token:${file}~/${tokenPattern}/`);
-  }
-}
-
-let riskTier = 'none';
+let changeClass = 'no-op';
 if (semanticProdFiles.length > 0) {
-  riskTier = highRiskReasons.length > 0 ? 'high-risk' : 'prod-semantic';
+  changeClass = 'prod-semantic';
 } else if (semanticTestFiles.length > 0) {
-  riskTier = 'test-semantic';
+  changeClass = 'test-semantic';
 } else if (trackedFiles.length > 0) {
-  riskTier = 'non-semantic';
+  changeClass = 'non-semantic';
 }
 
 process.stdout.write(JSON.stringify({
-  risk_tier: riskTier,
+  change_class: changeClass,
   semantic_prod_files: semanticProdFiles,
   semantic_test_files: semanticTestFiles,
   non_semantic_prod_files: nonSemanticProdFiles,
   non_semantic_test_files: nonSemanticTestFiles,
-  high_risk_reasons: highRiskReasons
+  semantic_prod_line_count: semanticProdLineCount,
+  semantic_test_line_count: semanticTestLineCount
 }));
 EOF
 )"
 
-risk_tier="$(jq -r '.risk_tier' <<<"$classification_json")"
-
-if [ "$all_mode" -eq 1 ]; then
-    if [ "${#solidity_prod_files[@]}" -gt 0 ]; then
-        fallback_high_risk=0
-        for solidity_prod_file in "${solidity_prod_files[@]}"; do
-            if match_path_against_patterns "$solidity_prod_file" "${high_risk_path_patterns[@]}"; then
-                fallback_high_risk=1
-                break
-            fi
-        done
-        if [ "$fallback_high_risk" -eq 1 ]; then
-            risk_tier="high-risk"
-        else
-            risk_tier="prod-semantic"
-        fi
-    elif [ "${#solidity_test_files[@]}" -gt 0 ]; then
-        risk_tier="test-semantic"
-    fi
-elif [ "$classification_requires_diff" -eq 1 ]; then
-    if [ "${#solidity_prod_files[@]}" -gt 0 ]; then
-        fallback_high_risk=0
-        for solidity_prod_file in "${solidity_prod_files[@]}"; do
-            if match_path_against_patterns "$solidity_prod_file" "${high_risk_path_patterns[@]}"; then
-                fallback_high_risk=1
-                break
-            fi
-        done
-
-        if [ "$fallback_high_risk" -eq 1 ]; then
-            risk_tier="high-risk"
-        else
-            risk_tier="prod-semantic"
-        fi
-    elif [ "${#solidity_test_files[@]}" -gt 0 ]; then
-        risk_tier="test-semantic"
-    fi
-fi
+change_class="$(jq -r '.change_class' <<<"$classification_json")"
+semantic_prod_line_count="$(jq -r '.semantic_prod_line_count' <<<"$classification_json")"
 
 while IFS= read -r testing_gap; do
     [ -n "$testing_gap" ] || continue
@@ -955,8 +897,8 @@ while IFS= read -r testing_gap; do
 
     [ "$gap_hit" -eq 1 ] || continue
 
-    if [ "$testing_gap_enforcement" = "risk-upgrade" ] && [ "$risk_tier" != "none" ]; then
-        risk_tier="high-risk"
+    if [ "$testing_gap_enforcement" = "full-review" ] && [ "$change_class" != "no-op" ]; then
+        append_finding residual_risks_json "verifier" "testing gap '$testing_gap_id' requires full-review minimum ($testing_gap_status)" "$testing_gap_id" "medium"
     fi
 
     if [ "$testing_gap_enforcement" = "residual-risk" ]; then
@@ -964,8 +906,8 @@ while IFS= read -r testing_gap; do
     fi
 done < <(jq -cr '.testing_gaps | to_entries[]? | .value[]?' "$policy_file")
 
-if [ "$risk_tier" = "none" ] && [[ " ${selected_surfaces[*]:-} " == *" harness_control "* ]]; then
-    risk_tier="non-semantic"
+if [ "$change_class" = "no-op" ] && [[ " ${selected_surfaces[*]:-} " == *" harness_control "* ]]; then
+    change_class="non-semantic"
 fi
 
 if [ "$all_mode" -eq 0 ] && [ "${#unmatched_files[@]}" -gt 0 ]; then
@@ -978,12 +920,145 @@ if [ "${#selected_writer_roles[@]}" -eq 1 ]; then
     writer_role="${selected_writer_roles[0]}"
 fi
 
+surface_sensitivity="none"
+if [[ " ${selected_surfaces[*]:-} " == *" solidity_prod "* ]]; then
+    surface_sensitivity="$(jq -r '.orchestration_rules.surface_sensitivity.solidity_prod // "sensitive"' "$policy_file")"
+elif [[ " ${selected_surfaces[*]:-} " == *" solidity_test "* || " ${selected_surfaces[*]:-} " == *" harness_control "* ]]; then
+    surface_sensitivity="normal"
+fi
+
+structural_escalation=false
+risk_analysis_summary_required=false
+requires_main_risk_analysis=false
+requires_doc_editorial_attestation=false
+requires_human_confirmation=false
+semantic_escalation_json='null'
+default_orchestration_profile=""
+candidate_orchestration_profile=""
+selected_review_roles_source="none"
+coverage_required_full_ci=false
+slither_required_full_ci=false
+orchestration_decision_state="final"
+risk_analysis_record_required=false
+spec_readiness_triggers_json='[]'
+spec_readiness_required_docs_json='[]'
+spec_readiness_writer_roles_json='[]'
+spec_readiness_review_roles_json='[]'
+spec_readiness_blocked=false
+declare -a selected_review_roles=()
+declare -a orchestration_reasons=()
+
+append_unique orchestration_reasons "change_class=$change_class"
+append_unique orchestration_reasons "surface_sensitivity=$surface_sensitivity"
+
+if [ "${#changed_files[@]}" -eq 1 ] && [ "${changed_files[0]}" = "README.md" ]; then
+    requires_doc_editorial_attestation=true
+    candidate_orchestration_profile="direct"
+fi
+
+if [ "$change_class" = "prod-semantic" ] && [ "$surface_sensitivity" = "sensitive" ]; then
+    coverage_required_full_ci=true
+    if [ "${#existing_src_solidity_files[@]}" -gt 0 ]; then
+        slither_required_full_ci=true
+    fi
+fi
+
+if [ "$change_class" = "prod-semantic" ]; then
+    max_prod_files="$(jq -r '.orchestration_rules.scope_escalation.prod_solidity_max_files_before_full_review // 1' "$policy_file")"
+    max_semantic_lines="$(jq -r '.orchestration_rules.scope_escalation.prod_solidity_max_semantic_lines_before_full_review // 20' "$policy_file")"
+    if [ "${#solidity_prod_files[@]}" -gt "$max_prod_files" ]; then
+        structural_escalation=true
+        append_unique orchestration_reasons "prod_solidity_file_count>${max_prod_files}"
+    fi
+    if [ "$semantic_prod_line_count" -gt "$max_semantic_lines" ]; then
+        structural_escalation=true
+        append_unique orchestration_reasons "prod_solidity_semantic_lines>${max_semantic_lines}"
+    fi
+    if [[ " ${selected_surfaces[*]:-} " == *" harness_control "* ]]; then
+        structural_escalation=true
+        append_unique orchestration_reasons "mixed_solidity_and_harness_control"
+    fi
+fi
+
+if [ "$change_class" = "prod-semantic" ]; then
+    spec_readiness_data_json="$(
+        jq -cn \
+            --argjson prod_files "$solidity_prod_json" \
+            --argjson selected_surfaces "$(json_array_from_values "${selected_surfaces[@]}")" \
+            --slurpfile policy "$policy_file" '
+            def path_matches($path; $patterns):
+              any($patterns[]?; . as $pattern | ($path | test($pattern)));
+
+            ($policy[0].test_mapping // {}) as $test_mapping
+            | ($policy[0].spec_readiness_gate // {}) as $gate
+            | (
+                [
+                  $test_mapping
+                  | to_entries[]
+                  | .value.rules[]?
+                  | (.paths // []) as $rule_paths
+                  | select(any($prod_files[]?; . as $prod_file | path_matches($prod_file; $rule_paths)))
+                  | .id
+                ] | unique
+              ) as $matched_rule_ids
+            | (
+                [
+                  ($gate.doc_mapping // {})
+                  | to_entries[]
+                  | .value.rules[]?
+                  | select((.id // "") as $id | $matched_rule_ids | index($id))
+                  | (.check_docs // [])[]
+                ] | unique
+              ) as $mapped_docs
+            | (
+                if ($prod_files | length) >= (($gate.cross_cutting_trigger_threshold // 999999) | tonumber)
+                then (($gate.cross_cutting_docs // []) + $mapped_docs | unique)
+                else $mapped_docs
+                end
+              ) as $candidate_docs
+            | (
+                [
+                  $candidate_docs[]
+                  | . as $doc
+                  | select((($gate.doc_exclusions // []) | any(. as $pattern | ($doc | test($pattern)))) | not)
+                ] | unique
+              ) as $required_docs
+            | {
+                triggers: (if ($required_docs | length) > 0 then ["spec-readiness-doc-update"] else [] end),
+                required_docs: $required_docs,
+                writer_roles: (if ($required_docs | length) > 0 then ["process-implementer"] else [] end),
+                review_roles: (if ($required_docs | length) > 0 then [($gate.required_reviewer // "spec-reviewer")] else [] end)
+              }
+            '
+    )"
+    spec_readiness_triggers_json="$(jq -c '.triggers' <<<"$spec_readiness_data_json")"
+    spec_readiness_required_docs_json="$(jq -c '.required_docs' <<<"$spec_readiness_data_json")"
+    spec_readiness_writer_roles_json="$(jq -c '.writer_roles' <<<"$spec_readiness_data_json")"
+    spec_readiness_review_roles_json="$(jq -c '.review_roles' <<<"$spec_readiness_data_json")"
+    if [ "$(jq 'length' <<<"$spec_readiness_triggers_json")" -gt 0 ]; then
+        append_unique orchestration_reasons "spec-readiness-doc-update"
+        requires_human_confirmation=true
+        if [ "$(jq -r '.spec_readiness_gate.gate_action // "block"' "$policy_file")" = "block" ]; then
+            spec_readiness_blocked=true
+            hard_blocked=1
+            append_finding blocking_findings_json \
+                "main-orchestrator" \
+                "spec readiness documentation update required before code implementation" \
+                "spec-readiness-doc-update" \
+                "error"
+        fi
+    fi
+fi
+
 if [ "${#changed_files[@]}" -eq 0 ] && [ "$hard_blocked" -eq 0 ]; then
     surface_json='"no-op"'
-    risk_tier="none"
+    change_class="no-op"
     writer_role="none"
     verification_profile="none"
     selected_review_roles_json='[]'
+    selected_writer_roles_json='[]'
+    orchestration_profile="no-op"
+    final_verdict="no-op"
 else
     if [ "${#selected_surfaces[@]}" -eq 1 ]; then
         surface_json="$(jq -cn --arg surface "${selected_surfaces[0]}" '$surface')"
@@ -995,57 +1070,209 @@ else
 
     verification_profile="$profile"
 
-    declare -a selected_review_roles=()
-
-    if [[ " ${selected_surfaces[*]:-} " == *" solidity_prod "* || " ${selected_surfaces[*]:-} " == *" solidity_test "* ]]; then
-        mapfile -t review_matrix_roles < <(jq -r --arg tier "$risk_tier" '.review_matrix[$tier][]? // empty' "$policy_file")
-        for review_role in "${review_matrix_roles[@]}"; do
-            append_unique selected_review_roles "$review_role"
-        done
+    if [ "$spec_readiness_blocked" = true ] && [ "$change_class" = "prod-semantic" ] && [ "$structural_escalation" != true ]; then
+        default_orchestration_profile="full-review"
+        candidate_orchestration_profile="direct-review"
+        requires_main_risk_analysis=true
+        orchestration_decision_state="pending-main-session-risk-analysis"
+        risk_analysis_record_required=true
     fi
 
-    while IFS= read -r review_trigger; do
-        [ -n "$review_trigger" ] || continue
-        mapfile -t trigger_surfaces < <(jq -r '.surfaces[]? // empty' <<<"$review_trigger")
-        mapfile -t trigger_paths < <(jq -r '.paths[]? // empty' <<<"$review_trigger")
-
-        trigger_surface_matched=0
-        if [ "${#trigger_surfaces[@]}" -eq 0 ]; then
-            trigger_surface_matched=1
+    if [ "$spec_readiness_blocked" = true ]; then
+        orchestration_profile="blocked"
+    elif [ "$hard_blocked" -eq 1 ]; then
+        orchestration_profile="blocked"
+    elif [ "$change_class" = "prod-semantic" ]; then
+        if [ "$structural_escalation" = true ]; then
+            orchestration_profile="full-review"
+            risk_analysis_summary_required=true
         else
-            for trigger_surface in "${trigger_surfaces[@]}"; do
-                if array_contains "$trigger_surface" "${selected_surfaces[@]}"; then
-                    trigger_surface_matched=1
-                    break
-                fi
-            done
+            orchestration_profile="full-review"
+            default_orchestration_profile="full-review"
+            candidate_orchestration_profile="direct-review"
+            requires_main_risk_analysis=true
+            orchestration_decision_state="pending-main-session-risk-analysis"
+            risk_analysis_record_required=true
         fi
+    elif [[ " ${selected_surfaces[*]:-} " == *" harness_control "* ]]; then
+        orchestration_profile="delegated"
+    elif [ "$change_class" = "test-semantic" ]; then
+        orchestration_profile="direct-review"
+    elif [ "$change_class" = "non-semantic" ]; then
+        orchestration_profile="direct"
+    else
+        orchestration_profile="direct"
+    fi
 
-        [ "$trigger_surface_matched" -eq 1 ] || continue
-
-        trigger_path_matched=0
-        if [ "${#trigger_paths[@]}" -eq 0 ]; then
-            trigger_path_matched=1
+    if [ "$orchestration_profile" = "direct-review" ]; then
+        if [ "$change_class" = "prod-semantic" ]; then
+            mapfile -t review_roles < <(jq -r '.orchestration_review_roles["prod-semantic-risk-analysis-passed"][]? // empty' "$policy_file")
         else
+            mapfile -t review_roles < <(jq -r --arg class "$change_class" '.orchestration_review_roles[$class][]? // empty' "$policy_file")
+        fi
+        for review_role in "${review_roles[@]}"; do
+            append_unique selected_review_roles "$review_role"
+        done
+        selected_review_roles_source="orchestration_review_roles"
+    elif [ "$orchestration_profile" = "delegated" ]; then
+        while IFS= read -r delegated_rule; do
+            [ -n "$delegated_rule" ] || continue
+            mapfile -t delegated_paths < <(jq -r '.paths[]? // empty' <<<"$delegated_rule")
+            mapfile -t delegated_exclude_paths < <(jq -r '.exclude_paths[]? // empty' <<<"$delegated_rule")
+            if [ "${#delegated_paths[@]}" -eq 0 ]; then
+                continue
+            fi
+            rule_path_matched=0
             for changed_file in "${changed_files[@]}"; do
-                if match_path_against_patterns "$changed_file" "${trigger_paths[@]}"; then
-                    trigger_path_matched=1
-                    break
+                if [ "${#delegated_paths[@]}" -gt 0 ] && ! match_path_against_patterns "$changed_file" "${delegated_paths[@]}"; then
+                    continue
                 fi
+                if [ "${#delegated_exclude_paths[@]}" -gt 0 ] && match_path_against_patterns "$changed_file" "${delegated_exclude_paths[@]}"; then
+                    continue
+                fi
+                rule_path_matched=1
+                break
             done
-        fi
 
-        [ "$trigger_path_matched" -eq 1 ] || continue
+            [ "$rule_path_matched" -eq 1 ] || continue
 
-        review_role="$(jq -r '.reviewer_role' <<<"$review_trigger")"
-        append_unique selected_review_roles "$review_role"
-    done < <(jq -c '.review_triggers[]? // empty' "$policy_file")
+            mapfile -t delegated_review_roles < <(jq -r '.reviewers[]? // empty' <<<"$delegated_rule")
+            for review_role in "${delegated_review_roles[@]}"; do
+                append_unique selected_review_roles "$review_role"
+            done
+            if [ "$(jq -r '.requires_human_confirmation // false' <<<"$delegated_rule")" = "true" ]; then
+                requires_human_confirmation=true
+            fi
+        done < <(jq -c '.delegated_review_rules[]? // empty' "$policy_file")
+        selected_review_roles_source="delegated_review_rules"
+    elif [ "$orchestration_profile" = "full-review" ] || [ "$orchestration_profile" = "full-subagent" ]; then
+        mapfile -t review_roles < <(jq -r --arg class "$change_class" '.full_review_matrix[$class][]? // empty' "$policy_file")
+        for review_role in "${review_roles[@]}"; do
+            append_unique selected_review_roles "$review_role"
+        done
+        selected_review_roles_source="full_review_matrix[$change_class]"
+    fi
 
+    if [ "$spec_readiness_blocked" = true ]; then
+        selected_writer_roles=()
+        while IFS= read -r writer_role_item; do
+            [ -n "$writer_role_item" ] || continue
+            append_unique selected_writer_roles "$writer_role_item"
+        done < <(jq -r '.[]' <<<"$spec_readiness_writer_roles_json")
+
+        selected_review_roles=()
+        while IFS= read -r review_role; do
+            [ -n "$review_role" ] || continue
+            append_unique selected_review_roles "$review_role"
+        done < <(jq -r '.[]' <<<"$spec_readiness_review_roles_json")
+
+        selected_review_roles_source="spec_readiness_gate"
+        writer_role="process-implementer"
+    fi
+
+    selected_writer_roles_json="$(json_array_from_values "${selected_writer_roles[@]}")"
     if [ "${#selected_review_roles[@]}" -gt 0 ]; then
         selected_review_roles_json="$(json_array_from_values "${selected_review_roles[@]}")"
     else
         selected_review_roles_json='[]'
     fi
+fi
+
+orchestration_reasons_json="$(json_array_from_values "${orchestration_reasons[@]}")"
+
+classification_record_json="$(jq -cn \
+    --arg repo "$(jq -r '.repo' "$policy_file")" \
+    --arg mode "$([ "$classify_only" -eq 1 ] && printf 'classify-only' || printf 'verify')" \
+    --arg profile "$profile" \
+    --argjson changed_files "$(json_array_from_values "${changed_files[@]}")" \
+    --argjson surfaces "$surface_json" \
+    --arg change_class "$change_class" \
+    --arg surface_sensitivity "$surface_sensitivity" \
+    --argjson semantic_escalation "$semantic_escalation_json" \
+    --argjson structural_escalation "$structural_escalation" \
+    --argjson requires_main_risk_analysis "$requires_main_risk_analysis" \
+    --arg orchestration_decision_state "$orchestration_decision_state" \
+    --argjson risk_analysis_record_required "$risk_analysis_record_required" \
+    --argjson risk_analysis_summary_required "$risk_analysis_summary_required" \
+    --argjson requires_doc_editorial_attestation "$requires_doc_editorial_attestation" \
+    --argjson requires_human_confirmation "$requires_human_confirmation" \
+    --arg orchestration_profile "$orchestration_profile" \
+    --arg default_orchestration_profile "$default_orchestration_profile" \
+    --arg candidate_orchestration_profile "$candidate_orchestration_profile" \
+    --arg verification_profile "$verification_profile" \
+    --argjson selected_writer_roles "$selected_writer_roles_json" \
+    --arg writer_role "$writer_role" \
+    --argjson selected_review_roles "$selected_review_roles_json" \
+    --arg selected_review_roles_source "$selected_review_roles_source" \
+    --argjson orchestration_reasons "$orchestration_reasons_json" \
+    --argjson spec_readiness_triggers "$spec_readiness_triggers_json" \
+    --argjson spec_readiness_required_docs "$spec_readiness_required_docs_json" \
+    --argjson spec_readiness_writer_roles "$spec_readiness_writer_roles_json" \
+    --argjson spec_readiness_review_roles "$spec_readiness_review_roles_json" \
+    --argjson blocking_findings "$blocking_findings_json" \
+    --argjson residual_risks "$residual_risks_json" \
+    --argjson coverage_required_full_ci "$coverage_required_full_ci" \
+    --argjson slither_required_full_ci "$slither_required_full_ci" \
+    --argjson semantic_prod_files "$(jq -c '.semantic_prod_files' <<<"$classification_json")" \
+    --argjson semantic_test_files "$(jq -c '.semantic_test_files' <<<"$classification_json")" \
+    --argjson non_semantic_prod_files "$(jq -c '.non_semantic_prod_files' <<<"$classification_json")" \
+    --argjson non_semantic_test_files "$(jq -c '.non_semantic_test_files' <<<"$classification_json")" \
+    --argjson semantic_prod_line_count "$semantic_prod_line_count" \
+    '
+    {
+      repo: $repo,
+      mode: $mode,
+      profile: $profile,
+      changed_files: $changed_files,
+      surfaces: $surfaces,
+      change_class: $change_class,
+      surface_sensitivity: $surface_sensitivity,
+      semantic_escalation: $semantic_escalation,
+      structural_escalation: $structural_escalation,
+      requires_main_risk_analysis: $requires_main_risk_analysis,
+      orchestration_decision_state: $orchestration_decision_state,
+      risk_analysis_record_required: $risk_analysis_record_required,
+      risk_analysis_record: null,
+      risk_analysis_summary_required: $risk_analysis_summary_required,
+      doc_editorial_attestation: null,
+      requires_doc_editorial_attestation: $requires_doc_editorial_attestation,
+      requires_human_confirmation: $requires_human_confirmation,
+      orchestration_profile: $orchestration_profile,
+      verification_profile: $verification_profile,
+      selected_writer_roles: $selected_writer_roles,
+      writer_role: $writer_role,
+      selected_review_roles: $selected_review_roles,
+      selected_review_roles_source: $selected_review_roles_source,
+      orchestration_reasons: $orchestration_reasons,
+      spec_readiness_triggers: $spec_readiness_triggers,
+      spec_readiness_required_docs: $spec_readiness_required_docs,
+      spec_readiness_writer_roles: $spec_readiness_writer_roles,
+      spec_readiness_review_roles: $spec_readiness_review_roles,
+      blocking_findings: $blocking_findings,
+      residual_risks: $residual_risks,
+      coverage_required_full_ci: $coverage_required_full_ci,
+      slither_required_full_ci: $slither_required_full_ci,
+      semantic_prod_files: $semantic_prod_files,
+      semantic_test_files: $semantic_test_files,
+      non_semantic_prod_files: $non_semantic_prod_files,
+      non_semantic_test_files: $non_semantic_test_files,
+      semantic_prod_line_count: $semantic_prod_line_count,
+      final_verdict: (if $orchestration_profile == "blocked" then "blocked" elif $orchestration_profile == "no-op" then "no-op" else "classified" end)
+    }
+    + (if $default_orchestration_profile == "" then {} else {default_orchestration_profile: $default_orchestration_profile} end)
+    + (if $candidate_orchestration_profile == "" then {} else {candidate_orchestration_profile: $candidate_orchestration_profile} end)
+    ')"
+
+if [ -n "${RUN_RECORD_PATH:-}" ]; then
+    printf '%s\n' "$classification_record_json" >"$RUN_RECORD_PATH"
+fi
+
+if [ "$classify_only" -eq 1 ]; then
+    printf '%s\n' "$classification_record_json"
+    if [ "$orchestration_profile" = "blocked" ]; then
+        exit 1
+    fi
+    exit 0
 fi
 
 declare -a targeted_test_files=()
@@ -1161,10 +1388,10 @@ if [ "${#changed_files[@]}" -gt 0 ]; then
             coverage_when_required)
                 if [ "$hard_blocked" -eq 1 ]; then
                     record_blocked_command "$command_id" "forge coverage --report summary --ir-minimum" "run coverage for semantic production Solidity changes" '[]' "command blocked before execution by policy hard-block"
-                elif [ "$risk_tier" = "prod-semantic" ] || [ "$risk_tier" = "high-risk" ]; then
+                elif [ "$coverage_required_full_ci" = true ]; then
                     run_single_command "$command_id" "run coverage for semantic production Solidity changes" '[]' forge coverage --report summary --ir-minimum
                 else
-                    record_not_applicable_command "$command_id" "forge coverage --report summary --ir-minimum" "run coverage for semantic production Solidity changes" '[]' "coverage not required for current risk tier"
+                    record_not_applicable_command "$command_id" "forge coverage --report summary --ir-minimum" "run coverage for semantic production Solidity changes" '[]' "coverage not required for current change class and surface sensitivity"
                 fi
                 ;;
             slither_when_required)
@@ -1173,7 +1400,7 @@ if [ "${#changed_files[@]}" -gt 0 ]; then
                 src_scope_json="$(json_array_from_values "${existing_src_solidity_files[@]}")"
                 if [ "$hard_blocked" -eq 1 ]; then
                     record_blocked_command "$command_id" "slither . --filter-paths \"$slither_filter_paths\" --exclude-dependencies --exclude \"$slither_exclude_detectors\"" "run slither for changed src Solidity production scope" "$src_scope_json" "command blocked before execution by policy hard-block"
-                elif [ "${#existing_src_solidity_files[@]}" -gt 0 ] && { [ "$risk_tier" = "prod-semantic" ] || [ "$risk_tier" = "high-risk" ]; }; then
+                elif [ "$slither_required_full_ci" = true ]; then
                     # slither exits 255 on findings; treat as informational, not a gate blocker
                     run_single_command "$command_id" "run slither for changed src Solidity production scope" "$src_scope_json" bash -c "slither . --filter-paths \"$slither_filter_paths\" --exclude-dependencies --exclude \"$slither_exclude_detectors\"; exit 0"
                 else
@@ -1282,7 +1509,27 @@ else
     final_verdict="pass"
 fi
 
-echo "[gate] profile=$profile verdict=$final_verdict risk=$risk_tier writer=$writer_role"
+final_record_json="$(jq -cn \
+    --argjson base "$classification_record_json" \
+    --arg final_verdict "$final_verdict" \
+    --argjson profile_required_commands "$profile_required_commands_json" \
+    --argjson commands_run "$commands_run_json" \
+    --argjson command_results "$command_results_json" \
+    '
+    $base
+    + {
+      final_verdict: $final_verdict,
+      profile_required_commands: $profile_required_commands,
+      commands_run: $commands_run,
+      command_results: $command_results
+    }
+    ')"
+
+if [ -n "${RUN_RECORD_PATH:-}" ]; then
+    printf '%s\n' "$final_record_json" >"$RUN_RECORD_PATH"
+fi
+
+echo "[gate] profile=$profile verdict=$final_verdict change_class=$change_class orchestration_profile=$orchestration_profile writer=$writer_role"
 
 case "$final_verdict" in
     pass|no-op)

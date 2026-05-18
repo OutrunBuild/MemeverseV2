@@ -15,7 +15,7 @@
     "gate:fast": "bash ./script/harness/gate.sh --profile fast",
     "gate": "bash ./script/harness/gate.sh --profile fast",
     "gate:full": "bash ./script/harness/gate.sh --profile full",
-    "gate:ci": "bash ./script/harness/gate.sh --profile ci --all",
+    "gate:ci": "bash ./script/harness/gate.sh --profile ci",
     "gas:report": "forge test --gas-report"
   },
   "devDependencies": {

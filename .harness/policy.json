@@ -1,111 +1,811 @@
 {
-  "version": 1,
+  "delegated_review_rules": [
+    {
+      "id": "spec-path",
+      "paths": [
+        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
+      ],
+      "requires_human_confirmation": true,
+      "reviewers": [
+        "spec-reviewer"
+      ]
+    },
+    {
+      "id": "spec-readiness-doc-update",
+      "requires_human_confirmation": true,
+      "reviewers": [
+        "spec-reviewer"
+      ],
+      "trigger": "spec-readiness-doc-update"
+    },
+    {
+      "id": "harness-control",
+      "paths": [
+        "^\\.harness/.*$",
+        "^script/harness/.*$",
+        "^\\.github/workflows/.*$"
+      ],
+      "requires_human_confirmation": false,
+      "reviewers": []
+    },
+    {
+      "exclude_paths": [
+        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
+      ],
+      "id": "non-spec-doc",
+      "paths": [
+        "^docs/.*$"
+      ],
+      "requires_human_confirmation": false,
+      "reviewers": []
+    }
+  ],
+  "full_review_matrix": {
+    "no-op": [],
+    "non-semantic": [],
+    "prod-semantic": [
+      "logic-reviewer",
+      "security-reviewer",
+      "gas-reviewer"
+    ],
+    "test-semantic": [
+      "logic-reviewer"
+    ]
+  },
+  "hard_blocks": [],
+  "orchestration_profiles": {
+    "blocked": {
+      "reviewers": [],
+      "verification_profile": "none",
+      "verifier": "none",
+      "writer": "none"
+    },
+    "delegated": {
+      "reviewers": "delegated-selected",
+      "verification_profile": "fast",
+      "verifier": "main-session",
+      "writer": "policy-selected"
+    },
+    "direct": {
+      "reviewers": [],
+      "verification_profile": "fast",
+      "verifier": "main-session",
+      "writer": "main-session"
+    },
+    "direct-review": {
+      "reviewers": "orchestration-selected",
+      "verification_profile": "fast",
+      "verifier": "main-session",
+      "writer": "main-session"
+    },
+    "full-review": {
+      "reviewers": "full-review-matrix",
+      "verification_profile": "fast",
+      "verifier": "main-session",
+      "writer": "policy-selected"
+    },
+    "full-subagent": {
+      "reviewers": "full-review-matrix",
+      "verification_profile": "selected",
+      "verifier": "required-verifier-agent",
+      "writer": "policy-selected"
+    },
+    "no-op": {
+      "reviewers": [],
+      "verification_profile": "none",
+      "verifier": "none",
+      "writer": "none"
+    }
+  },
+  "orchestration_review_roles": {
+    "no-op": [],
+    "non-semantic": [],
+    "prod-semantic-risk-analysis-passed": [
+      "logic-reviewer"
+    ],
+    "test-semantic": [
+      "logic-reviewer"
+    ]
+  },
+  "orchestration_rules": {
+    "delegated_surface": "harness_control",
+    "full_ci_command_gates": {
+      "coverage_when_required": {
+        "change_class": "prod-semantic",
+        "surface_sensitivity": "sensitive"
+      },
+      "slither_when_required": {
+        "change_class": "prod-semantic",
+        "paths": [
+          "^src/.*\\.sol$"
+        ],
+        "surface_sensitivity": "sensitive"
+      }
+    },
+    "main_session_risk_analysis_required_for": [
+      "semantic production Solidity changes not structurally escalated"
+    ],
+    "scope_escalation": {
+      "prod_solidity_max_files_before_full_review": 1,
+      "prod_solidity_max_semantic_lines_before_full_review": 20
+    },
+    "spec_paths": [
+      "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
+    ],
+    "surface_sensitivity": {
+      "harness_control": "normal",
+      "solidity_prod": "sensitive",
+      "solidity_test": "normal"
+    }
+  },
+  "orchestration_writer_rules": [
+    {
+      "id": "spec-doc",
+      "paths": [
+        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
+      ],
+      "writer": "process-implementer"
+    },
+    {
+      "id": "spec-readiness-doc-update",
+      "trigger": "spec-readiness-doc-update",
+      "writer": "process-implementer"
+    },
+    {
+      "id": "harness-control",
+      "paths": [
+        "^\\.harness/.*$",
+        "^script/harness/.*$",
+        "^\\.github/workflows/.*$",
+        "^AGENTS\\.md$",
+        "^CLAUDE\\.md$"
+      ],
+      "writer": "process-implementer"
+    },
+    {
+      "id": "repo-metadata",
+      "paths": [
+        "^package\\.json$",
+        "^package-lock\\.json$",
+        "^npm-shrinkwrap\\.json$"
+      ],
+      "writer": "process-implementer"
+    },
+    {
+      "id": "docs",
+      "paths": [
+        "^docs/.*$",
+        "^README\\.md$"
+      ],
+      "writer": "process-implementer"
+    }
+  ],
+  "remediation_policy": {
+    "conflict_priority": [
+      "security-reviewer",
+      "gas-reviewer",
+      "logic-reviewer"
+    ],
+    "escalation": "user",
+    "max_cycles": 5
+  },
   "repo": "MemeverseV2",
+  "risk_rules": {
+    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
+    "slither_filter_paths": "lib|test|script|node_modules"
+  },
+  "security_test_writer_trigger": {
+    "change_class": "prod-semantic",
+    "reviewer_finding_severity_to_activate": "critical",
+    "selected_review_roles_include": [
+      "security-reviewer"
+    ]
+  },
+  "spec_readiness_gate": {
+    "cross_cutting_docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/spec/access-control.md",
+      "docs/spec/upgradeability.md",
+      "docs/operations.md",
+      "docs/spec/protocol.md",
+      "docs/implementation-map.md",
+      "docs/GLOSSARY.md"
+    ],
+    "cross_cutting_trigger_threshold": 2,
+    "doc_exclusions": [
+      "^docs/superpowers/"
+    ],
+    "doc_mapping": {
+      "memeverse": {
+        "rules": [
+          {
+            "check_docs": [
+              "docs/spec/swap/swap-flow.md",
+              "docs/spec/swap/swap-integration.md",
+              "docs/spec/swap/uniswap-v4.md",
+              "docs/spec/swap/permit2.md"
+            ],
+            "id": "swap-router-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/swap/swap-flow.md",
+              "docs/spec/swap/swap-integration.md",
+              "docs/spec/swap/uniswap-v4.md",
+              "docs/spec/invariants.md"
+            ],
+            "id": "swap-hook-liquidity"
+          },
+          {
+            "check_docs": [
+              "docs/spec/swap/swap-flow.md",
+              "docs/spec/swap/swap-integration.md",
+              "docs/spec/invariants.md"
+            ],
+            "id": "swap-liquidity-math"
+          },
+          {
+            "check_docs": [
+              "docs/spec/verse/lifecycle-details.md",
+              "docs/spec/verse/state-machines.md",
+              "docs/spec/verse/config-matrix.md",
+              "docs/spec/verse/deployment.md",
+              "docs/spec/verse/accounting.md",
+              "docs/spec/invariants.md",
+              "docs/spec/swap/uniswap-v4.md"
+            ],
+            "id": "launcher-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/invariants.md"
+            ],
+            "id": "unlock-protection-safety"
+          },
+          {
+            "check_docs": [
+              "docs/spec/verse/lifecycle-details.md",
+              "docs/spec/verse/state-machines.md"
+            ],
+            "id": "launcher-price-math"
+          },
+          {
+            "check_docs": [
+              "docs/spec/verse/registration-details.md",
+              "docs/spec/verse/config-matrix.md"
+            ],
+            "id": "verse-registration-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/verse/deployment.md"
+            ],
+            "id": "verse-dispatch-and-deployment"
+          },
+          {
+            "check_docs": [
+              "docs/spec/governance/governance-yield-details.md",
+              "docs/spec/events.md"
+            ],
+            "id": "governance-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/interoperation/interoperation-details.md",
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/events.md"
+            ],
+            "id": "interoperation-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/verse/accounting.md",
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/events.md"
+            ],
+            "id": "token-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/governance/governance-yield-details.md",
+              "docs/spec/interoperation/interoperation-details.md",
+              "docs/spec/events.md"
+            ],
+            "id": "yield-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/polend/polend.md",
+              "docs/spec/verse/lifecycle-details.md",
+              "docs/spec/verse/accounting.md",
+              "docs/spec/invariants.md"
+            ],
+            "id": "polend-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/polend/polend.md",
+              "docs/spec/verse/lifecycle-details.md",
+              "docs/spec/invariants.md"
+            ],
+            "id": "polsplitter-core"
+          },
+          {
+            "check_docs": [
+              "docs/spec/interoperation/layerzero-oapp-oft.md"
+            ],
+            "id": "common-lz-endpoint-registry"
+          },
+          {
+            "check_docs": [
+              "docs/spec/common/common-foundations.md"
+            ],
+            "id": "common-token-init"
+          },
+          {
+            "check_docs": [
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/common/common-foundations.md"
+            ],
+            "id": "common-oapp-init"
+          },
+          {
+            "check_docs": [
+              "docs/spec/interoperation/layerzero-oapp-oft.md",
+              "docs/spec/common/common-foundations.md"
+            ],
+            "id": "common-oft-init"
+          },
+          {
+            "check_docs": [],
+            "id": "common-token-governance-init"
+          },
+          {
+            "check_docs": [
+              "docs/spec/common/common-foundations.md"
+            ],
+            "id": "common-foundations"
+          },
+          {
+            "check_docs": [
+              "docs/spec/invariants.md"
+            ],
+            "id": "unlock-protection-dedicated-tests"
+          }
+        ]
+      }
+    },
+    "gate_action": "block",
+    "required_reviewer": "spec-reviewer",
+    "trigger_change_classes": [
+      "prod-semantic"
+    ]
+  },
   "surfaces": {
+    "harness_control": [
+      "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
+      "^AGENTS\\.md$",
+      "^CLAUDE\\.md$",
+      "^README\\.md$",
+      "^\\.claude/agents/.*$",
+      "^\\.claude/settings\\.json$",
+      "^\\.codex/agents/.*$",
+      "^\\.githooks/.*$",
+      "^\\.github/pull_request_template\\.md$",
+      "^\\.github/workflows/.*$",
+      "^\\.github/workflows/pr-template-check\\.yml$",
+      "^\\.gitignore$",
+      "^\\.harness/policy\\.json$",
+      "^\\.harness/runtime/main-session-contract\\.md$",
+      "^\\.harness/schemas/.*$",
+      "^docs/.*$",
+      "^docs/ARCHITECTURE\\.md$",
+      "^docs/GLOSSARY\\.md$",
+      "^docs/SECURITY_AND_APPROVALS\\.md$",
+      "^docs/TRACEABILITY\\.md$",
+      "^docs/VERIFICATION\\.md$",
+      "^docs/implementation-map\\.md$",
+      "^docs/operations\\.md$",
+      "^docs/spec/swap/[^/]+\\.md$",
+      "^docs/superpowers/plans/.*\\.md$",
+      "^docs/testing/.*\\.md$",
+      "^foundry\\.toml$",
+      "^npm-shrinkwrap\\.json$",
+      "^package-lock\\.json$",
+      "^package\\.json$",
+      "^remappings\\.txt$",
+      "^script/harness/.*$",
+      "^solhint.*\\.config\\.js$"
+    ],
     "solidity_prod": [
       "^src/.*\\.sol$",
       "^script/.*\\.sol$"
     ],
     "solidity_test": [
       "^test/.*\\.sol$"
-    ],
-    "harness_control": [
-      "^AGENTS\\.md$",
-      "^README\\.md$",
-      "^CLAUDE\\.md$",
-      "^package\\.json$",
-      "^\\.gitignore$",
-      "^\\.github/workflows/.*$",
-      "^\\.github/pull_request_template\\.md$",
-      "^\\.github/workflows/pr-template-check\\.yml$",
-      "^\\.githooks/.*$",
-      "^script/harness/.*$",
-      "^\\.harness/policy\\.json$",
-      "^\\.harness/runtime/main-session-contract\\.md$",
-      "^\\.harness/schemas/.*$",
-      "^\\.claude/settings\\.json$",
-      "^\\.claude/agents/.*$",
-      "^\\.codex/agents/.*$",
-      "^docs/ARCHITECTURE\\.md$",
-      "^docs/testing/.*\\.md$",
-      "^docs/spec/swap/[^/]+\\.md$",
-      "^docs/TRACEABILITY\\.md$",
-      "^docs/VERIFICATION\\.md$",
-      "^docs/GLOSSARY\\.md$",
-      "^docs/SECURITY_AND_APPROVALS\\.md$",
-      "^docs/implementation-map\\.md$",
-      "^docs/operations\\.md$",
-      "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
-      "^solhint.*\\.config\\.js$",
-      "^foundry\\.toml$",
-      "^remappings\\.txt$",
-      "^package-lock\\.json$",
-      "^npm-shrinkwrap\\.json$"
     ]
   },
-  "write_roles": {
-    "solidity_prod": "solidity-implementer",
-    "solidity_test": "solidity-implementer",
-    "harness_control": "process-implementer"
-  },
-  "risk_rules": {
-    "high_risk_paths": [
-      "^src/common/.*\\.sol$",
-      "^src/governance/.*\\.sol$",
-      "^src/interoperation/.*\\.sol$",
-      "^src/swap/.*\\.sol$",
-      "^src/token/.*\\.sol$",
-      "^src/verse/.*\\.sol$",
-      "^src/yield/.*\\.sol$",
-      "^script/.*\\.sol$"
-    ],
-    "high_risk_tokens": [
-      "\\bdelegatecall\\b",
-      "\\bselfdestruct\\b",
-      "\\bassembly\\b",
-      "\\bcallcode\\b"
-    ],
-    "slither_filter_paths": "lib|test|script|node_modules",
-    "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions"
-  },
-  "review_matrix": {
-    "non-semantic": [],
-    "test-semantic": [
-      "logic-reviewer"
-    ],
-    "prod-semantic": [
-      "logic-reviewer",
-      "security-reviewer",
-      "gas-reviewer"
-    ],
-    "high-risk": [
-      "logic-reviewer",
-      "security-reviewer",
-      "gas-reviewer"
-    ]
-  },
-  "review_triggers": [
-    {
-      "id": "spec-doc-review",
-      "reviewer_role": "spec-reviewer",
-      "paths": [
-        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
-      ],
-      "surfaces": [
-        "harness_control"
+  "test_mapping": {
+    "memeverse": {
+      "rules": [
+        {
+          "change_tests": [
+            "test/swap/MemeverseSwapRouter.t.sol",
+            "test/swap/MemeverseSwapRouterPermit2.t.sol",
+            "test/swap/MemeverseSwapRouterInterface.t.sol"
+          ],
+          "evidence_tests": [
+            "test/swap/MemeverseSwapRouter.t.sol",
+            "test/swap/MemeverseSwapRouterPermit2.t.sol",
+            "test/swap/MemeverseSwapRouterInterface.t.sol"
+          ],
+          "id": "swap-router-core",
+          "paths": [
+            "src/swap/MemeverseSwapRouter.sol",
+            "src/swap/interfaces/IMemeverseSwapRouter.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
+          ],
+          "evidence_tests": [
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol",
+            "test/swap/MemeverseSwapRouter.t.sol"
+          ],
+          "id": "swap-hook-liquidity",
+          "paths": [
+            "src/swap/libraries/MemeverseHookLib.sol",
+            "src/swap/MemeverseUniswapHook.sol",
+            "src/swap/libraries/LiquidityQuote.sol",
+            "src/swap/tokens/UniswapLP.sol",
+            "src/swap/interfaces/IMemeverseUniswapHook.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/swap/MemeverseSwapRouter.t.sol",
+            "test/swap/MemeverseSwapRouterPermit2.t.sol",
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
+          ],
+          "evidence_tests": [
+            "test/swap/MemeverseSwapRouter.t.sol",
+            "test/swap/MemeverseSwapRouterPermit2.t.sol",
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol",
+            "test/swap/MemeverseDynamicFeeSimulation.t.sol"
+          ],
+          "id": "swap-liquidity-math",
+          "paths": [
+            "src/swap/libraries/LiquidityAmounts.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/verse/MemeverseLauncherLifecycle.t.sol",
+            "test/verse/MemeverseLauncherConfig.t.sol",
+            "test/verse/MemeverseLauncherRegistration.t.sol",
+            "test/verse/MemeverseLauncherViews.t.sol"
+          ],
+          "evidence_tests": [
+            "test/verse/MemeverseLauncherLifecycle.t.sol",
+            "test/verse/MemeverseLauncherConfig.t.sol",
+            "test/verse/MemeverseLauncherRegistration.t.sol",
+            "test/verse/MemeverseLauncherViews.t.sol"
+          ],
+          "id": "launcher-core",
+          "paths": [
+            "src/verse/MemeverseLauncher.sol",
+            "src/verse/interfaces/IMemeverseLauncher.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/verse/MemeverseLauncherLifecycle.t.sol",
+            "test/verse/MemeverseLauncherAssetFlowInvariant.t.sol",
+            "test/swap/MemeverseSwapRouter.t.sol",
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
+          ],
+          "evidence_tests": [
+            "test/verse/MemeverseLauncherLifecycle.t.sol",
+            "test/verse/MemeverseLauncherAssetFlowInvariant.t.sol",
+            "test/swap/MemeverseSwapRouter.t.sol",
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
+          ],
+          "id": "unlock-protection-safety",
+          "paths": [
+            "src/verse/MemeverseLauncher.sol",
+            "src/verse/interfaces/IMemeverseLauncher.sol",
+            "src/swap/MemeverseSwapRouter.sol",
+            "src/swap/interfaces/IMemeverseSwapRouter.sol",
+            "src/swap/MemeverseUniswapHook.sol",
+            "src/swap/interfaces/IMemeverseUniswapHook.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/verse/libraries/InitialPriceCalculator.t.sol"
+          ],
+          "evidence_tests": [
+            "test/verse/libraries/InitialPriceCalculator.t.sol"
+          ],
+          "id": "launcher-price-math",
+          "paths": [
+            "src/verse/libraries/InitialPriceCalculator.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/verse/registration/MemeverseRegistrarAtLocal.t.sol",
+            "test/verse/registration/MemeverseRegistrarOmnichain.t.sol",
+            "test/verse/registration/MemeverseRegistrationCenter.t.sol"
+          ],
+          "evidence_tests": [
+            "test/verse/registration/MemeverseRegistrarAtLocal.t.sol",
+            "test/verse/registration/MemeverseRegistrarOmnichain.t.sol",
+            "test/verse/registration/MemeverseRegistrationCenter.t.sol",
+            "test/verse/MemeverseLauncherRegistration.t.sol"
+          ],
+          "id": "verse-registration-core",
+          "paths": [
+            "src/verse/registration/MemeverseRegistrarAbstract.sol",
+            "src/verse/registration/MemeverseRegistrarAtLocal.sol",
+            "src/verse/registration/MemeverseRegistrarOmnichain.sol",
+            "src/verse/registration/MemeverseRegistrationCenter.sol",
+            "src/verse/interfaces/IMemeverseRegistrar.sol",
+            "src/verse/interfaces/IMemeverseRegistrarAtLocal.sol",
+            "src/verse/interfaces/IMemeverseRegistrarOmnichain.sol",
+            "src/verse/interfaces/IMemeverseRegistrationCenter.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/verse/YieldDispatcher.t.sol",
+            "test/verse/deployment/MemeverseProxyDeployer.t.sol"
+          ],
+          "evidence_tests": [
+            "test/verse/YieldDispatcher.t.sol",
+            "test/verse/deployment/MemeverseProxyDeployer.t.sol",
+            "test/verse/MemeverseLauncherLifecycle.t.sol"
+          ],
+          "id": "verse-dispatch-and-deployment",
+          "paths": [
+            "src/verse/YieldDispatcher.sol",
+            "src/verse/interfaces/IYieldDispatcher.sol",
+            "src/verse/deployment/MemeverseProxyDeployer.sol",
+            "src/verse/interfaces/IMemeverseProxyDeployer.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/governance/GovernanceCycleIncentivizerUpgradeable.t.sol",
+            "test/governance/MemecoinDaoGovernorUpgradeable.t.sol"
+          ],
+          "evidence_tests": [
+            "test/governance/GovernanceCycleIncentivizerUpgradeable.t.sol",
+            "test/governance/MemecoinDaoGovernorUpgradeable.t.sol"
+          ],
+          "id": "governance-core",
+          "paths": [
+            "src/governance/GovernanceCycleIncentivizerUpgradeable.sol",
+            "src/governance/MemecoinDaoGovernorUpgradeable.sol",
+            "src/governance/interfaces/IGovernanceCycleIncentivizer.sol",
+            "src/governance/interfaces/IMemecoinDaoGovernor.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/interoperation/MemeverseOmnichainInteroperation.t.sol",
+            "test/interoperation/OmnichainMemecoinStaker.t.sol"
+          ],
+          "evidence_tests": [
+            "test/interoperation/MemeverseOmnichainInteroperation.t.sol",
+            "test/interoperation/OmnichainMemecoinStaker.t.sol"
+          ],
+          "id": "interoperation-core",
+          "paths": [
+            "src/interoperation/MemeverseOmnichainInteroperation.sol",
+            "src/interoperation/OmnichainMemecoinStaker.sol",
+            "src/interoperation/interfaces/IMemeverseOmnichainInteroperation.sol",
+            "src/interoperation/interfaces/IOmnichainMemecoinStaker.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/token/Memecoin.t.sol",
+            "test/token/MemePol.t.sol"
+          ],
+          "evidence_tests": [
+            "test/token/Memecoin.t.sol",
+            "test/token/MemePol.t.sol"
+          ],
+          "id": "token-core",
+          "paths": [
+            "src/token/Memecoin.sol",
+            "src/token/MemePol.sol",
+            "src/token/interfaces/IMemecoin.sol",
+            "src/token/interfaces/IPol.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/yield/MemecoinYieldVault.t.sol",
+            "test/yield/libraries/OutrunSafeERC20.t.sol"
+          ],
+          "evidence_tests": [
+            "test/yield/MemecoinYieldVault.t.sol",
+            "test/yield/libraries/OutrunSafeERC20.t.sol"
+          ],
+          "id": "yield-core",
+          "paths": [
+            "src/yield/MemecoinYieldVault.sol",
+            "src/yield/interfaces/IMemecoinYieldVault.sol",
+            "src/yield/libraries/OutrunSafeERC20.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/polend/POLend.t.sol",
+            "test/verse/MemeverseLauncherPOLendIntegration.t.sol"
+          ],
+          "evidence_tests": [
+            "test/polend/POLend.t.sol",
+            "test/verse/MemeverseLauncherPOLendIntegration.t.sol",
+            "test/verse/MemeverseLauncherPOLendSettlementInvariant.t.sol"
+          ],
+          "id": "polend-core",
+          "paths": [
+            "src/polend/POLend.sol",
+            "src/polend/interfaces/IPOLend.sol",
+            "src/polend/interfaces/IUniversalAssets.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/polend/POLSplitter.t.sol",
+            "test/verse/MemeverseLauncherPOLendIntegration.t.sol"
+          ],
+          "evidence_tests": [
+            "test/polend/POLSplitter.t.sol",
+            "test/verse/MemeverseLauncherPOLendIntegration.t.sol",
+            "test/verse/MemeverseLauncherPOLendSettlementInvariant.t.sol"
+          ],
+          "id": "polsplitter-core",
+          "paths": [
+            "src/polend/POLSplitter.sol",
+            "src/polend/interfaces/IPOLSplitter.sol",
+            "src/polend/tokens/SplitterToken.sol",
+            "src/polend/tokens/PrincipalToken.sol",
+            "src/polend/tokens/YieldToken.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/common/omnichain/LzEndpointRegistry.t.sol"
+          ],
+          "evidence_tests": [
+            "test/common/omnichain/LzEndpointRegistry.t.sol"
+          ],
+          "id": "common-lz-endpoint-registry",
+          "paths": [
+            "src/common/omnichain/LzEndpointRegistry.sol",
+            "src/common/omnichain/interfaces/ILzEndpointRegistry.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/common/token/OutrunERC20Init.t.sol",
+            "test/common/token/OutrunERC20PermitInit.t.sol",
+            "test/common/token/OutrunNoncesInit.t.sol"
+          ],
+          "evidence_tests": [
+            "test/common/token/OutrunERC20Init.t.sol",
+            "test/common/token/OutrunERC20PermitInit.t.sol",
+            "test/common/token/OutrunNoncesInit.t.sol"
+          ],
+          "id": "common-token-init",
+          "paths": [
+            "src/common/access/Initializable.sol",
+            "src/common/token/OutrunERC20Init.sol",
+            "src/common/token/OutrunERC20PermitInit.sol",
+            "src/common/token/OutrunNoncesInit.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/common/omnichain/oapp/OutrunOAppCoreInit.t.sol",
+            "test/common/omnichain/oapp/OutrunOAppOptionsType3Init.t.sol",
+            "test/common/omnichain/oapp/OutrunOAppReceiverInit.t.sol",
+            "test/common/omnichain/oapp/OutrunOAppSenderInit.t.sol"
+          ],
+          "evidence_tests": [
+            "test/common/omnichain/oapp/OutrunOAppCoreInit.t.sol",
+            "test/common/omnichain/oapp/OutrunOAppOptionsType3Init.t.sol",
+            "test/common/omnichain/oapp/OutrunOAppReceiverInit.t.sol",
+            "test/common/omnichain/oapp/OutrunOAppSenderInit.t.sol"
+          ],
+          "id": "common-oapp-init",
+          "paths": [
+            "src/common/access/OutrunOwnableInit.sol",
+            "src/common/omnichain/oapp/OutrunOAppCoreInit.sol",
+            "src/common/omnichain/oapp/OutrunOAppInit.sol",
+            "src/common/omnichain/oapp/OutrunOAppOptionsType3Init.sol",
+            "src/common/omnichain/oapp/OutrunOAppReceiverInit.sol",
+            "src/common/omnichain/oapp/OutrunOAppSenderInit.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/common/omnichain/oft/OutrunOFTInit.t.sol"
+          ],
+          "evidence_tests": [
+            "test/common/omnichain/oft/OutrunOFTInit.t.sol",
+            "test/verse/YieldDispatcher.t.sol",
+            "test/interoperation/OmnichainMemecoinStaker.t.sol"
+          ],
+          "id": "common-oft-init",
+          "paths": [
+            "src/common/omnichain/oft/IOFTCompose.sol",
+            "src/common/omnichain/oft/OutrunOFTCoreInit.sol",
+            "src/common/omnichain/oft/OutrunOFTInit.sol",
+            "src/common/types/IMemeverseOFTEnum.sol"
+          ]
+        },
+        {
+          "change_tests": [
+            "test/common/token/extensions/governance/OutrunERC20VotesInit.t.sol"
+          ],
+          "evidence_tests": [
+            "test/common/token/extensions/governance/OutrunERC20VotesInit.t.sol"
+          ],
+          "id": "common-token-governance-init",
+          "paths": [
+            "src/common/cryptography/OutrunEIP712Init.sol",
+            "src/common/token/extensions/governance/OutrunERC20VotesInit.sol",
+            "src/common/token/extensions/governance/OutrunVotesInit.sol"
+          ]
+        }
       ]
     }
-  ],
-  "security_test_writer_trigger": {
-    "risk_tiers": ["high-risk"],
-    "reviewer_finding_severity_to_activate": "critical"
   },
-  "remediation_policy": {
-    "max_cycles": 5,
-    "conflict_priority": ["security-reviewer", "gas-reviewer", "logic-reviewer"],
-    "escalation": "user"
+  "testing_gaps": {
+    "memeverse": [
+      {
+        "enforcement": "residual-risk",
+        "id": "common-foundations",
+        "paths": [
+          "src/common/access/ReentrancyGuard.sol",
+          "src/common/interfaces/IBurnable.sol",
+          "src/common/omnichain/oapp/OutrunOAppPreCrimeSimulatorInit.sol",
+          "src/common/token/TokenHelper.sol"
+        ],
+        "status": "partial-targeted-rule"
+      },
+      {
+        "enforcement": "full-review",
+        "id": "unlock-protection-dedicated-tests",
+        "paths": [
+          "src/verse/MemeverseLauncher.sol",
+          "src/swap/MemeverseSwapRouter.sol",
+          "src/swap/MemeverseUniswapHook.sol"
+        ],
+        "status": "missing-dedicated-rule-tests"
+      }
+    ]
   },
   "verification_profiles": {
+    "ci": {
+      "required_commands": [
+        "fmt_changed_solidity",
+        "lint_changed_solidity",
+        "forge_build",
+        "forge_test_full",
+        "coverage_when_required",
+        "slither_when_required",
+        "bash_syntax_changed_shell",
+        "node_syntax_changed_js",
+        "npm_ci_when_package_changes"
+      ]
+    },
     "fast": {
       "required_commands": [
         "fmt_changed_solidity",
@@ -129,525 +829,17 @@
         "node_syntax_changed_js",
         "npm_ci_when_package_changes"
       ]
-    },
-    "ci": {
-      "required_commands": [
-        "fmt_changed_solidity",
-        "lint_changed_solidity",
-        "forge_build",
-        "forge_test_full",
-        "coverage_when_required",
-        "slither_when_required",
-        "bash_syntax_changed_shell",
-        "node_syntax_changed_js",
-        "npm_ci_when_package_changes"
-      ]
     }
   },
-  "spec_readiness_gate": {
-    "trigger_risk_tiers": ["prod-semantic", "high-risk"],
-    "doc_exclusions": ["^docs/superpowers/"],
-    "gate_action": "block",
-    "required_reviewer": "spec-reviewer",
-    "cross_cutting_trigger_threshold": 2,
-    "cross_cutting_docs": [
-      "docs/ARCHITECTURE.md",
-      "docs/spec/access-control.md",
-      "docs/spec/upgradeability.md",
-      "docs/operations.md",
-      "docs/spec/protocol.md",
-      "docs/implementation-map.md",
-      "docs/GLOSSARY.md"
-    ],
-    "doc_mapping": {
-      "memeverse": {
-        "rules": [
-          {
-            "id": "swap-router-core",
-            "check_docs": [
-              "docs/spec/swap/swap-flow.md",
-              "docs/spec/swap/swap-integration.md",
-              "docs/spec/swap/uniswap-v4.md",
-              "docs/spec/swap/permit2.md"
-            ]
-          },
-          {
-            "id": "swap-hook-liquidity",
-            "check_docs": [
-              "docs/spec/swap/swap-flow.md",
-              "docs/spec/swap/swap-integration.md",
-              "docs/spec/swap/uniswap-v4.md",
-              "docs/spec/invariants.md"
-            ]
-          },
-          {
-            "id": "swap-liquidity-math",
-            "check_docs": [
-              "docs/spec/swap/swap-flow.md",
-              "docs/spec/swap/swap-integration.md",
-              "docs/spec/invariants.md"
-            ]
-          },
-          {
-            "id": "launcher-core",
-            "check_docs": [
-              "docs/spec/verse/lifecycle-details.md",
-              "docs/spec/verse/state-machines.md",
-              "docs/spec/verse/config-matrix.md",
-              "docs/spec/verse/deployment.md",
-              "docs/spec/verse/accounting.md",
-              "docs/spec/invariants.md",
-              "docs/spec/swap/uniswap-v4.md"
-            ]
-          },
-          {
-            "id": "unlock-protection-safety",
-            "check_docs": [
-              "docs/spec/invariants.md"
-            ]
-          },
-          {
-            "id": "launcher-price-math",
-            "check_docs": [
-              "docs/spec/verse/lifecycle-details.md",
-              "docs/spec/verse/state-machines.md"
-            ]
-          },
-          {
-            "id": "verse-registration-core",
-            "check_docs": [
-              "docs/spec/verse/registration-details.md",
-              "docs/spec/verse/config-matrix.md"
-            ]
-          },
-          {
-            "id": "verse-dispatch-and-deployment",
-            "check_docs": [
-              "docs/spec/verse/deployment.md"
-            ]
-          },
-          {
-            "id": "governance-core",
-            "check_docs": [
-              "docs/spec/governance/governance-yield-details.md",
-              "docs/spec/events.md"
-            ]
-          },
-          {
-            "id": "interoperation-core",
-            "check_docs": [
-              "docs/spec/interoperation/interoperation-details.md",
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/events.md"
-            ]
-          },
-          {
-            "id": "token-core",
-            "check_docs": [
-              "docs/spec/verse/accounting.md",
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/events.md"
-            ]
-          },
-          {
-            "id": "yield-core",
-            "check_docs": [
-              "docs/spec/governance/governance-yield-details.md",
-              "docs/spec/interoperation/interoperation-details.md",
-              "docs/spec/events.md"
-            ]
-          },
-          {
-            "id": "common-lz-endpoint-registry",
-            "check_docs": [
-              "docs/spec/interoperation/layerzero-oapp-oft.md"
-            ]
-          },
-          {
-            "id": "common-token-init",
-            "check_docs": [
-              "docs/spec/common/common-foundations.md"
-            ]
-          },
-          {
-            "id": "common-oapp-init",
-            "check_docs": [
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/common/common-foundations.md"
-            ]
-          },
-          {
-            "id": "common-oft-init",
-            "check_docs": [
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/common/common-foundations.md"
-            ]
-          },
-          {
-            "id": "common-token-governance-init",
-            "check_docs": []
-          },
-          {
-            "id": "common-foundations",
-            "check_docs": [
-              "docs/spec/common/common-foundations.md"
-            ]
-          },
-          {
-            "id": "unlock-protection-dedicated-tests",
-            "check_docs": [
-              "docs/spec/invariants.md"
-            ]
-          }
-        ]
-      }
-    }
+  "version": 1,
+  "write_roles": {
+    "harness_control": "process-implementer",
+    "solidity_prod": "solidity-implementer",
+    "solidity_test": "solidity-implementer"
   },
-  "hard_blocks": [
-    {
-      "id": "mixed-harness-control-and-solidity",
-      "message": "harness_control changes must not be mixed with Solidity surfaces",
-      "mixed_surface_sets": [
-        [
-          "harness_control",
-          "solidity_prod"
-        ],
-        [
-          "harness_control",
-          "solidity_test"
-        ]
-      ]
-    }
-  ],
-  "testing_gaps": {
-    "memeverse": [
-      {
-        "id": "common-foundations",
-        "paths": [
-          "src/common/access/ReentrancyGuard.sol",
-          "src/common/interfaces/IBurnable.sol",
-          "src/common/omnichain/oapp/OutrunOAppPreCrimeSimulatorInit.sol",
-          "src/common/token/TokenHelper.sol"
-        ],
-        "status": "partial-targeted-rule",
-        "enforcement": "residual-risk"
-      },
-      {
-        "id": "unlock-protection-dedicated-tests",
-        "paths": [
-          "src/verse/MemeverseLauncher.sol",
-          "src/swap/MemeverseSwapRouter.sol",
-          "src/swap/MemeverseUniswapHook.sol"
-        ],
-        "status": "missing-dedicated-rule-tests",
-        "enforcement": "risk-upgrade"
-      }
-    ]
-  },
-  "test_mapping": {
-    "memeverse": {
-      "rules": [
-        {
-          "id": "swap-router-core",
-          "paths": [
-            "src/swap/MemeverseSwapRouter.sol",
-            "src/swap/interfaces/IMemeverseSwapRouter.sol"
-          ],
-          "change_tests": [
-            "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseSwapRouterPermit2.t.sol",
-            "test/swap/MemeverseSwapRouterInterface.t.sol"
-          ],
-          "evidence_tests": [
-            "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseSwapRouterPermit2.t.sol",
-            "test/swap/MemeverseSwapRouterInterface.t.sol"
-          ]
-        },
-        {
-          "id": "swap-hook-liquidity",
-          "paths": [
-            "src/swap/libraries/MemeverseHookLib.sol",
-            "src/swap/MemeverseUniswapHook.sol",
-            "src/swap/libraries/LiquidityQuote.sol",
-            "src/swap/tokens/UniswapLP.sol",
-            "src/swap/interfaces/IMemeverseUniswapHook.sol"
-          ],
-          "change_tests": [
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
-          ],
-          "evidence_tests": [
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol",
-            "test/swap/MemeverseSwapRouter.t.sol"
-          ]
-        },
-        {
-          "id": "swap-liquidity-math",
-          "paths": [
-            "src/swap/libraries/LiquidityAmounts.sol"
-          ],
-          "change_tests": [
-            "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseSwapRouterPermit2.t.sol",
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
-          ],
-          "evidence_tests": [
-            "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseSwapRouterPermit2.t.sol",
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol",
-            "test/swap/MemeverseDynamicFeeSimulation.t.sol"
-          ]
-        },
-        {
-          "id": "launcher-core",
-          "paths": [
-            "src/verse/MemeverseLauncher.sol",
-            "src/verse/interfaces/IMemeverseLauncher.sol"
-          ],
-          "change_tests": [
-            "test/verse/MemeverseLauncherLifecycle.t.sol",
-            "test/verse/MemeverseLauncherConfig.t.sol",
-            "test/verse/MemeverseLauncherRegistration.t.sol",
-            "test/verse/MemeverseLauncherViews.t.sol"
-          ],
-          "evidence_tests": [
-            "test/verse/MemeverseLauncherLifecycle.t.sol",
-            "test/verse/MemeverseLauncherConfig.t.sol",
-            "test/verse/MemeverseLauncherRegistration.t.sol",
-            "test/verse/MemeverseLauncherViews.t.sol"
-          ]
-        },
-        {
-          "id": "unlock-protection-safety",
-          "paths": [
-            "src/verse/MemeverseLauncher.sol",
-            "src/verse/interfaces/IMemeverseLauncher.sol",
-            "src/swap/MemeverseSwapRouter.sol",
-            "src/swap/interfaces/IMemeverseSwapRouter.sol",
-            "src/swap/MemeverseUniswapHook.sol",
-            "src/swap/interfaces/IMemeverseUniswapHook.sol"
-          ],
-          "change_tests": [
-            "test/verse/MemeverseLauncherLifecycle.t.sol",
-            "test/verse/MemeverseLauncherAssetFlowInvariant.t.sol",
-            "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
-          ],
-          "evidence_tests": [
-            "test/verse/MemeverseLauncherLifecycle.t.sol",
-            "test/verse/MemeverseLauncherAssetFlowInvariant.t.sol",
-            "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
-          ]
-        },
-        {
-          "id": "launcher-price-math",
-          "paths": [
-            "src/verse/libraries/InitialPriceCalculator.sol"
-          ],
-          "change_tests": [
-            "test/verse/libraries/InitialPriceCalculator.t.sol"
-          ],
-          "evidence_tests": [
-            "test/verse/libraries/InitialPriceCalculator.t.sol"
-          ]
-        },
-        {
-          "id": "verse-registration-core",
-          "paths": [
-            "src/verse/registration/MemeverseRegistrarAbstract.sol",
-            "src/verse/registration/MemeverseRegistrarAtLocal.sol",
-            "src/verse/registration/MemeverseRegistrarOmnichain.sol",
-            "src/verse/registration/MemeverseRegistrationCenter.sol",
-            "src/verse/interfaces/IMemeverseRegistrar.sol",
-            "src/verse/interfaces/IMemeverseRegistrarAtLocal.sol",
-            "src/verse/interfaces/IMemeverseRegistrarOmnichain.sol",
-            "src/verse/interfaces/IMemeverseRegistrationCenter.sol"
-          ],
-          "change_tests": [
-            "test/verse/registration/MemeverseRegistrarAtLocal.t.sol",
-            "test/verse/registration/MemeverseRegistrarOmnichain.t.sol",
-            "test/verse/registration/MemeverseRegistrationCenter.t.sol"
-          ],
-          "evidence_tests": [
-            "test/verse/registration/MemeverseRegistrarAtLocal.t.sol",
-            "test/verse/registration/MemeverseRegistrarOmnichain.t.sol",
-            "test/verse/registration/MemeverseRegistrationCenter.t.sol",
-            "test/verse/MemeverseLauncherRegistration.t.sol"
-          ]
-        },
-        {
-          "id": "verse-dispatch-and-deployment",
-          "paths": [
-            "src/verse/YieldDispatcher.sol",
-            "src/verse/interfaces/IYieldDispatcher.sol",
-            "src/verse/deployment/MemeverseProxyDeployer.sol",
-            "src/verse/interfaces/IMemeverseProxyDeployer.sol"
-          ],
-          "change_tests": [
-            "test/verse/YieldDispatcher.t.sol",
-            "test/verse/deployment/MemeverseProxyDeployer.t.sol"
-          ],
-          "evidence_tests": [
-            "test/verse/YieldDispatcher.t.sol",
-            "test/verse/deployment/MemeverseProxyDeployer.t.sol",
-            "test/verse/MemeverseLauncherLifecycle.t.sol"
-          ]
-        },
-        {
-          "id": "governance-core",
-          "paths": [
-            "src/governance/GovernanceCycleIncentivizerUpgradeable.sol",
-            "src/governance/MemecoinDaoGovernorUpgradeable.sol",
-            "src/governance/interfaces/IGovernanceCycleIncentivizer.sol",
-            "src/governance/interfaces/IMemecoinDaoGovernor.sol"
-          ],
-          "change_tests": [
-            "test/governance/GovernanceCycleIncentivizerUpgradeable.t.sol",
-            "test/governance/MemecoinDaoGovernorUpgradeable.t.sol"
-          ],
-          "evidence_tests": [
-            "test/governance/GovernanceCycleIncentivizerUpgradeable.t.sol",
-            "test/governance/MemecoinDaoGovernorUpgradeable.t.sol"
-          ]
-        },
-        {
-          "id": "interoperation-core",
-          "paths": [
-            "src/interoperation/MemeverseOmnichainInteroperation.sol",
-            "src/interoperation/OmnichainMemecoinStaker.sol",
-            "src/interoperation/interfaces/IMemeverseOmnichainInteroperation.sol",
-            "src/interoperation/interfaces/IOmnichainMemecoinStaker.sol"
-          ],
-          "change_tests": [
-            "test/interoperation/MemeverseOmnichainInteroperation.t.sol",
-            "test/interoperation/OmnichainMemecoinStaker.t.sol"
-          ],
-          "evidence_tests": [
-            "test/interoperation/MemeverseOmnichainInteroperation.t.sol",
-            "test/interoperation/OmnichainMemecoinStaker.t.sol"
-          ]
-        },
-        {
-          "id": "token-core",
-          "paths": [
-            "src/token/Memecoin.sol",
-            "src/token/MemePol.sol",
-            "src/token/interfaces/IMemecoin.sol",
-            "src/token/interfaces/IPol.sol"
-          ],
-          "change_tests": [
-            "test/token/Memecoin.t.sol",
-            "test/token/MemePol.t.sol"
-          ],
-          "evidence_tests": [
-            "test/token/Memecoin.t.sol",
-            "test/token/MemePol.t.sol"
-          ]
-        },
-        {
-          "id": "yield-core",
-          "paths": [
-            "src/yield/MemecoinYieldVault.sol",
-            "src/yield/interfaces/IMemecoinYieldVault.sol",
-            "src/yield/libraries/OutrunSafeERC20.sol"
-          ],
-          "change_tests": [
-            "test/yield/MemecoinYieldVault.t.sol",
-            "test/yield/libraries/OutrunSafeERC20.t.sol"
-          ],
-          "evidence_tests": [
-            "test/yield/MemecoinYieldVault.t.sol",
-            "test/yield/libraries/OutrunSafeERC20.t.sol"
-          ]
-        },
-        {
-          "id": "common-lz-endpoint-registry",
-          "paths": [
-            "src/common/omnichain/LzEndpointRegistry.sol",
-            "src/common/omnichain/interfaces/ILzEndpointRegistry.sol"
-          ],
-          "change_tests": [
-            "test/common/omnichain/LzEndpointRegistry.t.sol"
-          ],
-          "evidence_tests": [
-            "test/common/omnichain/LzEndpointRegistry.t.sol"
-          ]
-        },
-        {
-          "id": "common-token-init",
-          "paths": [
-            "src/common/access/Initializable.sol",
-            "src/common/token/OutrunERC20Init.sol",
-            "src/common/token/OutrunERC20PermitInit.sol",
-            "src/common/token/OutrunNoncesInit.sol"
-          ],
-          "change_tests": [
-            "test/common/token/OutrunERC20Init.t.sol",
-            "test/common/token/OutrunERC20PermitInit.t.sol",
-            "test/common/token/OutrunNoncesInit.t.sol"
-          ],
-          "evidence_tests": [
-            "test/common/token/OutrunERC20Init.t.sol",
-            "test/common/token/OutrunERC20PermitInit.t.sol",
-            "test/common/token/OutrunNoncesInit.t.sol"
-          ]
-        },
-        {
-          "id": "common-oapp-init",
-          "paths": [
-            "src/common/access/OutrunOwnableInit.sol",
-            "src/common/omnichain/oapp/OutrunOAppCoreInit.sol",
-            "src/common/omnichain/oapp/OutrunOAppInit.sol",
-            "src/common/omnichain/oapp/OutrunOAppOptionsType3Init.sol",
-            "src/common/omnichain/oapp/OutrunOAppReceiverInit.sol",
-            "src/common/omnichain/oapp/OutrunOAppSenderInit.sol"
-          ],
-          "change_tests": [
-            "test/common/omnichain/oapp/OutrunOAppCoreInit.t.sol",
-            "test/common/omnichain/oapp/OutrunOAppOptionsType3Init.t.sol",
-            "test/common/omnichain/oapp/OutrunOAppReceiverInit.t.sol",
-            "test/common/omnichain/oapp/OutrunOAppSenderInit.t.sol"
-          ],
-          "evidence_tests": [
-            "test/common/omnichain/oapp/OutrunOAppCoreInit.t.sol",
-            "test/common/omnichain/oapp/OutrunOAppOptionsType3Init.t.sol",
-            "test/common/omnichain/oapp/OutrunOAppReceiverInit.t.sol",
-            "test/common/omnichain/oapp/OutrunOAppSenderInit.t.sol"
-          ]
-        },
-        {
-          "id": "common-oft-init",
-          "paths": [
-            "src/common/omnichain/oft/IOFTCompose.sol",
-            "src/common/omnichain/oft/OutrunOFTCoreInit.sol",
-            "src/common/omnichain/oft/OutrunOFTInit.sol",
-            "src/common/types/IMemeverseOFTEnum.sol"
-          ],
-          "change_tests": [
-            "test/common/omnichain/oft/OutrunOFTInit.t.sol"
-          ],
-          "evidence_tests": [
-            "test/common/omnichain/oft/OutrunOFTInit.t.sol",
-            "test/verse/YieldDispatcher.t.sol",
-            "test/interoperation/OmnichainMemecoinStaker.t.sol"
-          ]
-        },
-        {
-          "id": "common-token-governance-init",
-          "paths": [
-            "src/common/cryptography/OutrunEIP712Init.sol",
-            "src/common/token/extensions/governance/OutrunERC20VotesInit.sol",
-            "src/common/token/extensions/governance/OutrunVotesInit.sol"
-          ],
-          "change_tests": [
-            "test/common/token/extensions/governance/OutrunERC20VotesInit.t.sol"
-          ],
-          "evidence_tests": [
-            "test/common/token/extensions/governance/OutrunERC20VotesInit.t.sol"
-          ]
-        }
-      ]
-    }
+  "writer_conflict_policy": {
+    "mixed_docs_and_solidity": "docs are harness_control; apply mixed_solidity_and_harness_control. Preserve spec-readiness ordering, and require full-review minimum if production Solidity semantic changes remain bundled with docs.",
+    "mixed_solidity_and_harness_control": "either split into separately classified units before editing or keep the task combined and require full-review minimum",
+    "mixed_spec_and_code": "run spec/document workflow first, then classify code changes separately"
   }
 }
