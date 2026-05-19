@@ -179,6 +179,76 @@ list_worktree_changed_files() {
     } | awk '{ sub(/\r$/, ""); if ($0 != "") print $0 }' | awk '!seen[$0]++'
 }
 
+collect_spec_readiness_diff_scope_paths() {
+    if [ -n "${GATE_DIFF_BASE:-}" ]; then
+        git diff --name-status "${GATE_DIFF_BASE}" "${GATE_DIFF_HEAD:-HEAD}" || return 1
+        return 0
+    fi
+
+    {
+        git diff --name-status || return 1
+        git diff --cached --name-status || return 1
+    } | awk 'NF'
+}
+
+retained_paths_from_name_status() {
+    NAME_STATUS_OUTPUT="${1-}" node <<'EOF'
+const lines = (process.env.NAME_STATUS_OUTPUT || '').split(/\r?\n/).filter(Boolean);
+const retained = new Set();
+
+for (const line of lines) {
+  const parts = line.split('\t');
+  const status = parts[0] || '';
+  if (!status) continue;
+
+  const code = status[0];
+  if (code === 'D') continue;
+
+  let path = '';
+  if (code === 'R' || code === 'C') {
+    path = parts[2] || '';
+  } else {
+    path = parts[1] || '';
+  }
+
+  if (path) retained.add(path);
+}
+
+for (const path of retained) {
+  process.stdout.write(`${path}\n`);
+}
+EOF
+}
+
+required_docs_present_in_spec_diff_scope() {
+    local required_docs_json="$1"
+    [ "$(jq 'length' <<<"$required_docs_json")" -gt 0 ] || return 1
+
+    local diff_scope_output
+    diff_scope_output="$(collect_spec_readiness_diff_scope_paths)" || return 1
+
+    if [ -n "${GATE_DIFF_BASE:-}" ]; then
+        local retained_paths
+        retained_paths="$(retained_paths_from_name_status "$diff_scope_output")" || return 1
+        REQUIRED_DOCS_JSON="$required_docs_json" DIFF_SCOPE_OUTPUT="$retained_paths" node <<'EOF'
+const requiredDocs = JSON.parse(process.env.REQUIRED_DOCS_JSON || '[]');
+const paths = new Set((process.env.DIFF_SCOPE_OUTPUT || '').split(/\r?\n/).filter(Boolean));
+const missing = requiredDocs.filter((doc) => !paths.has(doc));
+process.exit(missing.length === 0 ? 0 : 1);
+EOF
+        return $?
+    fi
+
+    local retained_paths
+    retained_paths="$(retained_paths_from_name_status "$diff_scope_output")" || return 1
+    REQUIRED_DOCS_JSON="$required_docs_json" DIFF_SCOPE_OUTPUT="$retained_paths" node <<'EOF'
+const requiredDocs = JSON.parse(process.env.REQUIRED_DOCS_JSON || '[]');
+const paths = new Set((process.env.DIFF_SCOPE_OUTPUT || '').split(/\r?\n/).filter(Boolean));
+const missing = requiredDocs.filter((doc) => !paths.has(doc));
+process.exit(missing.length === 0 ? 0 : 1);
+EOF
+}
+
 append_finding() {
     local target_name="$1"
     local source_role="$2"
@@ -1224,10 +1294,28 @@ if [ "$change_class" = "prod-semantic" ]; then
     spec_readiness_required_docs_json="$(jq -c '.required_docs' <<<"$spec_readiness_data_json")"
     spec_readiness_writer_roles_json="$(jq -c '.writer_roles' <<<"$spec_readiness_data_json")"
     spec_readiness_review_roles_json="$(jq -c '.review_roles' <<<"$spec_readiness_data_json")"
+    spec_readiness_satisfied_by_diff_scope=false
+    code_only_spec_readiness_candidate=false
+    if array_contains "solidity_prod" "${selected_surfaces[@]}" && ! array_contains "harness_control" "${selected_surfaces[@]}"; then
+        code_only_spec_readiness_candidate=true
+        for selected_surface in "${selected_surfaces[@]}"; do
+            case "$selected_surface" in
+                solidity_prod|solidity_test) ;;
+                *) code_only_spec_readiness_candidate=false ;;
+            esac
+        done
+    fi
+    if [ "$code_only_spec_readiness_candidate" = true ] \
+        && [ "$(jq 'length' <<<"$spec_readiness_required_docs_json")" -gt 0 ] \
+        && required_docs_present_in_spec_diff_scope "$spec_readiness_required_docs_json"; then
+        spec_readiness_satisfied_by_diff_scope=true
+        append_unique orchestration_reasons "spec-readiness-satisfied-by-diff-scope"
+    fi
     if [ "$(jq 'length' <<<"$spec_readiness_triggers_json")" -gt 0 ]; then
         append_unique orchestration_reasons "spec-readiness-doc-update"
         requires_human_confirmation=true
-        if [ "$(jq -r '.spec_readiness_gate.gate_action // "block"' "$policy_file")" = "block" ]; then
+        if [ "$(jq -r '.spec_readiness_gate.gate_action // "block"' "$policy_file")" = "block" ] \
+            && [ "$spec_readiness_satisfied_by_diff_scope" != true ]; then
             spec_readiness_blocked=true
             hard_blocked=1
             append_finding blocking_findings_json \

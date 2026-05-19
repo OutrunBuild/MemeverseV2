@@ -88,6 +88,7 @@ README.md editorial-only direct changes require a Doc Editorial Attestation. REA
 - surface=solidity_prod/test -> route back to `solidity-implementer`
 - surface=harness_control -> route back to `process-implementer`
 - spec readiness gate failure -> route to `process-implementer` for doc update
+- For code-only classification, the `spec-readiness-doc-update` block may be cleared when the mapped required docs are already present in the current diff scope after the spec/document workflow has been handled separately.
 
 ## When Not To Trigger Harness
 
