@@ -1,9 +1,23 @@
 # AGENTS Contract
 
+## Goal
+
+Route repository work through the harness without violating policy, ownership, review, or verification rules.
+
+## Success Criteria
+
+A task is complete only when:
+
+- the intended changed-file set is known, or the task is reported blocked
+- every edited path is classified by `gate.sh --classify-only` before editing
+- every edited path matches `.harness/policy.json`
+- writer, reviewer, and verifier routing follows policy and gate evidence
+- fresh matching `gate.sh` output supports the final verdict
+
 ## Session Entry
 
 - AGENTS.md is the session entry for MemeverseV2.
-- Read order is fixed:
+- Load only the files needed for the current task. When multiple control files are needed, read order is fixed:
   1. AGENTS.md
   2. .harness/policy.json
   3. .harness/runtime/main-session-contract.md
@@ -13,12 +27,13 @@
 
 ## Truth Precedence
 
-1. explicit human instruction
+1. explicit human instruction for task intent and requested scope
 2. .harness/policy.json
 3. script/harness/gate.sh results
 4. AGENTS.md and .harness/runtime/main-session-contract.md
 5. other repository docs
 
+Human instruction does not override safety, filesystem, policy, gate, or verification constraints.
 Do not override policy or gate evidence with natural-language guesses.
 
 ## Main-Session Rules
@@ -31,6 +46,13 @@ Do not override policy or gate evidence with natural-language guesses.
 - Project agent files under .claude/agents/ and .codex/agents/ are execution files. They do not define policy or verdict rules.
 - Do not create a parallel control plane outside policy, gate, and project agent files.
 - Deleting untracked files from the current git working tree requires explicit human confirmation.
+
+## Context Scope
+
+- Use the minimum repository context needed to classify, route, edit, review, and verify the task.
+- Do not read Solidity code for harness/docs-only work unless a policy rule or requested change depends on Solidity surface classification.
+- Do not read `script/harness/gate.sh` when policy, runtime, or verification docs already answer the routing question.
+- If tool output is empty, partial, or suspicious, retry once with a different command before treating it as evidence.
 
 ## Verification Contract
 
@@ -45,22 +67,17 @@ When `.harness/policy.json` exists and the task modifies repository files, follo
 
 ### Mandatory Pre-condition
 
-Run `bash script/harness/gate.sh --classify-only --changed-files <path>` before editing. Do not use stale mental classification.
+After the intended changed-file set is known and before the first edit, run `bash script/harness/gate.sh --classify-only --changed-files <path>` with exact existing paths and intended-created paths. If the changed-file set is not knowable yet, inspect only enough context to identify candidate paths, then classify before editing.
+
+Do not use stale mental classification.
 
 ### Surface Completeness
 
 Every file that will be modified or created must match a surface pattern in policy.json. Unknown paths are blocked until policy is updated.
 
-### Flow
+### Flow Source
 
-1. **Classify** - run `gate.sh --classify-only` with exact changed files and Solidity diff evidence when needed.
-2. **Docs/spec readiness** - if spec docs or spec-readiness updates are required, dispatch `process-implementer`, require `spec-reviewer`, then obtain human confirmation before code implementation.
-3. **Direct** - main session may edit; no writer/reviewer dispatch; run `gate:fast`.
-4. **Direct-review** - main session may edit; dispatch `selected_review_roles`; run `gate:fast` after review.
-5. **Delegated** - dispatch `selected_writer_roles`; dispatch `selected_review_roles` from `delegated_review_rules`; main session runs `gate:fast` after integration.
-6. **Full-review** - dispatch `selected_writer_roles`; dispatch reviewers from `full_review_matrix[change_class]`; main session runs `gate:fast` after integration.
-7. **Full-subagent** - dispatch writer, reviewers, and verifier; verifier runs the selected gate profile and reports output.
-8. **Blocked** - stop before editing.
+Follow the `orchestration_profile`, writer roles, review roles, verifier requirement, and blockers emitted by policy and gate evidence. Use `.harness/runtime/main-session-contract.md` for detailed flow rules.
 
 Production Solidity semantic changes without structural escalation require a Risk Analysis Record before selecting `direct-review`. If analysis is incomplete or uncertain, use at least `full-review`.
 
@@ -83,6 +100,15 @@ README.md editorial-only direct changes require a Doc Editorial Attestation. REA
 - .harness/policy.json is the machine truth for ownership, classification, review routing, verification profiles, and hard blocks.
 - docs/TRACEABILITY.md lists control files and artifact locations.
 - Other repository docs are context only unless policy or gate evidence explicitly points to them.
+
+## Completion Loop
+
+Before final response, check:
+
+- all requested files or items are handled, or marked blocked
+- no edited path is outside the classified surface
+- validation command and result are fresh
+- final answer reports only completed work, validation, and blockers
 
 ## Escalation Boundaries
 

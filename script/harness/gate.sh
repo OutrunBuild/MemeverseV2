@@ -5,18 +5,107 @@ profile="fast"
 changed_files_arg=""
 all_mode=0
 classify_only=0
+quiet=0
+log_level="info"
+output_format="auto"
 
 declare -a cleanup_paths=()
 
 usage() {
     cat >&2 <<'EOF'
-Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>] [--all] [--classify-only]
+Usage: bash ./script/harness/gate.sh [--profile fast|full|ci] [--changed-files <path>] [--all] [--classify-only] [--quiet] [--log-level error|warn|info|debug] [--output text|json]
 EOF
 }
 
 die() {
     echo "[gate] ERROR: $*" >&2
     exit 1
+}
+
+resolved_output_format() {
+    if [ "$output_format" != "auto" ]; then
+        printf '%s' "$output_format"
+        return
+    fi
+
+    if [ "$classify_only" -eq 1 ]; then
+        printf 'json'
+    else
+        printf 'text'
+    fi
+}
+
+emit_gate_summary() {
+    local verdict="$1"
+    local class="$2"
+    local orchestration="$3"
+    local writer="$4"
+
+    printf '[gate] profile=%s verdict=%s change_class=%s orchestration_profile=%s writer=%s\n' \
+        "$profile" "$verdict" "$class" "$orchestration" "$writer"
+}
+
+emit_blocking_findings() {
+    local record_json="$1"
+
+    jq -r '.blocking_findings[]? | "[gate] ERROR: " + (.summary // "blocking finding")' <<<"$record_json"
+}
+
+emit_text_record() {
+    local record_json="$1"
+    local verdict="$2"
+    local class="$3"
+    local orchestration="$4"
+    local writer="$5"
+
+    if [ "$quiet" -eq 1 ] && [ "$verdict" != "fail" ] && [ "$verdict" != "blocked" ]; then
+        return
+    fi
+
+    case "$log_level" in
+        debug)
+            emit_gate_summary "$verdict" "$class" "$orchestration" "$writer"
+            printf '%s\n' "$record_json"
+            ;;
+        info)
+            emit_gate_summary "$verdict" "$class" "$orchestration" "$writer"
+            if [ "$verdict" = "fail" ] || [ "$verdict" = "blocked" ]; then
+                emit_blocking_findings "$record_json"
+            fi
+            ;;
+        warn|error)
+            if [ "$verdict" = "fail" ] || [ "$verdict" = "blocked" ]; then
+                emit_gate_summary "$verdict" "$class" "$orchestration" "$writer"
+                emit_blocking_findings "$record_json"
+            fi
+            ;;
+        *)
+            die "unsupported log level: $log_level"
+            ;;
+    esac
+}
+
+emit_gate_record() {
+    local record_json="$1"
+    local verdict="$2"
+    local class="$3"
+    local orchestration="$4"
+    local writer="$5"
+    local format
+
+    format="$(resolved_output_format)"
+
+    case "$format" in
+        json)
+            printf '%s\n' "$record_json"
+            ;;
+        text)
+            emit_text_record "$record_json" "$verdict" "$class" "$orchestration" "$writer"
+            ;;
+        *)
+            die "unsupported output format: $format"
+            ;;
+    esac
 }
 
 register_cleanup() {
@@ -182,11 +271,41 @@ record_blocked_command() {
 filter_command_output() {
     local output_file="$1"
     local exit_code="$2"
+    local format
+
+    format="$(resolved_output_format)"
+    if [ "$format" = "json" ]; then
+        return
+    fi
 
     if [ "$exit_code" -eq 0 ]; then
-        grep -i -E '(warning|warn |error|✖)' "$output_file" || true
+        if [ "$quiet" -eq 1 ]; then
+            return
+        fi
+        case "$log_level" in
+            debug)
+                cat "$output_file"
+                ;;
+            info|warn)
+                grep -i -E '(warning|warn |error|✖)' "$output_file" || true
+                ;;
+            error)
+                grep -i -E '(error|✖)' "$output_file" || true
+                ;;
+        esac
     else
-        grep -i -E '(warning|warn |error|FAIL|failed|✖|Revert|revert)' -C 3 "$output_file" || cat "$output_file"
+        case "$log_level" in
+            debug)
+                cat "$output_file"
+                ;;
+            info|warn|error)
+                if [ "$log_level" = "error" ]; then
+                    grep -i -E '(error|FAIL|failed|✖|Revert|revert)' -C 3 "$output_file" || cat "$output_file"
+                else
+                    grep -i -E '(warning|warn |error|FAIL|failed|✖|Revert|revert)' -C 3 "$output_file" || cat "$output_file"
+                fi
+                ;;
+        esac
     fi
 }
 
@@ -438,6 +557,26 @@ while [ "$#" -gt 0 ]; do
             classify_only=1
             shift
             ;;
+        --quiet)
+            quiet=1
+            shift
+            ;;
+        --log-level)
+            if [ "$#" -lt 2 ]; then
+                usage
+                exit 1
+            fi
+            log_level="$2"
+            shift 2
+            ;;
+        --output)
+            if [ "$#" -lt 2 ]; then
+                usage
+                exit 1
+            fi
+            output_format="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -453,6 +592,20 @@ case "$profile" in
     fast|full|ci) ;;
     *)
         die "--profile must be one of: fast, full, ci"
+        ;;
+esac
+
+case "$log_level" in
+    error|warn|info|debug) ;;
+    *)
+        die "--log-level must be one of: error, warn, info, debug"
+        ;;
+esac
+
+case "$output_format" in
+    auto|text|json) ;;
+    *)
+        die "--output must be one of: text, json"
         ;;
 esac
 
@@ -628,8 +781,44 @@ done
 fi
 
 if [ "${#selected_surfaces[@]}" -eq 0 ]; then
-    echo "[gate] profile=$profile verdict=no-op change_class=no-op orchestration_profile=no-op writer=none"
-    echo "[gate] no changed files matched any surface pattern"
+    changed_files_json="$(json_array_from_values "${changed_files[@]}")"
+    no_op_record_json="$(jq -cn \
+        --arg repo "$(jq -r '.repo' "$policy_file")" \
+        --arg mode "$([ "$classify_only" -eq 1 ] && printf 'classify-only' || printf 'verify')" \
+        --arg profile "$profile" \
+        --argjson changed_files "$changed_files_json" \
+        '{
+          repo: $repo,
+          mode: $mode,
+          profile: $profile,
+          changed_files: $changed_files,
+          surfaces: "none",
+          change_class: "no-op",
+          surface_sensitivity: "none",
+          orchestration_profile: "no-op",
+          verification_profile: $profile,
+          selected_writer_roles: [],
+          writer_role: "none",
+          selected_review_roles: [],
+          selected_review_roles_source: "none",
+          orchestration_reasons: ["change_class=no-op", "surface_sensitivity=none"],
+          spec_readiness_triggers: [],
+          spec_readiness_required_docs: [],
+          spec_readiness_writer_roles: [],
+          spec_readiness_review_roles: [],
+          blocking_findings: [],
+          residual_risks: [],
+          final_verdict: "no-op",
+          summary: "no changed files matched any surface pattern"
+        }'
+    )"
+    if [ -n "${RUN_RECORD_PATH:-}" ]; then
+        printf '%s\n' "$no_op_record_json" >"$RUN_RECORD_PATH"
+    fi
+    emit_gate_record "$no_op_record_json" "no-op" "no-op" "no-op" "none"
+    if [ "$quiet" -eq 0 ] && [ "$(resolved_output_format)" = "text" ] && [ "$log_level" = "info" ]; then
+        echo "[gate] no changed files matched any surface pattern"
+    fi
     exit 0
 fi
 
@@ -1268,7 +1457,7 @@ if [ -n "${RUN_RECORD_PATH:-}" ]; then
 fi
 
 if [ "$classify_only" -eq 1 ]; then
-    printf '%s\n' "$classification_record_json"
+    emit_gate_record "$classification_record_json" "$(jq -r '.final_verdict' <<<"$classification_record_json")" "$change_class" "$orchestration_profile" "$writer_role"
     if [ "$orchestration_profile" = "blocked" ]; then
         exit 1
     fi
@@ -1529,7 +1718,7 @@ if [ -n "${RUN_RECORD_PATH:-}" ]; then
     printf '%s\n' "$final_record_json" >"$RUN_RECORD_PATH"
 fi
 
-echo "[gate] profile=$profile verdict=$final_verdict change_class=$change_class orchestration_profile=$orchestration_profile writer=$writer_role"
+emit_gate_record "$final_record_json" "$final_verdict" "$change_class" "$orchestration_profile" "$writer_role"
 
 case "$final_verdict" in
     pass|no-op)
