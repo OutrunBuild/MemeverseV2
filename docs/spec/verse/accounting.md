@@ -25,7 +25,8 @@
 ### 2.3 Preorder 入账
 
 - preorder 是独立账本，不参与四池部署本金。
-- preorder 容量只基于主池 memecoin 侧资金计算：
+- preorder 入金、退款与结算都以该 verse 的 `uAsset` 记账和支付。
+- preorder 容量以当前 `totalNormalFunds + totalLeveragedDebt` 为基数计算：
 `preorderCap = (totalNormalFunds + totalLeveragedDebt) * 70% * preorderCapRatio / RATIO`
 - `totalLeveragedDebt` 由当前 market 利率和 `totalLeveragedInterest` 推导；无杠杆参与时视为 0。
 - `Refund` 状态下，preorder 用户按 `userPreorderFunds` 一次性退回该 verse 的 `uAsset`。
@@ -115,19 +116,37 @@
   - 取整差额归普通侧
   - 普通侧进入 `normalFeeStates`，用户按 `userGenesisFund / totalNormalFunds` 领取。
   - 杠杆侧最终转换为 `uAsset` 后进入 Memeverse DAO governor 路径，不进入 `POLend.protocolTreasury`。
+- `claimNormalFees` 的普通侧 entitlement 计算也必须使用 full-precision `mulDiv`：
+  - `entitledUAsset = fullPrecisionMulDiv(accUAssetFee, userGenesisFund, totalNormalFunds)`
+  - `entitledPT = fullPrecisionMulDiv(accPTFee, userGenesisFund, totalNormalFunds)`
+  - 目的不是修改分账公式，而是保证 `accUAssetFee` / `accPTFee` 已可表示但中间乘法可能溢出的情况下不会错误 revert。
 - `Unlocked` 后新产生的辅助池非 `POL` fee 全部归 Memeverse DAO governor，普通用户仍可补领历史 `Locked` 阶段普通侧 fee。
-- 若 settled 后普通侧 `claimablePT` 或 governor 路径 `pending auxiliary gov PT fee` 的 `previewPTToUAsset(...) == 0`，该 PT fee 本次不兑现、不标记为已处理，并保留为后续重试状态；同次其它可分发 fee 不受阻断。
+- 普通侧 PT fee 领取分两条路径：
+  - `settled=false`：直接把按份额应得的 `PT` 转给用户，并把该部分 `claimedPTFee` 标记为已领。
+  - `settled=true`：不再转 `PT`，而是先看 `previewPTToUAsset(verseId, ptAmount)`；只有 backing 非零时才调用 `redeemPT` 把对应 `uAsset` 发给用户并标记该部分 `claimedPTFee`。若 backing 为零，则该笔 PT entitlement 保持未领取状态，允许后续重试；同次 `uAsset` fee 领取不受影响。
+- governor 路径的 PT fee 也有同样的 zero-backing 保留语义：`pending auxiliary gov PT fee` 或本次 preview 出来的 gov PT fee 在 `previewPTToUAsset(...) == 0` 时不得视为已处理，而是留在 pending 状态等待后续可兑付时再转换。
 - PT fee 的预兑付、settle 后 redeem、pending auxiliary gov fee 规则以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
 
 ### 5.3 执行者奖励与治理收入
 
-- 对进入 DAO governor 路径的 `uAsset` fee，`executorReward = uAssetFee * executorRewardRate / 10000`。
-- `govFee = uAssetFee - executorReward`。
+- 对主池 `memecoin/uAsset` 的 `uAsset` fee，`executorReward` 必须使用 full-precision `mulDiv` 或等价 overflow-safe 实现计算：`executorReward = fullPrecisionMulDiv(mainPoolUAssetFee, executorRewardRate, 10000)`。
+- `mainPoolGovFee = mainPoolUAssetFee - executorReward`，减法必须保持 checked arithmetic 语义。
 - 执行者奖励直接发给 `rewardReceiver`。
+- `quoteDistributionLzFee` 与 `redeemAndDistributeFees` 必须共享同一套执行者奖励分账算术语义；quote 口径不得因中间乘法溢出而偏离 redeem 实际执行结果。
+- 辅助 governor 路径的 `uAsset` fee 与 `PT` 转换后的 `uAsset` 会在主池分账之后并入 governor treasury 路径，不额外再拆执行者奖励。
 
 ### 5.4 治理链本地/异链分发
 
 - 目标：`quoteDistributionLzFee(verseId)` 返回 Launcher 费用分发所需的 required native fee；本地分发或无跨链要求时返回 `0`。
+- `previewGenesisMakerFees` 与 `quoteDistributionLzFee/redeemAndDistributeFees` 不共享同一 main-pool `uAsset` 净额口径：
+  - `previewGenesisMakerFees` 返回的是 gross main-pool `uAsset` fee，再叠加辅助 governor fee 的 `uAsset` 等价额；这里不会先扣执行者奖励。
+  - `quoteDistributionLzFee` 与 `redeemAndDistributeFees` 对 main-pool `uAsset` fee 会先拆出 `executorReward`，只有剩余的 `govFee` 进入 governor treasury 路径。
+- 三者共享的只是辅助 governor fee 来源范围，而不是同一最终净额：
+  - 已累积在 `pendingAuxiliaryGovFeeStates.pendingUAssetFee` 的辅助池 gov `uAsset` fee
+  - 当前 preview/claim 到的辅助池 gov `uAsset` fee
+  - 辅助池 gov `PT` fee 按当前阶段转换成的 `uAsset`
+    - `Locked`：经 `POLend.preRedeemPTFee(...)`
+    - `Unlocked/settled`：经 `POLSplitter.redeemPT(...)`
 - 若治理链为本链：
   - `govFee(uAsset)` -> `yieldDispatcher` -> `Governor.receiveTreasuryIncome`
   - `memecoinFee` -> `yieldDispatcher` -> `YieldVault.accumulateYields`

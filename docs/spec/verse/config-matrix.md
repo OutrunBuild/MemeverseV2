@@ -16,8 +16,8 @@
 | `MemeverseLauncher` | `lzEndpointRegistry` | `setLzEndpointRegistry` | 非零 | 注册 peer 配置、跨链 endpoint 映射 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseRegistrar` | `setMemeverseRegistrar` | 非零 | 注册入口权限边界 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseProxyDeployer` | `setMemeverseProxyDeployer` | 非零 | per-verse token/vault/governor 部署 | `[代码已证]` |
-| `MemeverseLauncher` | `polend` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | 目标规范：Launcher 保存 `POLend` proxy 地址；注册时同交易内调用 `POLend.registerLendMarket(verseId)`；proxy 实现可按 UUPS `onlyOwner` 升级，地址级迁移不在当前规范内 | 目标规范见 [docs/spec/polend/polend.md](../polend/polend.md) |
-| `MemeverseLauncher` | `polSplitter` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | 目标规范：Launcher 保存 `POLSplitter` proxy 地址；注册前必配，但 `PT/YT` 初始化发生在 `Genesis -> Locked`，不发生在注册阶段；proxy 实现可按 UUPS `onlyOwner` 升级，地址级迁移不在当前规范内 | 目标规范见 [docs/spec/polend/polend.md](../polend/polend.md) |
+| `MemeverseLauncher` | `polend` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | Launcher 保存 `POLend` 接线地址；注册同交易内调用 `POLend.registerLendMarket(verseId)`；`Genesis -> Locked` 时若有杠杆债务则调用 `finalizeLeveragedGenesis(verseId)`；`Locked -> Unlocked` 的 unlock settlement 中按需调用 `executeGlobalSettlement(verseId)`；同一地址还承担 `getTotalLeveragedDebt/Interest`、`preRedeemPTFee`、settlement dust reserve 等查询/执行依赖 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/polend.md](../polend/polend.md) |
+| `MemeverseLauncher` | `polSplitter` | constructor | 非零；不可变；无 setter；不支持地址替换或零地址降级模式 | Launcher 保存 `POLSplitter` 接线地址；`Genesis -> Locked` 时调用 `initializeVerse`、记录 PT backing ratio、执行 `split`；normal fee 与 governor PT fee 的 preview/redeem 都依赖该地址；`Locked -> Unlocked` 的 unlock settlement 中先调用 `settle(verseId)`，settled 后普通 PT fee 与 governor PT fee 都改走 `redeemPT -> uAsset` 口径 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/polend.md](../polend/polend.md) |
 | `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
 | `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；目标实现中仅 `fundBasedAmount <= 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[目标规范]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
@@ -62,6 +62,7 @@
 | --- | --- | --- | --- |
 | swap 启动保护 | 启动期保护机制 | 当前主路径为 execute-or-revert + launch fee 衰减 + 显式 `Launcher -> Hook.executeLaunchSettlement(...)` | 以当前实现为准 |
 | unlock 后公开 swap 保护 | 公开交易恢复时机 | `changeStage()` 在 `Locked -> Unlocked` 时按 `block.timestamp + 24 hours` 调用 hook 的 pair-based `setPublicSwapResumeTime(address,address,uint40)`，由 hook 本地解析 poolId 并写入 `publicSwapResumeTime` | 以当前实现为准 |
+| unlock settlement 赎回保护 | 结算中普通赎回并发 | `changeStage()` 在 `Locked -> Unlocked` 的同交易内把 `unlockSettlementActive[verseId]` 置为 `true`；`redeemAuxiliaryLiquidity` 与普通外部调用者的 `redeemMemecoinLiquidity` 在此期间必须回退，仅 `polSplitter/polend` 协议内调用可继续 | 以当前实现为准 |
 | launch fee 时间单位 | launch fee 的时间语义 | 代码使用 `decayDurationSeconds`（秒） | 以秒语义解读 |
 | 注册天数语义 | 注册时长的时间语义 | 中心链写入与本地 quote 均使用 registration center 的 `DAY` | 当前链上语义由 center 配置决定 |
 | 注册 fee / dust 判定 | 注册链路 native fee 支付约束 | source registrar 要求 `msg.value >= source lzFee`；local registrar 要求 `msg.value == value`；center fan-out 要求 `msg.value >= totalFee`；hub fan-out 残余或 refund 是 center-owned gas dust，可由 owner sweep | 以代码为准 |

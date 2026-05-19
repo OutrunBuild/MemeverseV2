@@ -39,7 +39,7 @@
 
 ### INV-05 Locked 费用分发恒等式
 
-- 约束：主池 `memecoin/uAsset` 的 `uAssetFee = executorReward + govFee`，其中 `executorReward = uAssetFee * executorRewardRate / 10000`；主池 `memecoin` fee 进入 yield 路径。辅助池 fee 按 POLend 四池目标规则分流：POL fee burn，普通侧 `uAsset/PT` fee 进入普通领取账本，杠杆侧 `uAsset` fee 进入 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前按固定 PT backing ratio 预兑付或 settle 后 redeem 后分发。`liquidProofFee` / `UPTFee` 仅作为 legacy alias。`[目标规范]`
+- 约束：主池 `memecoin/uAsset` 的 `uAssetFee = executorReward + govFee`，其中 `executorReward` 必须按 full-precision `mulDiv` 或等价 overflow-safe 语义计算：`fullPrecisionMulDiv(uAssetFee, executorRewardRate, 10000)`，`govFee = uAssetFee - executorReward` 且减法保持 checked arithmetic 语义；quote/redeem 路径必须共享同一分账算术语义。主池 `memecoin` fee 进入 yield 路径。辅助池 fee 按 POLend 四池目标规则分流：POL fee burn，普通侧 `uAsset/PT` fee 进入普通领取账本，杠杆侧 `uAsset` fee 进入 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前按固定 PT backing ratio 预兑付或 settle 后 redeem 后分发。`liquidProofFee` / `UPTFee` 仅作为 legacy alias。`[目标规范]`
 - 价值：保证主池与辅助池 fee 分账守恒、burn 顺序和 PT fee pending/settle 语义可审计。
 - 主要真源：[docs/spec/polend/polend.md](polend/polend.md)，[docs/spec/verse/accounting.md](verse/accounting.md)
 
@@ -51,9 +51,18 @@
 
 ### INV-07 关键业务动作受阶段机约束
 
-- 约束：`genesis/preorder` 仅 `Genesis`；`refund/refundPreorder` 仅 `Refund`；`claim/mint/fee-distribute` 至少 `Locked`；LP 赎回仅 `Unlocked`。`[代码已证]`
+- 约束：`genesis/preorder` 仅 `Genesis`；`refund/refundPreorder` 仅 `Refund`；`claimNormalYT/claimNormalFees/mintPOLToken/redeemAndDistributeFees` 至少 `Locked`；LP 赎回仅 `Unlocked`。`[代码已证]`
 - 价值：跨模块资金动作不会越阶段执行。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:326`，`:362`，`:627`，`:654`，`:729`，`:823`，`:849`
+
+### INV-07A unlock settlement 期间普通赎回必须被 launcher 侧结算门阻断
+
+- 约束：`changeStage()` 执行 `Locked -> Unlocked` 时，launcher 会在同一笔交易内先置 `unlockSettlementActive[verseId] = true`，完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 的公开 swap 保护写入后再清回 `false`。在该标志为 `true` 时：
+  - `redeemAuxiliaryLiquidity` 必须回退；
+  - `redeemMemecoinLiquidity` 对普通外部调用者必须回退；
+  - 仅 `polSplitter` 与 `polend` 作为协议内 settlement caller 可继续走主池赎回路径。
+- 价值：防止用户在 unlock settlement 正处理中抢先提取普通侧流动性，破坏结算与剩余份额基准。
+- 主要锚点：`src/verse/MemeverseLauncher.sol:117`，`:441-447`，`:856`，`:1027-1061`
 
 ### INV-08 Router/Hook 只操作动态费池且固定 tickSpacing
 
@@ -113,6 +122,14 @@
 - 价值：保证提前分发给 governor 路径的 PT backing 与 settlement 结清一一对应，防止把伪造 supply 或主池回收不足解释为合法预兑付缺口。
 - 测试证据：`testRealPathLockedPreRedeemPTFeeSettlementBacking` 覆盖 `genesis + leveragedGenesis -> Locked -> mintPOLToken -> split -> real PT transferred to hook -> redeemAndDistributeFees -> preRedeemPTFee -> unlock settlement`。
 - 主要真源：[docs/spec/polend/polend.md](polend/polend.md)
+
+### INV-16 normal fee entitlement 与 zero-backing dust 必须保持可领取语义
+
+- 约束：普通侧 `claimNormalFees` 计算 `entitledUAsset` 与 `entitledPT` 时必须使用 full-precision `mulDiv`，不能因中间乘法溢出把已可表示的累计账本变成不可领取。`[代码已证]`
+- 约束：普通侧 PT fee 在 `settled=false` 时直接转 `PT`；在 `settled=true` 时改走 `previewPTToUAsset -> redeemPT -> uAsset`。若 `previewPTToUAsset(...) == 0`，本次不得把该 PT 份额标记为已领，而要保持未领取状态等待后续重试。`[代码已证]`
+- 约束：governor 路径的 `pending auxiliary gov PT fee` 也必须遵守同样的 zero-backing 保留语义；可分发的其它 `uAsset/memecoin/POL` fee 不因此被阻断。`[代码已证]`
+- 价值：保证 normal fee 账本在大数情况下可领取，并保证 settling 后的 PT dust 不会被错误吞掉或提前记为已处理。
+- 主要锚点：`src/verse/MemeverseLauncher.sol:808-842`，`:1588-1613`
 
 ## 3. 确定性边界
 

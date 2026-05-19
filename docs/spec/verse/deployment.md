@@ -51,10 +51,12 @@
 1. launcher 判断是否达标并进入 `_deployAndSetupMemeverse`
 2. 若 `getTotalLeveragedDebt(verseId) > 0`，launcher 调用 `POLend.finalizeLeveragedGenesis(verseId)`
 3. launcher 调用 `POLSplitter.initializeVerse`
-4. launcher 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
-5. 若治理链是本链：
+4. launcher 在主池建池后把主池实际 `uAsset` / POL raw 写入 `POLSplitter.recordPTBackingRatio(...)`
+5. launcher 调用 `POLSplitter.split(...)` 产出 PT/YT，并把杠杆侧初始 YT 转给 `POLend`
+6. launcher 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
+7. 若治理链是本链：
  - deployer 部署并初始化 `yieldVault/governor/incentivizer`
-6. 若治理链非本链：
+8. 若治理链非本链：
  - 仅预测 `yieldVault/governor/incentivizer` 地址，不在本链初始化
 
 以上动作发生在同一笔 `changeStage` 交易内；任一步失败都会回滚整笔 `Genesis -> Locked` 迁移。
@@ -64,6 +66,10 @@
 ## 4. 关键部署依赖事实
 
 - Launcher 在配置 router / hook 时有 set-time 三重校验：`router.hook() == hook`、`hook.launcher() == launcher`、`hook.poolInitializer() == router`；其中 `memeverseUniswapHook` 仅允许首次设置，后续不可改绑到新 hook。`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
+- `polend` 与 `polSplitter` 都是 launcher 构造注入的必需接线，不存在 unset 或运行中换地址路径。注册、创世部署、fee preview/claim、unlock settlement 都直接依赖这两个固定地址。`[代码已证]`
+- 具体接线语义：
+  - `polend`：注册时 `registerLendMarket`，部署时 `finalizeLeveragedGenesis`，Locked governor PT fee 预兑付时 `preRedeemPTFee`，unlock settlement 时按需 `executeGlobalSettlement`
+  - `polSplitter`：部署时 `initializeVerse`、`recordPTBackingRatio`、`split`，normal/gov PT fee preview 时 `previewPTToUAsset`，settled 后 PT 兑现时 `redeemPT`，unlock settlement 时 `settle`
 - Hook owner 在部署后仍可 retarget `launcher`；该能力属于与 launcher owner 同一 trust boundary 的配置权，当前产品语义接受这一点。`[代码已证]`
 - RegistrationCenter/launcher/interoperation 均依赖 `LzEndpointRegistry` 的 endpointId 映射。`[代码已证]`
 - 跨链分发与 staking 的 gas 参数来自 launcher/interoperation 的可配置 gas limits。`[代码已证]`

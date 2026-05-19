@@ -78,7 +78,7 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 `preorder` 是 V2 新增能力：
 
 - 只在 `Genesis` 期开放
-- 单独记账
+- 单独以 `uAsset` 记账
 - 进入 `Locked` 时通过 launch settlement 统一结算成 memecoin
 - 后续按线性解锁领取
 
@@ -126,6 +126,8 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 - 主池 `memecoin/uAsset` fee 沿用 Memeverse 分流：`memecoin` fee 进入 yield 路径，`uAsset` fee 拆成 `executorReward + govFee` 后进入执行者奖励与 governor treasury 路径
 - 辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` fee 按 POLend 四池规则拆分：POL fee burn，普通侧 fee 进入普通领取账本，杠杆侧 `uAsset` fee 分发到 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前走 `preRedeemPTFee`，settle 后走 `redeemPT`
 - `liquidProofFee` / `UPTFee` 仅作为 legacy 名称，不再定义目标四池费用语义
+- 普通用户领取历史辅助池 normal fee 时，`claimNormalFees` 使用 full-precision `mulDiv` 计算 entitlement，避免 `accUAssetFee` 或 `accPTFee` 较大时因中间乘法溢出导致可表示账本无法领取。
+- 普通 PT fee 在 `settled=false` 时直接按份额转出 `PT`；在 `settled=true` 时改为按 `previewPTToUAsset` 确认 backing 后走 `redeemPT -> uAsset`。若该 backing 为零，则本次不标记为已领，留待后续重试。
 
 `Locked` 后用 `uAsset + memecoin` 加池 mint 新 POL 时，实际 `uAsset` 输入必须按 POLend 固定 PT backing ratio 等于新 POL raw 对应的 PT backing，误差 `<= 1 wei`；不得用额外 `uAsset` backing 改变 YT 经济。
 
@@ -176,11 +178,18 @@ V2 当前已实现的启动保护是：
 - POLend leveraged residual claims
 - 按产品定义允许的兼容性补池行为
 
+但当前实现有一层更细的 launcher-side 结算保护：
+
+- `changeStage()` 执行 `Locked -> Unlocked` 时，会先把 `unlockSettlementActive[verseId] = true`，在同一笔交易内依次完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 的 `publicSwapResumeTime` 写入，最后再清回 `false`。
+- `redeemAuxiliaryLiquidity` 带 `notDuringUnlockSettlement` 修饰符，在该窗口内一律拒绝外部调用。
+- `redeemMemecoinLiquidity` 对普通外部调用者也会检查 `_requireNoUnlockSettlement`；只有 `polSplitter` 与 `polend` 作为协议内结算调用者时可绕过该检查。
+
 ### 7.3 保护窗口内必须禁止什么
 
 - 普通公开 swap
 - 绕过公开入口的等价 swap 路径
 - 任何会改变后续赎回价值基准的公开市场行为
+- 在 launcher 正执行 unlock settlement 的同一笔交易里抢先提取普通侧主池或辅助池流动性
 
 ### 7.4 当前实现状态
 

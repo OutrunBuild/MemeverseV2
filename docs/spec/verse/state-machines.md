@@ -40,6 +40,7 @@
 | `preorder` | 允许 | 禁止 | 禁止 | 禁止 | 当前规则（代码已证） |
 | `refund` / `refundPreorder` | 禁止 | 允许（每地址一次） | 禁止 | 禁止 | 当前规则（代码已证） |
 | `claimNormalYT` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（POLend 四池） |
+| `claimNormalFees` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（代码已证） |
 | `mintPOLToken` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（代码已证） |
 | `redeemAndDistributeFees` | 禁止 | 禁止 | 允许 | 允许 | 当前规则（代码已证） |
 | `redeemMemecoinLiquidity` / `redeemAuxiliaryLiquidity` | 禁止 | 禁止 | 禁止 | 允许 | 当前规则（POLend 四池） |
@@ -55,6 +56,10 @@
   - 可按产品定义允许：与保护机制兼容的补池/加池行为
   - 必须禁止：普通公开 swap
   - 必须禁止：绕过公开入口的等价 swap 路径
+- launcher 还维护一个更窄的“unlock settlement in-flight”布尔门：
+  - `changeStage()` 在执行 `Locked -> Unlocked` 的同一笔交易内，会把 `unlockSettlementActive[verseId]` 置为 `true`，完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 保护时间写入后再清回 `false`
+  - `redeemAuxiliaryLiquidity` 在该标志为 `true` 时必须回退
+  - `redeemMemecoinLiquidity` 对普通调用者同样必须回退；仅 `polSplitter` / `polend` 作为协议内部 settlement caller 时可继续执行
 - 当前实现状态：
   - verse 在 `currentTime > unlockTime` 后，需通过实际 `changeStage()` 调用进入 `Unlocked`
   - launcher 在该次迁移里按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
