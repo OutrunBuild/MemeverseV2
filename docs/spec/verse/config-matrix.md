@@ -35,6 +35,7 @@
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig={start,min,decaySeconds}` | `setDefaultLaunchFeeConfig` | 全部非零；`min<=start<=10000` | 启动窗口费率衰减 | `[代码已证]` |
 | `MemeverseOmnichainInteroperation` | `oftReceiveGasLimit`,`omnichainStakingGasLimit` | `setGasLimits` | 两者 `>0` | memecoin 远端 staking OFT options | `[代码已证]` |
 | `MemeverseProxyDeployer` | `quorumNumerator` | `setQuorumNumerator` | 非零 | 仅影响后续新部署 governor 初始化 | `[代码已证]` |
+| `POLend` | `leveragedDebtFactor` | `initialize` / `setLeveragedDebtFactor` | 非零；`<= uint128.max * 1e18`；与当前利率满足最小杠杆乘积约束 | 未来 `None / Genesis` market 的 debt cap 与剩余杠杆容量预览 | `[代码已证]` |
 | `GovernanceCycleIncentivizerUpgradeable` | `rewardRatio` | `updateRewardRatio` | `<=10000` | 周期结算时 treasury->reward 划拨比例 | `[代码已证]` |
 
 ## 3. 代码常量/不可变面（常被当作“默认配置”）
@@ -52,6 +53,7 @@
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig` 初始值 | `start=5000,min=100,decay=900s` | 构造时初始化，可后续改 | `[代码已证]` |
 | `MemeverseSwapRouter` | `hook`,`permit2` | 构造注入（immutable） | 外部依赖地址，部署后不可改 | `[代码已证]` |
 | `MemeverseLauncher` | `UNLOCK_PROTECTION_WINDOW` | `24 hours` 固定常量 | 不再暴露 owner 配置面；用于 `Locked -> Unlocked` 后受保护公开 swap 的固定恢复窗口 | `[代码已证]` |
+| `MemeverseLauncher` / `POLend` | `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` | `type(uint128).max` | 普通创世与杠杆创世共享的聚合部署资金上限；preorder 不计入该口径 | `[代码已证]` |
 | `GovernanceCycleIncentivizerUpgradeable` | `CYCLE_DURATION` | `90 days` | 治理周期长度 | `[代码已证]` |
 | `MemecoinYieldVault` | `REDEEM_DELAY` | `1 days` | 赎回延迟 | `[代码已证]` |
 | `MemecoinYieldVault` | `MAX_REDEEM_REQUESTS` | `5` | 每地址最大排队赎回数 | `[代码已证]` |

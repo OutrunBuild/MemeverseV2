@@ -14,7 +14,8 @@
 
 - `MemeverseSwapRouter` 负责对外 `quote/swap/addLiquidity/removeLiquidity` 与可选 Permit2 拉资（swap 与流动性操作）。
 - Router 的 `previewClaimableFees(...)` 仅是只读 preview-only helper，不执行 fee claim。
-- 池创建 (`createPoolAndAddLiquidity`) 为 `onlyLauncher` 门控，不对外暴露；这是有意设计，建池必须经 `Launcher -> Router`，再由 Hook 的 `poolInitializer` 授权 Router 完成初始化。`createPoolAndAddLiquidityWithPermit2` 已移除，池创建不再支持 Permit2 路径。
+- 池创建 (`createPoolAndAddLiquidity`) 为 `onlyLauncher` 门控，不对外暴露；这是有意设计，建池必须经 `Launcher -> Router`，由 `Launcher` 提供 desired budgets，再由 Router 执行实际建池与首笔加池。`createPoolAndAddLiquidityWithPermit2` 已移除，池创建不再支持 Permit2 路径。
+- Router 对 bootstrap 的 canonical 输出是真实执行后的 actual spend / actual liquidity 结果，不是 preview-equality 契约，也不要求外部以 preview 值作为 settlement 真源。
 - Router 内部固定构造 pool key：`fee = DYNAMIC_FEE_FLAG`、`tickSpacing = 200`、`hooks = configured hook`。
 - exact-output 强制 `amountInMaximum`；所有 swap 为 execute-or-revert。
 
@@ -35,8 +36,12 @@
 
 - 启动结算不再走 Router 特殊 `hookData` marker 分支。
 - 当前设计是 `MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)`。
+- Launcher bootstrap pool creation 采用“desired budgets -> actual Router spend -> post-bootstrap accounting”。
+- Launcher 的 post-bootstrap accounting 以 Router 返回的 actual spend 为准。
+- auxiliary bootstrap execution 不依赖 preview/equality、quote-padding 或 search 语义；产品文档不再定义 auxiliary underspend 的独立 rounding-envelope accept/reject 规则。
 - Hook 仅接受已绑定 launcher 的直接调用，并在内部自发起 `PoolManager.unlock/swap` 完成结算。
 - 该路径固定总费 `1%`（100 bps）。
+- 进入该路径前，Launcher / POLend 的部署资金口径只统计 `totalNormalFunds + totalLeveragedDebt`，不统计 preorder，且该口径必须保持 `<= type(uint128).max`。
 
 `[代码已证]`
 

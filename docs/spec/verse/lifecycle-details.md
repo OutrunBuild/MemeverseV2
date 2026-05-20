@@ -68,6 +68,9 @@ MemeverseV2 的主路径可以概括为：
 杠杆 Genesis 入金先支付利息，再派生 `totalLeveragedDebt`。募资成功部署时使用：
 
 - `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`
+- owner 后续调整 `leveragedDebtFactor` 时，只影响仍处于 `None / Genesis` 且 Launcher verse 仍在 `Genesis` 的 market 后续可新增杠杆容量；不会回写已进入 `Locked / Settled / Refund` 的市场利率、已 mint 债务、退款、结算或 claim 结果。
+- 成功路径只按 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt` 计创世部署资金，preorder 不计入该口径，且必须满足 `totalGenesisFunds <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，其中 `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max`。
+- Genesis 期新增杠杆前，必须按累计 `nextTotalLeveragedInterest = totalLeveragedInterest + interestAmount` 推导 `previewDebt = nextTotalLeveragedInterest * 1e18 / market.interestRate`，并同时满足 `previewDebt <= debtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，不能只看当前调用 delta。
 
 随后按 POLend 四池模型执行 `70/30` 规则，进入 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池路径。
 
@@ -102,6 +105,9 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 - 按治理链位置决定是否部署或预测 `yieldVault / governor / incentivizer`
 - 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池
 - 若存在 preorder，则执行 launch settlement
+- 上述四池创建采用“Launcher 给出 desired budgets，Router 返回 actual execution”模型。创建是否成功以实际 spend / actual mint 为准，不以 preview/equality 为准。
+- `memecoin/uAsset` 主池只记录实际执行后真正进入主池的资金与实际 mint 出的 `POL`；该结果同时决定 PT backing ratio 的记录口径。
+- 辅助池 bootstrap 若出现 underspend，`Genesis -> Locked` 迁移按辅助池 actual spend 继续记账；协议不为这类 auxiliary underspend 额外定义 bootstrap backing / equality guard，也不依赖单独文档化的 rounding-envelope accept/reject 规则。
 
 这一时刻是“资产、池子、治理与收益组件同时就位”的分水岭。
 
@@ -129,7 +135,8 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 - 普通用户领取历史辅助池 normal fee 时，`claimNormalFees` 使用 full-precision `mulDiv` 计算 entitlement，避免 `accUAssetFee` 或 `accPTFee` 较大时因中间乘法溢出导致可表示账本无法领取。
 - 普通 PT fee 在 `settled=false` 时直接按份额转出 `PT`；在 `settled=true` 时改为按 `previewPTToUAsset` 确认 backing 后走 `redeemPT -> uAsset`。若该 backing 为零，则本次不标记为已领，留待后续重试。
 
-`Locked` 后用 `uAsset + memecoin` 加池 mint 新 POL 时，实际 `uAsset` 输入必须按 POLend 固定 PT backing ratio 等于新 POL raw 对应的 PT backing，误差 `<= 1 wei`；不得用额外 `uAsset` backing 改变 YT 经济。
+`Locked` 后 `mintPOLToken` 不再做运行时 `InvalidPOLBacking` 式 strict equality 检查。
+新规则是：启动时记录好的固定 PT backing ratio 仍然是 PT/YT 经济真源；`mintPOLToken` 继续走 exact-liquidity minting，若报价后的实际执行无法 mint 出请求的 LP/POL 数量，则 mint 失败并整体回退。协议不接受通过额外 backing 改写该经济关系。
 
 ### 6.3 启动期保护
 
@@ -183,6 +190,7 @@ V2 当前已实现的启动保护是：
 - `changeStage()` 执行 `Locked -> Unlocked` 时，会先把 `unlockSettlementActive[verseId] = true`，在同一笔交易内依次完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 的 `publicSwapResumeTime` 写入，最后再清回 `false`。
 - `redeemAuxiliaryLiquidity` 带 `notDuringUnlockSettlement` 修饰符，在该窗口内一律拒绝外部调用。
 - `redeemMemecoinLiquidity` 对普通外部调用者也会检查 `_requireNoUnlockSettlement`；只有 `polSplitter` 与 `polend` 作为协议内结算调用者时可绕过该检查。
+- bootstrap residual 的 normal share 通过 `redeemAuxiliaryLiquidity` 发放；leveraged share 通过 POLend 的 leveraged auxiliary settlement 输出发放。协议不保留一个永久 launcher bucket 来长期托管这类 residual。
 
 ### 7.3 保护窗口内必须禁止什么
 

@@ -6,6 +6,7 @@
 
 - `src/verse/MemeverseLauncher.sol`
 - 负责 verse 生命周期状态机与资金主编排（Genesis/Refund/Locked/Unlocked）。
+- 普通创世与 POLend 杠杆创世共享 `totalNormalFunds + totalLeveragedDebt <= type(uint128).max` 的聚合上限；`genesis` 先写入普通创世账本再拉取 uAsset，避免 callback-capable token 在转账中重入 POLend 时读到旧账本。
 
 ### 1.2 注册与跨链注册
 

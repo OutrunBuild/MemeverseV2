@@ -12,6 +12,8 @@
 - **Unlocked**：当前实现中锁定结束后的退出阶段；需在 `unlockTime` 之后实际执行 `changeStage()` 才进入，赎回可用，但受保护公开 swap 要等该次迁移时间加上固定 `24 hours` 的 `UNLOCK_PROTECTION_WINDOW` 后才恢复。
 - **post-unlock liquidity protection period**：unlock 后的受保护退出窗口；其目标是保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供统一结算窗口。
 - **Preorder**：Genesis 内的额外 UPT 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
+- **aggregate genesis funds**：成功部署资金口径，等于 `totalNormalFunds + totalLeveragedDebt`，不包含 preorder，并受 `type(uint128).max` 上限约束。
+- **leveragedDebtFactor**：POLend 杠杆债务系数；上限为 `uint128.max * 1e18`，这是技术有效上限，不是经济最优值。
 - **launch settlement**：启动结算专用 swap 通道，走显式 `Launcher -> Hook.executeLaunchSettlement(...)` 路径，固定 1% 总费。
 - **launch fee window**：池初始化后的费用衰减窗口（默认从 5000 bps 衰减到 100 bps）。
 - **LP token**：Hook 为每个池发行的流动性份额代币。

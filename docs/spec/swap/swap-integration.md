@@ -152,6 +152,7 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
 - `getHookPoolKey(...)`
 - `lpToken(...)`
 - `quoteAmountsForLiquidity(...)`
+- `quoteExactAmountsForLiquidity(...)`
 - `swap(...)`
 - `swapWithPermit2(...)`
 - `addLiquidity(...)`
@@ -177,6 +178,11 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
 
 - `lpToken(tokenA, tokenB)`：返回该 pair 对应的 Hook LP token 地址
 - `quoteAmountsForLiquidity(tokenA, tokenB, liquidityDesired)`：按当前池价返回目标 LP liquidity 需要的两侧 token 数量
+- `quoteExactAmountsForLiquidity(...)`：面向已初始化池，使用当前 `slot0` 为目标 liquidity 报价。
+- bootstrap 集成真源不是 preview/equality，而是 launcher 提交的 desired budgets 与 Router 返回的 actual execution。
+- Router bootstrap 从 desired budgets 执行，并把 actual spend 返回给 Launcher 做 post-bootstrap accounting。
+- auxiliary bootstrap execution 不依赖 preview/equality、quote-padding 或 search 语义；集成方不应假定存在 auxiliary underspend 的独立 rounding-envelope accept/reject 规则。
+- unused bootstrap `uAsset` 走 settlement dust reserve / treasury overflow path，unused bootstrap `memecoin` burn。
 
 ---
 

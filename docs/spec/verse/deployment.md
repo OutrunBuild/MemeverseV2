@@ -44,6 +44,8 @@
 6. launcher 同交易调用 `POLend.registerLendMarket(verseId)`
 7. registrar 后续调 `launcher.setExternalInfo(...)`
 
+`POLend.registerLendMarket` 使用当前默认 `interestRate / leveragedDebtFactor`，其中 `leveragedDebtFactor` 已在初始化与 setter 侧受 `uint128.max * 1e18` 技术上限约束。`[代码已证]`
+
 以上为 `[代码已证]`。
 
 ### 3.2 `Genesis -> Locked` 时的部署动作
@@ -60,6 +62,7 @@
  - 仅预测 `yieldVault/governor/incentivizer` 地址，不在本链初始化
 
 以上动作发生在同一笔 `changeStage` 交易内；任一步失败都会回滚整笔 `Genesis -> Locked` 迁移。
+进入该部署路径前，普通创世与杠杆创世共享 `totalNormalFunds + totalLeveragedDebt <= type(uint128).max` 的聚合资金上限，preorder 不计入该口径。`[代码已证]`
 
 以上为 `[代码已证]`。
 

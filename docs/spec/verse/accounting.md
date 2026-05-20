@@ -19,7 +19,9 @@
 
 - 杠杆创世由 `POLend` 记录用户支付的利息，并按 market 固定利率推导债务：
 `totalLeveragedDebt = totalLeveragedInterest * 1e18 / market.interestRate`
+- 成功 `genesis` / `leveragedGenesis` 写入后都必须保持 `totalNormalFunds + totalLeveragedDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，其中 `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max`；`leveragedGenesis` 写入前必须按累计 `nextTotalLeveragedInterest = totalLeveragedInterest + interestAmount` 推导 `previewDebt = nextTotalLeveragedInterest * 1e18 / market.interestRate`，并同时满足 `previewDebt <= debtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，不能只看当前调用 delta。
 - `Genesis` 阶段不 mint 杠杆 `uAsset`；只有成功进入 `Locked` 时才由 `POLend.finalizeLeveragedGenesis` mint 推导债务并计入按 `uAsset` 维度的系统债务。
+- `setLeveragedDebtFactor` 只改未来 `None / Genesis` market 的 debt cap / 容量预览口径，不追溯改变已注册 market 利率、已 mint 债务、退款、结算或 claim 账本。
 - 杠杆退款、初始 `YT`、残值、PT fee 预兑付与全局结算规则以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
 
 ### 2.3 Preorder 入账
@@ -51,6 +53,7 @@
 - 成功部署资金口径：
 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`
 - `totalGenesisFunds` 不等于退款资金池，也不包含 preorder。
+- 成功路径必须保持 `totalGenesisFunds <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，其中 `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max`。
 - `POLSplitter.initializeVerse` 在四池部署前调用；PT/YT 初始化不依赖是否有杠杆参与。
 
 ### 3.2 四池部署
@@ -58,16 +61,22 @@
 - `totalGenesisFunds` 统一按 `70/30` 拆分：
   - `70%` 进入 `memecoin/uAsset` 主池。
   - `30%` 进入三个辅助池路径。
+- `Launcher` 先为主池和三个辅助池计算 desired budgets，再调用 Router 执行建池与首笔加池。
+- canonical truth 是实际执行结果：哪些 token 真正进入池子、主池实际花掉多少 `uAsset`、主池实际 mint 出多少 `POL`，都以后续实际 spend / actual mint 记账。
 - 四池为：
   - `memecoin/uAsset`
   - `POL/uAsset`
   - `PT/uAsset`
   - `PT/POL`
+- 主池 PT backing ratio 记录口径是“主池实际执行 spend / 主池实际产出的 POL raw amount”，不是 desired budget，也不是 Router 内部临时报价预算。
+- 辅助池 bootstrap 若出现 underspend，accounting 直接以 actual spend 为准；`Launcher` 不对这类 auxiliary underspend 额外施加 bootstrap backing / equality guard。
+- 辅助池 bootstrap 的执行与记账不依赖单独文档化的 rounding-envelope accept/reject 规则；unused bootstrap `uAsset` 继续走 settlement dust reserve / treasury excess 路径，unused bootstrap `memecoin` 继续 burn。
+- bootstrap 后若还有未进入辅助池 LP 的 `POL/PT`，它们属于单独的 bootstrap residual 类别，不是普通用户 LP floor dust。该 residual 先按 funding share 切成 leveraged share 和 normal share，再分别走后续 claim 路径。
 - POL、PT、YT 的拆分比例、辅助池资产配比和 LP 记录以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
 
 ### 3.3 preorder 结算
 
-- `Launcher` 先部署 `memecoin/uAsset` 主池，再使用托管 preorder `uAsset` 执行首笔交易买入 `memecoin`。
+- `Launcher` 先完成 `memecoin/uAsset` 主池实际建池，再使用托管 preorder `uAsset` 执行首笔交易买入 `memecoin`。
 - 买出的 `memecoin` 由 `Launcher` 托管，并按 `userPreorderFunds / totalPreorderFunds` 线性释放。
 
 ## 4. 用户份额公式
@@ -94,6 +103,7 @@
   - `unwrap=true`：按 `amountInLP` 移除 `memecoin/uAsset` LP，并发送底层 `memecoin` 与 `uAsset`。
 - 该路径是 `Unlocked` 退出路径；解锁后保护窗口内仍允许执行，但不是公开 swap。
 - `redeemAuxiliaryLiquidity`：普通用户在 `Unlocked` 后一次性领取三个辅助池普通份额 LP token，份额基准为 `userGenesisFund / totalNormalFunds`。
+- 该路径还负责分发 bootstrap residual 的 normal share：`normalResidualPOL` 与 `normalResidualPT` 按同一 `userGenesisFund / totalNormalFunds` 比例分给普通用户。
 - 若存在杠杆债务，`Locked -> Unlocked` 的同一笔交易内先执行 POLend 全局结算并切走杠杆份额 LP；普通用户只能领取结算后剩余的普通份额。
 - 杠杆残值由 `POLend` 记录并按 `userInterestPaid / totalLeveragedInterest` 领取；残值不属于 `POLSplitter` 的 PT/YT 兑付池。
 - 旧 `claimable POL` / `redeemPolLiquidity` 两池语义不再作为当前规则。

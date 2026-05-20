@@ -121,6 +121,15 @@ sequenceDiagram
 
 - `addLiquidity(...)` / `addLiquidityCore(...)` 不负责初始化 pool，调用前目标 pool 必须已经存在且已初始化。
 - 初始建池路径为 `Launcher -> Router.createPoolAndAddLiquidity(...)`。
+- bootstrap 由 `Launcher` 先给出 desired budgets，再由 Router 执行 `createPoolAndAddLiquidity(...)`；对外记账真源是实际执行后的 actual spend / actual liquidity。
+
+### 5.1 Bootstrap Execution
+
+- 四池 bootstrap 的 canonical 语义是“按 desired budgets 发起，按 actual spend 结算”。
+- `memecoin/uAsset` 主池 PT backing ratio 只看主池实际 `uAsset` spend 和主池实际产出的 `POL raw amount`。
+- Launcher 的 post-bootstrap accounting 以 Router 返回的 actual spend 为准。
+- auxiliary bootstrap execution 不依赖 preview/equality、quote-padding 或 search 语义；文档不再定义 auxiliary underspend 的独立 rounding-envelope accept/reject 规则。
+- unused bootstrap `uAsset` 走 settlement dust reserve / treasury overflow path，unused bootstrap `memecoin` burn。
 
 ---
 

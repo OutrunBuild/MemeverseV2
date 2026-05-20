@@ -34,6 +34,8 @@
   - Launcher 在 preorder 结算时直接使用已配置且 write-once 的 `memeverseUniswapHook`，并显式调用 `executeLaunchSettlement(...)`。`[代码已证]`
   - Hook 侧要求 `msg.sender == launcher`，不再依赖 Router 特殊 `hookData` marker 或双调用者兼容接线。`[代码已证]`
   - Launcher 配置 router / hook 时会做 set-time 三重校验：`router.hook() == hook`、`hook.launcher() == launcher`、`hook.poolInitializer() == router`；同时 launcher 侧 hook 绑定是 write-once。`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
+  - Launcher bootstrap 四池创建使用 desired budgets 作为计划输入，实际进入主池和辅助池的 token 数量以后续 actual spend 为准。`[代码已证]`
+  - bootstrap auxiliary pool creation 以 actual spend 记账，不因 auxiliary underspend 本身触发单独的 bootstrap backing / equality guard，也不依赖单独文档化的 rounding-envelope accept/reject 规则。unused bootstrap `uAsset` 走 settlement dust reserve / treasury excess 路径，unused bootstrap `memecoin` 走 burn。`[目标规范]`
 - 价值：防止任意调用者伪造启动结算路径，并避免 router / hook / launcher 绑定失配或 unlock 保护漂移到错误 hook namespace。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:594-608`，`src/swap/MemeverseUniswapHook.sol:572-627`，`src/verse/MemeverseLauncher.sol:1224-1240`
 
@@ -102,6 +104,7 @@
 - 约束：`POLend.executeGlobalSettlement(verseId)` 的债务偿还必须满足 `recoveredUAsset + consumedSettlementDustReserve >= verseDebt`。若 `recoveredUAsset < verseDebt`，则 `consumedSettlementDustReserve == verseDebt - recoveredUAsset`，且必须满足 `consumedSettlementDustReserve <= reserveBeforeSettlement`，其中 `reserveBeforeSettlement` 是执行前读取的 `settlementDustStates[uAsset].reserve` 快照。settlement 成功后只扣减实际消耗量，不清零该 `uAsset` 的全局 reserve。`[目标规范]`
 - 约束：settlement dust reserve 只来自 `finalizeLeveragedGenesis` 已支付杠杆利息、`fundSettlementDustReserve(address,uint256)` 手动注入、Launcher bootstrap unused `uAsset` 注入；不得通过 mint、残值扣减、普通侧 LP 扣减或 treasury 隐式透支产生。`[目标规范]`
 - 约束：settlement dust reserve 只覆盖正确执行 `previewPTToUAsset` 固定 backing ratio 转换后的整数舍入 dust；不得覆盖 PT backing ratio / 模型错误。`[目标规范]`
+- 约束：bootstrap pre-LP residual `POL/PT` 与普通 auxiliary LP split dust 是两个不同类别。前者必须先按 funding share 切分：`leveragedShare = floor(totalResidual * totalLeveragedDebt / totalGenesisFunds)`，`normalShare = totalResidual - leveragedShare`；不能把它们当成永久 launcher bucket 或未分类 dust。`[目标规范]`
 - 价值：C1 只允许 wei 级整数舍入缺口通过 reserve 解决，不把真实资不抵债、价格模型错误、PT backing ratio 错误或资金流错误伪装成 dust。
 - 主要真源：[docs/spec/polend/polend.md](polend/polend.md)
 
@@ -109,7 +112,8 @@
 
 - 约束：raw-unit identity 固定为 `POL raw = main pool LP raw`，`PT raw = POL raw`，`YT raw = POL raw`。`1 raw PT` 不等于 `1 raw uAsset`。`PT` 的 uAsset backing 必须使用 verse 固定 ratio：`FullMath.mulDiv(ptAmount, ptBackingNumerator, ptBackingDenominator)`。`[目标规范]`
 - 约束：`preRedeemPTFee`、`redeemPT`、`redeemYT` 的 PT reserve、settle 时预兑付 backing burn、`POLend.executeGlobalSettlement` 回收 PT settlement 都必须使用转换后的 `uAsset` 数量，不得直接用 `ptAmount`。`[目标规范]`
-- 约束：`Locked` 后 `mintPOLToken` 的实际 `uAsset` 输入必须等于 `previewPTToUAsset(newPOLRaw)`，误差 `<= 1 wei`；不得允许额外 backing。`[目标规范]`
+- 约束：主池 PT backing ratio 的记录口径是“主池实际执行 spend / 主池实际产出的 POL raw amount”，不是 bootstrap 想要的 budget 或内部 quote budget。`[代码已证]`
+- 约束：`mintPOLToken` 不再执行运行时 `InvalidPOLBacking` 式严格等式校验。产品仍要求固定 PT backing ratio 不被改写，并要求 exact-liquidity minting 在报价后若无法 mint 出请求的 LP/POL 数量时 fail closed。`[目标规范]`
 - 价值：保证 `fundBasedAmount > 1` 等自然路径下 PT/YT 经济不被 raw 数量误当 uAsset 数量破坏。
 - 主要真源：[docs/spec/polend/polend.md](polend/polend.md)
 
@@ -130,6 +134,14 @@
 - 约束：governor 路径的 `pending auxiliary gov PT fee` 也必须遵守同样的 zero-backing 保留语义；可分发的其它 `uAsset/memecoin/POL` fee 不因此被阻断。`[代码已证]`
 - 价值：保证 normal fee 账本在大数情况下可领取，并保证 settling 后的 PT dust 不会被错误吞掉或提前记为已处理。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:808-842`，`:1588-1613`
+
+### INV-17 创世总资金聚合上限必须保持累计且排除 preorder
+
+- 约束：成功部署资金口径固定为 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`，且不包含 preorder。`[目标规范]`
+- 约束：`MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max`，并且必须始终满足 `totalGenesisFunds <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`。`[目标规范]`
+- 约束：成功 `genesis` / `leveragedGenesis` 写入后都必须保持上述 aggregate cap；其中 `leveragedGenesis` 写入前必须按累计 `nextTotalLeveragedInterest = totalLeveragedInterest + interestAmount` 推导 `previewDebt`，并同时满足 `previewDebt <= debtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，不能只检查当前调用 delta。`[目标规范]`
+- 价值：保证普通创世与杠杆创世共享同一聚合资金上限，避免成功写入把总创世资金推进到不支持的数值域。
+- 主要真源：[docs/spec/polend/polend.md](polend/polend.md)，[docs/spec/verse/accounting.md](verse/accounting.md)，[docs/spec/verse/lifecycle-details.md](verse/lifecycle-details.md)
 
 ## 3. 确定性边界
 

@@ -78,6 +78,7 @@
   - 证据：`src/governance/MemecoinDaoGovernorUpgradeable.sol:377`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:68-71`, `:656`
 - `POLend` 与 `POLSplitter` 不由 `MemeverseProxyDeployer` 部署；它们通过外部脚本/工厂独立部署，并以构造参数形式传入 Launcher（`_polend`、`_polSplitter`）。其 proxy 部署与升级授权独立于 ProxyDeployer。`[代码已证]`
 - Launcher 保存的是 `POLend` / `POLSplitter` 的 proxy 地址，当前规范不提供 setter、地址级替换、迁移或降级零地址模式；这只约束 proxy 地址本身，不否定 proxy 实现升级。`POLend` 与 `POLSplitter` 均为 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行。`[代码已证]`
+- `POLend.initialize(...)` 必须拒绝 `leveragedDebtFactor_ > uint128.max * 1e18`；后续 owner setter 使用同一技术上限，升级不得放宽该边界。`[代码已证]`
 
 ## 5. 与文档链的关系
 

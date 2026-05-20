@@ -317,7 +317,7 @@ fundSettlementDustReserve(address uAsset, uint256 amount)
 - 成功 funding 不产生 claim 权利，不进入残值
 - 不受 pause 阻断；该入口只注入 `uAsset`，不产生 claim 权利，属于 unlock / repay 安全出口
 
-Launcher 在 bootstrap liquidity deployment 后若发现 unused `uAsset`，必须调用该统一入口把 unused `uAsset` 注入全局 reserve；若 reserve 已满，则 excess 进入 treasury。unused `memecoin` 必须 burn，不进入 reserve。Launcher 必须 emit `BootstrapUnusedAssetsHandled` 记录该 `verseId` 的 unused `uAsset` 与 burned `memecoin` 来源；POLend 的 `SettlementDustReserveFunded` 记录实际 reserve credited / treasury excess 结果。
+Launcher 在 bootstrap liquidity deployment 后若发现 auxiliary pool actual spend 低于 desired budget 而留下 unused `uAsset`，必须调用该统一入口把该部分 unused `uAsset` 注入全局 reserve；若 reserve 已满，则 excess 进入 treasury。unused `memecoin` 必须 burn，不进入 reserve。该处理直接以实际执行结果为准，不依赖单独文档化的 bootstrap rounding-envelope accept/reject 规则，也不要求 auxiliary underspend 先满足额外的 backing / equality guard。Launcher 必须 emit `BootstrapUnusedAssetsHandled` 记录该 `verseId` 的 unused `uAsset` 与 burned `memecoin` 来源；POLend 的 `SettlementDustReserveFunded` 记录实际 reserve credited / treasury excess 结果。
 
 ## 7. 债务推导
 
@@ -366,11 +366,13 @@ struct LeveragedDebtInfo {
 其中：
 
 ```text
-debtCap = fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)
+rawDebtCap = fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)
+aggregateDebtCap = MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - totalNormalFunds
+debtCap = min(rawDebtCap, aggregateDebtCap)
 totalLeveragedDebt = totalLeveragedInterest * 1e18 / market.interestRate
 ```
 
-`remainingAdditionalInterest` 表示在当前 `Genesis` 状态下还能新增的最大利息，使新增后的推导债务仍满足 `totalLeveragedDebt <= debtCap`。
+`debtCap` 是当前可新增杠杆创世状态下的有效上限，已包含 aggregate genesis funds 上限；`rawDebtCap` 只表示 `leveragedDebtFactor` 推导出的原始上限。`remainingAdditionalInterest` 表示在当前 `Genesis` 状态下还能新增的最大利息，使新增后的推导债务仍满足 `totalLeveragedDebt <= debtCap`。
 
 精确计算：
 
@@ -500,23 +502,45 @@ totalLeveragedInterest >= minTotalFund
 
 ```text
 debtCapBase = max(totalNormalFunds, minTotalFund)
-totalLeveragedDebt <= fullPrecisionMulDiv(leveragedDebtFactor, debtCapBase, 1e18)
+rawDebtCap = fullPrecisionMulDiv(leveragedDebtFactor, debtCapBase, 1e18)
+debtCap = min(rawDebtCap, MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - totalNormalFunds)
+totalLeveragedDebt <= debtCap
 ```
 
-`leveragedDebtFactor` 是全局杠杆债务上限系数，所有 verse 共享，不是单用户倍数。对单个 verse 而言，其总杠杆债务上限 = `fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)`。
+`leveragedDebtFactor` 是全局杠杆债务上限系数，所有 verse 共享，不是单用户倍数。对单个 verse 而言，factor 推导出的原始杠杆债务上限为 `fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)`，实际有效上限还必须受 aggregate genesis funds 剩余容量限制。
 
 约束：`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。该条件是纯杠杆创世独立达到成功门槛的前提。`leveragedDebtFactor` 无独立下限，只与 `interestRate` 联合约束。market 注册在复制当前默认配置前校验该约束；全局配置 setter 也必须保持同一约束，保证后续注册可用。
 
 `fundBasedAmount` 的地址排序最紧分支（`memecoin > uAsset`）要求 `fundBasedAmount <= 2^64 - 1`，该上界只服务 launcher bootstrap 初始价格参数，不用于约束 `minTotalFund`、`totalNormalFunds` 或其他 fund-size 变量。
 
-`leveragedDebtFactor` 必须有有界上限校验，并且所有 `leveragedDebtFactor` 相关计算必须使用全精度 `mulDiv` 或等价 overflow-safe 实现安全完成。该校验不能依赖把 `minTotalFund`、`totalNormalFunds` 或 `totalLeveragedInterest` 预先限制到 `2^64 - 1` 这一错误前提。
+`MAX_LEVERAGED_DEBT_FACTOR = uint128.max * 1e18` 是 `leveragedDebtFactor` 的技术有效上限，不是经济最优值。aggregate genesis funds 支持域已按 `uint128.max` 封顶，更大的 `leveragedDebtFactor` 不会增加任何 verse 的可用 `debtCap` 或 `remainingAdditionalInterest`，因此 `initialize` 与 `setLeveragedDebtFactor` 都必须按 `InvalidConfig` 拒绝。所有 `leveragedDebtFactor` 相关计算都必须使用全精度 `mulDiv` 或等价 overflow-safe 实现安全完成，该上限校验不能依赖把 `minTotalFund`、`totalNormalFunds` 或 `totalLeveragedInterest` 预先限制到 `2^64 - 1` 这一错误前提。
 
 `setLeveragedDebtFactor(newFactor)` 只影响仍可新增杠杆创世的未来 debt cap / `remainingAdditionalInterest` 计算，即 market 为 `None / Genesis` 且 Launcher verse 仍处于 `Genesis` 的情形。setter 不改变已注册 market 的固定 `interestRate`，不改变已 mint 债务，不改变 `Locked / Settled / Refund` 的结算或 claim 语义。降低 `leveragedDebtFactor` 后，若已有 Genesis market 的累计债务已达到或超过新 cap，后续 `leveragedGenesis` 可能被阻止，但既有利息不会被追溯 revert。`finalizeLeveragedGenesis` 仍不重复检查 debt cap。
 
-即使普通资金为 0，也允许杠杆债务达到：
+`MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` 固定为：
 
 ```text
-fullPrecisionMulDiv(leveragedDebtFactor, minTotalFund, 1e18)
+type(uint128).max
+```
+
+成功路径的创世总资金口径为：
+
+```text
+totalGenesisFunds = totalNormalFunds + totalLeveragedDebt
+```
+
+`totalGenesisFunds` 不包含 preorder。
+
+成功 `genesis` / `leveragedGenesis` 写入后都必须保持：
+
+```text
+totalGenesisFunds <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS
+```
+
+即使普通资金为 0，杠杆债务上限也仍受 aggregate MAX 约束，实际可达到的上限为：
+
+```text
+min(fullPrecisionMulDiv(leveragedDebtFactor, minTotalFund, 1e18), MAX_SUPPORTED_TOTAL_GENESIS_FUNDS)
 ```
 
 `leveragedGenesis` 写入前必须用本次新增利息后的总利息做预检：
@@ -524,8 +548,12 @@ fullPrecisionMulDiv(leveragedDebtFactor, minTotalFund, 1e18)
 ```text
 nextTotalLeveragedInterest = totalLeveragedInterest + interestAmount
 previewDebt = nextTotalLeveragedInterest * 1e18 / market.interestRate
-previewDebt <= fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)
+rawDebtCap = fullPrecisionMulDiv(leveragedDebtFactor, max(totalNormalFunds, minTotalFund), 1e18)
+previewDebt <= rawDebtCap
+totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS
 ```
+
+预检必须基于累计 `nextTotalLeveragedInterest -> previewDebt`，不能只检查当前调用新增 delta。
 
 成功门槛比较 `totalLeveragedInterest`（用户实际支付的 uAsset 利息总额），四池部署资金口径使用 `totalLeveragedDebt`（利息推导出的债务本金，`debt = interest × 1e18 / interestRate`）。二者数值不同但方向一致。
 
@@ -671,7 +699,7 @@ totalAuxiliaryFunds = totalGenesisFunds - totalMemecoinFunds
 - `numerator = mainPoolUAssetUsed`
 - `denominator = mainPoolPOLAmount`
 
-WR-004 要求 PT backing ratio 必须基于 Router / AMM 执行结果，而不是基于期望预算。若 Router 或 AMM 在主池创建过程中退回未使用的 bootstrap `uAsset` / `memecoin`，该未使用部分不计入 PT backing。未使用 bootstrap `uAsset` 必须按 §6.7 注入 POLend settlement dust reserve / treasury excess 路径，未使用 bootstrap `memecoin` 必须 burn。
+WR-004 要求 PT backing ratio 必须基于主池 Router / AMM 实际执行结果，而不是基于期望预算。若 Router 或 AMM 在主池创建过程中退回未使用的 bootstrap `uAsset` / `memecoin`，该未使用部分不计入 PT backing。auxiliary pool actual spend 低于 desired budget 形成的未使用 bootstrap `uAsset` 必须按 §6.7 注入 POLend settlement dust reserve / treasury excess 路径，未使用 bootstrap `memecoin` 必须 burn。
 
 `denominator` 必须使用 launch 实际 mint 出来的 main pool LP/POL raw amount，不能使用预估值。
 
@@ -796,14 +824,14 @@ previewPTToUAsset(verseId, ptAmount) = FullMath.mulDiv(ptAmount, ptBackingNumera
 
 所有 `preRedeemPTFee`、`redeemPT`、`redeemYT` 的 PT reserve、settle 时预兑付 backing burn、`POLend.executeGlobalSettlement` 回收 PT settlement 都必须使用该转换后的 `uAsset` 数量，不得直接把 `ptAmount` 当作 `uAsset` 数量。
 
-`mintPOLToken` 在 `Locked` 后继续 mint 新 POL 时必须保持相同固定 ratio。令 `requiredUAsset = previewPTToUAsset(newPOLRaw)`，实际 `uAsset` 输入必须满足：
+`mintPOLToken` 在 `Locked` 后继续 mint 新 POL 时，不再执行运行时 `InvalidPOLBacking` 风格的 strict backing equality 检查。
 
-```text
-actualUAsset >= requiredUAsset
-actualUAsset <= requiredUAsset + 1 wei
-```
+当前产品规则是：
 
-underbacking 一律 revert；只容忍最多 `+1 wei` overage，作为 router / full-range LP 整数取整 dust。该 overage 不创建独立 claim / surplus 路径，也不得用于有意额外 backing。
+- fixed PT backing ratio 仍由启动时记录的 `ptBackingNumerator / ptBackingDenominator` 定义
+- `mintPOLToken` 继续走 exact-liquidity minting
+- 若报价后的实际执行无法 mint 出请求的 LP/POL 数量，则整笔 mint fail closed
+- 不存在一个单独的“bootstrap 式 underbacking”运行时豁免路径，也不存在一个允许额外 backing 改写 PT/YT 经济的路径
 
 ## 14. 初始 YT claim
 
@@ -1051,9 +1079,43 @@ ptPolLpAmount = auxiliaryLiquidities.ptPolLpAmount * userGenesisFund / totalNorm
 
 普通用户领取后不更新 `auxiliaryLiquidities`，只用 `isRedeemed` 防双领。
 
+除三个辅助池普通份额 LP 外，该路径还必须分发 bootstrap pre-LP residual 的 normal share：
+
+```text
+normalResidualPOL = totalResidualPOL - floor(totalResidualPOL * totalLeveragedDebt / totalGenesisFunds)
+normalResidualPT = totalResidualPT - floor(totalResidualPT * totalLeveragedDebt / totalGenesisFunds)
+```
+
+用户领取 normal residual 的公式与普通 LP 一样，按：
+
+```text
+userGenesisFund / totalNormalFunds
+```
+
+做一次 floor 分配。只有这里最终按用户比例 floor 后的尾差 dust 可以残留。
+
 若 `totalLeveragedDebt > 0`，`changeStage Locked -> Unlocked` 同一笔交易内完成 `executeGlobalSettlement`，用户无法在杠杆 LP 切走前领取普通 LP；原因是 `redeemAuxiliaryLiquidity` 在 `Locked` 阶段不可调用，`changeStage` 原子完成后才进入 `Unlocked`。
 
 `executeGlobalSettlement` 会先切走杠杆份额 LP，并把 `auxiliaryLiquidities` 更新为剩余普通份额 LP。普通用户只能领取剩余普通份额。
+同一条 leveraged auxiliary settlement 输出还必须包含 bootstrap pre-LP residual 的 leveraged share：`leveragedResidualPOL` 与 `leveragedResidualPT`。这两个量不是新的永久托管桶，而是 leveraged side 在现有 settlement/claim 流程里的附加输出。
+
+bootstrap pre-LP residual `POL/PT` 不是这里的普通 auxiliary LP split dust。它必须在更早的 bootstrap accounting 阶段先单独记录为四个量：
+
+```text
+normalResidualPOL
+normalResidualPT
+leveragedResidualPOL
+leveragedResidualPT
+```
+
+其中：
+
+```text
+leveragedResidualPOL = floor(totalResidualPOL * totalLeveragedDebt / totalGenesisFunds)
+leveragedResidualPT = floor(totalResidualPT * totalLeveragedDebt / totalGenesisFunds)
+```
+
+normal share 取余数，不能另建永久 launcher bucket。
 
 纯普通创世时不调用 `executeGlobalSettlement`，三个辅助池 LP 全部留在 `auxiliaryLiquidities` 供普通用户领取。
 
@@ -1649,7 +1711,7 @@ Launcher 调 IOFT.send
 
 `protocolTreasury` 必须非零。
 
-`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。market 注册在复制当前默认配置前校验该约束；全局配置 setter 也必须保持同一约束，保证后续注册可用。`leveragedDebtFactor` 必须做有界上限校验，并且所有相关计算必须使用全精度 `mulDiv` 或等价 overflow-safe 实现；该校验不能建立在 `minTotalFund`、`totalNormalFunds` 或 `totalLeveragedInterest` 被统一限制到 `2^64 - 1` 的前提上。
+`fullPrecisionMulDiv(leveragedDebtFactor, interestRate, 1) >= 1e36`。market 注册在复制当前默认配置前校验该约束；全局配置 setter 也必须保持同一约束，保证后续注册可用。`initialize` 输入的 `leveragedDebtFactor` 还必须满足 `<= MAX_LEVERAGED_DEBT_FACTOR`，其中 `MAX_LEVERAGED_DEBT_FACTOR = uint128.max * 1e18`；超出即 `InvalidConfig`。
 
 `setProtocolTreasury(newTreasury)`：
 
@@ -1662,7 +1724,7 @@ Launcher 调 IOFT.send
 
 - 仅 owner
 - `0 < newRate <= 1e18`
-- 使用当前 `leveragedDebtFactor` 与 `newRate` 校验 `fullPrecisionMulDiv(leveragedDebtFactor, newRate, 1) >= 1e36`，并满足 §10 的 `leveragedDebtFactor` 有界上限要求
+- 使用当前 `leveragedDebtFactor` 与 `newRate` 校验 `fullPrecisionMulDiv(leveragedDebtFactor, newRate, 1) >= 1e36`
 - 只影响未来注册 market
 - 事件 `event DefaultInterestRateChanged(uint256 oldRate, uint256 newRate);`
 
@@ -1671,7 +1733,8 @@ Launcher 调 IOFT.send
 - 仅 owner
 - `newFactor != 0`
 - 使用 `newFactor` 与当前 `defaultInterestRate` 校验 `fullPrecisionMulDiv(newFactor, defaultInterestRate, 1) >= 1e36`
-- 做有界上限校验，并保证相关计算使用全精度 `mulDiv` 或等价 overflow-safe 实现；该校验不能依赖 `minTotalFund`、`totalNormalFunds` 或 `totalLeveragedInterest` 被统一限制到 `2^64 - 1`
+- `newFactor <= MAX_LEVERAGED_DEBT_FACTOR`，其中 `MAX_LEVERAGED_DEBT_FACTOR = uint128.max * 1e18`；超出即 `InvalidConfig`
+- 相关计算使用全精度 `mulDiv` 或等价 overflow-safe 实现；该校验不能依赖 `minTotalFund`、`totalNormalFunds` 或 `totalLeveragedInterest` 被统一限制到 `2^64 - 1`
 - 只影响仍处于 `None / Genesis` 且 Launcher verse 仍处于 `Genesis` 的 market 后续 debt cap / `remainingAdditionalInterest` 计算；不改变已注册 market 利率、已 mint 债务或 `Locked / Settled / Refund` 结算 / claim 语义
 - 事件 `event LeveragedDebtFactorChanged(uint256 oldFactor, uint256 newFactor);`
 
@@ -1701,7 +1764,7 @@ Launcher 调 IOFT.send
 | 函数 | Caller | 状态要求 | 输入 / 零值检查 | 事件 / 配置语义 |
 | --- | --- | --- | --- | --- |
 | `registerLendMarket` | `Launcher` | market 未注册 | verse `uAsset` 必须有效，且 `settlementDustStates[uAsset].maxReserve > 0`；复制当前 `defaultInterestRate`，校验 `leveragedDebtFactor` 与利率约束 | 注册后利率固定 |
-| `leveragedGenesis` | 用户 | Launcher verse 为 `Genesis`；market 为 `None / Genesis` | `interestAmount > 0`；该 `uAsset` 已完成全局 reserve 配置；参与地址为 `msg.sender`，无 user-address 输入；debt cap 预检 | `LeveragedGenesis` |
+| `leveragedGenesis` | 用户 | Launcher verse 为 `Genesis`；market 为 `None / Genesis` | `interestAmount > 0`；该 `uAsset` 已完成全局 reserve 配置；参与地址为 `msg.sender`，无 user-address 输入；累计 `nextTotalLeveragedInterest -> previewDebt` 预检必须同时满足 `previewDebt <= rawDebtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` | `LeveragedGenesis` |
 | `markRefundable` | `Launcher` | market 为 `Genesis` | 无金额输入 | 状态改为 `Refund` |
 | `finalizeLeveragedGenesis` | `Launcher` | `Genesis -> Locked` 流程；market 为 `Genesis` | `totalLeveragedDebt > 0`；该 `uAsset` 已完成全局 reserve 配置 | 状态改为 `Locked`，mint debt，把杠杆利息按 reserve 容量拆分为 reserve 与 treasury，emit `SettlementDustReservedFromInterest` |
 | `recordLeveragedYT` | `Launcher` | market 为 `Locked` | `yt != address(0)`，`totalLeveragedYT > 0`，防重复 | 记录杠杆初始 `YT` |
@@ -1714,7 +1777,7 @@ Launcher 调 IOFT.send
 | `claimResidual` | 用户 | market 为 `Settled` | `to != address(0)`，有有效利息且未领取；四舍五入向下后 payout 可为 0 | 标记 `residualClaimed` |
 | `setProtocolTreasury` | owner | 任意 | `newTreasury != address(0)` | 仅影响未来杠杆利息 treasury 份额与 Launcher over-capacity funding excess 的接收地址 |
 | `setDefaultInterestRate` | owner | 任意 | `0 < newRate <= 1e18`；当前 `leveragedDebtFactor` 与 `newRate` 满足杠杆约束 | 仅影响未来注册 market |
-| `setLeveragedDebtFactor` | owner | 任意 | `newFactor != 0`；满足实现定义的有界上限；`newFactor` 与当前 `defaultInterestRate` 满足杠杆约束 | 仅影响可继续新增杠杆创世的 `None / Genesis` market 后续 debt cap / `remainingAdditionalInterest` |
+| `setLeveragedDebtFactor` | owner | 任意 | `newFactor != 0`；`newFactor <= uint128.max * 1e18`；`newFactor` 与当前 `defaultInterestRate` 满足杠杆约束 | 仅影响可继续新增杠杆创世的 `None / Genesis` market 后续 debt cap / `remainingAdditionalInterest` |
 | `setMaxSettlementDustReserve` | owner | 任意 | `uAsset != address(0)`，`maxReserve > 0`，且下调时当前 `reserve <= maxReserve` | 配置该 `uAsset` 全局 settlement dust reserve 上限；不支持用 0 作为 launch-supported 运行模式 |
 | upgrade authorization | owner（UUPS `_authorizeUpgrade`） | 按升级框架 | 新实现初始化与存储布局必须兼容 | 不改变既有 market 语义 |
 | pause behavior | pauser / owner policy | 任意 | pause 不得阻断必要的 unlock / refund / repay 安全出口；`fundSettlementDustReserve` 视为 unlock / repay 安全出口 | pause 只限制新增资金入口和非必要领取入口。受 `whenNotPaused` 阻断的函数清单：`MemeverseLauncher.genesis`、`MemeverseLauncher.preorder`、`MemeverseLauncher.claimNormalYT`、`MemeverseLauncher.claimNormalFees`、`MemeverseLauncher.redeemAuxiliaryLiquidity`、`MemeverseLauncher.claimUnlockedPreorderMemecoin`、`MemeverseLauncher.redeemAndDistributeFees`、`POLend.leveragedGenesis`。不受 pause 阻断的安全出口：`POLend.claimRefund`、`POLend.claimLeveragedYT`、`POLend.claimResidual`、`POLend.fundSettlementDustReserve`、`POLend.executeGlobalSettlement`、`POLSplitter.redeemPT`、`POLSplitter.redeemYT`、`POLSplitter.settle` |
@@ -1727,7 +1790,7 @@ Launcher 调 IOFT.send
 | `preorder` | `amount > 0`，`user != address(0)`，`totalPreorderFunds + amount <= preorderCap` |
 | `redeemPT` | `amount > 0`，`to != address(0)` |
 | `redeemYT` | `amount > 0`，`to != address(0)` |
-| `leveragedGenesis` | `interestAmount > 0`；该 `uAsset` 已完成全局 reserve 配置；参与地址为 `msg.sender`，无 user-address 输入 |
+| `leveragedGenesis` | `interestAmount > 0`；该 `uAsset` 已完成全局 reserve 配置；参与地址为 `msg.sender`，无 user-address 输入；累计 `nextTotalLeveragedInterest -> previewDebt` 必须同时满足 `previewDebt <= rawDebtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` |
 | `claimResidual` | 用户有有效利息且未领取时可标记 claimed，即使向下取整后的 payout 为 0 |
 | `getUserLeveragedDebt` | `user != address(0)`，`ZeroInput`；market 未注册时 `InvalidState` |
 | `getTotalDebtByUAsset` | `uAsset != address(0)`，`ZeroInput` |
@@ -1816,7 +1879,7 @@ function splitInfos(uint256 verseId) external view returns (address pt, address 
 - `registerLendMarket`：对应 `uAsset` 未完成全局 reserve 配置
 - `finalizeLeveragedGenesis`：对应 `uAsset` 未完成全局 reserve 配置
 - `fundSettlementDustReserve`：`uAsset` 未完成全局 reserve 配置
-
+- `initialize / setLeveragedDebtFactor`：`leveragedDebtFactor > uint128.max * 1e18`
 `POLend` 侧 `InvalidState` 使用场景：
 
 - `registerLendMarket`：market 已注册；Launcher 返回的 verse `uAsset == address(0)` 时 `ZeroInput`

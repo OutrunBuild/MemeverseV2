@@ -40,6 +40,7 @@
 
 ### 4.2 Genesis 与 Preorder
 - Genesis 入金 token 为 uAsset；普通创世与杠杆创世资金统一汇总后按 `70/30` 拆分到主池与辅助池路径（四池模型）。
+- 部署资金口径为 `totalNormalFunds + totalLeveragedDebt`，不包含 preorder，并且成功写入后必须保持 `<= type(uint128).max`；Launcher `genesis` 在外部 uAsset 拉取前先更新普通创世账本，使 callback-capable token 重入时 POLend 读取到累计普通资金。
 - Preorder 仅在 Genesis 可入金，容量受 `preorderCapRatio` 限制。
 - POLend/POLSplitter 的四池、杠杆、PT/YT、settlement 详细规则由 [docs/spec/polend/polend.md](polend/polend.md) 管辖。
 

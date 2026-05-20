@@ -40,6 +40,7 @@
 | `MemeverseLauncher.registerMemeverse` | 仅 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol:936-947` |
 | `MemeverseLauncher.setExternalInfo` | `governor` 或 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol:1307-1314` |
 | Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimNormalYT`/POLend `claimLeveragedYT`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol:318`, `:382`, `:619`, `:671`, `:719`, `:813`, `:841`, `:884` |
+| `POLend` 杠杆创世与配置 | `leveragedGenesis` 为用户入口，靠 Launcher Genesis 阶段、累计 debt cap 与 aggregate genesis funds 上限约束；`setLeveragedDebtFactor` 为 owner-only，并受 `uint128.max * 1e18` 技术上限约束 | `src/polend/POLend.sol:106`, `:146-173`, `:491-501` |
 | `MemeverseRegistrationCenter` | `registration` 对外开放；参数配置和 gas dust 清理是 `onlyOwner` | `src/verse/registration/MemeverseRegistrationCenter.sol:115`, `:158`, `:308`, `:319`, `:332`, `:344` |
 | `MemeverseRegistrarAtLocal` | `localRegistration` 仅 center；`setRegistrationCenter` 仅 owner | `src/verse/registration/MemeverseRegistrarAtLocal.sol:57-60`, `:80` |
 | `MemeverseRegistrarOmnichain` | `setRegistrationGasLimit` 仅 owner | `src/verse/registration/MemeverseRegistrarOmnichain.sol:122` |

@@ -18,8 +18,8 @@
 
 | 当前状态 | 触发 | 条件 | 下一状态 | 关键副作用 | 规则状态 |
 | --- | --- | --- | --- | --- | --- |
-| `Genesis` | `changeStage` | `flashGenesis && meetMinTotalFund` | `Locked` | 部署治理组件 + 按 POLend 四池目标模型建立 `memecoin/uAsset`、`POL/uAsset`、`PT/uAsset`、`PT/POL` + preorder 结算 | 目标规则（见 [docs/spec/polend/polend.md](../polend/polend.md)） |
-| `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 目标规则（见 [docs/spec/polend/polend.md](../polend/polend.md)） |
+| `Genesis` | `changeStage` | `flashGenesis && meetMinTotalFund` | `Locked` | 部署治理组件 + `Launcher` 以 desired budgets 触发四池 bootstrap，Router 返回 actual spend，随后按实际执行结果建立 `memecoin/uAsset`、`POL/uAsset`、`PT/uAsset`、`PT/POL` + preorder 结算 | 当前规则（代码已证） |
+| `Genesis` | `changeStage` | `currentTime > endTime && meetMinTotalFund` | `Locked` | 同上 | 当前规则（代码已证） |
 | `Genesis` | `changeStage` | `currentTime > endTime && !meetMinTotalFund` | `Refund` | 允许 `refund/refundPreorder` | 当前规则（代码已证） |
 | `Genesis` | `changeStage` | 其他条件 | 回退 `StillInGenesisStage` | 无 | 当前规则（代码已证） |
 | `Locked` | `changeStage` | `currentTime > unlockTime` | `Unlocked` | 开放赎回路径；并按该次交易时间 + 固定 `24 hours` 为受保护池写入公开 swap 恢复时间 | 当前规则（代码已证） |
@@ -47,6 +47,10 @@
 | `POLSplitter.redeemPT` / `POLSplitter.redeemYT` | 禁止 | 禁止 | 禁止 | 允许（settle 后） | 当前规则（POLend 四池） |
 | `claimUnlockedPreorderMemecoin` | 禁止 | 禁止 | 允许（按线性解锁） | 允许 | 当前规则（代码已证） |
 
+`genesis` 成功写入后必须保持 `totalNormalFunds + totalLeveragedDebt <= type(uint128).max`；实现上先更新普通创世账本再执行 uAsset 拉取，使 callback-capable token 重入 POLend 时读取到累计普通资金。POLend `leveragedGenesis` 使用累计 `nextTotalLeveragedInterest -> previewDebt` 做同一聚合上限预检。
+
+bootstrap auxiliary pool creation 以 auxiliary pool actual spend 为准，不要求 preview/equality 一致才可进入 `Locked`。协议不为 auxiliary underspend 额外定义 bootstrap backing / equality guard，也不依赖单独文档化的 rounding-envelope accept/reject 规则。
+
 ### 2.4 `Unlocked` 后的流动性保护窗口
 
 - 安全要求：当 verse 从 `Locked` 进入解锁阶段后，不得立即开放“公开 swap + LP 赎回”并存的状态。
@@ -58,8 +62,9 @@
   - 必须禁止：绕过公开入口的等价 swap 路径
 - launcher 还维护一个更窄的“unlock settlement in-flight”布尔门：
   - `changeStage()` 在执行 `Locked -> Unlocked` 的同一笔交易内，会把 `unlockSettlementActive[verseId]` 置为 `true`，完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 保护时间写入后再清回 `false`
-  - `redeemAuxiliaryLiquidity` 在该标志为 `true` 时必须回退
-  - `redeemMemecoinLiquidity` 对普通调用者同样必须回退；仅 `polSplitter` / `polend` 作为协议内部 settlement caller 时可继续执行
+- `redeemAuxiliaryLiquidity` 在该标志为 `true` 时必须回退
+- `redeemMemecoinLiquidity` 对普通调用者同样必须回退；仅 `polSplitter` / `polend` 作为协议内部 settlement caller 时可继续执行
+- bootstrap residual `POL/PT` 的 normal share 在 `redeemAuxiliaryLiquidity` 路径发放；leveraged share 在 leveraged auxiliary settlement 路径发放。只有最终按用户比例 floor 后的尾差 dust 允许残留。
 - 当前实现状态：
   - verse 在 `currentTime > unlockTime` 后，需通过实际 `changeStage()` 调用进入 `Unlocked`
   - launcher 在该次迁移里按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
