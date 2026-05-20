@@ -47,6 +47,25 @@ Do not override policy or gate evidence with natural-language guesses.
 - Do not create a parallel control plane outside policy, gate, and project agent files.
 - Deleting untracked files from the current git working tree requires explicit human confirmation.
 
+## High-Priority Beginner-Readable Code
+
+- This section is high-priority. Optimize for code a beginner can read top to bottom.
+- Favor beginner-readable names over protocol jargon, abbreviations, or internal shorthand.
+- If a specialized term must stay, explain it at first use in a short local comment.
+- Add short implementation comments for non-obvious business logic, invariants, or cross-step reasoning. NatSpec alone is not enough.
+- Many tiny single-use helpers make code harder to follow because readers must jump around.
+- Extract a helper only when it clearly improves readability, naming, reuse, or testability.
+- Inline trivial single-use logic unless extraction clearly improves comprehension.
+
+## Ownership And Concurrent-Write Guard
+
+- Before editing any dirty target file, run an ownership check with `git status --short` plus a path-scoped `git diff --name-only` or equivalent.
+- If a target file contains changes not made by the current main session or current assigned writer, do not delete, revert, or overwrite those changes.
+- If concurrent or foreign edits affect the same target files, stop writing and establish ownership or merge strategy before any further edits.
+- Treat out-of-scope existing changes as foreign-owned by default: report them or request direction. Only remove out-of-scope changes introduced by the current session or assigned writer.
+- Maintain one active writer per file set. Reviewers stay read-only; if review requires changes, route back to the assigned writer or explicitly transfer ownership before editing.
+- Gate or review failures do not authorize overwriting foreign edits. First determine whether the failure comes from owned changes or foreign changes.
+
 ## Context Scope
 
 - Use the minimum repository context needed to classify, route, edit, review, and verify the task.
