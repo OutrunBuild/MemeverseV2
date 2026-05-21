@@ -22,5 +22,5 @@ if [ -z "$repo_root" ]; then
     exit 0
 fi
 
-echo "[harness] This repo has .harness/policy.json. You MUST follow the Harness Dispatch Procedure: classify via policy.json -> dispatch subagent -> review -> verify. Do NOT edit files directly in the main session."
+echo "[harness] This repo has .harness/policy.json. Before repository edits, run gate.sh --classify-only with the exact changed-file set. Follow emitted orchestration_profile and phase fields. Main session may edit direct/direct-review. delegated/full-review/full-subagent must use configured writers/reviewers."
 exit 0

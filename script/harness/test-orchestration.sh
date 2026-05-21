@@ -63,119 +63,6 @@ run_default_classify_in_scratch_repo() {
     printf '%s\n' "$record"
 }
 
-run_mixed_spec_readiness_classify_in_scratch_repo() {
-    local name="$1"
-    local include_required_docs="$2"
-    local repo="$tmp_dir/$name.repo"
-    local record="$tmp_dir/$name.record.json"
-    local changed="$tmp_dir/$name.changed"
-    local diff="$tmp_dir/$name.diff"
-
-    mkdir -p "$repo/script/harness" "$repo/.harness" "$repo/src/swap" "$repo/docs/spec/swap" "$repo/docs/spec" "$repo/docs"
-    cp script/harness/gate.sh "$repo/script/harness/gate.sh"
-    cp -R .harness/policy.json .harness/schemas "$repo/.harness/"
-
-    cat >"$repo/src/swap/MemeverseSwapRouter.sol" <<'EOF'
-pragma solidity ^0.8.0;
-contract MemeverseSwapRouter {
-    function amount() external pure returns (uint256) {
-        return 1;
-    }
-}
-EOF
-
-    cat >"$repo/docs/spec/swap/swap-flow.md" <<'EOF'
-# swap-flow
-EOF
-    cat >"$repo/docs/spec/swap/swap-integration.md" <<'EOF'
-# swap-integration
-EOF
-    cat >"$repo/docs/spec/swap/uniswap-v4.md" <<'EOF'
-# uniswap-v4
-EOF
-    cat >"$repo/docs/spec/swap/permit2.md" <<'EOF'
-# permit2
-EOF
-    cat >"$repo/docs/spec/invariants.md" <<'EOF'
-# invariants
-EOF
-    cat >"$repo/docs/foo.md" <<'EOF'
-# foo
-EOF
-
-    (
-        cd "$repo"
-        git init -q
-        git config user.email test@example.invalid
-        git config user.name "Harness Test"
-        git add .
-        git commit -q -m baseline
-
-        cat >src/swap/MemeverseSwapRouter.sol <<'EOF'
-pragma solidity ^0.8.0;
-contract MemeverseSwapRouter {
-    function amount() external pure returns (uint256) {
-        return 2;
-    }
-}
-EOF
-
-        cat >"$diff" <<'EOF'
-diff --git a/src/swap/MemeverseSwapRouter.sol b/src/swap/MemeverseSwapRouter.sol
---- a/src/swap/MemeverseSwapRouter.sol
-+++ b/src/swap/MemeverseSwapRouter.sol
-@@ -2,5 +2,5 @@ pragma solidity ^0.8.0;
- contract MemeverseSwapRouter {
-     function amount() external pure returns (uint256) {
--        return 1;
-+        return 2;
-     }
- }
-EOF
-
-        if [ "$include_required_docs" = "true" ]; then
-            printf '%s\n' \
-                "src/swap/MemeverseSwapRouter.sol" \
-                "docs/spec/swap/swap-flow.md" \
-                "docs/spec/swap/swap-integration.md" \
-                "docs/spec/swap/uniswap-v4.md" \
-                "docs/spec/swap/permit2.md" \
-                "docs/spec/invariants.md" >"$changed"
-
-            printf 'updated\n' >>docs/spec/swap/swap-flow.md
-            printf 'updated\n' >>docs/spec/swap/swap-integration.md
-            printf 'updated\n' >>docs/spec/swap/uniswap-v4.md
-            printf 'updated\n' >>docs/spec/swap/permit2.md
-            printf 'updated\n' >>docs/spec/invariants.md
-        else
-            printf '%s\n' \
-                "src/swap/MemeverseSwapRouter.sol" \
-                "docs/foo.md" >"$changed"
-
-            printf 'updated\n' >>docs/foo.md
-        fi
-
-        set +e
-        RUN_RECORD_PATH="$record" CHANGE_CLASSIFIER_DIFF_FILE="$diff" \
-            bash script/harness/gate.sh --classify-only --changed-files "$changed" >/dev/null
-        status=$?
-        set -e
-
-        if [ "$include_required_docs" = "true" ] && [ "$status" -ne 0 ]; then
-            echo "expected classify status 0 for $name, got $status" >&2
-            exit 1
-        fi
-
-        if [ "$include_required_docs" != "true" ] && [ "$status" -ne 1 ]; then
-            echo "expected classify status 1 for $name, got $status" >&2
-            exit 1
-        fi
-    )
-
-    jq -e . "$record" >/dev/null
-    printf '%s\n' "$record"
-}
-
 write_changed_files() {
     local name="$1"
     shift
@@ -272,6 +159,74 @@ assert run_gate_step["run"] == "bash script/harness/ci-gate-entrypoint.sh"
 PY
 }
 
+run_pre_edit_check() {
+    local file_path="$1"
+    printf '{"file_path":"%s"}' "$file_path" | bash script/harness/pre-edit-check.sh
+}
+
+assert_pre_edit_check_guidance() {
+    local output="$1"
+
+    grep -Fq "classify-only with the exact changed-file set" <<<"$output"
+    grep -Fq "Follow emitted orchestration_profile and phase fields" <<<"$output"
+    grep -Fq "Main session may edit direct/direct-review" <<<"$output"
+    grep -Fq "delegated/full-review/full-subagent must use configured writers/reviewers" <<<"$output"
+}
+
+run_gate_full_capture() {
+    local name="$1"
+    local changed_files="$2"
+    local diff_file="$3"
+    local fake_bin="$tmp_dir/$name.bin"
+    local stdout="$tmp_dir/$name.stdout"
+    local record="$tmp_dir/$name.record.json"
+    local status
+
+    mkdir -p "$fake_bin"
+
+    cat >"$fake_bin/forge" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$fake_bin/forge"
+
+    cat >"$fake_bin/npm" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$fake_bin/npm"
+
+    cat >"$fake_bin/slither" <<'EOF'
+#!/usr/bin/env bash
+cat <<'JSON'
+{
+  "success": true,
+  "results": {
+    "detectors": [
+      {
+        "check": "reentrancy-eth",
+        "impact": "High",
+        "confidence": "High",
+        "first_markdown_element": "src/verse/MemeverseLauncher.sol#L1-L4",
+        "description": "New detector finding"
+      }
+    ]
+  }
+}
+JSON
+exit 0
+EOF
+    chmod +x "$fake_bin/slither"
+
+    set +e
+    PATH="$fake_bin:$PATH" RUN_RECORD_PATH="$record" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
+        bash script/harness/gate.sh --profile full --changed-files "$changed_files" >"$stdout" 2>&1
+    status=$?
+    set -e
+
+    printf '%s\n%s\n%s\n' "$status" "$record" "$stdout"
+}
+
 assert_no_removed_fields() {
     local record="$1"
     jq -e '
@@ -281,7 +236,16 @@ assert_no_removed_fields() {
       (has("high_risk_tokens") | not) and
       (has("high_risk_reasons") | not) and
       (has("review_matrix") | not) and
-      (has("review_triggers") | not)
+      (has("review_triggers") | not) and
+      (has("doc_writer_roles") | not) and
+      (has("selected_writer_roles") | not) and
+      (has("writer_role") | not) and
+      (has("selected_review_roles") | not) and
+      (has("selected_review_roles_source") | not) and
+      (has("pre_code_review_roles") | not) and
+      (has("pre_code_review_roles_source") | not) and
+      (has("post_code_review_roles") | not) and
+      (has("post_code_review_roles_source") | not)
     ' "$record" >/dev/null
 }
 
@@ -290,9 +254,10 @@ docs_record="$(run_classify docs "$docs_changed")"
 jq -e '
   .change_class == "non-semantic" and
   .orchestration_profile == "delegated" and
-  .selected_writer_roles == ["process-implementer"] and
-  .selected_review_roles == [] and
-  .selected_review_roles_source == "delegated_review_rules"
+  .harness_writer_roles == ["process-implementer"] and
+  .spec_review_required == false and
+  .code_writer_roles == [] and
+  .code_review_roles == []
 ' "$docs_record" >/dev/null
 assert_no_removed_fields "$docs_record"
 
@@ -303,7 +268,10 @@ jq -e '
   .orchestration_profile == "delegated" and
   .candidate_orchestration_profile == "direct" and
   .requires_doc_editorial_attestation == true and
-  .selected_writer_roles == ["process-implementer"]
+  .harness_writer_roles == ["process-implementer"] and
+  .spec_review_required == false and
+  .code_writer_roles == [] and
+  .code_review_roles == []
 ' "$readme_record" >/dev/null
 assert_no_removed_fields "$readme_record"
 
@@ -311,8 +279,10 @@ spec_changed="$(write_changed_files spec docs/superpowers/specs/foo.md)"
 spec_record="$(run_classify spec "$spec_changed")"
 jq -e '
   .orchestration_profile == "delegated" and
-  .selected_writer_roles == ["process-implementer"] and
-  .selected_review_roles == ["spec-reviewer"] and
+  .harness_writer_roles == ["process-implementer"] and
+  .spec_review_required == true and
+  .code_writer_roles == [] and
+  .code_review_roles == [] and
   .requires_human_confirmation == true
 ' "$spec_record" >/dev/null
 assert_no_removed_fields "$spec_record"
@@ -323,106 +293,61 @@ test_record="$(run_classify testsol "$test_changed" "$test_diff")"
 jq -e '
   .change_class == "test-semantic" and
   .orchestration_profile == "direct-review" and
-  .selected_writer_roles == ["solidity-implementer"] and
-  .selected_review_roles == ["logic-reviewer"]
+  .harness_writer_roles == [] and
+  .spec_review_required == false and
+  .code_writer_roles == ["solidity-implementer"] and
+  .code_review_roles == ["logic-reviewer"]
 ' "$test_record" >/dev/null
 assert_no_removed_fields "$test_record"
 
-src_changed="$(write_changed_files srcsol src/swap/MemeverseSwapRouter.sol)"
-src_diff="$(write_diff srcsol src/swap/MemeverseSwapRouter.sol 'uint256 oldAmount = amount;' 'uint256 newAmount = amount + 1;')"
-src_record="$(run_classify srcsol "$src_changed" "$src_diff" 1)"
+src_changed="$(write_changed_files srcsol src/verse/MemeverseLauncher.sol)"
+src_diff="$(write_diff srcsol src/verse/MemeverseLauncher.sol 'uint256 oldAmount = amount;' 'uint256 newAmount = amount + 1;')"
+src_record="$(run_classify srcsol "$src_changed" "$src_diff")"
 jq -e '
   .change_class == "prod-semantic" and
-  .surface_sensitivity == "sensitive" and
-  .semantic_escalation == null and
-  .requires_main_risk_analysis == true and
-  .default_orchestration_profile == "full-review" and
-  .candidate_orchestration_profile == "direct-review" and
-  .orchestration_profile == "blocked" and
-  .final_verdict == "blocked" and
-  .selected_writer_roles == ["process-implementer"] and
-  .selected_review_roles == ["spec-reviewer"] and
-  .selected_review_roles_source == "spec_readiness_gate" and
-  .coverage_required_full_ci == true and
-  .slither_required_full_ci == true
-' "$src_record" >/dev/null
-jq -e '
-  .repo == "MemeverseV2" and
-  .orchestration_decision_state == "pending-main-session-risk-analysis" and
-  .risk_analysis_record_required == true and
-  .risk_analysis_record == null and
-  .doc_editorial_attestation == null and
-  .spec_readiness_writer_roles == ["process-implementer"] and
-  .spec_readiness_review_roles == ["spec-reviewer"] and
-  .requires_human_confirmation == true and
-  (.orchestration_reasons | index("spec-readiness-doc-update") != null) and
-  (.blocking_findings[] | select(.rule_id == "spec-readiness-doc-update")) and
-  (.spec_readiness_required_docs | index("docs/spec/swap/swap-flow.md") != null)
+  .orchestration_profile == "full-review" and
+  .harness_writer_roles == [] and
+  .spec_review_required == false and
+  .code_writer_roles == ["solidity-implementer"] and
+  (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"]
 ' "$src_record" >/dev/null
 assert_no_removed_fields "$src_record"
 
-script_changed="$(write_changed_files scriptsol script/Deploy.s.sol)"
-script_diff="$(write_diff scriptsol script/Deploy.s.sol 'uint256 oldAmount = amount;' 'uint256 newAmount = amount + 1;')"
-script_record="$(run_classify scriptsol "$script_changed" "$script_diff")"
+mixed_changed="$(write_changed_files mixed src/verse/MemeverseLauncher.sol docs/spec/verse/state-machines.md)"
+mixed_record="$(run_classify mixed "$mixed_changed" "$src_diff")"
 jq -e '
   .change_class == "prod-semantic" and
-  .surface_sensitivity == "sensitive" and
-  .requires_main_risk_analysis == true and
-  .candidate_orchestration_profile == "direct-review" and
-  .selected_writer_roles == ["solidity-implementer"] and
-  .coverage_required_full_ci == true and
-  .slither_required_full_ci == false
-' "$script_record" >/dev/null
-assert_no_removed_fields "$script_record"
-
-mixed_changed="$(write_changed_files mixed docs/foo.md src/swap/MemeverseSwapRouter.sol)"
-mixed_record="$(run_classify mixed "$mixed_changed" "$src_diff" 1)"
-jq -e '
-  .orchestration_profile == "blocked" and
-  .final_verdict == "blocked" and
-  .structural_escalation == true and
-  (.orchestration_reasons | index("mixed_solidity_and_harness_control") != null) and
-  (.orchestration_reasons | index("spec-readiness-doc-update") != null) and
-  .selected_writer_roles == ["process-implementer"] and
-  .selected_review_roles == ["spec-reviewer"] and
-  .selected_review_roles_source == "spec_readiness_gate" and
-  (.blocking_findings[] | select(.rule_id == "spec-readiness-doc-update"))
+  .orchestration_profile == "full-review" and
+  .harness_writer_roles == ["process-implementer"] and
+  .spec_review_required == true and
+  .code_writer_roles == ["solidity-implementer"] and
+  (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
+  .requires_human_confirmation == true
 ' "$mixed_record" >/dev/null
 assert_no_removed_fields "$mixed_record"
 
-mixed_missing_docs_record="$(run_mixed_spec_readiness_classify_in_scratch_repo mixed-missing-docs false)"
+mixed_non_spec_changed="$(write_changed_files mixednonspec src/verse/MemeverseLauncher.sol docs/TRACEABILITY.md)"
+mixed_non_spec_record="$(run_classify mixednonspec "$mixed_non_spec_changed" "$src_diff")"
 jq -e '
+  .change_class == "prod-semantic" and
+  .orchestration_profile == "full-review" and
+  .harness_writer_roles == ["process-implementer"] and
+  .spec_review_required == false and
+  .code_writer_roles == ["solidity-implementer"] and
+  (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
+  .requires_human_confirmation == false
+' "$mixed_non_spec_record" >/dev/null
+assert_no_removed_fields "$mixed_non_spec_record"
+
+pure_unknown_changed="$(write_changed_files pureunknown notes.txt)"
+pure_unknown_record="$(run_classify pureunknown "$pure_unknown_changed" "" 1)"
+jq -e '
+  .change_class == "no-op" and
   .orchestration_profile == "blocked" and
   .final_verdict == "blocked" and
-  .structural_escalation == true and
-  (.orchestration_reasons | index("mixed_solidity_and_harness_control") != null) and
-  (.orchestration_reasons | index("spec-readiness-doc-update") != null) and
-  (.blocking_findings[] | select(.rule_id == "spec-readiness-doc-update"))
-' "$mixed_missing_docs_record" >/dev/null
-assert_no_removed_fields "$mixed_missing_docs_record"
-
-mixed_full_docs_record="$(run_mixed_spec_readiness_classify_in_scratch_repo mixed-full-docs true)"
-jq -e '
-  .orchestration_profile == "full-review" and
-  .final_verdict == "classified" and
-  .structural_escalation == true and
-  .requires_main_risk_analysis == false and
-  (.selected_writer_roles | sort) == ["process-implementer", "solidity-implementer"] and
-  (.selected_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
-  .selected_review_roles_source == "full_review_matrix[prod-semantic]" and
-  (.orchestration_reasons | index("mixed_solidity_and_harness_control") != null) and
-  (.orchestration_reasons | index("spec-readiness-doc-update") != null) and
-  (.orchestration_reasons | index("spec-readiness-satisfied-by-diff-scope") != null) and
-  ([.blocking_findings[]?.rule_id] | index("spec-readiness-doc-update")) == null and
-  (.spec_readiness_required_docs | sort) == [
-    "docs/spec/invariants.md",
-    "docs/spec/swap/permit2.md",
-    "docs/spec/swap/swap-flow.md",
-    "docs/spec/swap/swap-integration.md",
-    "docs/spec/swap/uniswap-v4.md"
-  ]
-' "$mixed_full_docs_record" >/dev/null
-assert_no_removed_fields "$mixed_full_docs_record"
+  (.blocking_findings[] | select(.rule_id == "unclassified-paths"))
+' "$pure_unknown_record" >/dev/null
+assert_no_removed_fields "$pure_unknown_record"
 
 default_record="$(run_default_classify_in_scratch_repo default README.md)"
 jq -e '
@@ -459,5 +384,36 @@ grep -qx -- "--changed-files" "$diff_capture/argv"
 [ -s "$diff_capture/changed_files" ]
 [ -s "$diff_capture/diff_file" ]
 diff -u <(git diff --name-only "$empty_tree" "$current_head") "$diff_capture/changed_files"
+
+pre_edit_output="$(run_pre_edit_check "$repo_root/script/harness/test-orchestration.sh")"
+assert_pre_edit_check_guidance "$pre_edit_output"
+if grep -Fq "Do NOT edit files directly in the main session" <<<"$pre_edit_output"; then
+    echo "pre-edit-check still forbids main session direct/direct-review edits" >&2
+    exit 1
+fi
+
+slither_changed="$(write_changed_files slither src/verse/MemeverseLauncher.sol)"
+slither_diff="$(write_diff slither src/verse/MemeverseLauncher.sol 'uint256 oldAmount = amount;' 'uint256 newAmount = amount + 1;')"
+mapfile -t slither_run < <(run_gate_full_capture slither "$slither_changed" "$slither_diff")
+slither_status="${slither_run[0]}"
+slither_record="${slither_run[1]}"
+slither_stdout="${slither_run[2]}"
+[ "$slither_status" -ne 0 ]
+jq -e '
+  .final_verdict == "fail" and
+  .command_results.slither_when_required.status == "failed" and
+  (.blocking_findings[] | select(.rule_id == "slither_when_required"))
+' "$slither_record" >/dev/null
+grep -Fq "new slither finding" "$slither_stdout"
+
+if grep -Fq "review roles are the union" docs/TRACEABILITY.md; then
+    echo "TRACEABILITY still contains old review union wording" >&2
+    exit 1
+fi
+if grep -Fq "writer may be \`mixed\`" docs/TRACEABILITY.md; then
+    echo "TRACEABILITY still contains old mixed writer wording" >&2
+    exit 1
+fi
+grep -Fq 'The gate reports phase fields for `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles`.' docs/TRACEABILITY.md
 
 echo "orchestration tests passed"

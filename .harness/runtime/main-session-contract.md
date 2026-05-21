@@ -22,15 +22,17 @@
 - `main-orchestrator` stays in the primary session and is never a project agent file.
 - Every repository modification must go through `gate.sh --classify-only` before editing.
 - Dispatch and review are selected by policy-derived `orchestration_profile`.
+- Derive `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles` from gate evidence before delegating.
+- For `prod-semantic` work, the main session decides whether harness-control changes are needed before dispatching `harness_writer_roles`, `spec-reviewer`, `code_writer_roles`, or `code_review_roles`.
 - Main session may directly modify files only for `direct` and `direct-review`.
 - Main session must not author `delegated`, `full-review`, or `full-subagent` changes except to integrate approved subagent output.
 - Do not dispatch writer or reviewer agents for `direct`.
 - Use only project agents under `.claude/agents/` or `.codex/agents/` for delegated work.
-- Do not bypass `process-implementer`, `spec-reviewer`, or human confirmation for docs/spec or spec-readiness changes.
+- Do not bypass `process-implementer`, `spec-reviewer`, or human confirmation for docs/spec changes.
 - Production Solidity semantic changes without structural escalation require a main-session Risk Analysis Record before using `direct-review`; otherwise use `full-review`.
 - README.md editorial-only direct changes require a Doc Editorial Attestation; otherwise use `delegated`.
 - `direct-review` reviewer roles come from `orchestration_review_roles`, not `full_review_matrix`.
-- Dispatch consumes resolved `selected_writer_roles` and `selected_review_roles`.
+- Dispatch consumes resolved `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles`.
 - For local current work on tracked or intended-to-commit repository changes, invoke `gate.sh` with exact changed-file input. If any Solidity file is involved, provide diff evidence without creating persistent repository files:
   - Prefer `GATE_DIFF_BASE=<git-ref>` when a stable base ref exists.
   - If a patch file is required, create it with `mktemp` outside the repository, pass its path through `CHANGE_CLASSIFIER_DIFF_FILE`, and remove it after `gate.sh` exits.

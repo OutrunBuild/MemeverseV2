@@ -10,15 +10,11 @@
     "surfaces",
     "write_roles",
     "risk_rules",
-    "orchestration_profiles",
-    "orchestration_writer_rules",
-    "writer_conflict_policy",
     "orchestration_review_roles",
     "delegated_review_rules",
     "full_review_matrix",
     "orchestration_rules",
     "verification_profiles",
-    "spec_readiness_gate",
     "hard_blocks",
     "testing_gaps",
     "test_mapping"
@@ -50,35 +46,6 @@
       },
       "additionalProperties": false
     },
-    "orchestration_profiles": {
-      "type": "object",
-      "required": ["direct", "direct-review", "delegated", "full-review", "full-subagent", "no-op", "blocked"],
-      "additionalProperties": false,
-      "properties": {
-        "direct": { "$ref": "#/$defs/orchestrationProfile" },
-        "direct-review": { "$ref": "#/$defs/orchestrationProfile" },
-        "delegated": { "$ref": "#/$defs/orchestrationProfile" },
-        "full-review": { "$ref": "#/$defs/orchestrationProfile" },
-        "full-subagent": { "$ref": "#/$defs/orchestrationProfile" },
-        "no-op": { "$ref": "#/$defs/orchestrationProfile" },
-        "blocked": { "$ref": "#/$defs/orchestrationProfile" }
-      }
-    },
-    "orchestration_writer_rules": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/writerRule" },
-      "uniqueItems": true
-    },
-    "writer_conflict_policy": {
-      "type": "object",
-      "required": ["mixed_spec_and_code", "mixed_solidity_and_harness_control", "mixed_docs_and_solidity"],
-      "properties": {
-        "mixed_spec_and_code": { "type": "string", "minLength": 1 },
-        "mixed_solidity_and_harness_control": { "type": "string", "minLength": 1 },
-        "mixed_docs_and_solidity": { "type": "string", "minLength": 1 }
-      },
-      "additionalProperties": false
-    },
     "orchestration_review_roles": {
       "type": "object",
       "required": ["no-op", "non-semantic", "test-semantic", "prod-semantic-risk-analysis-passed"],
@@ -107,30 +74,6 @@
       "additionalProperties": false
     },
     "orchestration_rules": { "$ref": "#/$defs/orchestrationRules" },
-    "security_test_writer_trigger": {
-      "type": "object",
-      "required": ["change_class", "selected_review_roles_include", "reviewer_finding_severity_to_activate"],
-      "properties": {
-        "change_class": { "const": "prod-semantic" },
-        "selected_review_roles_include": { "$ref": "#/$defs/reviewRoleArray" },
-        "reviewer_finding_severity_to_activate": { "type": "string", "enum": ["critical", "major", "any"] }
-      },
-      "additionalProperties": false
-    },
-    "remediation_policy": {
-      "type": "object",
-      "required": ["max_cycles", "conflict_priority", "escalation"],
-      "properties": {
-        "max_cycles": { "type": "integer", "minimum": 1 },
-        "conflict_priority": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/reviewRoleName" },
-          "uniqueItems": true
-        },
-        "escalation": { "type": "string", "enum": ["user"] }
-      },
-      "additionalProperties": false
-    },
     "verification_profiles": {
       "type": "object",
       "required": ["fast", "full", "ci"],
@@ -141,7 +84,6 @@
       },
       "additionalProperties": false
     },
-    "spec_readiness_gate": { "$ref": "#/$defs/specReadinessGate" },
     "hard_blocks": {
       "type": "array",
       "items": { "$ref": "#/$defs/blockRule" },
@@ -219,61 +161,22 @@
       "items": { "$ref": "#/$defs/reviewRoleName" },
       "uniqueItems": true
     },
-    "orchestrationProfile": {
-      "type": "object",
-      "required": ["writer", "reviewers", "verifier", "verification_profile"],
-      "properties": {
-        "writer": {
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
-            { "$ref": "#/$defs/reviewRoleArray" }
-          ]
-        },
-        "reviewers": {
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
-            { "$ref": "#/$defs/reviewRoleArray" }
-          ]
-        },
-        "verifier": { "type": "string", "minLength": 1 },
-        "verification_profile": {
-          "type": "string",
-          "enum": ["fast", "full", "ci", "none", "selected"]
-        }
-      },
-      "additionalProperties": false
-    },
-    "writerRule": {
-      "type": "object",
-      "required": ["id", "writer"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "paths": { "$ref": "#/$defs/stringArray" },
-        "trigger": { "type": "string", "minLength": 1 },
-        "writer": { "$ref": "#/$defs/writeRoleName" }
-      },
-      "additionalProperties": false,
-      "anyOf": [{ "required": ["paths"] }, { "required": ["trigger"] }]
-    },
     "delegatedReviewRule": {
       "type": "object",
-      "required": ["id", "reviewers", "requires_human_confirmation"],
+      "required": ["id", "paths", "reviewers", "requires_human_confirmation"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "paths": { "$ref": "#/$defs/stringArray" },
         "exclude_paths": { "$ref": "#/$defs/stringArray" },
-        "trigger": { "type": "string", "minLength": 1 },
         "reviewers": { "$ref": "#/$defs/reviewRoleArray" },
         "requires_human_confirmation": { "type": "boolean" }
       },
-      "additionalProperties": false,
-      "anyOf": [{ "required": ["paths"] }, { "required": ["trigger"] }]
+      "additionalProperties": false
     },
     "orchestrationRules": {
       "type": "object",
-      "required": ["delegated_surface", "spec_paths", "scope_escalation", "main_session_risk_analysis_required_for", "surface_sensitivity", "full_ci_command_gates"],
+      "required": ["spec_paths", "scope_escalation", "surface_sensitivity"],
       "properties": {
-        "delegated_surface": { "const": "harness_control" },
         "spec_paths": { "$ref": "#/$defs/stringArray" },
         "scope_escalation": {
           "type": "object",
@@ -284,7 +187,6 @@
           },
           "additionalProperties": false
         },
-        "main_session_risk_analysis_required_for": { "$ref": "#/$defs/stringArray" },
         "surface_sensitivity": {
           "type": "object",
           "required": ["solidity_prod", "solidity_test", "harness_control"],
@@ -294,35 +196,7 @@
             "harness_control": { "const": "normal" }
           },
           "additionalProperties": false
-        },
-        "full_ci_command_gates": {
-          "type": "object",
-          "required": ["coverage_when_required", "slither_when_required"],
-          "properties": {
-            "coverage_when_required": { "$ref": "#/$defs/commandGate" },
-            "slither_when_required": {
-              "allOf": [
-                { "$ref": "#/$defs/commandGate" },
-                {
-                  "type": "object",
-                  "required": ["paths"],
-                  "properties": { "paths": { "$ref": "#/$defs/stringArray" } }
-                }
-              ]
-            }
-          },
-          "additionalProperties": false
         }
-      },
-      "additionalProperties": false
-    },
-    "commandGate": {
-      "type": "object",
-      "required": ["change_class", "surface_sensitivity"],
-      "properties": {
-        "change_class": { "const": "prod-semantic" },
-        "surface_sensitivity": { "const": "sensitive" },
-        "paths": { "$ref": "#/$defs/stringArray" }
       },
       "additionalProperties": false
     },
@@ -404,67 +278,6 @@
         { "$ref": "#/$defs/verificationProfileBase" },
         { "properties": { "required_commands": { "$ref": "#/$defs/fullRequiredCommands" } } }
       ]
-    },
-    "changeClassArray": {
-      "type": "array",
-      "items": { "type": "string", "enum": ["prod-semantic"] },
-      "minItems": 1,
-      "uniqueItems": true
-    },
-    "nonUniqueStringArray": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 },
-      "uniqueItems": true
-    },
-    "specReadinessRule": {
-      "type": "object",
-      "required": ["id", "check_docs"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "check_docs": { "$ref": "#/$defs/nonUniqueStringArray" }
-      },
-      "additionalProperties": false
-    },
-    "specReadinessDocMappingEntry": {
-      "type": "object",
-      "required": ["rules"],
-      "properties": {
-        "rules": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/specReadinessRule" },
-          "minItems": 1,
-          "uniqueItems": true
-        }
-      },
-      "additionalProperties": false
-    },
-    "specReadinessDocMapping": {
-      "type": "object",
-      "minProperties": 1,
-      "propertyNames": { "type": "string", "minLength": 1 },
-      "additionalProperties": { "$ref": "#/$defs/specReadinessDocMappingEntry" }
-    },
-    "specReadinessGate": {
-      "type": "object",
-      "required": [
-        "trigger_change_classes",
-        "doc_exclusions",
-        "gate_action",
-        "required_reviewer",
-        "cross_cutting_trigger_threshold",
-        "cross_cutting_docs",
-        "doc_mapping"
-      ],
-      "properties": {
-        "trigger_change_classes": { "$ref": "#/$defs/changeClassArray" },
-        "doc_exclusions": { "$ref": "#/$defs/stringArray" },
-        "gate_action": { "type": "string", "enum": ["block"] },
-        "required_reviewer": { "type": "string", "enum": ["spec-reviewer"] },
-        "cross_cutting_trigger_threshold": { "type": "integer", "minimum": 1 },
-        "cross_cutting_docs": { "$ref": "#/$defs/stringArray" },
-        "doc_mapping": { "$ref": "#/$defs/specReadinessDocMapping" }
-      },
-      "additionalProperties": false
     },
     "blockRule": {
       "type": "object",

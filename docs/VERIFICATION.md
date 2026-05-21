@@ -18,7 +18,7 @@ Gate output controls:
 
 Local current-work gate invocations must use exact changed-file input. Solidity changed-files mode requires diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`; without it, semantic classification is blocked.
 
-For code-only `prod-semantic` classification after spec/document updates, `GATE_DIFF_BASE` is the preferred and reliable source for spec-readiness satisfaction checks. When `GATE_DIFF_BASE` is unavailable, gate falls back to the union of local staged and unstaged tracked-file deltas as a best-effort local convenience path.
+Gate verifies classification and command outcomes. Spec/document impact is decided before doc writers, `spec-reviewer`, code writers, or code reviewers are dispatched, not by gate.
 
 CI uses two entry paths:
 

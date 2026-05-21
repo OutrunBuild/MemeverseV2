@@ -1,24 +1,6 @@
 {
   "delegated_review_rules": [
     {
-      "id": "spec-path",
-      "paths": [
-        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
-      ],
-      "requires_human_confirmation": true,
-      "reviewers": [
-        "spec-reviewer"
-      ]
-    },
-    {
-      "id": "spec-readiness-doc-update",
-      "requires_human_confirmation": true,
-      "reviewers": [
-        "spec-reviewer"
-      ],
-      "trigger": "spec-readiness-doc-update"
-    },
-    {
       "id": "harness-control",
       "paths": [
         "^\\.harness/.*$",
@@ -53,50 +35,6 @@
     ]
   },
   "hard_blocks": [],
-  "orchestration_profiles": {
-    "blocked": {
-      "reviewers": [],
-      "verification_profile": "none",
-      "verifier": "none",
-      "writer": "none"
-    },
-    "delegated": {
-      "reviewers": "delegated-selected",
-      "verification_profile": "fast",
-      "verifier": "main-session",
-      "writer": "policy-selected"
-    },
-    "direct": {
-      "reviewers": [],
-      "verification_profile": "fast",
-      "verifier": "main-session",
-      "writer": "main-session"
-    },
-    "direct-review": {
-      "reviewers": "orchestration-selected",
-      "verification_profile": "fast",
-      "verifier": "main-session",
-      "writer": "main-session"
-    },
-    "full-review": {
-      "reviewers": "full-review-matrix",
-      "verification_profile": "fast",
-      "verifier": "main-session",
-      "writer": "policy-selected"
-    },
-    "full-subagent": {
-      "reviewers": "full-review-matrix",
-      "verification_profile": "selected",
-      "verifier": "required-verifier-agent",
-      "writer": "policy-selected"
-    },
-    "no-op": {
-      "reviewers": [],
-      "verification_profile": "none",
-      "verifier": "none",
-      "writer": "none"
-    }
-  },
   "orchestration_review_roles": {
     "no-op": [],
     "non-semantic": [],
@@ -108,23 +46,6 @@
     ]
   },
   "orchestration_rules": {
-    "delegated_surface": "harness_control",
-    "full_ci_command_gates": {
-      "coverage_when_required": {
-        "change_class": "prod-semantic",
-        "surface_sensitivity": "sensitive"
-      },
-      "slither_when_required": {
-        "change_class": "prod-semantic",
-        "paths": [
-          "^src/.*\\.sol$"
-        ],
-        "surface_sensitivity": "sensitive"
-      }
-    },
-    "main_session_risk_analysis_required_for": [
-      "semantic production Solidity changes not structurally escalated"
-    ],
     "scope_escalation": {
       "prod_solidity_max_files_before_full_review": 1,
       "prod_solidity_max_semantic_lines_before_full_review": 20
@@ -138,248 +59,10 @@
       "solidity_test": "normal"
     }
   },
-  "orchestration_writer_rules": [
-    {
-      "id": "spec-doc",
-      "paths": [
-        "(^|.*/)(spec|specs)/.*\\.(md|mdx)$"
-      ],
-      "writer": "process-implementer"
-    },
-    {
-      "id": "spec-readiness-doc-update",
-      "trigger": "spec-readiness-doc-update",
-      "writer": "process-implementer"
-    },
-    {
-      "id": "harness-control",
-      "paths": [
-        "^\\.harness/.*$",
-        "^script/harness/.*$",
-        "^\\.github/workflows/.*$",
-        "^AGENTS\\.md$",
-        "^CLAUDE\\.md$"
-      ],
-      "writer": "process-implementer"
-    },
-    {
-      "id": "repo-metadata",
-      "paths": [
-        "^package\\.json$",
-        "^package-lock\\.json$",
-        "^npm-shrinkwrap\\.json$"
-      ],
-      "writer": "process-implementer"
-    },
-    {
-      "id": "docs",
-      "paths": [
-        "^docs/.*$",
-        "^README\\.md$"
-      ],
-      "writer": "process-implementer"
-    }
-  ],
-  "remediation_policy": {
-    "conflict_priority": [
-      "security-reviewer",
-      "gas-reviewer",
-      "logic-reviewer"
-    ],
-    "escalation": "user",
-    "max_cycles": 5
-  },
   "repo": "MemeverseV2",
   "risk_rules": {
     "slither_exclude_detectors": "naming-convention,too-many-digits,unindexed-event-address,immutable-states,unimplemented-functions",
     "slither_filter_paths": "lib|test|script|node_modules"
-  },
-  "security_test_writer_trigger": {
-    "change_class": "prod-semantic",
-    "reviewer_finding_severity_to_activate": "critical",
-    "selected_review_roles_include": [
-      "security-reviewer"
-    ]
-  },
-  "spec_readiness_gate": {
-    "cross_cutting_docs": [
-      "docs/ARCHITECTURE.md",
-      "docs/spec/access-control.md",
-      "docs/spec/upgradeability.md",
-      "docs/operations.md",
-      "docs/spec/protocol.md",
-      "docs/implementation-map.md",
-      "docs/GLOSSARY.md"
-    ],
-    "cross_cutting_trigger_threshold": 2,
-    "doc_exclusions": [
-      "^docs/superpowers/"
-    ],
-    "doc_mapping": {
-      "memeverse": {
-        "rules": [
-          {
-            "check_docs": [
-              "docs/spec/swap/swap-flow.md",
-              "docs/spec/swap/swap-integration.md",
-              "docs/spec/swap/uniswap-v4.md",
-              "docs/spec/swap/permit2.md"
-            ],
-            "id": "swap-router-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/swap/swap-flow.md",
-              "docs/spec/swap/swap-integration.md",
-              "docs/spec/swap/uniswap-v4.md",
-              "docs/spec/invariants.md"
-            ],
-            "id": "swap-hook-liquidity"
-          },
-          {
-            "check_docs": [
-              "docs/spec/swap/swap-flow.md",
-              "docs/spec/swap/swap-integration.md",
-              "docs/spec/invariants.md"
-            ],
-            "id": "swap-liquidity-math"
-          },
-          {
-            "check_docs": [
-              "docs/spec/verse/lifecycle-details.md",
-              "docs/spec/verse/state-machines.md",
-              "docs/spec/verse/config-matrix.md",
-              "docs/spec/verse/deployment.md",
-              "docs/spec/verse/accounting.md",
-              "docs/spec/invariants.md",
-              "docs/spec/swap/uniswap-v4.md"
-            ],
-            "id": "launcher-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/invariants.md"
-            ],
-            "id": "unlock-protection-safety"
-          },
-          {
-            "check_docs": [
-              "docs/spec/verse/lifecycle-details.md",
-              "docs/spec/verse/state-machines.md"
-            ],
-            "id": "launcher-price-math"
-          },
-          {
-            "check_docs": [
-              "docs/spec/verse/registration-details.md",
-              "docs/spec/verse/config-matrix.md"
-            ],
-            "id": "verse-registration-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/verse/deployment.md"
-            ],
-            "id": "verse-dispatch-and-deployment"
-          },
-          {
-            "check_docs": [
-              "docs/spec/governance/governance-yield-details.md",
-              "docs/spec/events.md"
-            ],
-            "id": "governance-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/interoperation/interoperation-details.md",
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/events.md"
-            ],
-            "id": "interoperation-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/verse/accounting.md",
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/events.md"
-            ],
-            "id": "token-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/governance/governance-yield-details.md",
-              "docs/spec/interoperation/interoperation-details.md",
-              "docs/spec/events.md"
-            ],
-            "id": "yield-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/polend/polend.md",
-              "docs/spec/verse/lifecycle-details.md",
-              "docs/spec/verse/accounting.md",
-              "docs/spec/invariants.md"
-            ],
-            "id": "polend-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/polend/polend.md",
-              "docs/spec/verse/lifecycle-details.md",
-              "docs/spec/invariants.md"
-            ],
-            "id": "polsplitter-core"
-          },
-          {
-            "check_docs": [
-              "docs/spec/interoperation/layerzero-oapp-oft.md"
-            ],
-            "id": "common-lz-endpoint-registry"
-          },
-          {
-            "check_docs": [
-              "docs/spec/common/common-foundations.md"
-            ],
-            "id": "common-token-init"
-          },
-          {
-            "check_docs": [
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/common/common-foundations.md"
-            ],
-            "id": "common-oapp-init"
-          },
-          {
-            "check_docs": [
-              "docs/spec/interoperation/layerzero-oapp-oft.md",
-              "docs/spec/common/common-foundations.md"
-            ],
-            "id": "common-oft-init"
-          },
-          {
-            "check_docs": [],
-            "id": "common-token-governance-init"
-          },
-          {
-            "check_docs": [
-              "docs/spec/common/common-foundations.md"
-            ],
-            "id": "common-foundations"
-          },
-          {
-            "check_docs": [
-              "docs/spec/invariants.md"
-            ],
-            "id": "unlock-protection-dedicated-tests"
-          }
-        ]
-      }
-    },
-    "gate_action": "block",
-    "required_reviewer": "spec-reviewer",
-    "trigger_change_classes": [
-      "prod-semantic"
-    ]
   },
   "surfaces": {
     "harness_control": [
@@ -399,16 +82,6 @@
       "^\\.harness/runtime/main-session-contract\\.md$",
       "^\\.harness/schemas/.*$",
       "^docs/.*$",
-      "^docs/ARCHITECTURE\\.md$",
-      "^docs/GLOSSARY\\.md$",
-      "^docs/SECURITY_AND_APPROVALS\\.md$",
-      "^docs/TRACEABILITY\\.md$",
-      "^docs/VERIFICATION\\.md$",
-      "^docs/implementation-map\\.md$",
-      "^docs/operations\\.md$",
-      "^docs/spec/swap/[^/]+\\.md$",
-      "^docs/superpowers/plans/.*\\.md$",
-      "^docs/testing/.*\\.md$",
       "^foundry\\.toml$",
       "^npm-shrinkwrap\\.json$",
       "^package-lock\\.json$",
@@ -836,10 +509,5 @@
     "harness_control": "process-implementer",
     "solidity_prod": "solidity-implementer",
     "solidity_test": "solidity-implementer"
-  },
-  "writer_conflict_policy": {
-    "mixed_docs_and_solidity": "docs are harness_control; apply mixed_solidity_and_harness_control. Preserve spec-readiness ordering, and require full-review minimum if production Solidity semantic changes remain bundled with docs.",
-    "mixed_solidity_and_harness_control": "either split into separately classified units before editing or keep the task combined and require full-review minimum",
-    "mixed_spec_and_code": "run spec/document workflow first, then classify code changes separately"
   }
 }
