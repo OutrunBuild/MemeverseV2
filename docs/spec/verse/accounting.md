@@ -50,6 +50,9 @@
 
 ### 3.1 Genesis -> Locked 资金口径
 
+- `Genesis -> Locked` 的 launch gate 单独看是否满足：
+`totalNormalFunds >= minTotalFund || totalLeveragedInterest >= minTotalFund`
+- 上述门槛只决定能否从 `Genesis` 进入 `Locked`；不等于成功后的部署资金、容量资金或分账资金口径。
 - 成功部署资金口径：
 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`
 - `totalGenesisFunds` 不等于退款资金池，也不包含 preorder。

@@ -14,6 +14,7 @@
 
 - `MemeverseSwapRouter` 负责对外 `quote/swap/addLiquidity/removeLiquidity` 与可选 Permit2 拉资（swap 与流动性操作）。
 - Router 的 `previewClaimableFees(...)` 仅是只读 preview-only helper，不执行 fee claim。
+- Router 的 ERC20 payout helper 对 `recipient == address(0)` fail-close；remove-liquidity 出款不会把资产发送到零地址。
 - 池创建 (`createPoolAndAddLiquidity`) 为 `onlyLauncher` 门控，不对外暴露；这是有意设计，建池必须经 `Launcher -> Router`，由 `Launcher` 提供 desired budgets，再由 Router 执行实际建池与首笔加池。`createPoolAndAddLiquidityWithPermit2` 已移除，池创建不再支持 Permit2 路径。
 - Router 对 bootstrap 的 canonical 输出是真实执行后的 actual spend / actual liquidity 结果，不是 preview-equality 契约，也不要求外部以 preview 值作为 settlement 真源。
 - Router 内部固定构造 pool key：`fee = DYNAMIC_FEE_FLAG`、`tickSpacing = 200`、`hooks = configured hook`。

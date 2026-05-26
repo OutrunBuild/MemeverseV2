@@ -141,11 +141,11 @@ flowchart TD
     B --> C[Router 准备 LP token]
     C --> D[Hook.removeLiquidityCore]
     D --> E[销毁 LP 并返回底层资产]
-    E --> F[Router 把资产发给 recipient]
+    E --> F[Router 校验 recipient 非零并把资产发给 recipient]
 
     G[fee owner 调用 Hook.claimFeesCore] --> H[Hook 由 msg.sender 推导 owner]
     H --> I[Hook 结算 pending fees]
-    I --> J[把 fee 发给 recipient]
+    I --> J[校验 recipient 非零后把 fee 发给 recipient]
 ```
 
 ---

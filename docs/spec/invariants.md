@@ -54,6 +54,7 @@
 ### INV-07 关键业务动作受阶段机约束
 
 - 约束：`genesis/preorder` 仅 `Genesis`；`refund/refundPreorder` 仅 `Refund`；`claimNormalYT/claimNormalFees/mintPOLToken/redeemAndDistributeFees` 至少 `Locked`；LP 赎回仅 `Unlocked`。`[代码已证]`
+- 约束：Router/Hook 的 ERC20 payout helper 都对 `recipient == address(0)` fail-close；`removeLiquidity(...)`、`removeLiquidityWithPermit2(...)` 与 Hook fee payout 不允许把代币发送到零地址。`[代码已证]`
 - 价值：跨模块资金动作不会越阶段执行。
 - 主要锚点：`src/verse/MemeverseLauncher.sol:326`，`:362`，`:627`，`:654`，`:729`，`:823`，`:849`
 

@@ -488,6 +488,7 @@ totalLeveragedInterest >= minTotalFund
 ```
 
 杠杆侧成功门槛比较的是 `totalLeveragedInterest`，不是 `totalLeveragedDebt`。
+这只是 `Genesis -> Locked` 的 launch gate；成功后的部署、容量和分账资金口径仍看 `totalGenesisFunds = totalNormalFunds + totalLeveragedDebt`，不要混读。
 
 `minTotalFund` 按该 verse 的 `uAsset` 精度解释：
 
@@ -1856,6 +1857,12 @@ function redeemPT(uint256 verseId, uint256 ptAmount, address to) external return
 function redeemYT(uint256 verseId, uint256 ytAmount, address to) external returns (uint256 uAssetAmount, uint256 memecoinAmount);
 function previewPTToUAsset(uint256 verseId, uint256 ptAmount) external view returns (uint256 uAssetAmount);
 function previewRedeemYTUAsset(uint256 verseId, uint256 ytAmount) external view returns (uint256 uAssetAmount);
+function getPT(uint256 verseId) external view returns (address pt);
+function getYT(uint256 verseId) external view returns (address yt);
+function getMemecoin(uint256 verseId) external view returns (address memecoin);
+function getPTAndYT(uint256 verseId) external view returns (address pt, address yt);
+function getPTSettlementState(uint256 verseId) external view returns (address pt, bool settled);
+function getPOLAndMemecoin(uint256 verseId) external view returns (address pol, address memecoin);
 function splitInfos(uint256 verseId) external view returns (address pt, address yt, address pol, address memecoin, address uAsset, uint256 totalPOLCollateral, uint256 settlementUAsset, uint256 settlementMemecoin, uint256 ptBackingNumerator, uint256 ptBackingDenominator, bool settled);
 ```
 
