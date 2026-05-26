@@ -15,15 +15,18 @@ run_classify() {
     local record="$tmp_dir/$name.record.json"
     local stdout="$tmp_dir/$name.stdout"
     local status
+    local -a changed_file_args=()
+
+    mapfile -t changed_file_args <"$changed_files"
 
     set +e
     if [ -n "$diff_file" ]; then
         RUN_RECORD_PATH="$record" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
-            bash script/harness/gate.sh --classify-only --changed-files "$changed_files" >"$stdout"
+            bash script/harness/gate.sh --classify-only --changed-files "${changed_file_args[@]}" >"$stdout"
         status=$?
     else
         RUN_RECORD_PATH="$record" \
-            bash script/harness/gate.sh --classify-only --changed-files "$changed_files" >"$stdout"
+            bash script/harness/gate.sh --classify-only --changed-files "${changed_file_args[@]}" >"$stdout"
         status=$?
     fi
     set -e
@@ -36,6 +39,75 @@ run_classify() {
     jq -e . "$record" >/dev/null
     jq -e . "$stdout" >/dev/null
     printf '%s\n' "$record"
+}
+
+run_classify_with_changed_args() {
+    local name="$1"
+    shift
+    local expected_status="${1-0}"
+    shift
+    local record="$tmp_dir/$name.record.json"
+    local stdout="$tmp_dir/$name.stdout"
+    local status
+
+    set +e
+    RUN_RECORD_PATH="$record" \
+        bash script/harness/gate.sh --classify-only "$@" >"$stdout"
+    status=$?
+    set -e
+
+    if [ "$status" -ne "$expected_status" ]; then
+        echo "expected classify status $expected_status for $name, got $status" >&2
+        return 1
+    fi
+
+    jq -e . "$record" >/dev/null
+    jq -e . "$stdout" >/dev/null
+    printf '%s\n' "$record"
+}
+
+run_classify_from_subdir() {
+    local name="$1"
+    local subdir="$2"
+    local expected_status="${3-0}"
+    shift 3
+    local record="$tmp_dir/$name.record.json"
+    local stdout="$tmp_dir/$name.stdout"
+    local stderr="$tmp_dir/$name.stderr"
+    local status
+
+    set +e
+    (
+        cd "$subdir"
+        RUN_RECORD_PATH="$record" \
+            bash ../script/harness/gate.sh --classify-only --changed-files "$@" >"$stdout" 2>"$stderr"
+    )
+    status=$?
+    set -e
+
+    if [ "$status" -ne "$expected_status" ]; then
+        echo "expected classify status $expected_status for $name, got $status" >&2
+        return 1
+    fi
+
+    jq -e . "$record" >/dev/null
+    jq -e . "$stdout" >/dev/null
+    printf '%s\n' "$record"
+}
+
+run_classify_capture() {
+    local name="$1"
+    shift
+    local stdout="$tmp_dir/$name.stdout"
+    local stderr="$tmp_dir/$name.stderr"
+    local status
+
+    set +e
+    bash script/harness/gate.sh --classify-only --changed-files "$@" >"$stdout" 2>"$stderr"
+    status=$?
+    set -e
+
+    printf '%s\n%s\n%s\n' "$status" "$stdout" "$stderr"
 }
 
 run_default_classify_in_scratch_repo() {
@@ -88,6 +160,30 @@ EOF
     printf '%s\n' "$file"
 }
 
+write_multi_diff() {
+    local name="$1"
+    shift
+    local file="$tmp_dir/$name.diff"
+    : >"$file"
+
+    while [ "$#" -gt 0 ]; do
+        local path="$1"
+        local removed="$2"
+        local added="$3"
+        shift 3
+        cat >>"$file" <<EOF
+diff --git a/$path b/$path
+--- a/$path
++++ b/$path
+@@ -1 +1 @@
+-$removed
++$added
+EOF
+    done
+
+    printf '%s\n' "$file"
+}
+
 run_ci_entrypoint_capture() {
     local name="$1"
     local event_name="$2"
@@ -107,21 +203,20 @@ capture_dir="${HARNESS_CAPTURE_DIR:?}"
 printf '%s\n' "$@" >"$capture_dir/argv"
 printf '%s' "${CHANGE_CLASSIFIER_DIFF_FILE:-}" >"$capture_dir/diff_path"
 
-changed_files_path=""
-prev_arg=""
+capture_changed_files=0
+: >"$capture_dir/changed_files_args"
 for arg in "$@"; do
-    if [ "$prev_arg" = "--changed-files" ]; then
-        changed_files_path="$arg"
-        break
+    if [ "$capture_changed_files" -eq 1 ]; then
+        if [[ "$arg" == --* ]]; then
+            break
+        fi
+        printf '%s\n' "$arg" >>"$capture_dir/changed_files_args"
+        continue
     fi
-    prev_arg="$arg"
+    if [ "$arg" = "--changed-files" ]; then
+        capture_changed_files=1
+    fi
 done
-
-printf '%s' "$changed_files_path" >"$capture_dir/changed_files_path"
-
-if [ -n "$changed_files_path" ] && [ -f "$changed_files_path" ]; then
-    cp "$changed_files_path" "$capture_dir/changed_files"
-fi
 
 if [ -n "${CHANGE_CLASSIFIER_DIFF_FILE:-}" ] && [ -f "${CHANGE_CLASSIFIER_DIFF_FILE}" ]; then
     cp "${CHANGE_CLASSIFIER_DIFF_FILE}" "$capture_dir/diff_file"
@@ -181,6 +276,9 @@ run_gate_full_capture() {
     local stdout="$tmp_dir/$name.stdout"
     local record="$tmp_dir/$name.record.json"
     local status
+    local -a changed_file_args=()
+
+    mapfile -t changed_file_args <"$changed_files"
 
     mkdir -p "$fake_bin"
 
@@ -220,11 +318,101 @@ EOF
 
     set +e
     PATH="$fake_bin:$PATH" RUN_RECORD_PATH="$record" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
-        bash script/harness/gate.sh --profile full --changed-files "$changed_files" >"$stdout" 2>&1
+        bash script/harness/gate.sh --profile full --changed-files "${changed_file_args[@]}" >"$stdout" 2>&1
     status=$?
     set -e
 
     printf '%s\n%s\n%s\n' "$status" "$record" "$stdout"
+}
+
+run_gate_fast_capture() {
+    local name="$1"
+    local changed_files="$2"
+    local diff_file="$3"
+    local fake_bin="$tmp_dir/$name.bin"
+    local stdout="$tmp_dir/$name.stdout"
+    local record="$tmp_dir/$name.record.json"
+    local capture_dir="$tmp_dir/$name.capture"
+    local status
+    local -a changed_file_args=()
+
+    mapfile -t changed_file_args <"$changed_files"
+
+    mkdir -p "$fake_bin" "$capture_dir"
+
+    cat >"$fake_bin/forge" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+capture_dir="${HARNESS_CAPTURE_DIR:?}"
+printf '%s\n' "$*" >>"$capture_dir/forge_calls"
+
+if [ "${1-}" = "fmt" ] || [ "${1-}" = "build" ]; then
+    exit 0
+fi
+
+if [ "${1-}" = "test" ] && [ "${2-}" = "--list" ] && [ "${3-}" = "--match-path" ]; then
+    case "${4-}" in
+        test/polend/POLSplitter.t.sol)
+            cat <<'LIST'
+test/polend/POLSplitter.t.sol
+  POLSplitterTest
+    testNarrowGetters_ReturnStoredAddresses
+LIST
+            ;;
+        test/polend/POLend.t.sol)
+            cat <<'LIST'
+test/polend/POLend.t.sol
+  POLendTest
+    testClaimResidual_MarksCallerAndTransfersToRecipient
+LIST
+            ;;
+        *)
+            echo "unexpected list path: ${4-}" >&2
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
+
+if [ "${1-}" = "test" ] && [ "${2-}" = "--list" ] && [ "${3-}" = "--match-contract" ]; then
+    cat <<'LIST'
+test/polend/POLSplitter.t.sol
+  POLSplitterTest
+    testNarrowGetters_ReturnStoredAddresses
+test/polend/POLend.t.sol
+  POLendTest
+    testClaimResidual_MarksCallerAndTransfersToRecipient
+LIST
+    exit 0
+fi
+
+if [ "${1-}" = "test" ] && [ "${2-}" = "--match-contract" ]; then
+    exit 0
+fi
+
+if [ "${1-}" = "test" ] && [ "${2-}" = "--match-path" ]; then
+    exit 0
+fi
+
+echo "unexpected forge invocation: $*" >&2
+exit 1
+EOF
+    chmod +x "$fake_bin/forge"
+
+    cat >"$fake_bin/npx" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$fake_bin/npx"
+
+    set +e
+    PATH="$fake_bin:$PATH" HARNESS_CAPTURE_DIR="$capture_dir" RUN_RECORD_PATH="$record" CHANGE_CLASSIFIER_DIFF_FILE="$diff_file" \
+        bash script/harness/gate.sh --profile fast --changed-files "${changed_file_args[@]}" >"$stdout" 2>&1
+    status=$?
+    set -e
+
+    printf '%s\n%s\n%s\n%s\n' "$status" "$record" "$stdout" "$capture_dir"
 }
 
 assert_no_removed_fields() {
@@ -255,7 +443,7 @@ jq -e '
   .change_class == "non-semantic" and
   .orchestration_profile == "delegated" and
   .harness_writer_roles == ["process-implementer"] and
-  .spec_review_required == false and
+  (has("spec_review_required") | not) and
   .code_writer_roles == [] and
   .code_review_roles == []
 ' "$docs_record" >/dev/null
@@ -269,7 +457,7 @@ jq -e '
   .candidate_orchestration_profile == "direct" and
   .requires_doc_editorial_attestation == true and
   .harness_writer_roles == ["process-implementer"] and
-  .spec_review_required == false and
+  (has("spec_review_required") | not) and
   .code_writer_roles == [] and
   .code_review_roles == []
 ' "$readme_record" >/dev/null
@@ -280,7 +468,7 @@ spec_record="$(run_classify spec "$spec_changed")"
 jq -e '
   .orchestration_profile == "delegated" and
   .harness_writer_roles == ["process-implementer"] and
-  .spec_review_required == true and
+  (has("spec_review_required") | not) and
   .code_writer_roles == [] and
   .code_review_roles == [] and
   .requires_human_confirmation == true
@@ -294,7 +482,7 @@ jq -e '
   .change_class == "test-semantic" and
   .orchestration_profile == "direct-review" and
   .harness_writer_roles == [] and
-  .spec_review_required == false and
+  (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   .code_review_roles == ["logic-reviewer"]
 ' "$test_record" >/dev/null
@@ -307,7 +495,7 @@ jq -e '
   .change_class == "prod-semantic" and
   .orchestration_profile == "full-review" and
   .harness_writer_roles == [] and
-  .spec_review_required == false and
+  (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"]
 ' "$src_record" >/dev/null
@@ -319,7 +507,7 @@ jq -e '
   .change_class == "prod-semantic" and
   .orchestration_profile == "full-review" and
   .harness_writer_roles == ["process-implementer"] and
-  .spec_review_required == true and
+  (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
   .requires_human_confirmation == true
@@ -332,12 +520,50 @@ jq -e '
   .change_class == "prod-semantic" and
   .orchestration_profile == "full-review" and
   .harness_writer_roles == ["process-implementer"] and
-  .spec_review_required == false and
+  (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
   .requires_human_confirmation == false
 ' "$mixed_non_spec_record" >/dev/null
 assert_no_removed_fields "$mixed_non_spec_record"
+
+single_direct_record="$(run_classify_with_changed_args singledirect 0 --changed-files script/harness/gate.sh)"
+jq -e '
+  .changed_files == ["script/harness/gate.sh"] and
+  .change_class == "non-semantic" and
+  .orchestration_profile == "delegated" and
+  .final_verdict == "classified"
+' "$single_direct_record" >/dev/null
+assert_no_removed_fields "$single_direct_record"
+
+multi_direct_record="$(run_classify_with_changed_args multidirect 0 --changed-files script/harness/gate.sh script/harness/test-orchestration.sh)"
+jq -e '
+  .changed_files == ["script/harness/gate.sh", "script/harness/test-orchestration.sh"] and
+  .change_class == "non-semantic" and
+  .orchestration_profile == "delegated"
+' "$multi_direct_record" >/dev/null
+assert_no_removed_fields "$multi_direct_record"
+
+subdir_repo_relative_record="$(run_classify_from_subdir subdirrepo docs 1 src/verse/MemeverseLauncher.sol)"
+jq -e '
+  .changed_files == ["src/verse/MemeverseLauncher.sol"] and
+  .surfaces == "solidity_prod" and
+  .final_verdict == "blocked" and
+  (.blocking_findings[] | select(.rule_id == "semantic-classification-requires-diff"))
+' "$subdir_repo_relative_record" >/dev/null
+assert_no_removed_fields "$subdir_repo_relative_record"
+
+absolute_inside_record="$(run_classify_with_changed_args absinside 1 --changed-files "$repo_root/src/verse/MemeverseLauncher.sol")"
+jq -e '
+  .changed_files == ["src/verse/MemeverseLauncher.sol"] and
+  .surfaces == "solidity_prod" and
+  .final_verdict == "blocked"
+' "$absolute_inside_record" >/dev/null
+assert_no_removed_fields "$absolute_inside_record"
+
+mapfile -t absolute_outside_run < <(run_classify_capture absoutside /tmp/memeverse-outside.sol)
+[ "${absolute_outside_run[0]}" -eq 1 ]
+grep -Fqx "[gate] ERROR: --changed-files path must be inside repo root: /tmp/memeverse-outside.sol" "${absolute_outside_run[2]}"
 
 pure_unknown_changed="$(write_changed_files pureunknown notes.txt)"
 pure_unknown_record="$(run_classify pureunknown "$pure_unknown_changed" "" 1)"
@@ -379,11 +605,10 @@ grep -qx -- "run" "$diff_capture/argv"
 grep -qx -- "gate:ci" "$diff_capture/argv"
 grep -qx -- "--" "$diff_capture/argv"
 grep -qx -- "--changed-files" "$diff_capture/argv"
-[ -s "$diff_capture/changed_files_path" ]
+[ -s "$diff_capture/changed_files_args" ]
 [ -s "$diff_capture/diff_path" ]
-[ -s "$diff_capture/changed_files" ]
 [ -s "$diff_capture/diff_file" ]
-diff -u <(git diff --name-only "$empty_tree" "$current_head") "$diff_capture/changed_files"
+diff -u <(git diff --name-only "$empty_tree" "$current_head") "$diff_capture/changed_files_args"
 
 pre_edit_output="$(run_pre_edit_check "$repo_root/script/harness/test-orchestration.sh")"
 assert_pre_edit_check_guidance "$pre_edit_output"
@@ -414,6 +639,29 @@ if grep -Fq "writer may be \`mixed\`" docs/TRACEABILITY.md; then
     echo "TRACEABILITY still contains old mixed writer wording" >&2
     exit 1
 fi
-grep -Fq 'The gate reports phase fields for `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles`.' docs/TRACEABILITY.md
+grep -Fq 'The gate reports phase fields for `harness_writer_roles`, `code_writer_roles`, and `code_review_roles`.' docs/TRACEABILITY.md
+
+contract_changed="$(write_changed_files contract-fast test/polend/POLSplitter.t.sol test/polend/POLend.t.sol)"
+contract_diff="$(write_multi_diff contract-fast \
+  test/polend/POLSplitter.t.sol 'function oldSplitter() external {}' 'function newSplitter() external {}' \
+  test/polend/POLend.t.sol 'function oldPOLend() external {}' 'function newPOLend() external {}')"
+mapfile -t contract_fast_run < <(run_gate_fast_capture contract-fast "$contract_changed" "$contract_diff")
+contract_fast_status="${contract_fast_run[0]}"
+contract_fast_record="${contract_fast_run[1]}"
+contract_fast_stdout="${contract_fast_run[2]}"
+contract_fast_capture="${contract_fast_run[3]}"
+[ "$contract_fast_status" -eq 0 ]
+jq -e '
+  .final_verdict == "pass" and
+  .command_results.targeted_tests.status == "passed" and
+  (.commands_run.targeted_tests.command | contains("--match-contract"))
+' "$contract_fast_record" >/dev/null
+grep -Fqx "test --list --match-path test/polend/POLSplitter.t.sol" "$contract_fast_capture/forge_calls"
+grep -Fqx "test --list --match-path test/polend/POLend.t.sol" "$contract_fast_capture/forge_calls"
+grep -Eq '^test --match-contract ' "$contract_fast_capture/forge_calls"
+if grep -Eq '^test --match-path ' "$contract_fast_capture/forge_calls"; then
+    echo "fast targeted tests should execute through --match-contract when validation succeeds" >&2
+    exit 1
+fi
 
 echo "orchestration tests passed"

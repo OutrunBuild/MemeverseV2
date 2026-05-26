@@ -39,7 +39,7 @@ Do not override policy or gate evidence with natural-language guesses.
 ## Main-Session Rules
 
 - main-orchestrator stays in the primary session and is never a project agent file.
-- Derive `change_class`, `surface_sensitivity`, `orchestration_profile`, `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles` from policy/gate evidence before delegating.
+- Derive `change_class`, `surface_sensitivity`, `orchestration_profile`, `harness_writer_roles`, `code_writer_roles`, and `code_review_roles` from policy/gate evidence before delegating.
 - Current local task completion defaults to `gate:fast`. Use `full`, `ci`, release, or merge-equivalent verification only when explicitly requested or running in that context.
 - Current Solidity contracts are pre-deployment development artifacts unless a human explicitly says deployed compatibility must be preserved.
 - Review roles remain reviewer-only; do not place verifier inside review roles.
@@ -102,11 +102,14 @@ For `prod-semantic` work, use this sequence:
 
 1. run `gate.sh --classify-only`
 2. main session decides whether spec/docs changes are required
-3. if harness-control changes are required, dispatch `harness_writer_roles`
-4. if `spec_review_required=true`, dispatch `spec-reviewer` before any code writer
-5. dispatch `code_writer_roles`
-6. run `code_review_roles`
-7. run the selected gate profile and report the result
+3. if spec/docs changes are required, dispatch `harness_writer_roles` for that spec/doc round
+4. once the spec/doc round is ready, dispatch `spec-reviewer` before any code writer
+5. if other harness-control changes are required, dispatch `harness_writer_roles`
+6. dispatch `code_writer_roles`
+7. run `code_review_roles`
+8. run the selected gate profile and report the result
+
+`spec-reviewer` is a main-session orchestration hook, not a `gate.sh` routing field. `requires_human_confirmation` remains a separate policy signal for spec/doc paths.
 
 Production Solidity semantic changes without structural escalation require a Risk Analysis Record before selecting `direct-review`. If analysis is incomplete or uncertain, use at least `full-review`.
 

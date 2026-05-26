@@ -21,11 +21,15 @@ if [ "$event_name" = "workflow_dispatch" ] || [ -z "$base_sha" ] || [ "$base_sha
 fi
 
 mkdir -p "$runner_temp"
-changed_files_output="$(mktemp "$runner_temp/changed-files.XXXXXX")"
 diff_output="$(mktemp "$runner_temp/changed-files.XXXXXX.diff")"
-trap 'rm -f "$changed_files_output" "$diff_output"' EXIT
+trap 'rm -f "$diff_output"' EXIT
 
-git diff --name-only "$base_sha" "$head_sha" >"$changed_files_output"
+mapfile -t changed_files < <(git diff --name-only "$base_sha" "$head_sha")
 git diff --unified=0 "$base_sha" "$head_sha" >"$diff_output"
 
-CHANGE_CLASSIFIER_DIFF_FILE="$diff_output" npm run gate:ci -- --changed-files "$changed_files_output"
+if [ "${#changed_files[@]}" -eq 0 ]; then
+    npm run gate:ci -- --all
+    exit 0
+fi
+
+CHANGE_CLASSIFIER_DIFF_FILE="$diff_output" npm run gate:ci -- --changed-files "${changed_files[@]}"

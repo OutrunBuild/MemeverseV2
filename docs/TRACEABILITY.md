@@ -8,6 +8,6 @@
 - Enforcement entrypoint: script/harness/gate.sh
 - CI gate entrypoint: script/harness/ci-gate-entrypoint.sh
 
-Mixed `harness_control` + Solidity changed-file sets are legal. The gate reports phase fields for `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles`.
+Mixed `harness_control` + Solidity changed-file sets are legal. The gate reports phase fields for `harness_writer_roles`, `code_writer_roles`, and `code_review_roles`.
 
 For `prod-semantic` work, classification precedes dispatch. The main session dispatches each phase from those emitted fields.

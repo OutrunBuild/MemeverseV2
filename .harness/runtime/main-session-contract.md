@@ -22,8 +22,10 @@
 - `main-orchestrator` stays in the primary session and is never a project agent file.
 - Every repository modification must go through `gate.sh --classify-only` before editing.
 - Dispatch and review are selected by policy-derived `orchestration_profile`.
-- Derive `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles` from gate evidence before delegating.
-- For `prod-semantic` work, the main session decides whether harness-control changes are needed before dispatching `harness_writer_roles`, `spec-reviewer`, `code_writer_roles`, or `code_review_roles`.
+- Derive `harness_writer_roles`, `code_writer_roles`, and `code_review_roles` from gate evidence before delegating.
+- For `prod-semantic` work, the main session decides whether spec/docs or other harness-control changes are needed before dispatching `harness_writer_roles`, `code_writer_roles`, or `code_review_roles`.
+- If the main session decides spec/docs changes are required, complete that spec/doc writing round first and dispatch `spec-reviewer` immediately after the spec/doc changes are ready, before any code writer is dispatched.
+- `spec-reviewer` dispatch is a main-session orchestration hook, not a `gate.sh` output field. Separately, `requires_human_confirmation` remains a policy signal for spec/doc paths and does not itself decide reviewer dispatch.
 - Main session may directly modify files only for `direct` and `direct-review`.
 - Main session must not author `delegated`, `full-review`, or `full-subagent` changes except to integrate approved subagent output.
 - Do not dispatch writer or reviewer agents for `direct`.
@@ -32,7 +34,7 @@
 - Production Solidity semantic changes without structural escalation require a main-session Risk Analysis Record before using `direct-review`; otherwise use `full-review`.
 - README.md editorial-only direct changes require a Doc Editorial Attestation; otherwise use `delegated`.
 - `direct-review` reviewer roles come from `orchestration_review_roles`, not `full_review_matrix`.
-- Dispatch consumes resolved `harness_writer_roles`, `spec_review_required`, `code_writer_roles`, and `code_review_roles`.
+- Dispatch consumes resolved `harness_writer_roles`, `code_writer_roles`, and `code_review_roles`.
 - For local current work on tracked or intended-to-commit repository changes, invoke `gate.sh` with exact changed-file input. If any Solidity file is involved, provide diff evidence without creating persistent repository files:
   - Prefer `GATE_DIFF_BASE=<git-ref>` when a stable base ref exists.
   - If a patch file is required, create it with `mktemp` outside the repository, pass its path through `CHANGE_CLASSIFIER_DIFF_FILE`, and remove it after `gate.sh` exits.
