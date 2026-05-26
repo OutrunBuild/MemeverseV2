@@ -124,8 +124,8 @@ contract YieldDispatcherTest is Test {
     /// @notice Test launcher path approves and calls receivers.
     function testLauncherPathApprovesAndCallsReceivers() external {
         uint256 memeAmount = 7 ether;
-        uint256 uptAmount = 11 ether;
-        token.mint(address(dispatcher), memeAmount + uptAmount);
+        uint256 uAssetAmount = 11 ether;
+        token.mint(address(dispatcher), memeAmount + uAssetAmount);
 
         vm.prank(LAUNCHER);
         dispatcher.lzCompose(
@@ -142,12 +142,12 @@ contract YieldDispatcherTest is Test {
         dispatcher.lzCompose(
             address(token),
             bytes32("gov-guid"),
-            abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UASSET, uptAmount),
+            abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UASSET, uAssetAmount),
             address(0),
             ""
         );
         assertEq(governor.lastToken(), address(token));
-        assertEq(governor.lastAmount(), uptAmount);
+        assertEq(governor.lastAmount(), uAssetAmount);
         assertEq(token.allowance(address(dispatcher), address(governor)), type(uint256).max);
     }
 

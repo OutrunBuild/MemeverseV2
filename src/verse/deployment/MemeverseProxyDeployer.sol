@@ -32,12 +32,8 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
     uint256 public upgradeSupermajorityRatio;
 
     modifier onlyMemeverseLauncher() {
-        _onlyMemeverseLauncher();
-        _;
-    }
-
-    function _onlyMemeverseLauncher() internal view {
         require(msg.sender == memeverseLauncher, PermissionDenied());
+        _;
     }
 
     constructor(

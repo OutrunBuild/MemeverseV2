@@ -16,6 +16,12 @@ interface IPol is IERC20 {
     function memeverseLauncher() external view returns (address);
 
     /**
+     * @notice Get the paired memecoin.
+     * @return memecoin The memecoin address associated with this POL token.
+     */
+    function memecoin() external view returns (address);
+
+    /**
      * @notice Initializes POL token metadata and launcher wiring.
      * @dev Called once from deployment flow before any mint/burn activity.
      * @param name_ ERC20 name.
@@ -49,7 +55,7 @@ interface IPol is IERC20 {
 
     /**
      * @notice Burns POL tokens from a target account.
-     * @dev Access is expected to be restricted to launcher-controlled paths.
+     * @dev `account` may burn directly, or a caller may burn from `account` with sufficient allowance. Burning only destroys POL; redeem underlying liquidity through MemeverseLauncher.redeemMemecoinLiquidity.
      * @param account Account whose POL balance is reduced.
      * @param amount Amount of POL tokens to burn.
      */

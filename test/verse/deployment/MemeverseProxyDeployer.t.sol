@@ -7,6 +7,9 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {MemeverseProxyDeployer} from "../../../src/verse/deployment/MemeverseProxyDeployer.sol";
 import {IMemeverseProxyDeployer} from "../../../src/verse/interfaces/IMemeverseProxyDeployer.sol";
+import {IOutrunDeployer} from "../../../script/IOutrunDeployer.sol";
+import {MemeverseScript} from "../../../script/MemeverseScript.s.sol";
+import {MemeverseLauncher} from "../../../src/verse/MemeverseLauncher.sol";
 
 contract MockDeployerCloneable {
     uint256 public marker;
@@ -80,6 +83,61 @@ contract MockDeployerIncentivizer {
 
 contract MockDeployerMemecoin {
     uint256 public totalSupply = 1_000_000 ether;
+}
+
+contract MockScriptOutrunDeployer is IOutrunDeployer {
+    address public lastDeployed;
+
+    function deploy(bytes32, bytes memory creationCode) external payable returns (address deployed) {
+        assembly {
+            deployed := create(callvalue(), add(creationCode, 0x20), mload(creationCode))
+        }
+        require(deployed != address(0), "DEPLOY_FAILED");
+        lastDeployed = deployed;
+    }
+
+    function getDeployed(address, bytes32) external view returns (address deployed) {
+        return lastDeployed;
+    }
+}
+
+contract TestableMemeverseScript is MemeverseScript {
+    function configureLauncherDeployment(
+        address localEndpoint_,
+        address memeverseRegistrar_,
+        address memeverseProxyDeployer_,
+        address yieldDispatcher_,
+        address lzEndpointRegistry_,
+        address polend_,
+        address polSplitter_,
+        address outrunDeployer_,
+        address ueth_,
+        address uusd_
+    ) external {
+        owner = address(this);
+        MEMEVERSE_REGISTRAR = memeverseRegistrar_;
+        MEMEVERSE_PROXY_DEPLOYER = memeverseProxyDeployer_;
+        MEMEVERSE_YIELD_DISPATCHER = yieldDispatcher_;
+        MEMEVERSE_COMMON_INFO = lzEndpointRegistry_;
+        POLEND = polend_;
+        POLSPLITTER = polSplitter_;
+        OUTRUN_DEPLOYER = outrunDeployer_;
+        UETH = ueth_;
+        UUSD = uusd_;
+        endpoints[uint32(block.chainid)] = localEndpoint_;
+    }
+
+    function deployMemeverseLauncherHarness(uint256 nonce) external {
+        _deployMemeverseLauncher(nonce);
+    }
+
+    function envAddressWithFallbackHarness(string memory primary, string memory fallbackName)
+        external
+        view
+        returns (address)
+    {
+        return _envAddressWithFallback(primary, fallbackName);
+    }
 }
 
 contract MemeverseProxyDeployerTest is Test {
@@ -259,5 +317,175 @@ contract MemeverseProxyDeployerTest is Test {
         vm.prank(OWNER);
         deployer.setUpgradeSupermajorityRatio(7000);
         assertEq(deployer.upgradeSupermajorityRatio(), 7000);
+    }
+}
+
+contract MemeverseScriptLauncherDeploymentTest is Test {
+    address internal constant LOCAL_ENDPOINT = address(0x1001);
+    address internal constant REGISTRAR = address(0x1002);
+    address internal constant PROXY_DEPLOYER = address(0x1003);
+    address internal constant YIELD_DISPATCHER = address(0x1004);
+    address internal constant LZ_ENDPOINT_REGISTRY = address(0x1005);
+    address internal constant POLEND = address(0x1006);
+    address internal constant POLSPLITTER = address(0x1007);
+    address internal constant UETH = address(0x1008);
+    address internal constant UUSD = address(0x1009);
+
+    TestableMemeverseScript internal scriptHarness;
+    MockScriptOutrunDeployer internal outrunDeployer;
+
+    function setUp() external {
+        scriptHarness = new TestableMemeverseScript();
+        outrunDeployer = new MockScriptOutrunDeployer();
+        scriptHarness.configureLauncherDeployment(
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+    }
+
+    function testDeployMemeverseLauncherUsesCurrentConstructorShapeAndInitializesFundMetadata() external {
+        scriptHarness.deployMemeverseLauncherHarness(2);
+
+        MemeverseLauncher deployedLauncher = MemeverseLauncher(outrunDeployer.lastDeployed());
+        assertEq(deployedLauncher.owner(), address(scriptHarness));
+        assertEq(deployedLauncher.localLzEndpoint(), LOCAL_ENDPOINT);
+        assertEq(deployedLauncher.memeverseRegistrar(), REGISTRAR);
+        assertEq(deployedLauncher.memeverseProxyDeployer(), PROXY_DEPLOYER);
+        assertEq(deployedLauncher.yieldDispatcher(), YIELD_DISPATCHER);
+        assertEq(deployedLauncher.lzEndpointRegistry(), LZ_ENDPOINT_REGISTRY);
+        assertEq(deployedLauncher.polend(), POLEND);
+        assertEq(deployedLauncher.polSplitter(), POLSPLITTER);
+        assertEq(deployedLauncher.executorRewardRate(), 25);
+        assertEq(deployedLauncher.oftReceiveGasLimit(), 115000);
+        assertEq(deployedLauncher.yieldDispatcherGasLimit(), 135000);
+        assertEq(deployedLauncher.preorderCapRatio(), 2500);
+        assertEq(deployedLauncher.preorderVestingDuration(), 7 days);
+
+        (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = deployedLauncher.fundMetaDatas(UETH);
+        (uint256 uusdMinTotalFund, uint256 uusdFundBasedAmount) = deployedLauncher.fundMetaDatas(UUSD);
+
+        assertEq(uethMinTotalFund, 1e19);
+        assertEq(uethFundBasedAmount, 1000000);
+        assertEq(uusdMinTotalFund, 50000 * 1e18);
+        assertEq(uusdFundBasedAmount, 200);
+    }
+
+    function testDeployMemeverseLauncherRevertsWhenUethUnset() external {
+        scriptHarness.configureLauncherDeployment(
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            address(0),
+            UUSD
+        );
+
+        vm.expectRevert("ZERO_UETH");
+        scriptHarness.deployMemeverseLauncherHarness(2);
+    }
+
+    function testDeployMemeverseLauncherRevertsWhenUusdUnset() external {
+        scriptHarness.configureLauncherDeployment(
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            address(0)
+        );
+
+        vm.expectRevert("ZERO_UUSD");
+        scriptHarness.deployMemeverseLauncherHarness(2);
+    }
+
+    function testDeployMemeverseLauncherRevertsWhenLzEndpointRegistryUnset() external {
+        scriptHarness.configureLauncherDeployment(
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            address(0),
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+
+        vm.expectRevert("ZERO_LZ_ENDPOINT_REGISTRY");
+        scriptHarness.deployMemeverseLauncherHarness(2);
+    }
+
+    function testDeployMemeverseLauncherRevertsWhenPolendUnset() external {
+        scriptHarness.configureLauncherDeployment(
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            address(0),
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+
+        vm.expectRevert("ZERO_POLEND");
+        scriptHarness.deployMemeverseLauncherHarness(2);
+    }
+
+    function testDeployMemeverseLauncherRevertsWhenPolSplitterUnset() external {
+        scriptHarness.configureLauncherDeployment(
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            address(0),
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+
+        vm.expectRevert("ZERO_POLSPLITTER");
+        scriptHarness.deployMemeverseLauncherHarness(2);
+    }
+
+    function testEnvAddressWithFallbackUsesPrimaryWhenPresent() external {
+        vm.setEnv("TEST_PRIMARY_LZ_ENDPOINT_REGISTRY", "0x0000000000000000000000000000000000001234");
+        vm.setEnv("TEST_FALLBACK_MEMEVERSE_COMMON_INFO", "0x0000000000000000000000000000000000005678");
+
+        address resolved = scriptHarness.envAddressWithFallbackHarness(
+            "TEST_PRIMARY_LZ_ENDPOINT_REGISTRY", "TEST_FALLBACK_MEMEVERSE_COMMON_INFO"
+        );
+
+        assertEq(resolved, address(0x1234));
+    }
+
+    function testEnvAddressWithFallbackUsesFallbackWhenPrimaryMissing() external {
+        vm.setEnv("TEST_ONLY_FALLBACK_MEMEVERSE_COMMON_INFO", "0x0000000000000000000000000000000000009ABC");
+
+        address resolved = scriptHarness.envAddressWithFallbackHarness(
+            "TEST_MISSING_PRIMARY_LZ_ENDPOINT_REGISTRY", "TEST_ONLY_FALLBACK_MEMEVERSE_COMMON_INFO"
+        );
+
+        assertEq(resolved, address(0x9ABC));
     }
 }

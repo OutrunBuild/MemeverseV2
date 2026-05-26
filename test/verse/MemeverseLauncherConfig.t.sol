@@ -9,6 +9,7 @@ import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.
 
 contract MockLaunchSettlementHookConfig {
     address internal boundLauncher;
+    address internal initializer;
 
     constructor(address boundLauncher_) {
         boundLauncher = boundLauncher_;
@@ -21,11 +22,19 @@ contract MockLaunchSettlementHookConfig {
         return boundLauncher;
     }
 
+    function poolInitializer() external view returns (address initializer_) {
+        return initializer;
+    }
+
     /// @notice Updates the launcher binding used by the mock hook.
     /// @dev Allows tests to require explicit hook-to-launcher binding.
     /// @param boundLauncher_ New launcher stored by the mock.
     function setLauncher(address boundLauncher_) external {
         boundLauncher = boundLauncher_;
+    }
+
+    function setPoolInitializer(address initializer_) external {
+        initializer = initializer_;
     }
 }
 
@@ -46,7 +55,7 @@ contract MockLaunchSettlementRouterConfig {
 
 contract MemeverseLauncherConfigTest is Test {
     address internal constant OTHER = address(0xBEEF);
-
+    uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
     MemeverseLauncher internal launcher;
 
     function _setMemeverseUniswapHook(address hookAddress) internal returns (bool ok, bytes memory data) {
@@ -70,6 +79,8 @@ contract MemeverseLauncherConfigTest is Test {
             address(0x3),
             address(0x4),
             address(0x5),
+            address(0x10),
+            address(0x11),
             25,
             115_000,
             135_000,
@@ -83,6 +94,26 @@ contract MemeverseLauncherConfigTest is Test {
     function testConstructorStoresPreorderConfig() external view {
         assertEq(launcher.preorderCapRatio(), 2_500);
         assertEq(launcher.preorderVestingDuration(), 7 days);
+    }
+
+    /// @notice Test constructor rejects an executor reward rate at the ratio bound.
+    function testConstructorRevertsWhenExecutorRewardRateEqualsRatio() external {
+        vm.expectRevert(IMemeverseLauncher.FeeRateOverFlow.selector);
+        new MemeverseLauncher(
+            address(this),
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            address(0x10),
+            address(0x11),
+            10_000,
+            115_000,
+            135_000,
+            2_500,
+            7 days
+        );
     }
 
     /// @notice Test pause and unpause are owner only.
@@ -126,6 +157,7 @@ contract MemeverseLauncherConfigTest is Test {
         launcher.setMemeverseSwapRouter(address(0));
 
         MockLaunchSettlementRouterConfig settledRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
+        configuredHook.setPoolInitializer(address(settledRouter));
         launcher.setMemeverseSwapRouter(address(settledRouter));
         assertEq(launcher.memeverseSwapRouter(), address(settledRouter));
 
@@ -134,7 +166,37 @@ contract MemeverseLauncherConfigTest is Test {
         assertEq(storedHook, address(configuredHook));
     }
 
-    /// @notice Verifies the launcher hook binding is write-once while routers may still rebind to the same hook.
+    function testSetMemeverseSwapRouter_RevertsWhenHookPoolInitializerDiffers() external {
+        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        (bool setHookOk, bytes memory setHookData) = _setMemeverseUniswapHook(address(configuredHook));
+        assertTrue(setHookOk, string(setHookData));
+
+        MockLaunchSettlementRouterConfig router = new MockLaunchSettlementRouterConfig(address(configuredHook));
+
+        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
+        launcher.setMemeverseSwapRouter(address(router));
+
+        assertEq(launcher.memeverseSwapRouter(), address(0));
+    }
+
+    /// @notice Verifies swap infra can be configured in router-then-hook order when the bindings eventually match.
+    /// @dev This keeps admin configuration order-independent while preserving the final double-binding checks.
+    function testSetMemeverseSwapInfra_AllowsRouterBeforeHookWhenBindingsMatch() external {
+        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        MockLaunchSettlementRouterConfig router = new MockLaunchSettlementRouterConfig(address(configuredHook));
+
+        launcher.setMemeverseSwapRouter(address(router));
+        assertEq(launcher.memeverseSwapRouter(), address(router), "router should store before hook");
+
+        configuredHook.setPoolInitializer(address(router));
+        launcher.setMemeverseUniswapHook(address(configuredHook));
+
+        (bool readHookOk, address storedHook) = _readMemeverseUniswapHook();
+        assertTrue(readHookOk, "hook getter missing");
+        assertEq(storedHook, address(configuredHook));
+    }
+
+    /// @notice Verifies the launcher hook binding is write-once while routers may rebind after hook initializer sync.
     /// @dev This prevents unlock protection from drifting to a different hook namespace after pools already exist.
     function testSetMemeverseSwapInfra_HookIsWriteOnceButRouterCanRebindToSameHook() external {
         MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
@@ -144,7 +206,9 @@ contract MemeverseLauncherConfigTest is Test {
         MockLaunchSettlementRouterConfig firstRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
         MockLaunchSettlementRouterConfig secondRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
 
+        configuredHook.setPoolInitializer(address(firstRouter));
         launcher.setMemeverseSwapRouter(address(firstRouter));
+        configuredHook.setPoolInitializer(address(secondRouter));
         launcher.setMemeverseSwapRouter(address(secondRouter));
         assertEq(launcher.memeverseSwapRouter(), address(secondRouter), "router should rebind");
 
@@ -208,6 +272,17 @@ contract MemeverseLauncherConfigTest is Test {
             abi.encodeWithSelector(IMemeverseLauncher.FundBasedAmountTooHigh.selector, tooHigh, uint256((1 << 64) - 1))
         );
         launcher.setFundMetaData(address(0xBEEF), 1 ether, tooHigh);
+    }
+
+    /// @notice Test fund metadata allows large minTotalFund values while still capping fundBasedAmount.
+    function testSetFundMetaData_AllowsMinTotalFundAboveFundBasedAmountCap() external {
+        uint256 largeMinTotalFund = MAX_SUPPORTED_FUND_BASED_AMOUNT + 1;
+
+        launcher.setFundMetaData(address(0xBEEF), largeMinTotalFund, 1);
+
+        (uint256 minTotalFund, uint256 fundBasedAmount) = launcher.fundMetaDatas(address(0xBEEF));
+        assertEq(minTotalFund, largeMinTotalFund);
+        assertEq(fundBasedAmount, 1);
     }
 
     /// @notice Test set executor reward rate stores value and rejects overflow.

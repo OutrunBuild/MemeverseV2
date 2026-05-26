@@ -67,6 +67,8 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
         address _memeverseProxyDeployer,
         address _yieldDispatcher,
         address _lzEndpointRegistry,
+        address _polend,
+        address _polSplitter,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
         uint128 _yieldDispatcherGasLimit,
@@ -80,6 +82,8 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
             _memeverseProxyDeployer,
             _yieldDispatcher,
             _lzEndpointRegistry,
+            _polend,
+            _polSplitter,
             _executorRewardRate,
             _oftReceiveGasLimit,
             _yieldDispatcherGasLimit,
@@ -95,11 +99,17 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
     function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
         memeverses[verseId] = verse;
     }
+
+    function setFundMetaDataForTest(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external {
+        fundMetaDatas[uAsset] = FundMetaData({minTotalFund: minTotalFund, fundBasedAmount: fundBasedAmount});
+    }
 }
 
 contract MockLauncherRegistrationProxyDeployer {
     address public nextMemecoin;
     address public nextPol;
+    uint256 public deployMemecoinCount;
+    uint256 public deployPOLCount;
 
     /// @notice Set next deployments.
     /// @dev Configures the mock deployer to return predetermined addresses.
@@ -114,8 +124,9 @@ contract MockLauncherRegistrationProxyDeployer {
     /// @dev Always returns the configured mock memecoin address to keep tests deterministic.
     /// @param uniqueId See implementation.
     /// @return memecoin See implementation.
-    function deployMemecoin(uint256 uniqueId) external view returns (address memecoin) {
+    function deployMemecoin(uint256 uniqueId) external returns (address memecoin) {
         uniqueId;
+        deployMemecoinCount++;
         return nextMemecoin;
     }
 
@@ -123,8 +134,9 @@ contract MockLauncherRegistrationProxyDeployer {
     /// @dev Mirrors deployment without actually creating new contracts.
     /// @param uniqueId See implementation.
     /// @return pol See implementation.
-    function deployPOL(uint256 uniqueId) external view returns (address pol) {
+    function deployPOL(uint256 uniqueId) external returns (address pol) {
         uniqueId;
+        deployPOLCount++;
         return nextPol;
     }
 }
@@ -141,6 +153,16 @@ contract MockLauncherRegistrationRegistry {
     }
 }
 
+contract MockLauncherRegistrationPOLend {
+    uint256 public lastVerseId;
+    uint256 public registerCount;
+
+    function registerLendMarket(uint256 verseId) external {
+        lastVerseId = verseId;
+        registerCount++;
+    }
+}
+
 contract MemeverseLauncherRegistrationTest is Test {
     address internal constant OWNER = address(0xABCD);
     address internal constant REGISTRAR = address(0xBEEF);
@@ -150,25 +172,40 @@ contract MemeverseLauncherRegistrationTest is Test {
     TestableMemeverseLauncherRegistration internal launcher;
     MockLauncherRegistrationProxyDeployer internal proxyDeployer;
     MockLauncherRegistrationRegistry internal registry;
+    MockLauncherRegistrationPOLend internal polend;
     MockLauncherRegistrationToken internal memecoin;
     MockLauncherRegistrationToken internal pol;
 
     /// @notice Set up.
     /// @dev Deploys the registration launcher test harness and wires necessary mocks.
     function setUp() external {
-        launcher = new TestableMemeverseLauncherRegistration(
-            OWNER, address(0x1), REGISTRAR, address(0), address(0x4), address(0), 25, 115_000, 135_000, 2_500, 7 days
-        );
         proxyDeployer = new MockLauncherRegistrationProxyDeployer();
         registry = new MockLauncherRegistrationRegistry();
+        polend = new MockLauncherRegistrationPOLend();
         memecoin = new MockLauncherRegistrationToken();
         pol = new MockLauncherRegistrationToken();
+        launcher = new TestableMemeverseLauncherRegistration(
+            OWNER,
+            address(0x1),
+            REGISTRAR,
+            address(0),
+            address(0x4),
+            address(0),
+            address(polend),
+            address(0x1234),
+            25,
+            115_000,
+            135_000,
+            2_500,
+            7 days
+        );
 
         proxyDeployer.setNextDeployments(address(memecoin), address(pol));
 
         vm.startPrank(OWNER);
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
+        launcher.setFundMetaData(address(0x7777), 10 ether, 1);
         vm.stopPrank();
     }
 
@@ -186,6 +223,79 @@ contract MemeverseLauncherRegistrationTest is Test {
             address(0x7777),
             true
         );
+    }
+
+    function testRegisterMemeverse_RevertsOnInvalidInputsBeforeTokenDeployment() external {
+        uint32[] memory emptyOmnichainIds = new uint32[](0);
+
+        vm.startPrank(REGISTRAR);
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.registerMemeverse(
+            "Memeverse",
+            "MEME",
+            20,
+            uint128(block.timestamp + 1 days),
+            uint128(block.timestamp + 2 days),
+            _localOmnichainIds(),
+            address(0),
+            true
+        );
+
+        vm.expectRevert(IMemeverseLauncher.InvalidLength.selector);
+        launcher.registerMemeverse(
+            "Memeverse",
+            "MEME",
+            21,
+            uint128(block.timestamp + 1 days),
+            uint128(block.timestamp + 2 days),
+            emptyOmnichainIds,
+            address(0x7777),
+            true
+        );
+
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.registerMemeverse(
+            "Memeverse",
+            "MEME",
+            22,
+            uint128(block.timestamp + 1 days),
+            uint128(block.timestamp + 2 days),
+            _localOmnichainIds(),
+            address(0x8888),
+            true
+        );
+        vm.stopPrank();
+
+        launcher.setFundMetaDataForTest(address(0x9999), 0, 1);
+        vm.prank(REGISTRAR);
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.registerMemeverse(
+            "Memeverse",
+            "MEME",
+            23,
+            uint128(block.timestamp + 1 days),
+            uint128(block.timestamp + 2 days),
+            _localOmnichainIds(),
+            address(0x9999),
+            true
+        );
+
+        launcher.setFundMetaDataForTest(address(0xAAAA), 10 ether, 0);
+        vm.prank(REGISTRAR);
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.registerMemeverse(
+            "Memeverse",
+            "MEME",
+            24,
+            uint128(block.timestamp + 1 days),
+            uint128(block.timestamp + 2 days),
+            _localOmnichainIds(),
+            address(0xAAAA),
+            true
+        );
+
+        assertEq(proxyDeployer.deployMemecoinCount(), 0, "memecoin deployment skipped");
+        assertEq(proxyDeployer.deployPOLCount(), 0, "pol deployment skipped");
     }
 
     /// @notice Test register memeverse reverts on invalid remote omnichain id.
@@ -229,13 +339,15 @@ contract MemeverseLauncherRegistrationTest is Test {
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(uniqueId);
         assertEq(verse.name, "Memeverse");
         assertEq(verse.symbol, "MEME");
-        assertEq(verse.UPT, address(0x7777));
+        assertEq(verse.uAsset, address(0x7777));
         assertEq(verse.memecoin, address(memecoin));
         assertEq(verse.pol, address(pol));
         assertEq(launcher.getVerseIdByMemecoin(address(memecoin)), uniqueId);
 
         assertEq(memecoin.memeverseLauncher(), address(launcher));
         assertEq(pol.memecoin(), address(memecoin));
+        assertEq(polend.lastVerseId(), uniqueId);
+        assertEq(polend.registerCount(), 1);
         assertEq(memecoin.peers(REMOTE_EID), bytes32(uint256(uint160(address(memecoin)))));
         assertEq(pol.peers(REMOTE_EID), bytes32(uint256(uint160(address(pol)))));
         assertEq(memecoin.peers(uint32(block.chainid)), bytes32(0));
@@ -338,6 +450,11 @@ contract MemeverseLauncherRegistrationTest is Test {
         ids = new uint32[](2);
         ids[0] = uint32(block.chainid);
         ids[1] = REMOTE_CHAIN_ID;
+    }
+
+    function _localOmnichainIds() internal view returns (uint32[] memory ids) {
+        ids = new uint32[](1);
+        ids[0] = uint32(block.chainid);
     }
 
     /// @notice Builds a single-entry communities array for tests.

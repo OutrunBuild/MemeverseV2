@@ -38,24 +38,6 @@ library InitialPriceCalculator {
         sqrtPriceX96 = _calculateFromSortedAmounts(amount0Desired, amount1Desired);
     }
 
-    /// @notice Calculates the memecoin bootstrap price directly from `fundBasedAmount`.
-    /// @dev Assumes both tokens use 18 decimals and `fundBasedAmount` is the number of memecoins minted per 1 uAsset.
-    /// @param memecoin The memecoin address.
-    /// @param upt The funding token address.
-    /// @param fundBasedAmount Memecoins minted per unit of uAsset funding.
-    /// @return sqrtPriceX96 The initial pool price in Q64.96 format.
-    function calculateMemecoinStartPriceX96(address memecoin, address upt, uint256 fundBasedAmount)
-        internal
-        pure
-        returns (uint160 sqrtPriceX96)
-    {
-        require(fundBasedAmount > 0, ZeroInput());
-
-        (uint256 amount0Desired, uint256 amount1Desired) =
-            memecoin < upt ? (fundBasedAmount, uint256(1)) : (uint256(1), fundBasedAmount);
-        sqrtPriceX96 = _calculateFromSortedAmounts(amount0Desired, amount1Desired);
-    }
-
     function _calculateFromSortedAmounts(uint256 amount0Desired, uint256 amount1Desired)
         private
         pure

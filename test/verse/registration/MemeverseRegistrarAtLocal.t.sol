@@ -11,7 +11,7 @@ import {IMemeverseRegistrationCenter} from "../../../src/verse/interfaces/IMemev
 
 contract MockAtLocalRegistrationCenter {
     uint256 public quotedFee;
-    address public lastRegistrationUPT;
+    address public lastRegistrationUAsset;
     bool public lastRegistrationFlashGenesis;
     uint256 public lastRegistrationValue;
 
@@ -50,7 +50,7 @@ contract MockAtLocalRegistrationCenter {
     /// @param param See implementation.
     function registration(IMemeverseRegistrationCenter.RegistrationParam calldata param) external payable {
         require(msg.value >= quotedFee, IMemeverseRegistrationCenter.InsufficientLzFee());
-        lastRegistrationUPT = param.uAsset;
+        lastRegistrationUAsset = param.uAsset;
         lastRegistrationFlashGenesis = param.flashGenesis;
         lastRegistrationValue = msg.value;
     }
@@ -58,7 +58,7 @@ contract MockAtLocalRegistrationCenter {
 
 contract MockAtLocalLauncher {
     uint256 public lastRegisteredUniqueId;
-    address public lastRegisteredUPT;
+    address public lastRegisteredUAsset;
     bool public lastRegisteredFlashGenesis;
     uint256 public lastExternalInfoUniqueId;
     string public lastUri;
@@ -90,7 +90,7 @@ contract MockAtLocalLauncher {
         unlockTime;
         omnichainIds;
         lastRegisteredUniqueId = uniqueId;
-        lastRegisteredUPT = uAsset;
+        lastRegisteredUAsset = uAsset;
         lastRegisteredFlashGenesis = flashGenesis;
     }
 
@@ -245,7 +245,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
         registrar.localRegistration(param);
 
         assertEq(launcher.lastRegisteredUniqueId(), param.uniqueId);
-        assertEq(launcher.lastRegisteredUPT(), param.uAsset);
+        assertEq(launcher.lastRegisteredUAsset(), param.uAsset);
         assertEq(launcher.lastRegisteredFlashGenesis(), param.flashGenesis);
         assertEq(launcher.lastExternalInfoUniqueId(), param.uniqueId);
         assertEq(launcher.lastUri(), param.uri);
@@ -260,7 +260,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
 
         registrar.registerAtCenter{value: 1 ether}(param, uint128(1 ether));
         assertEq(registrationCenter.lastRegistrationValue(), 1 ether);
-        assertEq(registrationCenter.lastRegistrationUPT(), param.uAsset);
+        assertEq(registrationCenter.lastRegistrationUAsset(), param.uAsset);
         assertEq(registrationCenter.lastRegistrationFlashGenesis(), param.flashGenesis);
 
         vm.expectRevert(IMemeverseRegistrationCenter.InvalidInput.selector);
@@ -303,7 +303,7 @@ contract MemeverseRegistrarAtLocalTest is Test {
         registrar.registerAtCenter{value: 1.25 ether}(param, uint128(1.25 ether));
 
         assertEq(registrationCenter.lastRegistrationValue(), 1.25 ether);
-        assertEq(registrationCenter.lastRegistrationUPT(), param.uAsset);
+        assertEq(registrationCenter.lastRegistrationUAsset(), param.uAsset);
         assertEq(registrationCenter.lastRegistrationFlashGenesis(), param.flashGenesis);
     }
 

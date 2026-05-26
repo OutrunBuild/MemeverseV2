@@ -6,6 +6,7 @@ import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {
     MockLiquidProof,
     MockLzEndpointRegistry,
@@ -39,20 +40,12 @@ contract AssetFlowHandler is Test {
         actors = _actors;
     }
 
-    /// @notice Test helper for claimPOL.
+    /// @notice Test helper for claimNormalYT.
     /// @param actorSeed See implementation.
-    function claimPOL(uint256 actorSeed) external {
+    function claimNormalYT(uint256 actorSeed) external {
         address actor = actors[actorSeed % actors.length];
         vm.prank(actor);
-        try launcher.claimPOLToken(VERSE_ID) {} catch {}
-    }
-
-    /// @notice Test helper for redeemPolLiquidity.
-    /// @param actorSeed See implementation.
-    function redeemPolLiquidity(uint256 actorSeed) external {
-        address actor = actors[actorSeed % actors.length];
-        vm.prank(actor);
-        try launcher.redeemPolLiquidity(VERSE_ID) {} catch {}
+        try launcher.claimNormalYT(VERSE_ID) {} catch {}
     }
 
     /// @notice Test helper for redeemMemecoinLiquidity.
@@ -65,7 +58,7 @@ contract AssetFlowHandler is Test {
 
         uint256 amount = bound(amountSeed, 1, polBalance);
         vm.prank(actor);
-        try launcher.redeemMemecoinLiquidity(VERSE_ID, amount) {} catch {}
+        try launcher.redeemMemecoinLiquidity(VERSE_ID, amount, false) {} catch {}
     }
 
     /// @notice Test helper for touchBalances.
@@ -110,50 +103,50 @@ contract MintPOLHandler is Test {
 
     TestableMemeverseLauncher internal immutable launcher;
     MockSwapRouter internal immutable router;
-    MockERC20 internal immutable upt;
+    MockERC20 internal immutable uAsset;
     MockERC20 internal immutable memecoin;
     address[] internal actors;
 
     constructor(
         TestableMemeverseLauncher _launcher,
         MockSwapRouter _router,
-        MockERC20 _upt,
+        MockERC20 _uAsset,
         MockERC20 _memecoin,
         address[] memory _actors
     ) {
         launcher = _launcher;
         router = _router;
-        upt = _upt;
+        uAsset = _uAsset;
         memecoin = _memecoin;
         actors = _actors;
     }
 
     /// @notice Test helper for mintAuto.
     /// @param actorSeed See implementation.
-    /// @param uptDesiredSeed See implementation.
+    /// @param uAssetDesiredSeed See implementation.
     /// @param memecoinDesiredSeed See implementation.
     /// @param liquiditySeed See implementation.
-    function mintAuto(uint256 actorSeed, uint256 uptDesiredSeed, uint256 memecoinDesiredSeed, uint256 liquiditySeed)
+    function mintAuto(uint256 actorSeed, uint256 uAssetDesiredSeed, uint256 memecoinDesiredSeed, uint256 liquiditySeed)
         external
     {
         address actor = actors[actorSeed % actors.length];
-        uint256 uptBalance = upt.balanceOf(actor);
+        uint256 uAssetBalance = uAsset.balanceOf(actor);
         uint256 memecoinBalance = memecoin.balanceOf(actor);
-        if (uptBalance == 0 || memecoinBalance == 0) return;
+        if (uAssetBalance == 0 || memecoinBalance == 0) return;
 
-        uint256 uptDesired = bound(uptDesiredSeed, 1, uptBalance);
+        uint256 uAssetDesired = bound(uAssetDesiredSeed, 1, uAssetBalance);
         uint256 memecoinDesired = bound(memecoinDesiredSeed, 1, memecoinBalance);
-        uint128 liquidity = uint128(bound(liquiditySeed, 1, _min(uptDesired, memecoinDesired)));
-        uint256 uptUsed = bound(uint256(liquiditySeed >> 16), 1, uptDesired);
+        uint128 liquidity = uint128(bound(liquiditySeed, 1, _min(uAssetDesired, memecoinDesired)));
+        uint256 uAssetUsed = bound(uint256(liquiditySeed >> 16), 1, uAssetDesired);
         uint256 memecoinUsed = bound(uint256(liquiditySeed >> 48), 1, memecoinDesired);
 
-        router.setAddLiquidityResult(address(upt), address(memecoin), liquidity, uptUsed, memecoinUsed);
+        router.setAddLiquidityResult(address(uAsset), address(memecoin), liquidity, uAssetUsed, memecoinUsed);
 
         vm.prank(actor);
-        try launcher.mintPOLToken(VERSE_ID, uptDesired, memecoinDesired, 0, 0, 0, block.timestamp) returns (
-            uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut
+        try launcher.mintPOLToken(VERSE_ID, uAssetDesired, memecoinDesired, 0, 0, 0, block.timestamp) returns (
+            uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut
         ) {
-            assertEq(amountInUPT, uptUsed, "auto upt used");
+            assertEq(amountInUAsset, uAssetUsed, "auto uAsset used");
             assertEq(amountInMemecoin, memecoinUsed, "auto memecoin used");
             assertEq(amountOut, liquidity, "auto pol out");
         } catch {}
@@ -161,38 +154,40 @@ contract MintPOLHandler is Test {
 
     /// @notice Test helper for mintExact.
     /// @param actorSeed See implementation.
-    /// @param uptDesiredSeed See implementation.
+    /// @param uAssetDesiredSeed See implementation.
     /// @param memecoinDesiredSeed See implementation.
     /// @param amountOutSeed See implementation.
-    /// @param uptRequiredSeed See implementation.
+    /// @param uAssetRequiredSeed See implementation.
     /// @param memecoinRequiredSeed See implementation.
     function mintExact(
         uint256 actorSeed,
-        uint256 uptDesiredSeed,
+        uint256 uAssetDesiredSeed,
         uint256 memecoinDesiredSeed,
         uint256 amountOutSeed,
-        uint256 uptRequiredSeed,
+        uint256 uAssetRequiredSeed,
         uint256 memecoinRequiredSeed
     ) external {
         address actor = actors[actorSeed % actors.length];
-        uint256 uptBalance = upt.balanceOf(actor);
+        uint256 uAssetBalance = uAsset.balanceOf(actor);
         uint256 memecoinBalance = memecoin.balanceOf(actor);
-        if (uptBalance == 0 || memecoinBalance == 0) return;
+        if (uAssetBalance == 0 || memecoinBalance == 0) return;
 
-        uint256 uptDesired = bound(uptDesiredSeed, 1, uptBalance);
+        uint256 uAssetDesired = bound(uAssetDesiredSeed, 1, uAssetBalance);
         uint256 memecoinDesired = bound(memecoinDesiredSeed, 1, memecoinBalance);
-        uint128 amountOut = uint128(bound(amountOutSeed, 1, _min(uptDesired, memecoinDesired)));
-        uint256 uptRequired = bound(uptRequiredSeed, 1, uptDesired);
+        uint128 amountOut = uint128(bound(amountOutSeed, 1, _min(uAssetDesired, memecoinDesired)));
+        uint256 uAssetRequired = bound(uAssetRequiredSeed, 1, uAssetDesired);
         uint256 memecoinRequired = bound(memecoinRequiredSeed, 1, memecoinDesired);
 
-        router.setQuoteAmountsForLiquidity(address(upt), address(memecoin), amountOut, uptRequired, memecoinRequired);
-        router.setAddLiquidityResult(address(upt), address(memecoin), amountOut, uptRequired, memecoinRequired);
+        router.setQuoteAmountsForLiquidity(
+            address(uAsset), address(memecoin), amountOut, uAssetRequired, memecoinRequired
+        );
+        router.setAddLiquidityResult(address(uAsset), address(memecoin), amountOut, uAssetRequired, memecoinRequired);
 
         vm.prank(actor);
-        try launcher.mintPOLToken(VERSE_ID, uptDesired, memecoinDesired, 0, 0, amountOut, block.timestamp) returns (
-            uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOutReceived
+        try launcher.mintPOLToken(VERSE_ID, uAssetDesired, memecoinDesired, 0, 0, amountOut, block.timestamp) returns (
+            uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOutReceived
         ) {
-            assertEq(amountInUPT, uptRequired, "exact upt used");
+            assertEq(amountInUAsset, uAssetRequired, "exact uAsset used");
             assertEq(amountInMemecoin, memecoinRequired, "exact memecoin used");
             assertEq(amountOutReceived, amountOut, "exact pol out");
         } catch {}
@@ -208,23 +203,23 @@ contract RemoteFeeDistributionHandler is Test {
 
     TestableMemeverseLauncher internal immutable launcher;
     MockSwapRouter internal immutable router;
-    MockOFTToken internal immutable remoteUpt;
+    MockOFTToken internal immutable remoteUAsset;
     MockOFTToken internal immutable remoteMemecoin;
     address internal immutable liquidProof;
 
-    uint256 public expectedUptSendCount;
+    uint256 public expectedUAssetSendCount;
     uint256 public expectedMemecoinSendCount;
 
     constructor(
         TestableMemeverseLauncher _launcher,
         MockSwapRouter _router,
-        MockOFTToken _remoteUpt,
+        MockOFTToken _remoteUAsset,
         MockOFTToken _remoteMemecoin,
         address _liquidProof
     ) {
         launcher = _launcher;
         router = _router;
-        remoteUpt = _remoteUpt;
+        remoteUAsset = _remoteUAsset;
         remoteMemecoin = _remoteMemecoin;
         liquidProof = _liquidProof;
     }
@@ -235,14 +230,14 @@ contract RemoteFeeDistributionHandler is Test {
         uint256 scenario = scenarioSeed % 3;
 
         if (scenario == 0) {
-            router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 4 ether);
-            router.setClaimQuote(liquidProof, address(remoteUpt), address(launcher), 0, 6 ether);
+            router.setClaimQuote(address(remoteMemecoin), address(remoteUAsset), address(launcher), 9 ether, 4 ether);
+            router.setClaimQuote(liquidProof, address(remoteUAsset), address(launcher), 0, 6 ether);
         } else if (scenario == 1) {
-            router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 9 ether, 0);
-            router.setClaimQuote(liquidProof, address(remoteUpt), address(launcher), 0, 0);
+            router.setClaimQuote(address(remoteMemecoin), address(remoteUAsset), address(launcher), 9 ether, 0);
+            router.setClaimQuote(liquidProof, address(remoteUAsset), address(launcher), 0, 0);
         } else {
-            router.setClaimQuote(address(remoteMemecoin), address(remoteUpt), address(launcher), 0, 5 ether);
-            router.setClaimQuote(liquidProof, address(remoteUpt), address(launcher), 0, 0);
+            router.setClaimQuote(address(remoteMemecoin), address(remoteUAsset), address(launcher), 0, 5 ether);
+            router.setClaimQuote(liquidProof, address(remoteUAsset), address(launcher), 0, 0);
         }
 
         try launcher.redeemAndDistributeFees{value: 0.4 ether}(VERSE_ID, address(this)) returns (
@@ -250,7 +245,7 @@ contract RemoteFeeDistributionHandler is Test {
         ) {
             liquidProofFee;
             executorReward;
-            if (govFee != 0) expectedUptSendCount++;
+            if (govFee != 0) expectedUAssetSendCount++;
             if (memecoinFee != 0) expectedMemecoinSendCount++;
         } catch {}
     }
@@ -272,7 +267,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
     MockLzEndpointRegistry internal registry;
-    MockERC20 internal upt;
+    MockERC20 internal uAsset;
     MockERC20 internal memecoin;
     MockLiquidProof internal liquidProof;
     MockERC20 internal memecoinLp;
@@ -294,6 +289,8 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
             address(0x3),
             address(0x4),
             address(0x5),
+            address(0x10),
+            address(0x11),
             25,
             115_000,
             135_000,
@@ -302,7 +299,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         );
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
-        upt = new MockERC20("UPT", "UPT", 18);
+        uAsset = new MockERC20("UASSET", "UASSET", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
         liquidProof = new MockLiquidProof();
         memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
@@ -317,7 +314,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         launcher.setLzEndpointRegistry(address(registry));
 
         IMemeverseLauncher.Memeverse memory verse;
-        verse.UPT = address(upt);
+        verse.uAsset = address(uAsset);
         verse.memecoin = address(memecoin);
         verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
@@ -327,17 +324,17 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         verse.omnichainIds[0] = uint32(block.chainid);
         launcher.setMemeverseForTest(VERSE_ID, verse);
 
-        launcher.setGenesisFundForTest(VERSE_ID, 90 ether, 30 ether);
-        launcher.setUserGenesisDataForTest(VERSE_ID, ALICE, 24 ether, false, false, false);
-        launcher.setUserGenesisDataForTest(VERSE_ID, BOB, 36 ether, false, false, false);
-        launcher.setUserGenesisDataForTest(VERSE_ID, CHARLIE, 60 ether, false, false, false);
-        launcher.setTotalClaimablePOLForTest(VERSE_ID, INITIAL_CLAIMABLE_POL);
-        launcher.setTotalPolLiquidityForTest(VERSE_ID, INITIAL_POL_LP);
+        launcher.setGenesisFundForTest(VERSE_ID, 120 ether);
+        launcher.setUserGenesisDataForTest(VERSE_ID, ALICE, 24 ether, false, false);
+        launcher.setUserGenesisDataForTest(VERSE_ID, BOB, 36 ether, false, false);
+        launcher.setUserGenesisDataForTest(VERSE_ID, CHARLIE, 60 ether, false, false);
 
-        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
-        router.setLpToken(address(liquidProof), address(upt), address(polLp));
+        router.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
+        router.setLpToken(address(liquidProof), address(uAsset), address(polLp));
 
-        liquidProof.mint(address(launcher), INITIAL_CLAIMABLE_POL);
+        liquidProof.mint(ALICE, INITIAL_CLAIMABLE_POL * 24 ether / TOTAL_GENESIS);
+        liquidProof.mint(BOB, INITIAL_CLAIMABLE_POL * 36 ether / TOTAL_GENESIS);
+        liquidProof.mint(CHARLIE, INITIAL_CLAIMABLE_POL * 60 ether / TOTAL_GENESIS);
         memecoinLp.mint(address(launcher), INITIAL_MEMECOIN_LP);
         polLp.mint(address(launcher), INITIAL_POL_LP);
 
@@ -375,7 +372,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     /// @notice Test helper for invariant_usersNeverExceedGenesisEntitlements.
     function invariant_usersNeverExceedGenesisEntitlements() external view {
         for (uint256 i; i < actors.length; ++i) {
-            (uint256 genesisFund,,, bool isRedeemed) = launcher.userGenesisData(VERSE_ID, actors[i]);
+            (uint256 genesisFund,, bool isRedeemed) = launcher.userGenesisData(VERSE_ID, actors[i]);
             uint256 polShare = INITIAL_CLAIMABLE_POL * genesisFund / TOTAL_GENESIS;
             uint256 polLpShare = INITIAL_POL_LP * genesisFund / TOTAL_GENESIS;
             uint256 userPolBalance = liquidProof.balanceOf(actors[i]);
@@ -403,7 +400,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
     MockLzEndpointRegistry internal registry;
-    MockERC20 internal upt;
+    MockERC20 internal uAsset;
     MockERC20 internal memecoin;
     MockLiquidProof internal liquidProof;
     FeeDistributionHandler internal handler;
@@ -417,6 +414,8 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
             address(0x3),
             address(0x4),
             address(0x5),
+            address(0x10),
+            address(0x11),
             25,
             115_000,
             135_000,
@@ -425,7 +424,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         );
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
-        upt = new MockERC20("UPT", "UPT", 18);
+        uAsset = new MockERC20("UASSET", "UASSET", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
         liquidProof = new MockLiquidProof();
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
@@ -438,7 +437,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         launcher.setLzEndpointRegistry(address(registry));
 
         IMemeverseLauncher.Memeverse memory verse;
-        verse.UPT = address(upt);
+        verse.uAsset = address(uAsset);
         verse.memecoin = address(memecoin);
         verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
@@ -448,8 +447,8 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         verse.omnichainIds[0] = uint32(block.chainid);
         launcher.setMemeverseForTest(VERSE_ID, verse);
 
-        router.setClaimQuote(address(memecoin), address(upt), address(launcher), 20 ether, 7 ether);
-        router.setClaimQuote(address(liquidProof), address(upt), address(launcher), 12 ether, 5 ether);
+        router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), 20 ether, 7 ether);
+        router.setClaimQuote(address(liquidProof), address(uAsset), address(launcher), 12 ether, 5 ether);
 
         handler = new FeeDistributionHandler(launcher);
         targetContract(address(handler));
@@ -457,7 +456,7 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for invariant_feeDistributionLeavesNoResidualLauncherBalances.
     function invariant_feeDistributionLeavesNoResidualLauncherBalances() external view {
-        assertEq(upt.balanceOf(address(launcher)), 0, "launcher upt");
+        assertEq(uAsset.balanceOf(address(launcher)), 0, "launcher uAsset");
         assertEq(memecoin.balanceOf(address(launcher)), 0, "launcher memecoin");
         assertEq(liquidProof.balanceOf(address(launcher)), 0, "launcher liquid proof");
     }
@@ -466,8 +465,8 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     function invariant_feeDistributionMatchesPerCallAccounting() external view {
         uint256 count = handler.redeemCount();
 
-        assertEq(upt.balanceOf(REWARD_RECEIVER), count * PER_CALL_EXECUTOR_REWARD, "reward receiver");
-        assertEq(upt.balanceOf(address(dispatcher)), count * PER_CALL_GOV_FEE, "dispatcher upt");
+        assertEq(uAsset.balanceOf(REWARD_RECEIVER), count * PER_CALL_EXECUTOR_REWARD, "reward receiver");
+        assertEq(uAsset.balanceOf(address(dispatcher)), count * PER_CALL_GOV_FEE, "dispatcher uAsset");
         assertEq(memecoin.balanceOf(address(dispatcher)), count * PER_CALL_MEMECOIN_FEE, "dispatcher memecoin");
         assertEq(liquidProof.burnedAmount(), count * PER_CALL_LIQUID_PROOF_FEE, "liquid proof burn");
         assertEq(dispatcher.composeCallCount(), count * 2, "compose count");
@@ -486,7 +485,7 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
     MockLzEndpointRegistry internal registry;
-    MockERC20 internal upt;
+    MockERC20 internal uAsset;
     MockERC20 internal memecoin;
     MockLiquidProof internal liquidProof;
     MockERC20 internal memecoinLp;
@@ -507,6 +506,8 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
             address(0x3),
             address(0x4),
             address(0x5),
+            address(0x10),
+            address(0x11),
             25,
             115_000,
             135_000,
@@ -515,7 +516,7 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         );
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
-        upt = new MockERC20("UPT", "UPT", 18);
+        uAsset = new MockERC20("UASSET", "UASSET", 18);
         memecoin = new MockERC20("MEME", "MEME", 18);
         liquidProof = new MockLiquidProof();
         memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
@@ -529,55 +530,55 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         launcher.setLzEndpointRegistry(address(registry));
 
         IMemeverseLauncher.Memeverse memory verse;
-        verse.UPT = address(upt);
+        verse.uAsset = address(uAsset);
         verse.memecoin = address(memecoin);
         verse.pol = address(liquidProof);
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         launcher.setMemeverseForTest(VERSE_ID, verse);
 
-        router.setLpToken(address(memecoin), address(upt), address(memecoinLp));
+        router.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
 
-        upt.mint(ALICE, INITIAL_USER_BALANCE);
-        upt.mint(BOB, INITIAL_USER_BALANCE);
-        upt.mint(CHARLIE, INITIAL_USER_BALANCE);
+        uAsset.mint(ALICE, INITIAL_USER_BALANCE);
+        uAsset.mint(BOB, INITIAL_USER_BALANCE);
+        uAsset.mint(CHARLIE, INITIAL_USER_BALANCE);
         memecoin.mint(ALICE, INITIAL_USER_BALANCE);
         memecoin.mint(BOB, INITIAL_USER_BALANCE);
         memecoin.mint(CHARLIE, INITIAL_USER_BALANCE);
 
         vm.startPrank(ALICE);
-        upt.approve(address(launcher), type(uint256).max);
+        uAsset.approve(address(launcher), type(uint256).max);
         memecoin.approve(address(launcher), type(uint256).max);
         vm.stopPrank();
         vm.startPrank(BOB);
-        upt.approve(address(launcher), type(uint256).max);
+        uAsset.approve(address(launcher), type(uint256).max);
         memecoin.approve(address(launcher), type(uint256).max);
         vm.stopPrank();
         vm.startPrank(CHARLIE);
-        upt.approve(address(launcher), type(uint256).max);
+        uAsset.approve(address(launcher), type(uint256).max);
         memecoin.approve(address(launcher), type(uint256).max);
         vm.stopPrank();
 
-        handler = new MintPOLHandler(launcher, router, upt, memecoin, actors);
+        handler = new MintPOLHandler(launcher, router, uAsset, memecoin, actors);
         targetContract(address(handler));
     }
 
-    /// @notice Test helper for invariant_mintPOL_ConservesUPTAndMemecoinAcrossUsersLauncherAndRouter.
-    function invariant_mintPOL_ConservesUPTAndMemecoinAcrossUsersLauncherAndRouter() external view {
-        uint256 totalUpt = upt.balanceOf(address(launcher)) + upt.balanceOf(address(router));
+    /// @notice Test helper for invariant_mintPOL_ConservesUAssetAndMemecoinAcrossUsersLauncherAndRouter.
+    function invariant_mintPOL_ConservesUAssetAndMemecoinAcrossUsersLauncherAndRouter() external view {
+        uint256 totalUAsset = uAsset.balanceOf(address(launcher)) + uAsset.balanceOf(address(router));
         uint256 totalMemecoin = memecoin.balanceOf(address(launcher)) + memecoin.balanceOf(address(router));
 
         for (uint256 i; i < actors.length; ++i) {
-            totalUpt += upt.balanceOf(actors[i]);
+            totalUAsset += uAsset.balanceOf(actors[i]);
             totalMemecoin += memecoin.balanceOf(actors[i]);
         }
 
-        assertEq(totalUpt, INITIAL_USER_BALANCE * actors.length, "upt conservation");
+        assertEq(totalUAsset, INITIAL_USER_BALANCE * actors.length, "uAsset conservation");
         assertEq(totalMemecoin, INITIAL_USER_BALANCE * actors.length, "memecoin conservation");
     }
 
     /// @notice Test helper for invariant_mintPOL_LeavesNoResidualLauncherInputBalances.
     function invariant_mintPOL_LeavesNoResidualLauncherInputBalances() external view {
-        assertEq(upt.balanceOf(address(launcher)), 0, "launcher upt");
+        assertEq(uAsset.balanceOf(address(launcher)), 0, "launcher uAsset");
         assertEq(memecoin.balanceOf(address(launcher)), 0, "launcher memecoin");
     }
 
@@ -600,7 +601,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
     MockLzEndpointRegistry internal registry;
-    MockOFTToken internal remoteUpt;
+    MockOFTToken internal remoteUAsset;
     MockOFTToken internal remoteMemecoin;
     MockLiquidProof internal liquidProof;
     RemoteFeeDistributionHandler internal handler;
@@ -614,6 +615,8 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
             address(0x3),
             address(0x4),
             address(0x5),
+            address(0x10),
+            address(0x11),
             25,
             115_000,
             135_000,
@@ -622,7 +625,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         );
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
-        remoteUpt = new MockOFTToken("UPT", "UPT");
+        remoteUAsset = new MockOFTToken("UASSET", "UASSET");
         remoteMemecoin = new MockOFTToken("MEME", "MEME");
         liquidProof = new MockLiquidProof();
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
@@ -635,7 +638,7 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         launcher.setLzEndpointRegistry(address(registry));
 
         IMemeverseLauncher.Memeverse memory verse;
-        verse.UPT = address(remoteUpt);
+        verse.uAsset = address(remoteUAsset);
         verse.memecoin = address(remoteMemecoin);
         verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
@@ -646,10 +649,10 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         launcher.setMemeverseForTest(VERSE_ID, verse);
 
         registry.setEndpoint(202, 302);
-        remoteUpt.setQuoteFee(0.15 ether);
+        remoteUAsset.setQuoteFee(0.15 ether);
         remoteMemecoin.setQuoteFee(0.25 ether);
 
-        handler = new RemoteFeeDistributionHandler(launcher, router, remoteUpt, remoteMemecoin, address(liquidProof));
+        handler = new RemoteFeeDistributionHandler(launcher, router, remoteUAsset, remoteMemecoin, address(liquidProof));
         vm.deal(address(handler), 100 ether);
 
         targetContract(address(handler));
@@ -657,16 +660,16 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for invariant_remoteFeeSendCountsMatchRedeemOutcomes.
     function invariant_remoteFeeSendCountsMatchRedeemOutcomes() external view {
-        assertEq(remoteUpt.sendCallCount(), handler.expectedUptSendCount(), "upt send count");
+        assertEq(remoteUAsset.sendCallCount(), handler.expectedUAssetSendCount(), "uAsset send count");
         assertEq(remoteMemecoin.sendCallCount(), handler.expectedMemecoinSendCount(), "memecoin send count");
     }
 
     /// @notice Test helper for invariant_remoteFeeSendMetadataRemainsCorrect.
     function invariant_remoteFeeSendMetadataRemainsCorrect() external view {
-        if (remoteUpt.sendCallCount() > 0) {
-            assertEq(remoteUpt.lastSendDstEid(), 302, "upt dst eid");
-            assertEq(remoteUpt.lastNativeFeePaid(), 0.15 ether, "upt native fee");
-            assertEq(remoteUpt.lastRefundAddress(), address(handler), "upt refund address");
+        if (remoteUAsset.sendCallCount() > 0) {
+            assertEq(remoteUAsset.lastSendDstEid(), 302, "uAsset dst eid");
+            assertEq(remoteUAsset.lastNativeFeePaid(), 0.15 ether, "uAsset native fee");
+            assertEq(remoteUAsset.lastRefundAddress(), address(handler), "uAsset refund address");
         }
         if (remoteMemecoin.sendCallCount() > 0) {
             assertEq(remoteMemecoin.lastSendDstEid(), 302, "memecoin dst eid");
@@ -678,5 +681,361 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
     /// @notice Test helper for invariant_remoteFeePathNeverUsesLocalDispatcher.
     function invariant_remoteFeePathNeverUsesLocalDispatcher() external view {
         assertEq(dispatcher.composeCallCount(), 0, "dispatcher should be unused");
+    }
+}
+
+contract MockPOLendForFeeSplit {
+    uint256 internal totalLeveragedDebt_;
+    address internal pt_;
+    address internal yt_;
+
+    function setTotalLeveragedDebt(uint256, uint256 amount) external {
+        totalLeveragedDebt_ = amount;
+    }
+
+    function setLendMarket(address pt, address yt) external {
+        pt_ = pt;
+        yt_ = yt;
+    }
+
+    function registerLendMarket(uint256) external {}
+
+    function getTotalLeveragedDebt(uint256) external view returns (uint256) {
+        return totalLeveragedDebt_;
+    }
+
+    function getTotalLeveragedInterest(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    function getLendMarket(uint256) external view returns (IPOLend.LendMarket memory market) {
+        market.yt = yt_;
+    }
+
+    function finalizeLeveragedGenesis(uint256) external {}
+    function recordLeveragedYT(uint256, address, uint256) external {}
+    function markRefundable(uint256) external {}
+    function executeGlobalSettlement(uint256) external {}
+
+    function preRedeemPTFee(uint256, uint256, address) external pure returns (uint256 uAssetBacking) {
+        return 0;
+    }
+}
+
+contract MockPOLSplitterForFeeSplit {
+    address internal immutable pt;
+    address internal immutable yt;
+
+    constructor(address pt_, address yt_) {
+        pt = pt_;
+        yt = yt_;
+    }
+
+    function initializeVerse(uint256, address, address, address, string calldata, string calldata)
+        external
+        view
+        returns (address, address)
+    {
+        return (pt, yt);
+    }
+
+    function splitInfos(uint256)
+        external
+        view
+        returns (address, address, address, address, address, uint256, uint256, uint256, uint256, uint256, bool)
+    {
+        return (pt, yt, address(0), address(0), address(0), 0, 0, 0, 0, 0, false);
+    }
+
+    function getPT(uint256) external view returns (address) {
+        return pt;
+    }
+
+    function getYT(uint256) external view returns (address) {
+        return yt;
+    }
+
+    function getMemecoin(uint256) external pure returns (address) {
+        return address(0);
+    }
+
+    function getPTAndYT(uint256) external view returns (address, address) {
+        return (pt, yt);
+    }
+
+    function getPTSettlementState(uint256) external view returns (address, bool) {
+        return (pt, false);
+    }
+
+    function split(uint256, uint256 polAmount) external returns (uint256 ptAmount, uint256 ytAmount) {
+        MockERC20(pt).mint(msg.sender, polAmount);
+        MockERC20(yt).mint(msg.sender, polAmount);
+        return (polAmount, polAmount);
+    }
+
+    function settle(uint256) external pure returns (uint256, uint256) {
+        return (0, 0);
+    }
+
+    function merge(uint256, uint256) external pure returns (uint256) {
+        revert("unused");
+    }
+
+    function preRedeemPTFee(uint256, uint256) external pure returns (uint256 uAssetBacking) {
+        return 0;
+    }
+
+    function redeemPT(uint256, uint256, address) external pure returns (uint256) {
+        revert("unused");
+    }
+
+    function redeemYT(uint256, uint256, address) external pure returns (uint256, uint256) {
+        revert("unused");
+    }
+
+    function previewRedeemYTUAsset(uint256, uint256) external pure returns (uint256) {
+        return 0;
+    }
+}
+
+contract LockedFeeDistributionHandler is Test {
+    uint256 internal constant VERSE_ID = 1;
+
+    TestableMemeverseLauncher internal immutable launcher;
+    MockSwapRouter internal immutable router;
+    MockERC20 internal immutable uAsset;
+    MockERC20 internal immutable memecoin;
+    MockLiquidProof internal immutable liquidProof;
+    MockERC20 internal immutable pt;
+    address[] internal actors;
+
+    uint256 public totalUAssetFeeCollected;
+    uint256 public totalExecutorReward;
+    uint256 public totalGovFee;
+    uint256 public totalMemecoinFee;
+    uint256 public totalPolBurned;
+
+    constructor(
+        TestableMemeverseLauncher _launcher,
+        MockSwapRouter _router,
+        MockERC20 _uAsset,
+        MockERC20 _memecoin,
+        MockLiquidProof _liquidProof,
+        MockERC20 _pt,
+        address[] memory _actors
+    ) {
+        launcher = _launcher;
+        router = _router;
+        uAsset = _uAsset;
+        memecoin = _memecoin;
+        liquidProof = _liquidProof;
+        pt = _pt;
+        actors = _actors;
+    }
+
+    function redeemFees() external {
+        try launcher.redeemAndDistributeFees(VERSE_ID, address(0xBEEF)) returns (
+            uint256 govFee, uint256 memecoinFee, uint256 polFee, uint256 executorReward
+        ) {
+            uint256 uAssetFee = govFee + executorReward;
+            totalUAssetFeeCollected += uAssetFee;
+            totalExecutorReward += executorReward;
+            totalGovFee += govFee;
+            totalMemecoinFee += memecoinFee;
+            totalPolBurned += polFee;
+        } catch {}
+    }
+}
+
+contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test {
+    uint256 internal constant VERSE_ID = 1;
+    uint256 internal constant EXECUTOR_REWARD_RATE = 25;
+    uint256 internal constant RATIO = 10_000;
+    uint256 internal constant NORMAL_FUNDS = 100 ether;
+    uint256 internal constant LEVERAGED_DEBT = 60 ether;
+
+    address internal constant ALICE = address(0xA11CE);
+    address internal constant BOB = address(0xB0B);
+    address internal constant REWARD_RECEIVER = address(0xBEEF);
+
+    TestableMemeverseLauncher internal launcher;
+    MockSwapRouter internal router;
+    MockOFTDispatcher internal dispatcher;
+    MockPredictOnlyProxyDeployer internal proxyDeployer;
+    MockLzEndpointRegistry internal registry;
+    MockERC20 internal uAsset;
+    MockERC20 internal memecoin;
+    MockLiquidProof internal liquidProof;
+    MockERC20 internal pt;
+    MockERC20 internal yt;
+    MockPOLendForFeeSplit internal polend;
+    MockPOLSplitterForFeeSplit internal splitter;
+
+    address[] internal actors;
+    LockedFeeDistributionHandler internal handler;
+
+    function setUp() external {
+        actors.push(ALICE);
+        actors.push(BOB);
+
+        dispatcher = new MockOFTDispatcher();
+        uAsset = new MockERC20("UASSET", "UASSET", 18);
+        memecoin = new MockERC20("MEME", "MEME", 18);
+        liquidProof = new MockLiquidProof();
+        pt = new MockERC20("PT", "PT", 18);
+        yt = new MockERC20("YT", "YT", 18);
+        polend = new MockPOLendForFeeSplit();
+        splitter = new MockPOLSplitterForFeeSplit(address(pt), address(yt));
+        proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
+        registry = new MockLzEndpointRegistry();
+        launcher = new TestableMemeverseLauncher(
+            address(this),
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            address(polend),
+            address(splitter),
+            EXECUTOR_REWARD_RATE,
+            115_000,
+            135_000,
+            2_500,
+            7 days
+        );
+        router = new MockSwapRouter(address(launcher));
+
+        launcher.setMemeverseUniswapHook(address(router.hook()));
+        launcher.setMemeverseSwapRouter(address(router));
+        launcher.setYieldDispatcher(address(dispatcher));
+        launcher.setMemeverseProxyDeployer(address(proxyDeployer));
+        launcher.setLzEndpointRegistry(address(registry));
+
+        IMemeverseLauncher.Memeverse memory verse;
+        verse.uAsset = address(uAsset);
+        verse.memecoin = address(memecoin);
+        verse.pol = address(liquidProof);
+        verse.governor = address(0xCAFE);
+        verse.yieldVault = address(0xD00D);
+        verse.currentStage = IMemeverseLauncher.Stage.Locked;
+        verse.omnichainIds = new uint32[](1);
+        verse.omnichainIds[0] = uint32(block.chainid);
+        launcher.setMemeverseForTest(VERSE_ID, verse);
+
+        launcher.setGenesisFundForTest(VERSE_ID, NORMAL_FUNDS);
+        polend.setTotalLeveragedDebt(VERSE_ID, LEVERAGED_DEBT);
+        polend.setLendMarket(address(pt), address(yt));
+
+        handler = new LockedFeeDistributionHandler(launcher, router, uAsset, memecoin, liquidProof, pt, actors);
+        targetContract(address(handler));
+    }
+
+    function invariant_mainPoolUAssetFeeSplitsIntoExecutorRewardAndGovFee() external view {
+        assertEq(
+            handler.totalUAssetFeeCollected(),
+            handler.totalExecutorReward() + handler.totalGovFee(),
+            "uAssetFee != executorReward + govFee"
+        );
+    }
+
+    function invariant_executorRewardMatchesConfiguredRate() external view {
+        uint256 expectedReward = handler.totalUAssetFeeCollected() * EXECUTOR_REWARD_RATE / RATIO;
+        assertEq(handler.totalExecutorReward(), expectedReward, "executorReward rate mismatch");
+    }
+
+    function invariant_polBurnMatchesDistributedFee() external view {
+        assertEq(liquidProof.burnedAmount(), handler.totalPolBurned(), "pol burn == distributed fee");
+    }
+}
+
+contract MemeverseLauncherAuxiliaryFeeSplitInvariantTest is Test {
+    uint256 internal constant RATIO = 10_000;
+    uint256 internal constant EXECUTOR_REWARD_RATE = 25;
+
+    function test_auxiliaryUAssetFeeSplit_conservation(
+        uint256 totalUAssetFee,
+        uint256 normalFunds,
+        uint256 leveragedDebt
+    ) external pure {
+        normalFunds = _clamp(normalFunds, 1, type(uint128).max);
+        leveragedDebt = _clamp(leveragedDebt, 0, type(uint128).max);
+        totalUAssetFee = _clamp(totalUAssetFee, 0, type(uint128).max);
+
+        uint256 totalFunds = normalFunds + leveragedDebt;
+        uint256 govUAssetFee = totalUAssetFee * leveragedDebt / totalFunds;
+        uint256 normalUAssetFee = totalUAssetFee - govUAssetFee;
+
+        assertLe(govUAssetFee, totalUAssetFee, "gov fee bounded");
+        assertLe(normalUAssetFee, totalUAssetFee, "normal fee bounded");
+        assertEq(govUAssetFee + normalUAssetFee, totalUAssetFee, "auxiliary uAsset fee conservation");
+    }
+
+    function test_auxiliaryPTFeeSplit_conservation(uint256 totalPTFee, uint256 normalFunds, uint256 leveragedDebt)
+        external
+        pure
+    {
+        normalFunds = _clamp(normalFunds, 1, type(uint128).max);
+        leveragedDebt = _clamp(leveragedDebt, 0, type(uint128).max);
+        totalPTFee = _clamp(totalPTFee, 0, type(uint128).max);
+
+        uint256 totalFunds = normalFunds + leveragedDebt;
+        uint256 govPTFee = totalPTFee * leveragedDebt / totalFunds;
+        uint256 normalPTFee = totalPTFee - govPTFee;
+
+        assertEq(govPTFee + normalPTFee, totalPTFee, "auxiliary PT fee conservation");
+    }
+
+    function test_auxiliaryFeeSplit_roundingDustGoesToNormalSide(
+        uint256 totalUAssetFee,
+        uint256 normalFunds,
+        uint256 leveragedDebt
+    ) external pure {
+        normalFunds = _clamp(normalFunds, 1, type(uint128).max);
+        leveragedDebt = _clamp(leveragedDebt, 1, type(uint128).max);
+        totalUAssetFee = _clamp(totalUAssetFee, 1, type(uint128).max);
+
+        uint256 totalFunds = normalFunds + leveragedDebt;
+        uint256 govUAssetFee = totalUAssetFee * leveragedDebt / totalFunds;
+        uint256 normalUAssetFee = totalUAssetFee - govUAssetFee;
+
+        uint256 exactGovShare = (totalUAssetFee * leveragedDebt) / totalFunds;
+        assertEq(govUAssetFee, exactGovShare, "gov gets floor");
+        assertGe(normalUAssetFee, totalUAssetFee - exactGovShare, "normal gets at least remainder");
+    }
+
+    function test_auxiliaryFeeSplit_zeroDebt_allToNormal(uint256 totalUAssetFee, uint256 normalFunds) external pure {
+        normalFunds = _clamp(normalFunds, 1, type(uint128).max);
+        totalUAssetFee = _clamp(totalUAssetFee, 0, type(uint128).max);
+
+        uint256 leveragedDebt = 0;
+        uint256 totalFunds = normalFunds + leveragedDebt;
+        uint256 govUAssetFee = totalUAssetFee * leveragedDebt / totalFunds;
+
+        assertEq(govUAssetFee, 0, "zero debt => zero gov fee");
+        assertEq(totalUAssetFee - govUAssetFee, totalUAssetFee, "all to normal");
+    }
+
+    function test_auxiliaryFeeSplit_unlocked_allToGov(uint256 totalUAssetFee, uint256 normalFunds) external pure {
+        normalFunds = _clamp(normalFunds, 1, type(uint128).max);
+        totalUAssetFee = _clamp(totalUAssetFee, 0, type(uint128).max);
+
+        uint256 govUAssetFee = totalUAssetFee;
+        assertEq(govUAssetFee, totalUAssetFee, "unlocked => all uAsset fee to gov");
+    }
+
+    function test_mainPoolUAssetFeeSplit_executorRewardPlusGovFee(uint256 uAssetFee) external pure {
+        uAssetFee = _clamp(uAssetFee, 0, type(uint128).max);
+        uint256 executorReward = uAssetFee * EXECUTOR_REWARD_RATE / RATIO;
+        uint256 govFee = uAssetFee - executorReward;
+
+        assertEq(executorReward + govFee, uAssetFee, "uAssetFee = executorReward + govFee");
+        assertLe(executorReward, uAssetFee, "executorReward bounded");
+    }
+
+    function _clamp(uint256 x, uint256 min, uint256 max) internal pure returns (uint256) {
+        if (min > max) return min;
+        if (x < min) return min;
+        if (x > max) return max;
+        return x;
     }
 }

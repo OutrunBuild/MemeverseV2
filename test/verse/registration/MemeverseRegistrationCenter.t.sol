@@ -113,7 +113,7 @@ contract MockCenterEndpoint {
 
 contract MockCenterRegistrar {
     uint256 public lastUniqueId;
-    address public lastUPT;
+    address public lastUAsset;
     bool public lastFlashGenesis;
     uint64 public lastEndTime;
     uint64 public lastUnlockTime;
@@ -124,7 +124,7 @@ contract MockCenterRegistrar {
     /// @param param See implementation.
     function localRegistration(IMemeverseRegistrar.MemeverseParam calldata param) external {
         lastUniqueId = param.uniqueId;
-        lastUPT = param.uAsset;
+        lastUAsset = param.uAsset;
         lastFlashGenesis = param.flashGenesis;
         lastEndTime = param.endTime;
         lastUnlockTime = param.unlockTime;
@@ -315,7 +315,7 @@ contract MemeverseRegistrationCenterTest is Test {
         assertEq(nonce, 1);
 
         assertEq(registrar.lastUniqueId(), expectedUniqueId);
-        assertEq(registrar.lastUPT(), param.uAsset);
+        assertEq(registrar.lastUAsset(), param.uAsset);
         assertEq(registrar.lastFlashGenesis(), param.flashGenesis);
         assertEq(registrar.lastEndTime(), uint64(block.timestamp + param.durationDays * center.DAY()));
         assertEq(registrar.lastUnlockTime(), uint64(block.timestamp + param.durationDays * center.DAY() + 365 days));
@@ -332,7 +332,7 @@ contract MemeverseRegistrationCenterTest is Test {
 
         center.registration(param);
 
-        assertEq(registrar.lastUPT(), param.uAsset);
+        assertEq(registrar.lastUAsset(), param.uAsset);
         assertEq(registrar.lastName(), param.name);
         assertEq(registrar.lastSymbol(), param.symbol);
         assertEq(endpoint.lastDstEid(), 0);
@@ -479,7 +479,7 @@ contract MemeverseRegistrationCenterTest is Test {
         vm.prank(address(endpoint));
         center.lzReceive(origin, bytes32("guid"), abi.encode(param), address(0), "");
 
-        assertEq(registrar.lastUPT(), param.uAsset);
+        assertEq(registrar.lastUAsset(), param.uAsset);
         assertEq(registrar.lastName(), param.name);
         assertEq(registrar.lastSymbol(), param.symbol);
     }

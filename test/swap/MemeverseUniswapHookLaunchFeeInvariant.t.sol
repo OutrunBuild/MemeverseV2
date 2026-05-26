@@ -235,6 +235,8 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
         });
         poolId = key.toId();
 
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
         hook.setProtocolFeeCurrency(key.currency0);
 
@@ -308,6 +310,8 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
 
         token0.mint(address(manager), 1_000_000 ether);
         token1.mint(address(manager), 1_000_000 ether);
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
         hook.seedActiveLiquidityShares(key, address(this), 1e18);
         hook.setProtocolFeeCurrency(key.currency0);

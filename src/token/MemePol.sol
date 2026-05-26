@@ -14,12 +14,8 @@ contract MemePol is IPol, OutrunOFTInit {
     PoolId public poolId;
 
     modifier onlyMemeverseLauncher() {
-        _onlyMemeverseLauncher();
-        _;
-    }
-
-    function _onlyMemeverseLauncher() internal view {
         require(msg.sender == memeverseLauncher, PermissionDenied());
+        _;
     }
 
     /**

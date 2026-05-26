@@ -406,6 +406,8 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     uint256 internal constant FEE_DFF_MAX_PPM = 800_000;
     uint256 internal constant BPS_BASE = 10_000;
     bytes4 internal constant TOTAL_SUPPLY_SELECTOR = bytes4(keccak256("totalSupply()"));
+    bytes4 internal constant UNAUTHORIZED_POOL_INITIALIZER_SELECTOR =
+        bytes4(keccak256("UnauthorizedPoolInitializer()"));
 
     MockPoolManagerForHookLiquidity internal mockManager;
     TestableMemeverseUniswapHook internal hook;
@@ -437,7 +439,17 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         key = _dynamicPoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)));
         poolId = key.toId();
 
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         mockManager.initialize(key, SQRT_PRICE_1_1);
+        hook.setPoolInitializer(address(router));
+    }
+
+    function _initializePoolDirect(PoolKey memory targetKey, uint160 sqrtPriceX96) internal {
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(targetKey, sqrtPriceX96);
+        mockManager.initialize(targetKey, sqrtPriceX96);
+        hook.setPoolInitializer(address(router));
     }
 
     /// @notice Calls the hook-local pair-based public-swap protection setter.
@@ -459,6 +471,91 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         return (true, abi.decode(data, (uint40)));
     }
 
+    function testBeforeInitialize_RevertsWithoutAuthorizedInitializer() external {
+        MockPoolManagerForHookLiquidity freshManager = new MockPoolManagerForHookLiquidity();
+        TestableMemeverseUniswapHook freshHook =
+            new TestableMemeverseUniswapHook(IPoolManager(address(freshManager)), address(this), address(this));
+        MockERC20 freshToken0 = new MockERC20("Fresh0", "F0", 18);
+        MockERC20 freshToken1 = new MockERC20("Fresh1", "F1", 18);
+        PoolKey memory freshKey = PoolKey({
+            currency0: Currency.wrap(address(freshToken0)),
+            currency1: Currency.wrap(address(freshToken1)),
+            fee: 0x800000,
+            tickSpacing: 200,
+            hooks: IHooks(address(freshHook))
+        });
+
+        vm.expectRevert(UNAUTHORIZED_POOL_INITIALIZER_SELECTOR);
+        freshManager.initialize(freshKey, SQRT_PRICE_1_1);
+    }
+
+    function testBeforeInitialize_RevertsWhenNoPreAuthorization() external {
+        hook.setPoolInitializer(address(this));
+        PoolKey memory freshKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X0", "X0", 18))), Currency.wrap(address(token1)));
+
+        vm.expectRevert(IMemeverseUniswapHook.UnauthorizedPoolInitialization.selector);
+        mockManager.initialize(freshKey, SQRT_PRICE_1_1);
+
+        hook.setPoolInitializer(address(router));
+    }
+
+    function testBeforeInitialize_RevertsWhenPriceMismatchesAuthorization() external {
+        hook.setPoolInitializer(address(this));
+        PoolKey memory freshKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X0", "X0", 18))), Currency.wrap(address(token1)));
+        hook.authorizePoolInitialization(freshKey, SQRT_PRICE_1_1);
+
+        uint160 wrongPrice = SQRT_PRICE_1_1 + 100;
+        vm.expectRevert(IMemeverseUniswapHook.InvalidInitialPrice.selector);
+        mockManager.initialize(freshKey, wrongPrice);
+
+        hook.setPoolInitializer(address(router));
+    }
+
+    function testBeforeInitialize_AuthorizationConsumedAfterUse() external {
+        hook.setPoolInitializer(address(this));
+        PoolKey memory freshKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X0", "X0", 18))), Currency.wrap(address(token1)));
+        hook.authorizePoolInitialization(freshKey, SQRT_PRICE_1_1);
+        mockManager.initialize(freshKey, SQRT_PRICE_1_1);
+
+        // After successful init, auth is deleted. Re-initializing the same pool reverts.
+        vm.expectRevert(IMemeverseUniswapHook.UnauthorizedPoolInitialization.selector);
+        mockManager.initialize(freshKey, SQRT_PRICE_1_1);
+
+        hook.setPoolInitializer(address(router));
+    }
+
+    function testAuthorizePoolInitialization_RevertsWhenAuthorizationAlreadyActive() external {
+        hook.setPoolInitializer(address(this));
+        PoolKey memory freshKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X0", "X0", 18))), Currency.wrap(address(token1)));
+        hook.authorizePoolInitialization(freshKey, SQRT_PRICE_1_1);
+
+        vm.expectRevert(IMemeverseUniswapHook.PoolInitializationAlreadyAuthorized.selector);
+        hook.authorizePoolInitialization(freshKey, SQRT_PRICE_1_1 + 1);
+
+        hook.setPoolInitializer(address(router));
+    }
+
+    function testBeforeInitialize_FailedInitDoesNotConsumeAuth() external {
+        hook.setPoolInitializer(address(this));
+        PoolKey memory freshKey =
+            _dynamicPoolKey(Currency.wrap(address(new MockERC20("X0", "X0", 18))), Currency.wrap(address(token1)));
+        hook.authorizePoolInitialization(freshKey, SQRT_PRICE_1_1);
+
+        // Init with wrong price reverts. The revert unwinds the entire call so auth remains.
+        uint160 wrongPrice = SQRT_PRICE_1_1 + 100;
+        vm.expectRevert(IMemeverseUniswapHook.InvalidInitialPrice.selector);
+        mockManager.initialize(freshKey, wrongPrice);
+
+        // Auth is still active after the reverted attempt; retry with correct price succeeds.
+        mockManager.initialize(freshKey, SQRT_PRICE_1_1);
+
+        hook.setPoolInitializer(address(router));
+    }
+
     /// @notice Verifies hook-local protection state is keyed only by `PoolId`.
     /// @dev The new unlock gate must not need token-pair guessing or launcher verdict helpers.
     function testPublicSwapResumeTime_StoresPerPoolWithoutAffectingOtherPools() external {
@@ -467,7 +564,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         PoolKey memory secondKey =
             _dynamicPoolKey(Currency.wrap(address(new MockERC20("Token2", "TK2", 18))), Currency.wrap(address(token1)));
         PoolId secondPoolId = secondKey.toId();
-        mockManager.initialize(secondKey, SQRT_PRICE_1_1);
+        _initializePoolDirect(secondKey, SQRT_PRICE_1_1);
 
         (bool initialOk, uint40 initialResumeTime) = _readPublicSwapResumeTime(poolId);
         assertTrue(initialOk, "getter missing");

@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.30;
+
+interface IPOLend {
+    enum MarketState {
+        None,
+        Genesis,
+        Locked,
+        Settled,
+        Refund
+    }
+
+    struct LendMarket {
+        address uAsset;
+        address yt;
+        uint256 interestRate;
+        uint256 totalLeveragedInterest;
+        uint256 totalLeveragedYT;
+        MarketState state;
+    }
+
+    struct ResidualState {
+        uint256 residualUAsset;
+        uint256 residualMemecoin;
+    }
+
+    struct LeveragedDebtInfo {
+        uint256 totalLeveragedInterest;
+        uint256 totalLeveragedDebt;
+        uint256 interestRate;
+        uint256 debtCap;
+        uint256 remainingAdditionalInterest;
+    }
+
+    struct SettlementDustState {
+        uint128 reserve;
+        uint128 maxReserve;
+    }
+
+    error InvalidState();
+    error InvalidClaim();
+    error InvalidConfig();
+    error DebtCapExceeded();
+    error PermissionDenied();
+    error ZeroInput();
+    error SettlementDustReserveExceeded(uint256 amount, uint256 capacity);
+    error SettlementDustInsufficient(uint256 deficit, uint256 availableReserve);
+
+    event ProtocolTreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
+    event DefaultInterestRateChanged(uint256 oldRate, uint256 newRate);
+    event LeveragedDebtFactorChanged(uint256 oldFactor, uint256 newFactor);
+    event LeveragedGenesis(uint256 indexed verseId, address indexed user, uint256 interestAmount);
+    event PreRedeemPTFee(
+        uint256 indexed verseId, address indexed uAsset, uint256 ptAmount, uint256 uAssetBacking, address mintTo
+    );
+    event SettlementDustReserveConfigured(address indexed uAsset, uint128 oldMaxReserve, uint128 newMaxReserve);
+    event SettlementDustReservedFromInterest(
+        uint256 indexed verseId,
+        address indexed uAsset,
+        uint256 totalLeveragedInterest,
+        uint256 credited,
+        uint256 treasuryInterest,
+        uint256 reserveAfter
+    );
+    event SettlementDustReserveFunded(
+        address indexed uAsset, address indexed funder, uint256 amount, uint256 credited, uint256 excess
+    );
+    event SettlementDustReserveConsumed(
+        uint256 indexed verseId, address indexed uAsset, uint256 consumed, uint256 reserveAfter
+    );
+    event GlobalSettlementExecuted(
+        uint256 indexed verseId,
+        address indexed uAsset,
+        uint256 verseDebt,
+        uint256 recoveredUAsset,
+        uint256 consumedSettlementDustReserve,
+        uint256 settlementDustReserveAfter,
+        uint256 residualUAsset,
+        uint256 residualMemecoin
+    );
+    event ClaimRefund(uint256 indexed verseId, address indexed user, address indexed to, uint256 refundedAmount);
+    event ClaimLeveragedYT(uint256 indexed verseId, address indexed user, address indexed to, uint256 amount);
+    event ClaimResidual(
+        uint256 indexed verseId, address indexed user, address indexed to, uint256 uAssetAmount, uint256 memecoinAmount
+    );
+
+    function pause() external;
+
+    function unpause() external;
+
+    function setProtocolTreasury(address newTreasury) external;
+
+    function setDefaultInterestRate(uint256 newRate) external;
+
+    function setLeveragedDebtFactor(uint256 newFactor) external;
+
+    function setMaxSettlementDustReserve(address uAsset, uint128 maxReserve) external;
+
+    function registerLendMarket(uint256 verseId) external;
+
+    function leveragedGenesis(uint256 verseId, uint256 interestAmount) external returns (uint256 borrowedAmount);
+
+    function markRefundable(uint256 verseId) external;
+
+    function finalizeLeveragedGenesis(uint256 verseId) external;
+
+    function recordLeveragedYT(uint256 verseId, address yt, uint256 totalLeveragedYT) external;
+
+    function executeGlobalSettlement(uint256 verseId) external;
+
+    function fundSettlementDustReserve(address uAsset, uint256 amount) external;
+
+    function preRedeemPTFee(uint256 verseId, uint256 ptAmount, address mintTo) external returns (uint256 uAssetBacking);
+
+    function burnPreRedeemedBacking(uint256 verseId, uint256 amount) external;
+
+    function claimRefund(uint256 verseId, address to) external returns (uint256 refundedAmount);
+
+    function claimLeveragedYT(uint256 verseId, address to) external returns (uint256 amount);
+
+    function claimResidual(uint256 verseId, address to) external returns (uint256 uAssetAmount, uint256 memecoinAmount);
+
+    function getTotalLeveragedDebt(uint256 verseId) external view returns (uint256);
+
+    function getUserLeveragedDebt(uint256 verseId, address user) external view returns (uint256);
+
+    function getTotalDebtByUAsset(address uAsset) external view returns (uint256);
+
+    function settlementDustStates(address uAsset) external view returns (uint128 reserve, uint128 maxReserve);
+
+    function getLeveragedDebtInfo(uint256 verseId) external view returns (LeveragedDebtInfo memory);
+
+    function getTotalLeveragedInterest(uint256 verseId) external view returns (uint256);
+
+    function getLendMarket(uint256 verseId) external view returns (LendMarket memory market);
+}

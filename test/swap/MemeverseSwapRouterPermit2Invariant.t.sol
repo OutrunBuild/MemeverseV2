@@ -268,6 +268,8 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
             hooks: IHooks(address(hook))
         });
 
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
         hook.setProtocolFeeCurrency(key.currency0);
 
@@ -275,6 +277,7 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(permit2))
         );
+        hook.setPoolInitializer(address(router));
         accountingHandler.setRouter(router);
         spoofHandler = new Permit2SpoofHandler(router, hook, permit2, token0, treasury, key);
         token0.mint(address(accountingHandler), 1_000_000 ether);

@@ -487,6 +487,7 @@ contract MemeverseSwapRouterTest is Test {
         1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
     uint256 internal constant ALICE_PK = 0xA11CE;
     bytes4 internal constant PUBLIC_SWAP_DISABLED_SELECTOR = bytes4(keccak256("PublicSwapDisabled()"));
+    bytes4 internal constant UNAUTHORIZED_LAUNCHER_SELECTOR = bytes4(keccak256("UnauthorizedLauncher()"));
 
     MockPoolManagerForRouterTest internal manager;
     TestableMemeverseUniswapHookForRouter internal hook;
@@ -547,8 +548,19 @@ contract MemeverseSwapRouterTest is Test {
 
         key = _dynamicPoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)));
         poolId = key.toId();
+        hook.setLauncher(address(this));
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
+        hook.setPoolInitializer(address(router));
         hook.seedActiveLiquidityShares(key, address(this), 1e18);
+    }
+
+    function _initializePoolDirect(PoolKey memory targetKey, uint160 sqrtPriceX96) internal {
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(targetKey, sqrtPriceX96);
+        manager.initialize(targetKey, sqrtPriceX96);
+        hook.setPoolInitializer(address(router));
     }
 
     /// @notice Configures which currency the hook should collect protocol fees in.
@@ -1008,7 +1020,10 @@ contract MemeverseSwapRouterTest is Test {
         );
 
         guardedHook.setLauncher(address(this));
+        guardedHook.setPoolInitializer(address(this));
+        guardedHook.authorizePoolInitialization(guardedKey, SQRT_PRICE_1_1);
         guardedManager.initialize(guardedKey, SQRT_PRICE_1_1);
+        guardedHook.setPoolInitializer(address(guardedRouter));
         guardedHook.setProtocolFeeCurrency(guardedKey.currency0);
         (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
             address(guardedHook), address(token0), address(token1), uint40(block.timestamp + 1 hours)
@@ -1091,8 +1106,12 @@ contract MemeverseSwapRouterTest is Test {
         );
 
         guardedHook.setLauncher(address(this));
+        guardedHook.setPoolInitializer(address(this));
+        guardedHook.authorizePoolInitialization(blockedKey, SQRT_PRICE_1_1);
         guardedManager.initialize(blockedKey, SQRT_PRICE_1_1);
+        guardedHook.authorizePoolInitialization(openKey, SQRT_PRICE_1_1);
         guardedManager.initialize(openKey, SQRT_PRICE_1_1);
+        guardedHook.setPoolInitializer(address(guardedRouter));
         guardedHook.seedActiveLiquidityShares(blockedKey, address(this), 1e18);
         guardedHook.seedActiveLiquidityShares(openKey, address(this), 1e18);
         guardedHook.setProtocolFeeCurrency(blockedKey.currency0);
@@ -1276,6 +1295,8 @@ contract MemeverseSwapRouterTest is Test {
         PoolKey memory pristineKey = _dynamicPoolKeyForHook(
             address(pristineHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
         );
+        pristineHook.setPoolInitializer(address(this));
+        pristineHook.authorizePoolInitialization(pristineKey, postSettlementPrice);
         pristineManager.initialize(pristineKey, postSettlementPrice);
         pristineHook.seedActiveLiquidityShares(pristineKey, address(this), 1e18);
         pristineHook.setProtocolFeeCurrency(pristineKey.currency0);
@@ -1309,6 +1330,8 @@ contract MemeverseSwapRouterTest is Test {
         DirectProtectedSwapCaller directCaller = new DirectProtectedSwapCaller(guardedManager);
 
         guardedHook.setLauncher(address(this));
+        guardedHook.setPoolInitializer(address(this));
+        guardedHook.authorizePoolInitialization(guardedKey, SQRT_PRICE_1_1);
         guardedManager.initialize(guardedKey, SQRT_PRICE_1_1);
         guardedHook.setProtocolFeeCurrency(guardedKey.currency0);
         (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
@@ -1858,31 +1881,26 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(routerQuote.protocolFeeOnInput, hookQuote.protocolFeeOnInput, "fee side");
     }
 
-    /// @notice Verifies native-input native-pair swaps fail locally in the router prefund step.
-    /// @dev With router-side `erc20Pair` removed, the native-input direction now dies on `address(0).transferFrom(...)`
-    /// before reaching hook validation. The test proves this stays router-local by showing unlock never starts.
-    function testSwapRevertsLocally_WhenNativePairUsesNativeInputCurrency() external {
+    /// @notice Verifies native-input native-pair swaps fail before router prefunding.
+    /// @dev Native pairs must use the documented router-level `NativeCurrencyUnsupported` selector.
+    function testSwapRevertsAtRouter_WhenNativePairUsesNativeInputCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
-        (bool success,) = address(router)
-            .call(
-                abi.encodeWithSelector(
-                    MemeverseSwapRouter.swap.selector,
-                    nativeKey,
-                    SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
-                    address(this),
-                    block.timestamp,
-                    0,
-                    300 ether,
-                    bytes("")
-                )
-            );
-        assertFalse(success, "call should revert");
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        router.swap(
+            nativeKey,
+            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}),
+            address(this),
+            block.timestamp,
+            0,
+            300 ether,
+            ""
+        );
         assertEq(manager.lastUnlockPayer(), address(0), "router-local failure should not enter unlock");
     }
 
-    /// @notice Verifies ERC20-input native-pair swaps still fail downstream at hook validation.
-    /// @dev This is the opposite direction of the router-local failure path above and locks the current asymmetry.
-    function testSwapRevertsInHook_WhenNativePairUsesErc20InputCurrency() external {
+    /// @notice Verifies ERC20-input native-pair swaps use the same router native-pair selector.
+    /// @dev The router must reject native pairs before hook validation.
+    function testSwapRevertsAtRouter_WhenNativePairUsesErc20InputCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
         router.swap(
@@ -2052,7 +2070,7 @@ contract MemeverseSwapRouterTest is Test {
     /// @dev Covers the new pair-to-LP-token view helper.
     function testRouterLpToken_ReturnsHookPoolLpTokenAddress() external {
         PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
-        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+        _initializePoolDirect(normalizedKey, SQRT_PRICE_1_1);
 
         (address poolLpToken,,) = hook.poolInfo(normalizedKey.toId());
         assertEq(router.lpToken(address(token0), address(token1)), poolLpToken, "lp token");
@@ -2063,7 +2081,7 @@ contract MemeverseSwapRouterTest is Test {
     function testRouterQuoteAmountsForLiquidity_ReturnsAmountsThatCoverTargetLiquidity() external {
         uint128 liquidityDesired = 10 ether;
         PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
-        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+        _initializePoolDirect(normalizedKey, SQRT_PRICE_1_1);
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(normalizedKey.toId());
         (uint256 amount0Floor, uint256 amount1Floor) = LiquidityAmounts.getAmountsForLiquidity(
@@ -2087,7 +2105,7 @@ contract MemeverseSwapRouterTest is Test {
     function testRouterQuoteAmountsForLiquidity_SingleUnitCoverageAtParity() external {
         uint128 liquidityDesired = 1;
         PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
-        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+        _initializePoolDirect(normalizedKey, SQRT_PRICE_1_1);
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(normalizedKey.toId());
         (uint256 amountToken0, uint256 amountToken1) =
@@ -2105,7 +2123,7 @@ contract MemeverseSwapRouterTest is Test {
     function testQuoteExactAmountsForLiquidity_FeedsDetailedAddLiquidityAtUnchangedPrice() external {
         uint128 liquidityDesired = 10 ether;
         PoolKey memory normalizedKey = router.getHookPoolKey(address(token0), address(token1));
-        manager.initialize(normalizedKey, SQRT_PRICE_1_1);
+        _initializePoolDirect(normalizedKey, SQRT_PRICE_1_1);
 
         (uint256 amountToken0, uint256 amountToken1) =
             router.quoteExactAmountsForLiquidity(address(token0), address(token1), liquidityDesired);
@@ -2138,7 +2156,7 @@ contract MemeverseSwapRouterTest is Test {
 
         PoolKey memory freshKey = router.getHookPoolKey(address(freshToken0), address(freshToken1));
         PoolId freshPoolId = freshKey.toId();
-        manager.initialize(freshKey, SQRT_PRICE_1_1);
+        _initializePoolDirect(freshKey, SQRT_PRICE_1_1);
         manager.setLiquidity(freshPoolId, 0);
 
         uint256 expectedToken0 =
@@ -2177,11 +2195,6 @@ contract MemeverseSwapRouterTest is Test {
             IMemeverseSwapRouter.createPoolAndAddLiquidity.selector,
             "create"
         );
-        assertEq(
-            MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector,
-            IMemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector,
-            "create permit2"
-        );
     }
 
     /// @notice Verifies pool bootstrap and initial liquidity use the hook core path.
@@ -2194,7 +2207,7 @@ contract MemeverseSwapRouterTest is Test {
         tokenA.approve(address(router), type(uint256).max);
         tokenB.approve(address(router), type(uint256).max);
 
-        (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
+        (uint128 liquidity, PoolKey memory createdKey, uint256 amountAUsed, uint256 amountBUsed) = router.createPoolAndAddLiquidity(
             address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, address(this), block.timestamp
         );
 
@@ -2203,6 +2216,23 @@ contract MemeverseSwapRouterTest is Test {
         assertEq(createdKey.fee, 0x800000, "dynamic fee");
         assertGt(liquidity, 0, "liquidity");
         assertGt(UniswapLP(liquidityToken).balanceOf(address(this)), 0, "lp balance");
+        assertEq(tokenA.balanceOf(address(this)), 1_000_000 ether - amountAUsed, "amountA used");
+        assertEq(tokenB.balanceOf(address(this)), 1_000_000 ether - amountBUsed, "amountB used");
+    }
+
+    function testRouterCreatePoolAndAddLiquidity_RevertsForNonLauncher() external {
+        MockERC20 tokenA = new MockERC20("A", "A", 18);
+        MockERC20 tokenB = new MockERC20("B", "B", 18);
+        tokenA.mint(address(this), 1_000_000 ether);
+        tokenB.mint(address(this), 1_000_000 ether);
+        tokenA.approve(address(router), type(uint256).max);
+        tokenB.approve(address(router), type(uint256).max);
+        hook.setLauncher(alice);
+
+        vm.expectRevert(UNAUTHORIZED_LAUNCHER_SELECTOR);
+        router.createPoolAndAddLiquidity(
+            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, address(this), block.timestamp
+        );
     }
 
     /// @notice Verifies pool bootstrap uses the caller-provided start price.
@@ -2216,12 +2246,82 @@ contract MemeverseSwapRouterTest is Test {
         token18.approve(address(router), type(uint256).max);
         token6.approve(address(router), type(uint256).max);
 
-        (, PoolKey memory createdKey) = router.createPoolAndAddLiquidity(
+        (, PoolKey memory createdKey,,) = router.createPoolAndAddLiquidity(
             address(token18), address(token6), 100 ether, 100 * 1e6, startPrice, address(this), block.timestamp
         );
 
         (uint160 sqrtPriceX96,,,) = manager.getSlot0(createdKey.toId());
         assertEq(sqrtPriceX96, startPrice, "provided sqrt price");
+    }
+
+    /// @notice Verifies bootstrap returns actual spend when desired budgets are larger than execution needs.
+    /// @dev Bootstrap now follows the same desired-budget and refund semantics as other liquidity paths.
+    function testCreatePoolAndAddLiquidity_ReturnsActualSpendBelowDesiredBudgets() external {
+        MockERC20 tokenA = new MockERC20("PreviewA", "PA", 18);
+        MockERC20 tokenB = new MockERC20("PreviewB", "PB", 18);
+        if (address(tokenB) < address(tokenA)) {
+            (tokenA, tokenB) = (tokenB, tokenA);
+        }
+        uint256 amountADesired = 100 ether;
+        uint256 amountBDesired = 150 ether;
+        uint160 startPrice = SQRT_PRICE_1_1;
+        _mintAndApproveBootstrapPair(tokenA, amountADesired, tokenB, amountBDesired);
+
+        (uint128 liquidity,, uint256 amountAUsed, uint256 amountBUsed) = router.createPoolAndAddLiquidity(
+            address(tokenA), address(tokenB), amountADesired, amountBDesired, startPrice, address(this), block.timestamp
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+        assertLe(amountAUsed, amountADesired, "amountA budget");
+        assertLe(amountBUsed, amountBDesired, "amountB budget");
+        assertEq(tokenA.balanceOf(address(this)), amountADesired - amountAUsed, "amountA refunded");
+        assertEq(tokenB.balanceOf(address(this)), amountBDesired - amountBUsed, "amountB refunded");
+    }
+
+    /// @notice Verifies bootstrap actual-spend reporting stays in caller order for unsorted inputs.
+    /// @dev Launcher residual accounting depends on caller-order returned spend.
+    function testCreatePoolAndAddLiquidity_ReturnsActualSpendInCallerOrderWhenInputsAreUnsorted() external {
+        MockERC20 lowToken = new MockERC20("PreviewLow", "PL", 18);
+        MockERC20 highToken = new MockERC20("PreviewHigh", "PH", 18);
+        if (address(highToken) < address(lowToken)) {
+            (lowToken, highToken) = (highToken, lowToken);
+        }
+        uint256 amountADesired = 150 ether;
+        uint256 amountBDesired = 100 ether;
+        uint160 startPrice = SQRT_PRICE_1_1 / 2;
+        _mintAndApproveBootstrapPair(highToken, amountADesired, lowToken, amountBDesired);
+
+        (uint128 liquidity,, uint256 amountAUsed, uint256 amountBUsed) = router.createPoolAndAddLiquidity(
+            address(highToken),
+            address(lowToken),
+            amountADesired,
+            amountBDesired,
+            startPrice,
+            address(this),
+            block.timestamp
+        );
+
+        assertGt(liquidity, 0, "liquidity");
+        assertLe(amountAUsed, amountADesired, "amountA budget");
+        assertLe(amountBUsed, amountBDesired, "amountB budget");
+    }
+
+    /// @notice Verifies off-ratio bootstrap budgets execute with actual spend instead of a preview-padding revert.
+    /// @dev Final bootstrap rules intentionally accept partial spend and return actual usage.
+    function testRouterCreatePoolAndAddLiquidity_ExecutesFromDesiredBudgetsWithoutPaddingRevert() external {
+        MockERC20 tokenA = new MockERC20("UnstableBootstrapA", "UBA", 18);
+        MockERC20 tokenB = new MockERC20("UnstableBootstrapB", "UBB", 18);
+        uint256 amountADesired = 100 ether;
+        uint256 amountBDesired = 100 ether;
+        uint160 startPrice = SQRT_PRICE_1_1 / 2;
+        _mintAndApproveBootstrapPair(tokenA, amountADesired, tokenB, amountBDesired);
+
+        (uint128 liquidity,, uint256 amountAUsed, uint256 amountBUsed) = router.createPoolAndAddLiquidity(
+            address(tokenA), address(tokenB), amountADesired, amountBDesired, startPrice, address(this), block.timestamp
+        );
+        assertGt(liquidity, 0, "liquidity");
+        assertLe(amountAUsed, amountADesired, "amountA");
+        assertLe(amountBUsed, amountBDesired, "amountB");
     }
 
     /// @notice Verifies addLiquidity rejects expired deadlines.
@@ -2251,9 +2351,9 @@ contract MemeverseSwapRouterTest is Test {
     }
 
     /// @notice Verifies unsorted addLiquidityDetailed inputs still report spend in caller order.
-    /// @dev Guards the launcher path that now passes `(UPT, memecoin)` directly and relies on router-side normalization.
+    /// @dev Guards the launcher path that now passes `(UAsset, memecoin)` directly and relies on router-side normalization.
     function testAddLiquidityDetailed_ReturnsActualUsageInCallerOrderWhenInputsAreUnsorted() external {
-        manager.initialize(key, SQRT_PRICE_1_1 / 2);
+        _initializePoolDirect(key, SQRT_PRICE_1_1 / 2);
 
         uint256 token0Before = token0.balanceOf(address(this));
         uint256 token1Before = token1.balanceOf(address(this));
@@ -2281,6 +2381,102 @@ contract MemeverseSwapRouterTest is Test {
         vm.prank(alice);
         vm.expectRevert(IMemeverseSwapRouter.ExpiredPastDeadline.selector);
         router.removeLiquidity(key.currency0, key.currency1, liquidity, 0, 0, alice, block.timestamp - 1);
+    }
+
+    /// @notice Verifies removeLiquidity rejects the zero-address recipient before forwarding assets.
+    /// @dev Locks in the router-side defensive parity with the hook payout helper.
+    function testRemoveLiquidityReverts_WhenRecipientIsZeroAddress() external {
+        vm.prank(alice);
+        router.addLiquidity(
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
+        );
+        (address liquidityToken,,) = hook.poolInfo(poolId);
+        uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
+
+        vm.prank(alice);
+        UniswapLP(liquidityToken).approve(address(router), type(uint256).max);
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        router.removeLiquidity(key.currency0, key.currency1, liquidity, 0, 0, address(0), block.timestamp);
+    }
+
+    /// @notice Verifies removeLiquidity resolves the canonical pool when caller supplies reversed currencies.
+    /// @dev Returned BalanceDelta remains in canonical pool order while min outputs are accepted in caller order.
+    function testRemoveLiquidity_UsesCanonicalPoolWhenCurrenciesAreReversed() external {
+        vm.prank(alice);
+        router.addLiquidity(
+            key.currency0, key.currency1, 100 ether, 100 ether, 90 ether, 90 ether, alice, block.timestamp
+        );
+        (address liquidityToken,,) = hook.poolInfo(poolId);
+        uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
+
+        vm.prank(alice);
+        UniswapLP(liquidityToken).approve(address(router), type(uint256).max);
+
+        uint256 token0Before = token0.balanceOf(alice);
+        uint256 token1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        BalanceDelta delta =
+            router.removeLiquidity(key.currency1, key.currency0, liquidity, 1, 1, alice, block.timestamp);
+
+        assertGt(int256(delta.amount0()), 0, "canonical delta0");
+        assertGt(int256(delta.amount1()), 0, "canonical delta1");
+        assertEq(token0.balanceOf(alice) - token0Before, uint256(uint128(delta.amount0())), "token0 returned");
+        assertEq(token1.balanceOf(alice) - token1Before, uint256(uint128(delta.amount1())), "token1 returned");
+        assertEq(UniswapLP(liquidityToken).balanceOf(alice), 0, "lp burned");
+    }
+
+    /// @notice Verifies reversed removeLiquidity mins are remapped from caller order to canonical pool order.
+    /// @dev Uses skewed pool pricing so canonical deltas are asymmetric and canonical-order mins fail when reversed.
+    function testRemoveLiquidity_ReversedCurrenciesRemapAsymmetricMinsFromCallerOrder() external {
+        _initializePoolDirect(key, SQRT_PRICE_1_1 / 2);
+
+        vm.prank(alice);
+        router.addLiquidity(key.currency0, key.currency1, 100 ether, 100 ether, 0, 0, alice, block.timestamp);
+        (address liquidityToken,,) = hook.poolInfo(poolId);
+        uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
+
+        vm.prank(alice);
+        UniswapLP(liquidityToken).approve(address(router), type(uint256).max);
+
+        uint256 readyState = vm.snapshotState();
+        vm.prank(alice);
+        BalanceDelta quotedDelta =
+            router.removeLiquidity(key.currency1, key.currency0, liquidity, 0, 0, alice, block.timestamp);
+        vm.revertToState(readyState);
+
+        uint256 canonicalAmount0 = uint256(uint128(quotedDelta.amount0()));
+        uint256 canonicalAmount1 = uint256(uint128(quotedDelta.amount1()));
+        assertGt(canonicalAmount0, 0, "canonical amount0");
+        assertGt(canonicalAmount1, 0, "canonical amount1");
+        assertNotEq(canonicalAmount0, canonicalAmount1, "asymmetric mins");
+
+        uint256 callerAmount0Min = canonicalAmount1;
+        uint256 callerAmount1Min = canonicalAmount0;
+        uint256 successState = vm.snapshotState();
+        uint256 token0Before = token0.balanceOf(alice);
+        uint256 token1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        BalanceDelta delta = router.removeLiquidity(
+            key.currency1, key.currency0, liquidity, callerAmount0Min, callerAmount1Min, alice, block.timestamp
+        );
+
+        assertEq(uint256(uint128(delta.amount0())), canonicalAmount0, "canonical delta0");
+        assertEq(uint256(uint128(delta.amount1())), canonicalAmount1, "canonical delta1");
+        assertEq(token0.balanceOf(alice) - token0Before, canonicalAmount0, "token0 returned");
+        assertEq(token1.balanceOf(alice) - token1Before, canonicalAmount1, "token1 returned");
+        assertEq(UniswapLP(liquidityToken).balanceOf(alice), 0, "lp burned");
+
+        vm.revertToState(successState);
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseUniswapHook.TooMuchSlippage.selector);
+        router.removeLiquidity(
+            key.currency1, key.currency0, liquidity, canonicalAmount0, canonicalAmount1, alice, block.timestamp
+        );
     }
 
     /// @notice Verifies pool bootstrap rejects identical token pairs.
@@ -2322,6 +2518,15 @@ contract MemeverseSwapRouterTest is Test {
         vm.deal(address(this), 1_000_000 ether);
         if (fundManager) vm.deal(address(manager), 1_000_000 ether);
         manager.initialize(nativeKey, SQRT_PRICE_1_1);
+    }
+
+    function _mintAndApproveBootstrapPair(MockERC20 tokenA, uint256 amountA, MockERC20 tokenB, uint256 amountB)
+        internal
+    {
+        tokenA.mint(address(this), amountA);
+        tokenB.mint(address(this), amountB);
+        tokenA.approve(address(router), type(uint256).max);
+        tokenB.approve(address(router), type(uint256).max);
     }
 
     /// @notice Accepts native refunds delivered during router tests.

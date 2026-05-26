@@ -35,7 +35,7 @@ contract MemeverseRegistrationCenter is IMemeverseRegistrationCenter, OApp, Toke
     // Symbol history mapping, storing all valid registration records
     mapping(string symbol => mapping(uint256 uniqueId => SymbolRegistration)) public symbolHistory;
 
-    mapping(address uAsset => bool) private supportedUAssets;
+    mapping(address uAsset => bool) public supportedUAssets;
 
     /**
      * @notice Constructor

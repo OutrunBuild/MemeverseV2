@@ -559,17 +559,12 @@ contract MemeverseSwapRouterPermit2Test is Test {
     bytes32 internal constant REMOVE_LIQUIDITY_WITNESS_TYPEHASH = keccak256(
         "MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)"
     );
-    bytes32 internal constant CREATE_POOL_WITNESS_TYPEHASH = keccak256(
-        "MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,uint256 deadline)"
-    );
     string internal constant SWAP_WITNESS_TYPE_STRING =
         "MemeverseSwapWitness witness)MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)TokenPermissions(address token,uint256 amount)";
     string internal constant ADD_LIQUIDITY_WITNESS_TYPE_STRING =
         "MemeverseAddLiquidityWitness witness)MemeverseAddLiquidityWitness(address currency0,address currency1,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     string internal constant REMOVE_LIQUIDITY_WITNESS_TYPE_STRING =
         "MemeverseRemoveLiquidityWitness witness)MemeverseRemoveLiquidityWitness(address currency0,address currency1,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,address to,uint256 deadline)TokenPermissions(address token,uint256 amount)";
-    string internal constant CREATE_POOL_WITNESS_TYPE_STRING =
-        "MemeverseCreatePoolWitness witness)MemeverseCreatePoolWitness(address tokenA,address tokenB,uint256 amountADesired,uint256 amountBDesired,uint160 startPrice,address recipient,uint256 deadline)TokenPermissions(address token,uint256 amount)";
     bytes4 internal constant PUBLIC_SWAP_DISABLED_SELECTOR = bytes4(keccak256("PublicSwapDisabled()"));
 
     /// @notice Moves the block timestamp beyond the launch window threshold.
@@ -648,6 +643,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
         key = _dynamicPoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)));
         poolId = key.toId();
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
         hook.seedActiveLiquidityShares(key, address(this), 1e18);
     }
@@ -732,6 +729,8 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
 
         guardedHook.setLauncher(address(this));
+        guardedHook.setPoolInitializer(address(this));
+        guardedHook.authorizePoolInitialization(guardedKey, SQRT_PRICE_1_1);
         guardedManager.initialize(guardedKey, SQRT_PRICE_1_1);
         guardedHook.setProtocolFeeCurrency(guardedKey.currency0);
         (bool setOk, bytes memory setData) = _setPublicSwapResumeTime(
@@ -1038,19 +1037,38 @@ contract MemeverseSwapRouterPermit2Test is Test {
         );
     }
 
-    /// @notice Verifies Permit2-routed swaps still fail closed for native pairs.
-    /// @dev The exact revert source depends on the Permit2 implementation in front of the router, so this locks only
-    /// fail-closed behavior rather than a mock-specific error selector.
+    /// @notice Verifies Permit2-routed swaps use the router native-pair selector.
+    /// @dev The router must reject native pairs before Permit2 token checks or signature transfer.
     function testSwapWithPermit2FailsClosed_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(0), 100 ether);
 
-        vm.expectRevert();
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
         vm.prank(alice);
         router.swapWithPermit2(
             singlePermit,
             nativeKey,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            alice,
+            block.timestamp,
+            40 ether,
+            100 ether,
+            ""
+        );
+    }
+
+    /// @notice Verifies Permit2-routed ERC20-input swaps also reject native-output pairs at the router.
+    /// @dev This proves the native-pair guard checks both currencies, not just the input currency.
+    function testSwapWithPermit2FailsClosed_WhenPairUsesNativeOutputCurrency() external {
+        PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(address(token1), 100 ether);
+
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        vm.prank(alice);
+        router.swapWithPermit2(
+            singlePermit,
+            nativeKey,
+            SwapParams({zeroForOne: false, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
             alice,
             block.timestamp,
             40 ether,
@@ -1142,6 +1160,24 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertEq(MockERC20(liquidityToken).balanceOf(alice), 0, "lp burned");
     }
 
+    /// @notice Verifies Permit2 removal rejects the zero-address recipient before forwarding assets.
+    /// @dev Uses the shared removal path so the helper-level defensive check is enforced here too.
+    function testRemoveLiquidityWithPermit2_RevertsWhenRecipientIsZeroAddress() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,) = hook.poolInfo(poolId);
+
+        vm.prank(alice);
+        MockERC20(liquidityToken).approve(address(mockPermit2), type(uint256).max);
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(liquidityToken, uint256(liquidity));
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        router.removeLiquidityWithPermit2(
+            singlePermit, key.currency0, key.currency1, liquidity, 1, 1, address(0), block.timestamp
+        );
+    }
+
     /// @notice Verifies LP-token Permit2 removals resolve pool metadata only once.
     /// @dev The Permit2 path already loads the LP token before entering the shared remove-liquidity flow.
     function testRemoveLiquidityWithPermit2_ReadsPoolInfoOnce() external {
@@ -1164,49 +1200,30 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(int256(delta.amount1()), 0, "delta1");
     }
 
-    /// @notice Verifies batch Permit2 funding can create a pool and seed liquidity.
-    /// @dev Confirms the create-pool witness path includes the explicit `startPrice`.
-    function testCreatePoolAndAddLiquidityWithPermit2() external {
-        MockERC20 tokenA = new MockERC20("A", "A", 18);
-        MockERC20 tokenB = new MockERC20("B", "B", 18);
-        tokenA.mint(alice, 1_000_000 ether);
-        tokenB.mint(alice, 1_000_000 ether);
-        vm.prank(alice);
-        tokenA.approve(address(mockPermit2), type(uint256).max);
-        vm.prank(alice);
-        tokenB.approve(address(mockPermit2), type(uint256).max);
-
-        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit =
-            _batchPermit(address(tokenA), 100 ether, address(tokenB), 100 ether);
+    /// @notice Verifies Permit2 removals pull the canonical LP token even when currencies are reversed.
+    /// @dev Witness inputs remain caller-order while the LP token lookup resolves the canonical pool id.
+    function testRemoveLiquidityWithPermit2_UsesCanonicalLpTokenWhenCurrenciesAreReversed() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,) = hook.poolInfo(poolId);
 
         vm.prank(alice);
-        (uint128 liquidity, PoolKey memory createdKey) = router.createPoolAndAddLiquidityWithPermit2(
-            batchPermit, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, block.timestamp
+        MockERC20(liquidityToken).approve(address(mockPermit2), type(uint256).max);
+
+        IMemeverseSwapRouter.Permit2SingleParams memory singlePermit = _singlePermit(liquidityToken, uint256(liquidity));
+        uint256 balance0Before = token0.balanceOf(alice);
+        uint256 balance1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        BalanceDelta delta = router.removeLiquidityWithPermit2(
+            singlePermit, key.currency1, key.currency0, liquidity, 1, 1, alice, block.timestamp
         );
 
-        (address liquidityToken,,) = hook.poolInfo(createdKey.toId());
-        assertGt(liquidity, 0, "liquidity");
-        assertEq(address(createdKey.hooks), address(hook), "hook");
-        assertGt(MockERC20(liquidityToken).balanceOf(alice), 0, "lp balance");
-    }
-
-    /// @notice Verifies create-pool Permit2 calls reject mismatched batch lengths.
-    /// @dev Pool creation should fail before any transfer when the batch payload shape is wrong.
-    function testCreatePoolAndAddLiquidityWithPermit2_InvalidBatchLengthReverts() external {
-        MockERC20 tokenA = new MockERC20("A", "A", 18);
-        MockERC20 tokenB = new MockERC20("B", "B", 18);
-        tokenA.mint(alice, 1_000_000 ether);
-        tokenB.mint(alice, 1_000_000 ether);
-        vm.prank(alice);
-        tokenA.approve(address(mockPermit2), type(uint256).max);
-
-        IMemeverseSwapRouter.Permit2BatchParams memory batchPermit = _batchPermitSingle(address(tokenA), 100 ether);
-
-        vm.expectRevert(IMemeverseSwapRouter.InvalidPermit2Length.selector);
-        vm.prank(alice);
-        router.createPoolAndAddLiquidityWithPermit2(
-            batchPermit, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, block.timestamp
-        );
+        assertEq(mockPermit2.lastToken(), liquidityToken, "canonical lp token");
+        assertGt(int256(delta.amount0()), 0, "canonical delta0");
+        assertGt(int256(delta.amount1()), 0, "canonical delta1");
+        assertEq(token0.balanceOf(alice) - balance0Before, uint256(uint128(delta.amount0())), "token0 returned");
+        assertEq(token1.balanceOf(alice) - balance1Before, uint256(uint128(delta.amount1())), "token1 returned");
+        assertEq(MockERC20(liquidityToken).balanceOf(alice), 0, "lp burned");
     }
 
     /// @notice Verifies add-liquidity Permit2 calls reject mismatched token ordering.
@@ -1382,50 +1399,83 @@ contract MemeverseSwapRouterPermit2Test is Test {
         assertGt(int256(delta.amount1()), 0, "delta1");
     }
 
-    /// @notice Verifies canonical Permit2 batch witness signing works for create-pool flows.
-    /// @dev Uses the signature-verifying Permit2 mock to cover create-pool batch witnesses.
-    function testCreatePoolAndAddLiquidityWithPermit2_RealPermit2CanonicalBatchWitnessExecutes() external {
-        MockERC20 tokenA = new MockERC20("A", "A", 18);
-        MockERC20 tokenB = new MockERC20("B", "B", 18);
-        tokenA.mint(alice, 1_000_000 ether);
-        tokenB.mint(alice, 1_000_000 ether);
+    /// @notice Verifies real Permit2 signatures accept reversed remove-liquidity witnesses in caller order.
+    /// @dev The permit token remains the canonical LP token while witness currencies follow the external call order.
+    function testRemoveLiquidityWithPermit2_RealPermit2ReversedWitnessExecutes() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,) = hook.poolInfo(poolId);
         uint256 deadline = block.timestamp + 1 hours;
 
         vm.prank(alice);
-        tokenA.approve(address(realPermit2), type(uint256).max);
-        vm.prank(alice);
-        tokenB.approve(address(realPermit2), type(uint256).max);
+        MockERC20(liquidityToken).approve(address(realPermit2), type(uint256).max);
 
-        ISignatureTransfer.PermitBatchTransferFrom memory permit;
-        permit.permitted = new ISignatureTransfer.TokenPermissions[](2);
-        permit.permitted[0] = ISignatureTransfer.TokenPermissions({token: address(tokenA), amount: 100 ether});
-        permit.permitted[1] = ISignatureTransfer.TokenPermissions({token: address(tokenB), amount: 100 ether});
-        permit.nonce = 14;
-        permit.deadline = deadline;
-
-        ISignatureTransfer.SignatureTransferDetails[] memory transferDetails =
-            new ISignatureTransfer.SignatureTransferDetails[](2);
-        transferDetails[0] =
-            ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: 100 ether});
-        transferDetails[1] =
-            ISignatureTransfer.SignatureTransferDetails({to: address(realPermit2Router), requestedAmount: 100 ether});
-
-        bytes32 witness = _createPoolWitnessHash(
-            address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, deadline
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({token: liquidityToken, amount: uint256(liquidity)}),
+            nonce: 14,
+            deadline: deadline
+        });
+        ISignatureTransfer.SignatureTransferDetails memory transferDetails = ISignatureTransfer.SignatureTransferDetails({
+            to: address(realPermit2Router), requestedAmount: uint256(liquidity)
+        });
+        uint256 callerAmount0Min = 2;
+        uint256 callerAmount1Min = 1;
+        bytes32 witness = _removeLiquidityWitnessHash(
+            key.currency1, key.currency0, liquidity, callerAmount0Min, callerAmount1Min, alice, deadline
         );
         bytes memory signature =
-            _signBatchWitnessPermit(permit, address(realPermit2Router), witness, CREATE_POOL_WITNESS_TYPE_STRING);
-        IMemeverseSwapRouter.Permit2BatchParams memory permitParams = IMemeverseSwapRouter.Permit2BatchParams({
+            _signSingleWitnessPermit(permit, address(realPermit2Router), witness, REMOVE_LIQUIDITY_WITNESS_TYPE_STRING);
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = IMemeverseSwapRouter.Permit2SingleParams({
+            permit: permit, transferDetails: transferDetails, signature: signature
+        });
+        uint256 balance0Before = token0.balanceOf(alice);
+        uint256 balance1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        BalanceDelta delta = realPermit2Router.removeLiquidityWithPermit2(
+            permitParams, key.currency1, key.currency0, liquidity, callerAmount0Min, callerAmount1Min, alice, deadline
+        );
+
+        assertGt(int256(delta.amount0()), 0, "canonical delta0");
+        assertGt(int256(delta.amount1()), 0, "canonical delta1");
+        assertEq(token0.balanceOf(alice) - balance0Before, uint256(uint128(delta.amount0())), "token0 returned");
+        assertEq(token1.balanceOf(alice) - balance1Before, uint256(uint128(delta.amount1())), "token1 returned");
+        assertEq(MockERC20(liquidityToken).balanceOf(alice), 0, "lp burned");
+    }
+
+    /// @notice Verifies canonical remove-liquidity witnesses cannot authorize reversed-currency calls.
+    /// @dev The signature-verifying Permit2 mock rejects the router-computed reversed witness as InvalidSigner.
+    function testRemoveLiquidityWithPermit2_ReversedCurrenciesRejectCanonicalWitness() external {
+        uint128 liquidity = _mintAliceLiquidity();
+        (address liquidityToken,,) = hook.poolInfo(poolId);
+        uint256 deadline = block.timestamp + 1 hours;
+
+        vm.prank(alice);
+        MockERC20(liquidityToken).approve(address(realPermit2), type(uint256).max);
+
+        ISignatureTransfer.PermitTransferFrom memory permit = ISignatureTransfer.PermitTransferFrom({
+            permitted: ISignatureTransfer.TokenPermissions({token: liquidityToken, amount: uint256(liquidity)}),
+            nonce: 15,
+            deadline: deadline
+        });
+        ISignatureTransfer.SignatureTransferDetails memory transferDetails = ISignatureTransfer.SignatureTransferDetails({
+            to: address(realPermit2Router), requestedAmount: uint256(liquidity)
+        });
+        uint256 callerAmount0Min = 2;
+        uint256 callerAmount1Min = 1;
+        bytes32 witness = _removeLiquidityWitnessHash(
+            key.currency0, key.currency1, liquidity, callerAmount0Min, callerAmount1Min, alice, deadline
+        );
+        bytes memory signature =
+            _signSingleWitnessPermit(permit, address(realPermit2Router), witness, REMOVE_LIQUIDITY_WITNESS_TYPE_STRING);
+        IMemeverseSwapRouter.Permit2SingleParams memory permitParams = IMemeverseSwapRouter.Permit2SingleParams({
             permit: permit, transferDetails: transferDetails, signature: signature
         });
 
         vm.prank(alice);
-        (uint128 liquidity, PoolKey memory createdKey) = realPermit2Router.createPoolAndAddLiquidityWithPermit2(
-            permitParams, address(tokenA), address(tokenB), 100 ether, 100 ether, SQRT_PRICE_1_1, alice, deadline
+        vm.expectRevert(SignatureVerifyingPermit2ForRouterTest.InvalidSigner.selector);
+        realPermit2Router.removeLiquidityWithPermit2(
+            permitParams, key.currency1, key.currency0, liquidity, callerAmount0Min, callerAmount1Min, alice, deadline
         );
-
-        assertGt(liquidity, 0, "liquidity");
-        assertEq(address(createdKey.hooks), address(hook), "hook");
     }
 
     /// @notice Builds the normalized pool key wired to the test hook.
@@ -1581,31 +1631,6 @@ contract MemeverseSwapRouterPermit2Test is Test {
                 amount0Min,
                 amount1Min,
                 to,
-                deadline
-            )
-        );
-    }
-
-    /// @notice Computes the witness hash for pool creation.
-    /// @dev Ensures the signature matches the router's create-pool witness semantics.
-    function _createPoolWitnessHash(
-        address tokenA,
-        address tokenB,
-        uint256 amountADesired,
-        uint256 amountBDesired,
-        uint160 startPrice,
-        address recipient,
-        uint256 deadline
-    ) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                CREATE_POOL_WITNESS_TYPEHASH,
-                tokenA,
-                tokenB,
-                amountADesired,
-                amountBDesired,
-                startPrice,
-                recipient,
                 deadline
             )
         );

@@ -120,10 +120,25 @@ interface IMemeverseUniswapHook {
         view
         returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds);
 
+    /// @notice Exposes the router authorized to initialize hook-managed pools.
+    /// @return initializer Router address allowed to authorize and trigger pool initialization.
+    function poolInitializer() external view returns (address initializer);
+
     /// @notice Updates the launcher consulted for public-swap protection.
     /// @dev Implementations are expected to restrict this to an admin or owner role.
     /// @param launcher_ New launcher binding.
     function setLauncher(address launcher_) external;
+
+    /// @notice Updates the router authorized to initialize hook-managed pools.
+    /// @dev Implementations are expected to restrict this to an admin or owner role.
+    /// @param initializer New authorized initializer router.
+    function setPoolInitializer(address initializer) external;
+
+    /// @notice Authorizes exactly one pool initialization at a specific start price.
+    /// @dev Callable only by `poolInitializer`; consumed by `beforeInitialize`.
+    /// @param key Pool key being initialized.
+    /// @param startPriceX96 Expected initial pool price.
+    function authorizePoolInitialization(PoolKey calldata key, uint160 startPriceX96) external;
 
     /// @notice Updates the public-swap resume time for a hook-managed pool identified by token pair.
     /// @dev Intended for the configured launcher to snapshot post-unlock protection windows without depending on
@@ -237,6 +252,12 @@ interface IMemeverseUniswapHook {
     /// @notice Emitted when the launcher binding is updated.
     event LauncherUpdated(address oldLauncher, address newLauncher);
 
+    /// @notice Emitted when the pool initializer router is updated.
+    event PoolInitializerUpdated(address oldInitializer, address newInitializer);
+
+    /// @notice Emitted when a one-time pool initialization authorization is written.
+    event PoolInitializationAuthorized(PoolId indexed poolId, uint160 startPriceX96);
+
     /// @notice Emitted when the default launch fee configuration is updated.
     event DefaultLaunchFeeConfigUpdated(
         uint24 oldStartFeeBps,
@@ -325,6 +346,18 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when the caller is not authorized.
     error Unauthorized();
+
+    /// @notice Reverts when the pool initializer router is not authorized.
+    error UnauthorizedPoolInitializer();
+
+    /// @notice Reverts when a pool initialization has not been pre-authorized.
+    error UnauthorizedPoolInitialization();
+
+    /// @notice Reverts when a pool initialization authorization is already active.
+    error PoolInitializationAlreadyAuthorized();
+
+    /// @notice Reverts when pool initialization uses a different price than authorized.
+    error InvalidInitialPrice();
 
     /// @notice Reverts when a public swap is attempted during the post-unlock protection window.
     error PublicSwapDisabled();

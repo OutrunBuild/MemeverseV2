@@ -599,6 +599,8 @@ abstract contract RealisticSwapIntegrationBase is Test {
         });
         poolId = key.toId();
 
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
         _addLiquidity(address(this));
     }

@@ -32,6 +32,10 @@ contract MemeverseScript is BaseScript {
     using OptionsBuilder for bytes;
 
     uint256 public constant DAY = 24 * 3600;
+    uint160 internal constant MEMEVERSE_HOOK_FLAGS = 0x28cc;
+    uint160 internal constant UNISWAP_V4_HOOK_FLAG_MASK = 0x3fff;
+    bytes32 internal constant POLSPLITTER_STORAGE_LOCATION =
+        0xab504a6dee30096d32ccac13a30a002829c5eeb4c38a0196ed16a6c4e9faca00;
 
     address internal owner;
     address internal factory;
@@ -54,6 +58,10 @@ contract MemeverseScript is BaseScript {
     address internal MEMEVERSE_LAUNCHER;
     address internal MEMEVERSE_YIELD_DISPATCHER;
     address internal OMNICHAIN_MEMECOIN_STAKER;
+    address internal POLEND;
+    address internal POLSPLITTER;
+    address internal MEMEVERSE_SWAP_ROUTER;
+    address internal MEMEVERSE_UNISWAP_HOOK;
 
     uint32[] public omnichainIds;
     mapping(uint32 chainId => address) public endpoints;
@@ -62,26 +70,7 @@ contract MemeverseScript is BaseScript {
     /// @notice Executes run.
     /// @dev See the implementation for behavior details.
     function run() public broadcaster {
-        owner = vm.envAddress("OWNER");
-        factory = vm.envAddress("OUTRUN_AMM_FACTORY");
-        router = vm.envAddress("LIQUIDITY_ROUTER");
-        UUSD = vm.envAddress("UUSD");
-        UETH = vm.envAddress("UETH");
-        OUTRUN_DEPLOYER = vm.envAddress("OUTRUN_DEPLOYER");
-
-        MEMECOIN_IMPLEMENTATION = vm.envAddress("MEMECOIN_IMPLEMENTATION");
-        POL_IMPLEMENTATION = vm.envAddress("POL_IMPLEMENTATION");
-        MEMECOIN_VAULT_IMPLEMENTATION = vm.envAddress("MEMECOIN_VAULT_IMPLEMENTATION");
-        MEMECOIN_GOVERNOR_IMPLEMENTATION = vm.envAddress("MEMECOIN_GOVERNOR_IMPLEMENTATION");
-        CYCLE_INCENTIVIZER_IMPLEMENTATION = vm.envAddress("CYCLE_INCENTIVIZER_IMPLEMENTATION");
-
-        MEMEVERSE_REGISTRATION_CENTER = vm.envAddress("MEMEVERSE_REGISTRATION_CENTER");
-        MEMEVERSE_COMMON_INFO = vm.envAddress("MEMEVERSE_COMMON_INFO");
-        MEMEVERSE_REGISTRAR = vm.envAddress("MEMEVERSE_REGISTRAR");
-        MEMEVERSE_PROXY_DEPLOYER = vm.envAddress("MEMEVERSE_PROXY_DEPLOYER");
-        MEMEVERSE_LAUNCHER = vm.envAddress("MEMEVERSE_LAUNCHER");
-        MEMEVERSE_YIELD_DISPATCHER = vm.envAddress("MEMEVERSE_YIELD_DISPATCHER");
-        OMNICHAIN_MEMECOIN_STAKER = vm.envAddress("OMNICHAIN_MEMECOIN_STAKER");
+        _loadScriptEnv();
 
         // OutrunTODO Testnet id
         omnichainIds = [97, 84532, 421614, 43113, 80002, 57054, 168587773, 534351, 11155111];
@@ -113,6 +102,42 @@ contract MemeverseScript is BaseScript {
         // _deployOmnichainMemecoinStaker(2);
 
         // _deployRegistrationCenter(2);
+        // openSupportedUAssetsAfterReadiness(
+        //     MEMEVERSE_REGISTRATION_CENTER,
+        //     MEMEVERSE_SWAP_ROUTER,
+        //     MEMEVERSE_UNISWAP_HOOK
+        // );
+    }
+
+    function _loadScriptEnv() internal {
+        owner = vm.envAddress("OWNER");
+        factory = vm.envAddress("OUTRUN_AMM_FACTORY");
+        router = vm.envAddress("LIQUIDITY_ROUTER");
+        OUTRUN_DEPLOYER = vm.envAddress("OUTRUN_DEPLOYER");
+
+        MEMECOIN_IMPLEMENTATION = vm.envAddress("MEMECOIN_IMPLEMENTATION");
+        POL_IMPLEMENTATION = vm.envAddress("POL_IMPLEMENTATION");
+        MEMECOIN_VAULT_IMPLEMENTATION = vm.envAddress("MEMECOIN_VAULT_IMPLEMENTATION");
+        MEMECOIN_GOVERNOR_IMPLEMENTATION = vm.envAddress("MEMECOIN_GOVERNOR_IMPLEMENTATION");
+        CYCLE_INCENTIVIZER_IMPLEMENTATION = vm.envAddress("CYCLE_INCENTIVIZER_IMPLEMENTATION");
+
+        MEMEVERSE_REGISTRATION_CENTER = vm.envAddress("MEMEVERSE_REGISTRATION_CENTER");
+        MEMEVERSE_COMMON_INFO = _envAddressWithFallback("LZ_ENDPOINT_REGISTRY", "MEMEVERSE_COMMON_INFO");
+        MEMEVERSE_REGISTRAR = vm.envAddress("MEMEVERSE_REGISTRAR");
+        MEMEVERSE_PROXY_DEPLOYER = vm.envAddress("MEMEVERSE_PROXY_DEPLOYER");
+        MEMEVERSE_YIELD_DISPATCHER = vm.envAddress("MEMEVERSE_YIELD_DISPATCHER");
+        OMNICHAIN_MEMECOIN_STAKER = vm.envAddress("OMNICHAIN_MEMECOIN_STAKER");
+        MEMEVERSE_SWAP_ROUTER = _optionalEnvAddress("MEMEVERSE_SWAP_ROUTER");
+        MEMEVERSE_UNISWAP_HOOK = _optionalEnvAddress("MEMEVERSE_UNISWAP_HOOK");
+        _loadReadinessEnv();
+    }
+
+    function _loadReadinessEnv() internal {
+        UUSD = vm.envAddress("UUSD");
+        UETH = vm.envAddress("UETH");
+        MEMEVERSE_LAUNCHER = vm.envAddress("MEMEVERSE_LAUNCHER");
+        POLEND = vm.envAddress("POLEND");
+        POLSPLITTER = vm.envAddress("POLSPLITTER");
     }
 
     function _chainsInit() internal {
@@ -299,8 +324,6 @@ contract MemeverseScript is BaseScript {
             IMessageLibManager(localEndpoint).setConfig(centerAddr, receiveLib, params);
         }
 
-        IMemeverseRegistrationCenter(centerAddr).setSupportedUAsset(UETH, true);
-        IMemeverseRegistrationCenter(centerAddr).setSupportedUAsset(UUSD, true);
         IMemeverseRegistrationCenter(centerAddr).setRegisterGasLimit(1000000);
         IMemeverseRegistrationCenter(centerAddr).setDurationDaysRange(1, 3);
 
@@ -403,25 +426,154 @@ contract MemeverseScript is BaseScript {
 
     function _deployMemeverseLauncher(uint256 nonce) internal {
         address localEndpoint = endpoints[uint32(block.chainid)];
-        bytes memory encodedArgs = abi.encode(
-            owner,
-            localEndpoint,
-            MEMEVERSE_REGISTRAR,
-            MEMEVERSE_PROXY_DEPLOYER,
-            MEMEVERSE_YIELD_DISPATCHER,
-            25,
-            115000,
-            135000,
-            2500,
-            7 days
-        );
-        bytes memory creationCode = abi.encodePacked(type(MemeverseLauncher).creationCode, encodedArgs);
+        bytes memory creationCode = _buildMemeverseLauncherCreationCode(localEndpoint);
         bytes32 salt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
         address memeverseLauncherAddr = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(salt, creationCode);
         IMemeverseLauncher(memeverseLauncherAddr).setFundMetaData(UETH, 1e19, 1000000);
         IMemeverseLauncher(memeverseLauncherAddr).setFundMetaData(UUSD, 50000 * 1e18, 200);
 
         console.log("MemeverseLauncher deployed on %s", memeverseLauncherAddr);
+    }
+
+    function _buildMemeverseLauncherCreationCode(address localEndpoint) internal view returns (bytes memory) {
+        require(localEndpoint != address(0), "ZERO_LOCAL_ENDPOINT");
+        require(MEMEVERSE_REGISTRAR != address(0), "ZERO_MEMEVERSE_REGISTRAR");
+        require(MEMEVERSE_PROXY_DEPLOYER != address(0), "ZERO_MEMEVERSE_PROXY_DEPLOYER");
+        require(MEMEVERSE_YIELD_DISPATCHER != address(0), "ZERO_MEMEVERSE_YIELD_DISPATCHER");
+        require(MEMEVERSE_COMMON_INFO != address(0), "ZERO_LZ_ENDPOINT_REGISTRY");
+        require(POLEND != address(0), "ZERO_POLEND");
+        require(POLSPLITTER != address(0), "ZERO_POLSPLITTER");
+        require(UETH != address(0), "ZERO_UETH");
+        require(UUSD != address(0), "ZERO_UUSD");
+
+        bytes memory encodedArgs = abi.encode(
+            owner,
+            localEndpoint,
+            MEMEVERSE_REGISTRAR,
+            MEMEVERSE_PROXY_DEPLOYER,
+            MEMEVERSE_YIELD_DISPATCHER,
+            MEMEVERSE_COMMON_INFO,
+            POLEND,
+            POLSPLITTER,
+            25,
+            115000,
+            135000,
+            2500,
+            7 days
+        );
+        return abi.encodePacked(type(MemeverseLauncher).creationCode, encodedArgs);
+    }
+
+    function _envAddressWithFallback(string memory primary, string memory fallbackName)
+        internal
+        view
+        returns (address)
+    {
+        if (vm.envExists(primary)) return vm.envAddress(primary);
+        return vm.envAddress(fallbackName);
+    }
+
+    function _optionalEnvAddress(string memory name) internal view returns (address) {
+        if (!vm.envExists(name)) return address(0);
+        return vm.envAddress(name);
+    }
+
+    function _openSupportedUAssetsAfterReadiness(address registrationCenter, address swapRouter, address hook)
+        internal
+    {
+        _requireContractCode(registrationCenter, "REGISTRATION_CENTER_CODE_NOT_READY");
+        _requireDeploymentReady();
+        _requireSwapReady(swapRouter, hook);
+
+        IMemeverseRegistrationCenter(registrationCenter).setSupportedUAsset(UETH, true);
+        IMemeverseRegistrationCenter(registrationCenter).setSupportedUAsset(UUSD, true);
+    }
+
+    function openSupportedUAssetsAfterReadiness(address registrationCenter, address swapRouter, address hook)
+        public
+        broadcaster
+    {
+        _loadReadinessEnv();
+        _openSupportedUAssetsAfterReadiness(registrationCenter, swapRouter, hook);
+    }
+
+    function _requireDeploymentReady() internal view {
+        _requireContractCode(MEMEVERSE_LAUNCHER, "LAUNCHER_CODE_NOT_READY");
+        _requireContractCode(POLEND, "POLEND_CODE_NOT_READY");
+        _requireContractCode(POLSPLITTER, "POLSPLITTER_CODE_NOT_READY");
+
+        require(_readAddress(MEMEVERSE_LAUNCHER, "polend()") == POLEND, "LAUNCHER_POLEND_NOT_READY");
+        require(_readAddress(MEMEVERSE_LAUNCHER, "polSplitter()") == POLSPLITTER, "LAUNCHER_POLSPLITTER_NOT_READY");
+        require(_readAddress(POLEND, "launcher()") == MEMEVERSE_LAUNCHER, "POLEND_LAUNCHER_NOT_READY");
+        require(_readAddress(POLEND, "splitter()") == POLSPLITTER, "POLEND_SPLITTER_NOT_READY");
+        require(_readAddress(POLSPLITTER, "launcher()") == MEMEVERSE_LAUNCHER, "POLSPLITTER_LAUNCHER_NOT_READY");
+        require(_readPolSplitterPolend() == POLEND, "POLSPLITTER_POLEND_NOT_READY");
+
+        _requireReserveReady(UETH, "UETH_RESERVE_NOT_READY");
+        _requireReserveReady(UUSD, "UUSD_RESERVE_NOT_READY");
+        _requireFundMetaDataReady(UETH, "UETH_FUND_METADATA_NOT_READY");
+        _requireFundMetaDataReady(UUSD, "UUSD_FUND_METADATA_NOT_READY");
+    }
+
+    function _requireSwapReady(address swapRouter, address hook) internal view {
+        _requireContractCode(swapRouter, "ROUTER_CODE_NOT_READY");
+        _requireContractCode(hook, "HOOK_CODE_NOT_READY");
+        require(_hookFlags(hook) == MEMEVERSE_HOOK_FLAGS, "HOOK_FLAGS_NOT_READY");
+
+        require(_readAddress(MEMEVERSE_LAUNCHER, "memeverseSwapRouter()") == swapRouter, "LAUNCHER_ROUTER_NOT_READY");
+        require(_readAddress(MEMEVERSE_LAUNCHER, "memeverseUniswapHook()") == hook, "LAUNCHER_HOOK_NOT_READY");
+        require(_readAddress(swapRouter, "hook()") == hook, "ROUTER_HOOK_NOT_READY");
+        require(_readAddress(hook, "launcher()") == MEMEVERSE_LAUNCHER, "HOOK_LAUNCHER_NOT_READY");
+        require(_readAddress(hook, "poolInitializer()") == swapRouter, "HOOK_POOL_INITIALIZER_NOT_READY");
+    }
+
+    function _hookFlags(address hook) internal pure returns (uint160) {
+        return uint160(hook) & UNISWAP_V4_HOOK_FLAG_MASK;
+    }
+
+    function _requireReserveReady(address uAsset, string memory errorMessage) internal view {
+        (, uint128 maxReserve) = _readSettlementDustState(uAsset);
+        // POLend refuses market registration until this cap is configured.
+        require(maxReserve > 0, errorMessage);
+    }
+
+    function _requireFundMetaDataReady(address uAsset, string memory errorMessage) internal view {
+        (uint256 minTotalFund, uint256 fundBasedAmount) = _readFundMetaData(uAsset);
+        // Registration must stay closed until launcher funding thresholds are usable.
+        require(minTotalFund > 0 && fundBasedAmount > 0, errorMessage);
+    }
+
+    function _requireContractCode(address target, string memory errorMessage) internal view {
+        require(target.code.length > 0, errorMessage);
+    }
+
+    function _readAddress(address target, string memory signature) internal view returns (address value) {
+        (bool success, bytes memory data) = target.staticcall(abi.encodeWithSignature(signature));
+        require(success && data.length >= 32, "STATICCALL_ADDRESS_FAILED");
+        value = abi.decode(data, (address));
+    }
+
+    function _readPolSplitterPolend() internal view returns (address value) {
+        (bool success, bytes memory data) = POLSPLITTER.staticcall(abi.encodeWithSignature("polend()"));
+        if (success && data.length >= 32) return abi.decode(data, (address));
+
+        // POLSplitter stores `polend` in its ERC-7201 namespace at base + 3.
+        bytes32 rawValue = vm.load(POLSPLITTER, bytes32(uint256(POLSPLITTER_STORAGE_LOCATION) + 3));
+        return address(uint160(uint256(rawValue)));
+    }
+
+    function _readSettlementDustState(address uAsset) internal view returns (uint128 reserve, uint128 maxReserve) {
+        (bool success, bytes memory data) =
+            POLEND.staticcall(abi.encodeWithSignature("settlementDustStates(address)", uAsset));
+        require(success && data.length >= 64, "SETTLEMENT_DUST_STATE_NOT_READY");
+        return abi.decode(data, (uint128, uint128));
+    }
+
+    function _readFundMetaData(address uAsset) internal view returns (uint256 minTotalFund, uint256 fundBasedAmount) {
+        (bool success, bytes memory data) =
+            MEMEVERSE_LAUNCHER.staticcall(abi.encodeWithSignature("fundMetaDatas(address)", uAsset));
+        require(success && data.length >= 64, "FUND_METADATA_NOT_READY");
+        return abi.decode(data, (uint256, uint256));
     }
 
     function _deployYieldDispatcher(uint256 nonce) internal {

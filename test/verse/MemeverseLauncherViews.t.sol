@@ -5,8 +5,66 @@ import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
+
+contract MockPOLendForViews {
+    uint256 internal totalLeveragedDebt_;
+    IPOLend.LendMarket internal market;
+
+    function setTotalLeveragedDebt(uint256 amount) external {
+        totalLeveragedDebt_ = amount;
+    }
+
+    function getTotalLeveragedDebt(uint256) external view returns (uint256) {
+        return totalLeveragedDebt_;
+    }
+
+    function getLendMarket(uint256) external view returns (IPOLend.LendMarket memory) {
+        return market;
+    }
+
+    function registerLendMarket(uint256) external {}
+}
+
+contract MockPOLSplitterForViews {
+    address internal immutable yt;
+
+    constructor(address yt_) {
+        yt = yt_;
+    }
+
+    function splitInfos(uint256)
+        external
+        view
+        returns (address, address, address, address, address, uint256, uint256, uint256, uint256, uint256, bool)
+    {
+        return (address(0), yt, address(0), address(0), address(0), 0, 0, 0, 0, 0, false);
+    }
+
+    function getPT(uint256) external pure returns (address) {
+        return address(0);
+    }
+
+    function getYT(uint256) external view returns (address) {
+        return yt;
+    }
+
+    function getMemecoin(uint256) external pure returns (address) {
+        return address(0);
+    }
+
+    function getPTAndYT(uint256) external view returns (address, address) {
+        return (address(0), yt);
+    }
+
+    function getPTSettlementState(uint256) external pure returns (address, bool) {
+        return (address(0), false);
+    }
+}
 
 contract TestableMemeverseLauncherViews is MemeverseLauncher {
     constructor(
@@ -16,6 +74,8 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
         address _memeverseProxyDeployer,
         address _yieldDispatcher,
         address _lzEndpointRegistry,
+        address _polend,
+        address _polSplitter,
         uint256 _executorRewardRate,
         uint128 _oftReceiveGasLimit,
         uint128 _yieldDispatcherGasLimit,
@@ -29,6 +89,8 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
             _memeverseProxyDeployer,
             _yieldDispatcher,
             _lzEndpointRegistry,
+            _polend,
+            _polSplitter,
             _executorRewardRate,
             _oftReceiveGasLimit,
             _yieldDispatcherGasLimit,
@@ -54,12 +116,8 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     }
 
     /// @notice Set genesis fund for test.
-    /// @dev Populates `genesisFunds` so view helpers can report specific totals.
-    /// @param verseId See implementation.
-    /// @param totalMemecoinFunds See implementation.
-    /// @param totalPolFunds See implementation.
-    function setGenesisFundForTest(uint256 verseId, uint128 totalMemecoinFunds, uint128 totalPolFunds) external {
-        genesisFunds[verseId] = GenesisFund({totalMemecoinFunds: totalMemecoinFunds, totalPolFunds: totalPolFunds});
+    function setGenesisFundForTest(uint256 verseId, uint256 _totalNormalFunds) external {
+        totalNormalFunds[verseId] = _totalNormalFunds;
     }
 
     /// @notice Set user genesis data for test.
@@ -68,27 +126,20 @@ contract TestableMemeverseLauncherViews is MemeverseLauncher {
     /// @param account See implementation.
     /// @param genesisFund See implementation.
     /// @param isRefunded See implementation.
-    /// @param isClaimed See implementation.
     /// @param isRedeemed See implementation.
     function setUserGenesisDataForTest(
         uint256 verseId,
         address account,
         uint256 genesisFund,
         bool isRefunded,
-        bool isClaimed,
         bool isRedeemed
     ) external {
-        userGenesisData[verseId][account] = GenesisData({
-            genesisFund: genesisFund, isRefunded: isRefunded, isClaimed: isClaimed, isRedeemed: isRedeemed
-        });
+        userGenesisData[verseId][account] =
+            GenesisData({genesisFund: genesisFund, isRefunded: isRefunded, isRedeemed: isRedeemed});
     }
 
-    /// @notice Set total claimable polfor test.
-    /// @dev Controls the claimable POL total observed by views.
-    /// @param verseId See implementation.
-    /// @param amount See implementation.
-    function setTotalClaimablePOLForTest(uint256 verseId, uint256 amount) external {
-        totalClaimablePOL[verseId] = amount;
+    function setTotalNormalClaimableYTForTest(uint256 verseId, uint256 amount) external {
+        totalNormalClaimableYT[verseId] = amount;
     }
 
     /// @notice Set user preorder data for test.
@@ -132,13 +183,21 @@ contract MemeverseLauncherViewsTest is Test {
     address internal constant GOVERNOR = address(0x3333);
     address internal constant YIELD_VAULT = address(0x4444);
     address internal constant POL = address(0x5555);
+    uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
 
     TestableMemeverseLauncherViews internal launcher;
-    MockERC20 internal uptToken;
+    MockERC20 internal uAssetToken;
+    MockERC20 internal ytToken;
+    MockPOLendForViews internal polend;
+    MockPOLSplitterForViews internal splitter;
 
     /// @notice Set up.
     /// @dev Deploys the views-only launcher and a helper token to exercise getters.
     function setUp() external {
+        uAssetToken = new MockERC20("UASSET", "UASSET", 18);
+        ytToken = new MockERC20("YT", "YT", 18);
+        polend = new MockPOLendForViews();
+        splitter = new MockPOLSplitterForViews(address(ytToken));
         launcher = new TestableMemeverseLauncherViews(
             address(this),
             address(0x1),
@@ -146,25 +205,32 @@ contract MemeverseLauncherViewsTest is Test {
             address(0x3),
             address(0x4),
             address(0x5),
+            address(polend),
+            address(splitter),
             25,
             115_000,
             135_000,
             2_500,
             7 days
         );
-        uptToken = new MockERC20("UPT", "UPT", 18);
     }
 
     /// @notice Builds a base verse for the requested stage.
-    /// @dev Supplies consistent memecoin and UPT addresses for view tests.
+    /// @dev Supplies consistent memecoin and uAsset addresses for view tests.
     function _baseVerse(IMemeverseLauncher.Stage stage)
         internal
         view
         returns (IMemeverseLauncher.Memeverse memory verse)
     {
         verse.memecoin = MEMECOIN;
-        verse.UPT = address(uptToken);
+        verse.uAsset = address(uAssetToken);
         verse.currentStage = stage;
+    }
+
+    function _expectedDefaultPreorderCapacity(uint256 baseFunds) internal pure returns (uint256) {
+        uint256 quotient = baseFunds / 40;
+        uint256 remainder = baseFunds % 40;
+        return quotient * 7 + remainder * 7 / 40;
     }
 
     /// @notice Test getter views revert on zero input and return stored state.
@@ -175,14 +241,15 @@ contract MemeverseLauncherViewsTest is Test {
         verse.yieldVault = YIELD_VAULT;
         launcher.setMemeverseForTest(1, verse);
         launcher.setVerseIdByMemecoinForTest(MEMECOIN, 1);
-        launcher.setTotalClaimablePOLForTest(1, 60 ether);
-        launcher.setGenesisFundForTest(1, 90 ether, 30 ether);
-        launcher.setUserGenesisDataForTest(1, ALICE, 24 ether, false, false, false);
+        launcher.setGenesisFundForTest(1, 120 ether);
+        launcher.setUserGenesisDataForTest(1, ALICE, 24 ether, false, false);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.getVerseIdByMemecoin(address(0));
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getMemeverseByVerseId(0);
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.getUAssetByVerseId(0);
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.getMemeverseByMemecoin(address(0));
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
@@ -193,8 +260,6 @@ contract MemeverseLauncherViewsTest is Test {
         launcher.getYieldVaultByVerseId(0);
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getGovernorByVerseId(0);
-        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
-        launcher.claimablePOLToken(0);
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.previewGenesisMakerFees(0);
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
@@ -210,11 +275,120 @@ contract MemeverseLauncherViewsTest is Test {
         vm.startPrank(ALICE);
         assertEq(launcher.getVerseIdByMemecoin(MEMECOIN), 1);
         assertEq(launcher.getMemeverseByVerseId(1).memecoin, MEMECOIN);
+        assertEq(launcher.getUAssetByVerseId(1), address(uAssetToken));
         assertEq(uint256(launcher.getStageByVerseId(1)), uint256(IMemeverseLauncher.Stage.Locked));
         assertEq(launcher.getYieldVaultByVerseId(1), YIELD_VAULT);
         assertEq(launcher.getGovernorByVerseId(1), GOVERNOR);
-        assertEq(launcher.claimablePOLToken(1), 12 ether);
         vm.stopPrank();
+    }
+
+    function testPreviewPreorderCapacity_UsesAllNormalFundsAndLeveragedDebtBase() external {
+        launcher.setMemeverseForTest(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
+        launcher.setGenesisFundForTest(1, 1000 ether);
+        polend.setTotalLeveragedDebt(500 ether);
+        assertEq(launcher.previewPreorderCapacity(1), 262.5 ether, "70 percent base times ratio");
+    }
+
+    function testPreviewPreorderCapacity_HandlesLargeBaseWithoutIntermediateOverflow() external {
+        launcher.setMemeverseForTest(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
+        uint256 baseFunds = type(uint128).max;
+        launcher.setGenesisFundForTest(1, baseFunds);
+
+        assertEq(launcher.previewPreorderCapacity(1), _expectedDefaultPreorderCapacity(baseFunds), "capacity");
+    }
+
+    function testPreviewPreorderCapacity_RevertsWhenTotalGenesisFundsExceedSupportedMaximum() external {
+        launcher.setMemeverseForTest(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
+        launcher.setGenesisFundForTest(1, type(uint128).max);
+        polend.setTotalLeveragedDebt(1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseLauncher.TotalGenesisFundsTooHigh.selector,
+                uint256(type(uint128).max) + 1,
+                uint256(type(uint128).max)
+            )
+        );
+        launcher.previewPreorderCapacity(1);
+    }
+
+    function testPreviewPreorderCapacity_RevertsWhenVerseIdInvalid() external {
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.previewPreorderCapacity(0);
+
+        vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
+        launcher.previewPreorderCapacity(999);
+    }
+
+    function testClaimablePreorderMemecoin_UsesFullPrecisionForLargePreorderAndVesting() external {
+        launcher.setMemeverseForTest(1, _baseVerse(IMemeverseLauncher.Stage.Locked));
+
+        uint256 settledMemecoin = 1 << 240;
+        uint256 userFunds = 1 << 80;
+        uint256 totalFunds = 1 << 80;
+        uint40 settlementTimestamp = 1_000;
+        uint256 elapsed = 2 days;
+
+        launcher.setPreorderStateForTest(1, totalFunds, settledMemecoin, settlementTimestamp);
+        launcher.setUserPreorderDataForTest(1, ALICE, userFunds, 0, false);
+        vm.warp(uint256(settlementTimestamp) + elapsed);
+
+        uint256 purchasedMemecoin = FullMath.mulDiv(settledMemecoin, userFunds, totalFunds);
+        uint256 expected = FullMath.mulDiv(purchasedMemecoin, elapsed, 7 days);
+
+        vm.prank(ALICE);
+        assertEq(launcher.claimablePreorderMemecoin(1), expected, "claimable preorder");
+    }
+
+    function testGetDebtCapBaseByVerseId_ReturnsMinTotalFundWhenNormalFundsAreLower() external {
+        launcher.setMemeverseForTest(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
+        launcher.setGenesisFundForTest(1, 5 ether);
+        launcher.setFundMetaData(address(uAssetToken), 10 ether, 1);
+
+        (bool success, bytes memory data) =
+            address(launcher).staticcall(abi.encodeWithSignature("getDebtCapBaseByVerseId(uint256)", 1));
+
+        assertTrue(success, "debt cap base getter");
+        assertEq(abi.decode(data, (uint256)), 10 ether, "min fund");
+    }
+
+    function testGetDebtCapBaseByVerseId_ReturnsNormalFundsWhenHigher() external {
+        launcher.setMemeverseForTest(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
+        launcher.setGenesisFundForTest(1, 15 ether);
+        launcher.setFundMetaData(address(uAssetToken), 10 ether, 1);
+
+        (bool success, bytes memory data) =
+            address(launcher).staticcall(abi.encodeWithSignature("getDebtCapBaseByVerseId(uint256)", 1));
+
+        assertTrue(success, "debt cap base getter");
+        assertEq(abi.decode(data, (uint256)), 15 ether, "normal funds");
+    }
+
+    function testGetDebtCapBaseByVerseId_AllowsLargeMinTotalFund() external {
+        uint256 verseId = 2;
+        uint256 largeMinTotalFund = uint256(type(uint128).max) + 1;
+        launcher.setMemeverseForTest(verseId, _baseVerse(IMemeverseLauncher.Stage.Genesis));
+        launcher.setGenesisFundForTest(verseId, 0);
+        launcher.setFundMetaData(address(uAssetToken), largeMinTotalFund, 1);
+
+        assertEq(launcher.getDebtCapBaseByVerseId(verseId), largeMinTotalFund, "large min fund");
+    }
+
+    function testGetDebtCapBaseByVerseId_RevertsForInvalidVerseId() external view {
+        (bool success, bytes memory data) =
+            address(launcher).staticcall(abi.encodeWithSignature("getDebtCapBaseByVerseId(uint256)", 999));
+
+        assertFalse(success, "invalid verse");
+        assertEq(bytes4(data), IMemeverseLauncher.InvalidVerseId.selector, "selector");
+    }
+
+    function testClaimNormalYT_RevertsBeforeLocked() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
+        launcher.setMemeverseForTest(1, verse);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
+        launcher.claimNormalYT(1);
     }
 
     /// @notice Verifies launcher no longer exposes a configurable unlock-protection getter/setter surface.
@@ -251,33 +425,65 @@ contract MemeverseLauncherViewsTest is Test {
         launcher.genesis(1, 1 ether, ALICE);
         launcher.unpause();
 
-        uptToken.mint(address(this), 1 ether);
-        uptToken.approve(address(launcher), type(uint256).max);
+        uAssetToken.mint(address(this), 1 ether);
+        uAssetToken.approve(address(launcher), type(uint256).max);
         launcher.genesis(1, 1 ether, ALICE);
 
-        (uint128 totalMemecoinFunds, uint128 totalPolFunds) = launcher.genesisFunds(1);
-        (uint256 genesisFund,,,) = launcher.userGenesisData(1, ALICE);
-        assertEq(totalMemecoinFunds, 0.75 ether);
-        assertEq(totalPolFunds, 0.25 ether);
+        uint256 _totalNormalFunds = launcher.totalNormalFunds(1);
+        (uint256 genesisFund,,) = launcher.userGenesisData(1, ALICE);
+        assertEq(_totalNormalFunds, 1 ether);
         assertEq(genesisFund, 1 ether);
     }
 
-    /// @notice Verifies genesis rejects contributions that would overflow the packed uint128 genesis buckets.
-    /// @dev Seeds the memecoin-side bucket at the uint128 limit and confirms the next contribution reverts.
-    function testGenesisRevertsWhenGenesisFundBucketWouldOverflow() external {
+    /// @notice Verifies genesis can accumulate past the old fundBasedAmount cap.
+    function testGenesis_AllowsAccumulationPastFormerFundBasedAmountCap() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
         launcher.setMemeverseForTest(1, verse);
-        launcher.setGenesisFundForTest(1, type(uint128).max, 0);
+        launcher.setGenesisFundForTest(1, uint128(MAX_SUPPORTED_FUND_BASED_AMOUNT));
 
-        uptToken.mint(address(this), 1 ether);
-        uptToken.approve(address(launcher), type(uint256).max);
+        uAssetToken.mint(address(this), 1 ether);
+        uAssetToken.approve(address(launcher), type(uint256).max);
+
+        launcher.genesis(1, 1 ether, ALICE);
+
+        assertEq(launcher.totalNormalFunds(1), MAX_SUPPORTED_FUND_BASED_AMOUNT + 1 ether, "funds increased");
+        (uint256 genesisFund,,) = launcher.userGenesisData(1, ALICE);
+        assertEq(genesisFund, 1 ether, "genesis fund tracked");
+    }
+
+    /// @notice Verifies genesis can cross the former 2^64-1 totalNormalFunds ceiling.
+    function testGenesis_AllowsTotalNormalFundsAboveFormerSupportedCapBase() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setGenesisFundForTest(1, uint128(MAX_SUPPORTED_FUND_BASED_AMOUNT - 5));
+
+        uAssetToken.mint(address(this), 10);
+        uAssetToken.approve(address(launcher), type(uint256).max);
+
+        launcher.genesis(1, 10, ALICE);
+
+        assertEq(launcher.totalNormalFunds(1), MAX_SUPPORTED_FUND_BASED_AMOUNT + 5, "funds crossed old cap");
+        (uint256 genesisFund,,) = launcher.userGenesisData(1, ALICE);
+        assertEq(genesisFund, 10, "genesis fund recorded");
+    }
+
+    function testGenesis_RevertsWhenAggregateTotalGenesisFundsWouldExceedSupportedMaximum() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setGenesisFundForTest(1, type(uint128).max);
+        polend.setTotalLeveragedDebt(1);
+
+        uAssetToken.mint(address(this), 1);
+        uAssetToken.approve(address(launcher), type(uint256).max);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IMemeverseLauncher.GenesisFundOverflowed.selector, 1, uint256(type(uint128).max), uint256(0.75 ether)
+                IMemeverseLauncher.TotalGenesisFundsTooHigh.selector,
+                uint256(type(uint128).max) + 2,
+                uint256(type(uint128).max)
             )
         );
-        launcher.genesis(1, 1 ether, ALICE);
+        launcher.genesis(1, 1, ALICE);
     }
 
     /// @notice Test refund success marks user and transfers native fund.
@@ -285,40 +491,44 @@ contract MemeverseLauncherViewsTest is Test {
     function testRefundSuccessMarksUserAndTransfersNativeFund() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Refund);
         launcher.setMemeverseForTest(1, verse);
-        launcher.setUserGenesisDataForTest(1, ALICE, 1 ether, false, false, false);
-        uptToken.mint(address(launcher), 1 ether);
+        launcher.setUserGenesisDataForTest(1, ALICE, 1 ether, false, false);
+        uAssetToken.mint(address(launcher), 1 ether);
 
         vm.prank(ALICE);
         uint256 refunded = launcher.refund(1);
 
-        (uint256 genesisFund, bool isRefunded,,) = launcher.userGenesisData(1, ALICE);
+        (uint256 genesisFund, bool isRefunded,) = launcher.userGenesisData(1, ALICE);
         assertEq(refunded, 1 ether);
         assertEq(genesisFund, 1 ether);
         assertTrue(isRefunded);
-        assertEq(uptToken.balanceOf(ALICE), 1 ether);
+        assertEq(uAssetToken.balanceOf(ALICE), 1 ether);
     }
 
-    /// @notice Test claim poltoken reverts when no claimable and pause blocks lifecycle actions.
-    /// @dev Ensures claimPOLToken enforces pause and zero-output guards, relying on Pausable semantics.
-    function testClaimPOLTokenRevertsWhenNoClaimableAndPauseBlocksLifecycleActions() external {
+    /// @notice Test claim normal YT pause guard while pause allows refund safety exit.
+    /// @dev Ensures pause blocks non-exit claims but does not block refunds.
+    function testClaimNormalYTPauseGuardAllowsRefundSafetyExit() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         verse.pol = POL;
         launcher.setMemeverseForTest(1, verse);
-        launcher.setGenesisFundForTest(1, 90 ether, 30 ether);
-        launcher.setUserGenesisDataForTest(1, ALICE, 0, false, false, false);
+        launcher.setGenesisFundForTest(1, 120 ether);
+        launcher.setUserGenesisDataForTest(1, ALICE, 0, false, false);
+        launcher.setTotalNormalClaimableYTForTest(1, 60 ether);
 
         vm.prank(ALICE);
-        vm.expectRevert(IMemeverseLauncher.NoPOLAvailable.selector);
-        launcher.claimPOLToken(1);
+        vm.expectRevert(IMemeverseLauncher.InvalidClaim.selector);
+        launcher.claimNormalYT(1);
 
         launcher.pause();
         vm.prank(ALICE);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        launcher.claimPOLToken(1);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        launcher.refund(1);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        launcher.changeStage(1);
+        launcher.claimNormalYT(1);
+
+        verse.currentStage = IMemeverseLauncher.Stage.Refund;
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setUserGenesisDataForTest(1, ALICE, 1 ether, false, false);
+        uAssetToken.mint(address(launcher), 1 ether);
+        vm.prank(ALICE);
+        assertEq(launcher.refund(1), 1 ether);
     }
 
     /// @notice Test preorder reverts when stage or capacity invalid.
@@ -332,16 +542,49 @@ contract MemeverseLauncherViewsTest is Test {
 
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         launcher.setMemeverseForTest(1, verse);
-        launcher.setGenesisFundForTest(1, 4 ether, 0);
+        launcher.setGenesisFundForTest(1, 4 ether);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.preorder(1, 0, ALICE);
 
-        uptToken.mint(address(this), 2 ether);
-        uptToken.approve(address(launcher), type(uint256).max);
+        uAssetToken.mint(address(this), 2 ether);
+        uAssetToken.approve(address(launcher), type(uint256).max);
 
         vm.expectRevert();
         launcher.preorder(1, 2 ether, ALICE);
+    }
+
+    function testPreorderCapacity_IncludesPolFundsInNormalFundBase() external {
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setGenesisFundForTest(1, 10 ether);
+
+        uAssetToken.mint(address(this), 1 ether);
+        uAssetToken.approve(address(launcher), type(uint256).max);
+
+        launcher.preorder(1, 1 ether, ALICE);
+
+        (uint256 preorderFunds,, bool isRefunded) = launcher.userPreorderData(1, ALICE);
+        assertEq(preorderFunds, 1 ether, "preorder accepted");
+        assertFalse(isRefunded, "not refunded");
+    }
+
+    function testPreorderCapacityCheck_HandlesLargeBaseWithoutIntermediateOverflow() external {
+        uint256 baseFunds = type(uint128).max;
+        uint256 expectedCapacity = _expectedDefaultPreorderCapacity(baseFunds);
+        IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
+        launcher.setMemeverseForTest(1, verse);
+        launcher.setGenesisFundForTest(1, baseFunds);
+        launcher.setPreorderStateForTest(1, expectedCapacity - 1, 0, 0);
+
+        uAssetToken.mint(address(this), 1);
+        uAssetToken.approve(address(launcher), type(uint256).max);
+
+        launcher.preorder(1, 1, ALICE);
+
+        (uint256 preorderFunds,, bool isRefunded) = launcher.userPreorderData(1, ALICE);
+        assertEq(preorderFunds, 1, "preorder accepted");
+        assertFalse(isRefunded, "not refunded");
     }
 
     /// @notice Test claimable preorder memecoin linearly vests over seven days.
@@ -351,7 +594,7 @@ contract MemeverseLauncherViewsTest is Test {
         launcher.setMemeverseForTest(1, verse);
         launcher.setUserPreorderDataForTest(1, ALICE, 1 ether, 10 ether, false);
         launcher.setPreorderStateForTest(1, 1 ether, 70 ether, uint40(block.timestamp));
-        uptToken.mint(address(launcher), 70 ether);
+        uAssetToken.mint(address(launcher), 70 ether);
 
         vm.prank(ALICE);
         assertEq(launcher.claimablePreorderMemecoin(1), 0, "initial claimable");

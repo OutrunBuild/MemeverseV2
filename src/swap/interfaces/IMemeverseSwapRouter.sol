@@ -55,6 +55,9 @@ interface IMemeverseSwapRouter {
     /// @notice Reverts when a Permit2 batch entry does not match the expected token ordering.
     error InvalidPermit2Token(uint256 index, address expectedToken, address actualToken);
 
+    /// @notice Reverts when a launcher-only bootstrap function is called by any other account.
+    error UnauthorizedLauncher();
+
     /// @notice Exposes the Memeverse hook wired into this router.
     /// @dev Integrations can use this to confirm they are quoting and routing against the expected deployment.
     /// @return memeverseHook Hook that owns fee logic and LP accounting.
@@ -289,7 +292,8 @@ interface IMemeverseSwapRouter {
     ) external returns (BalanceDelta delta);
 
     /// @notice Initialize a hook-managed pool and seed its first full-range liquidity position.
-    /// @dev The router sorts the token pair, initializes the pool at `startPrice`, adds liquidity, and refunds unused input.
+    /// @dev Launcher-only. The router sorts the token pair, initializes the pool at `startPrice`, adds liquidity,
+    /// and refunds unused input.
     /// @custom:security Token addresses must be distinct.
     /// @param tokenA One side of the pool pair.
     /// @param tokenB The other side of the pool pair.
@@ -300,6 +304,8 @@ interface IMemeverseSwapRouter {
     /// @param deadline The latest timestamp at which the call is valid.
     /// @return liquidity The minted LP liquidity.
     /// @return poolKey The initialized pool key.
+    /// @return amountAUsed Actual spend for `tokenA`.
+    /// @return amountBUsed Actual spend for `tokenB`.
     function createPoolAndAddLiquidity(
         address tokenA,
         address tokenB,
@@ -308,29 +314,5 @@ interface IMemeverseSwapRouter {
         uint160 startPrice,
         address recipient,
         uint256 deadline
-    ) external returns (uint128 liquidity, PoolKey memory poolKey);
-
-    /// @notice Initialize a hook-managed pool and seed its first liquidity after funding via Permit2.
-    /// @dev After Permit2 funding succeeds, execution follows the same path as `createPoolAndAddLiquidity(...)`.
-    /// @custom:security The batch Permit2 payload must align with the ERC20 side(s) of the bootstrap token pair.
-    /// @param permitParams Permit2 batch-transfer parameters that fund the ERC20 bootstrap legs.
-    /// @param tokenA One side of the pool pair.
-    /// @param tokenB The other side of the pool pair.
-    /// @param amountADesired Desired budget for `tokenA`.
-    /// @param amountBDesired Desired budget for `tokenB`.
-    /// @param startPrice The initial `sqrtPriceX96` passed to the pool manager.
-    /// @param recipient Recipient of minted LP shares.
-    /// @param deadline The latest timestamp at which the call is valid.
-    /// @return liquidity The minted LP liquidity.
-    /// @return poolKey The initialized pool key.
-    function createPoolAndAddLiquidityWithPermit2(
-        Permit2BatchParams calldata permitParams,
-        address tokenA,
-        address tokenB,
-        uint256 amountADesired,
-        uint256 amountBDesired,
-        uint160 startPrice,
-        address recipient,
-        uint256 deadline
-    ) external returns (uint128 liquidity, PoolKey memory poolKey);
+    ) external returns (uint128 liquidity, PoolKey memory poolKey, uint256 amountAUsed, uint256 amountBUsed);
 }

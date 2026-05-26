@@ -14,12 +14,36 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         Unlocked
     }
 
+    error UnlockSettlementActive();
+    event BootstrapUnusedAssetsHandled(
+        uint256 indexed verseId,
+        address indexed uAsset,
+        address indexed memecoin,
+        uint256 unusedUAsset,
+        uint256 creditedSettlementDustReserve,
+        uint256 treasuryExcess,
+        uint256 burnedMemecoin
+    );
+
+    struct AuxiliaryLiquidity {
+        uint256 polUAssetLpAmount;
+        uint256 ptUAssetLpAmount;
+        uint256 ptPolLpAmount;
+    }
+
+    struct BootstrapResidualClaims {
+        uint256 normalResidualPOL;
+        uint256 normalResidualPT;
+        uint256 leveragedResidualPOL;
+        uint256 leveragedResidualPT;
+    }
+
     struct Memeverse {
         string name; // Token name
         string symbol; // Token symbol
         string uri; // Token icon uri
         string desc; // Description
-        address UPT; // Genesis fund UPT address
+        address uAsset; // Historical field name for the verse uAsset
         address memecoin; // Omnichain memecoin address
         address pol; // POL token address
         address yieldVault; // Memecoin yield vault
@@ -33,27 +57,84 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     }
 
     struct FundMetaData {
-        uint256 minTotalFund; // The minimum participation genesis fund corresponding to UPT
+        uint256 minTotalFund; // The minimum participation genesis fund corresponding to uAsset
         uint256 fundBasedAmount; // The number of Memecoins minted per unit of Memecoin genesis fund
     }
 
-    struct GenesisFund {
-        uint128 totalMemecoinFunds; // Initial fundraising(UPT) for memecoin liquidity
-        uint128 totalPolFunds; // Initial fundraising(UPT) for POL liquidity
-    }
-
     struct GenesisData {
-        uint256 genesisFund; // The amount of UPT user has contributed to the genesis fund
-        bool isRefunded; // Whether the user has refunded the UPT
-        bool isClaimed; // Whether the user has claimed the POL
+        uint256 genesisFund; // The amount of uAsset user has contributed to the genesis fund
+        bool isRefunded; // Whether the user has refunded the uAsset contribution
         bool isRedeemed; // Whether the user has redeemed the POL liquidity
     }
 
     struct PreorderData {
-        uint256 funds; // The amount of UPT user has contributed to the preorder pool
+        uint256 funds; // The amount of uAsset user has contributed to the preorder pool
         uint256 claimedMemecoin; // The amount of preorder memecoin already claimed by the user
         bool isRefunded; // Whether the user has refunded the preorder contribution
     }
+
+    struct PreorderState {
+        uint256 totalFunds;
+        uint256 settledMemecoin;
+        uint40 settlementTimestamp;
+    }
+
+    struct BootstrapPolPlan {
+        uint256 polForPolUAsset;
+        uint256 normalPolToSplit;
+        uint256 leveragedPolToSplit;
+        uint256 polForPtPol;
+    }
+
+    struct NormalFeeState {
+        uint256 accUAssetFee;
+        uint256 accPTFee;
+    }
+
+    struct UserNormalFeeClaim {
+        uint256 claimedUAssetFee;
+        uint256 claimedPTFee;
+    }
+
+    struct PendingAuxiliaryGovFeeState {
+        uint256 pendingUAssetFee;
+        uint256 pendingPTFee;
+    }
+
+    struct RedeemedFeeState {
+        uint256 uAssetFee;
+        uint256 memecoinFee;
+        uint256 polFee;
+        uint256 auxiliaryGovUAssetFee;
+        uint256 auxiliaryGovPTFee;
+    }
+
+    /// @notice Returns the configured POLend contract.
+    /// @return polend The POLend contract address.
+    function polend() external view returns (address polend);
+
+    /// @notice Returns total normal genesis funds for a verse.
+    /// @param verseId Verse id to inspect.
+    /// @return totalFunds Total non-leveraged uAsset funds recorded by the launcher.
+    function totalNormalFunds(uint256 verseId) external view returns (uint256 totalFunds);
+
+    /// @notice Returns fundraising metadata for a uAsset.
+    /// @param uAsset Fundraising token address.
+    /// @return minTotalFund Minimum total fund required for launch.
+    /// @return fundBasedAmount Memecoin amount minted per unit of fundraising token.
+    function fundMetaDatas(address uAsset) external view returns (uint256 minTotalFund, uint256 fundBasedAmount);
+
+    /// @notice Returns the base amount POLend should use for verse debt capacity.
+    /// @dev Reverts when the verse id does not map to a registered memeverse.
+    /// @param verseId Verse id to inspect.
+    /// @return debtCapBase Greater of current normal funds and the uAsset minimum total fund.
+    function getDebtCapBaseByVerseId(uint256 verseId) external view returns (uint256 debtCapBase);
+
+    /// @notice Returns how much aggregate Genesis funding capacity remains before launch accounting becomes unsupported.
+    /// @dev Reverts when the verse id does not map to a registered memeverse.
+    /// @param verseId Verse id to inspect.
+    /// @return remaining Remaining aggregate capacity for `totalNormalFunds + totalLeveragedDebt`.
+    function remainingGenesisCapacity(uint256 verseId) external view returns (uint256 remaining);
 
     /// @notice Resolves a memecoin back to its registered verse id.
     /// @dev Returns zero when the memecoin has never been registered through the launcher.
@@ -66,6 +147,12 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param verseId Verse id to inspect.
     /// @return verse Stored memeverse metadata.
     function getMemeverseByVerseId(uint256 verseId) external view returns (Memeverse memory verse);
+
+    /// @notice Resolves the uAsset configured for a verse id.
+    /// @dev Reverts when the verse id does not map to a registered memeverse.
+    /// @param verseId Verse id to inspect.
+    /// @return uAsset Stored verse uAsset.
+    function getUAssetByVerseId(uint256 verseId) external view returns (address uAsset);
 
     /// @notice Loads launcher metadata by memecoin address.
     /// @dev Reverts when `memecoin` is zero or does not belong to a registered verse.
@@ -97,11 +184,38 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @return governor Configured governor address.
     function getGovernorByVerseId(uint256 verseId) external view returns (address governor);
 
-    /// @notice Quotes the caller's currently claimable POL amount.
-    /// @dev Derived from the caller's genesis participation share and any prior claim status.
+    /// @notice Claims the caller's normal-genesis YT allocation after the verse reaches Locked.
+    /// @dev Derived from the caller's genesis participation share and `totalNormalClaimableYT`.
     /// @param verseId Verse id to inspect.
-    /// @return claimableAmount Claimable POL amount for the caller.
-    function claimablePOLToken(uint256 verseId) external view returns (uint256 claimableAmount);
+    /// @return amount Claimable YT amount for the caller.
+    function claimNormalYT(uint256 verseId) external returns (uint256 amount);
+
+    /// @notice Claims the caller's accumulated normal-side auxiliary-pool fees.
+    /// @dev Concrete fee accounting is launcher-defined.
+    /// @param verseId Verse id to inspect.
+    /// @return uAssetAmount Claimed uAsset amount.
+    /// @return ptAmount Claimed PT amount.
+    function claimNormalFees(uint256 verseId) external returns (uint256 uAssetAmount, uint256 ptAmount);
+
+    /// @notice Redeems the caller's post-settlement auxiliary liquidity share.
+    /// @dev Concrete redemption accounting is launcher-defined.
+    /// @param verseId Verse id to inspect.
+    /// @return polUAssetLpAmount Claimed POL/uAsset LP amount.
+    /// @return ptUAssetLpAmount Claimed PT/uAsset LP amount.
+    /// @return ptPolLpAmount Claimed PT/POL LP amount.
+    function redeemAuxiliaryLiquidity(uint256 verseId)
+        external
+        returns (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount);
+
+    /// @notice Settles the leveraged auxiliary-liquidity portion for POLend.
+    /// @dev Concrete settlement accounting is launcher-defined.
+    /// @param verseId Verse id to inspect.
+    /// @return polAmount Settled POL amount.
+    /// @return ptAmount Settled PT amount.
+    /// @return uAssetAmount Settled uAsset amount.
+    function settleLeveragedAuxiliaryLiquidity(uint256 verseId)
+        external
+        returns (uint256 polAmount, uint256 ptAmount, uint256 uAssetAmount);
 
     /// @notice Quotes how much preorder memecoin the caller can unlock right now.
     /// @dev Uses the caller's settled preorder share and the linear vesting schedule.
@@ -110,11 +224,11 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     function claimablePreorderMemecoin(uint256 verseId) external view returns (uint256 amount);
 
     /// @notice Previews the launcher-owned maker fees currently available for distribution.
-    /// @dev Aggregates fee claims across the verse's memecoin/UPT and POL/UPT pools.
+    /// @dev Aggregates fee claims across the verse's memecoin/uAsset pool and auxiliary gov-fee pools.
     /// @param verseId Verse id to inspect.
-    /// @return UPTFee Claimable UPT-side fee amount.
+    /// @return uAssetFee Claimable uAsset-side fee amount.
     /// @return memecoinFee Claimable memecoin-side fee amount.
-    function previewGenesisMakerFees(uint256 verseId) external view returns (uint256 UPTFee, uint256 memecoinFee);
+    function previewGenesisMakerFees(uint256 verseId) external view returns (uint256 uAssetFee, uint256 memecoinFee);
 
     /// @notice Quotes the LayerZero fee required to distribute accrued fees.
     /// @dev Returns zero when the governance chain is local and no cross-chain dispatch is needed.
@@ -122,19 +236,20 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @return lzFee The quoted LayerZero native fee.
     function quoteDistributionLzFee(uint256 verseId) external view returns (uint256 lzFee);
 
-    /// @notice Contributes UPT into a verse during Genesis.
-    /// @dev The launcher splits the contribution between the memecoin and POL bootstrap buckets.
+    /// @notice Contributes uAsset into a verse during Genesis.
+    /// @dev Records a normal Genesis contribution by increasing total normal funds and user genesis funds.
+    ///      Liquidity split happens when the verse transitions to Locked.
     /// @param verseId Target verse id.
-    /// @param amountInUPT UPT amount being contributed.
+    /// @param amountInUAsset uAsset amount being contributed.
     /// @param user Account credited for the contribution.
-    function genesis(uint256 verseId, uint128 amountInUPT, address user) external;
+    function genesis(uint256 verseId, uint256 amountInUAsset, address user) external;
 
-    /// @notice Contributes UPT into the preorder pool during Genesis.
+    /// @notice Contributes uAsset into the preorder pool during Genesis.
     /// @dev Preorder capacity scales with the current memecoin-side genesis funding.
     /// @param verseId Target verse id.
-    /// @param amountInUPT UPT amount being contributed.
+    /// @param amountInUAsset uAsset amount being contributed.
     /// @param user Account credited for the preorder participation.
-    function preorder(uint256 verseId, uint128 amountInUPT, address user) external;
+    function preorder(uint256 verseId, uint256 amountInUAsset, address user) external;
 
     /// @notice Advances a verse to the next valid launcher stage.
     /// @dev Depending on timing and funding, this may settle Genesis, deploy liquidity, or move into Refund/Unlocked.
@@ -143,22 +258,16 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     function changeStage(uint256 verseId) external returns (Stage currentStage);
 
     /// @notice Refunds the caller's Genesis contribution in Refund stage.
-    /// @dev Returns the exact UPT amount previously recorded for the caller.
+    /// @dev Returns the exact uAsset amount previously recorded for the caller.
     /// @param verseId Verse id being refunded.
-    /// @return userFunds Refunded UPT amount.
+    /// @return userFunds Refunded uAsset amount.
     function refund(uint256 verseId) external returns (uint256 userFunds);
 
     /// @notice Refunds the caller's preorder contribution in Refund stage.
-    /// @dev Returns the exact preorder UPT amount previously recorded for the caller.
+    /// @dev Returns the exact preorder uAsset amount previously recorded for the caller.
     /// @param verseId Verse id being refunded.
-    /// @return preorderFund Refunded preorder UPT amount.
+    /// @return preorderFund Refunded preorder uAsset amount.
     function refundPreorder(uint256 verseId) external returns (uint256 preorderFund);
-
-    /// @notice Claims the caller's POL allocation once Genesis has settled.
-    /// @dev Amount is derived from the caller's recorded Genesis participation share.
-    /// @param verseId Verse id being claimed.
-    /// @return amount POL amount transferred to the caller.
-    function claimPOLToken(uint256 verseId) external returns (uint256 amount);
 
     /// @notice Claims the caller's unlocked preorder memecoin allocation.
     /// @dev Transfers the caller's currently unlocked preorder memecoin amount.
@@ -168,6 +277,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     /// @notice Redeems launcher-managed fees and distributes them to protocol recipients.
     /// @dev May perform same-chain transfers or cross-chain dispatches depending on verse configuration.
+    ///      Requires exactly the native fee quoted by `quoteDistributionLzFee`; local/no-fee paths require zero.
     /// @param verseId The memeverse id.
     /// @param rewardReceiver The receiver of the executor reward.
     /// @return govFee The distributed governor fee amount.
@@ -179,40 +289,37 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         payable
         returns (uint256 govFee, uint256 memecoinFee, uint256 polFee, uint256 executorReward);
 
-    /// @notice Redeems memecoin-side LP using POL.
-    /// @dev Burns the caller's POL and returns the corresponding memecoin LP amount.
+    /// @notice Redeems memecoin-side LP using POL, optionally unwrapping the LP into underlying assets.
+    /// @dev When `unwrap` is false, transfers LP shares. When true, removes liquidity through the router and forwards the underlying.
     /// @param verseId The memeverse id.
     /// @param amountInPOL The POL amount to redeem.
+    /// @param unwrap Whether to remove liquidity into underlying assets instead of transferring LP shares.
     /// @return amountInLP The redeemed memecoin LP amount.
-    function redeemMemecoinLiquidity(uint256 verseId, uint256 amountInPOL) external returns (uint256 amountInLP);
+    function redeemMemecoinLiquidity(uint256 verseId, uint256 amountInPOL, bool unwrap)
+        external
+        returns (uint256 amountInLP);
 
-    /// @notice Redeems the caller's POL LP share.
-    /// @dev Each address can redeem its launcher-tracked POL LP once.
-    /// @param verseId The memeverse id.
-    /// @return amountInLP The redeemed POL LP amount.
-    function redeemPolLiquidity(uint256 verseId) external returns (uint256 amountInLP);
-
-    /// @notice Mints POL against supplied UPT and memecoin liquidity.
+    /// @notice Mints POL against supplied uAsset and memecoin liquidity.
     /// @dev Uses the verse's router configuration to source the exact liquidity requirements.
     /// @param verseId The memeverse id.
-    /// @param amountInUPTDesired The desired UPT budget.
+    /// @param amountInUAssetDesired The desired uAsset budget.
     /// @param amountInMemecoinDesired The desired memecoin budget.
-    /// @param amountInUPTMin The minimum accepted UPT spend.
+    /// @param amountInUAssetMin The minimum accepted uAsset spend.
     /// @param amountInMemecoinMin The minimum accepted memecoin spend.
     /// @param amountOutDesired The desired POL output amount.
     /// @param deadline The latest valid execution timestamp.
-    /// @return amountInUPT The actual UPT amount spent.
+    /// @return amountInUAsset The actual uAsset amount spent.
     /// @return amountInMemecoin The actual memecoin amount spent.
     /// @return amountOut The POL amount minted.
     function mintPOLToken(
         uint256 verseId,
-        uint256 amountInUPTDesired,
+        uint256 amountInUAssetDesired,
         uint256 amountInMemecoinDesired,
-        uint256 amountInUPTMin,
+        uint256 amountInUAssetMin,
         uint256 amountInMemecoinMin,
         uint256 amountOutDesired,
         uint256 deadline
-    ) external returns (uint256 amountInUPT, uint256 amountInMemecoin, uint256 amountOut);
+    ) external returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut);
 
     /// @notice Registers a new memeverse.
     /// @dev Deploys and stores verse metadata for a new memecoin launch.
@@ -222,7 +329,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param endTime The Genesis end timestamp.
     /// @param unlockTime The liquidity unlock timestamp.
     /// @param omnichainIds The supported omnichain ids with governance chain first.
-    /// @param UPT The fundraising token address.
+    /// @param uAsset The verse uAsset address.
     /// @param flashGenesis Whether early stage transition is enabled once minimum funding is met.
     function registerMemeverse(
         string calldata name,
@@ -231,7 +338,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         uint128 endTime,
         uint128 unlockTime,
         uint32[] calldata omnichainIds,
-        address UPT,
+        address uAsset,
         bool flashGenesis
     ) external;
 
@@ -275,12 +382,12 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param yieldDispatcher The new yield dispatcher address.
     function setYieldDispatcher(address yieldDispatcher) external;
 
-    /// @notice Sets the fund metadata used for a UPT fundraising token.
+    /// @notice Sets the fund metadata used for a verse uAsset token.
     /// @dev `fundBasedAmount` controls launcher-side bootstrap pricing and may be bounded by the implementation.
-    /// @param upt The fundraising token address.
+    /// @param uAsset The fundraising token address.
     /// @param minTotalFund The minimum total genesis fund required for the token.
     /// @param fundBasedAmount The memecoin amount minted per unit of fundraising token.
-    function setFundMetaData(address upt, uint256 minTotalFund, uint256 fundBasedAmount) external;
+    function setFundMetaData(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external;
 
     /// @notice Updates the executor reward rate used by fee distribution.
     /// @dev Implementations are expected to guard this with their admin or owner flow.
@@ -315,16 +422,14 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @notice Quotes the preorder capacity still open for a verse.
     /// @dev Capacity is derived from the current memecoin-side genesis funds and the configured cap ratio.
     /// @param verseId The memeverse id.
-    /// @return remaining The remaining preorder UPT capacity.
+    /// @return remaining The remaining preorder uAsset capacity.
     function previewPreorderCapacity(uint256 verseId) external view returns (uint256 remaining);
 
     error ZeroInput();
 
     error InvalidLength();
 
-    error InvalidRefund();
-
-    error InvalidRedeem();
+    error InvalidClaim();
 
     error NoPOLAvailable();
 
@@ -359,26 +464,25 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     error InvalidOmnichainId(uint32 omnichainId);
 
     error FundBasedAmountTooHigh(uint256 fundBasedAmount, uint256 maxSupportedFundBasedAmount);
+    error TotalGenesisFundsTooHigh(uint256 totalGenesisFunds, uint256 maxSupportedTotalGenesisFunds);
 
-    error GenesisFundOverflowed(uint256 verseId, uint256 currentTotal, uint256 amountToAdd);
-
-    event Genesis(
-        uint256 indexed verseId, address indexed depositer, uint128 increasedMemecoinFund, uint128 increasedPolFund
-    );
+    event Genesis(uint256 indexed verseId, address indexed depositer, uint256 amount);
 
     event ChangeStage(uint256 indexed verseId, Stage currentStage);
 
     event Refund(uint256 indexed verseId, address indexed receiver, uint256 refundAmount);
 
-    event ClaimPOLToken(uint256 indexed verseId, address indexed receiver, uint256 claimedAmount);
+    event RefundPreorder(uint256 indexed verseId, address indexed receiver, uint256 refundAmount);
+
+    event ClaimNormalYT(uint256 indexed verseId, address indexed receiver, uint256 claimedAmount);
+
+    event ClaimNormalFees(uint256 indexed verseId, address indexed receiver, uint256 uAssetAmount, uint256 ptAmount);
 
     event RedeemAndDistributeFees(
         uint256 indexed verseId, uint256 govFee, uint256 memecoinFee, uint256 polFee, uint256 executorReward
     );
 
     event RedeemMemecoinLiquidity(uint256 indexed verseId, address indexed receiver, uint256 memecoinLiquidity);
-
-    event RedeemPolLiquidity(uint256 indexed verseId, address indexed receiver, uint256 polLiquidity);
 
     event MintPOLToken(
         uint256 indexed verseId, address indexed memecoin, address indexed pol, address receiver, uint256 amount
@@ -390,6 +494,8 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     event SetMemeverseSwapRouter(address memeverseSwapRouter);
 
+    event SetMemeverseUniswapHook(address memeverseHook);
+
     event SetLzEndpointRegistry(address lzEndpointRegistry);
 
     event SetMemeverseRegistrar(address memeverseRegistrar);
@@ -398,7 +504,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     event SetYieldDispatcher(address yieldDispatcher);
 
-    event SetFundMetaData(address indexed upt, uint256 minTotalFund, uint256 fundBasedAmount);
+    event SetFundMetaData(address indexed uAsset, uint256 minTotalFund, uint256 fundBasedAmount);
 
     event SetExecutorRewardRate(uint256 executorRewardRate);
 
@@ -408,5 +514,15 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     event SetExternalInfo(uint256 indexed verseId, string uri, string description, string[] community);
 
-    event SetUnlockProtectionWindow(uint256 previousWindow, uint256 newWindow);
+    event Preorder(uint256 indexed verseId, address indexed caller, address indexed user, uint256 amountInUAsset);
+
+    event ClaimPreorderMemecoin(uint256 indexed verseId, address indexed user, uint256 amount);
+
+    event RedeemAuxiliaryLiquidity(
+        uint256 indexed verseId,
+        address indexed user,
+        uint256 polUAssetLpAmount,
+        uint256 ptUAssetLpAmount,
+        uint256 ptPolLpAmount
+    );
 }

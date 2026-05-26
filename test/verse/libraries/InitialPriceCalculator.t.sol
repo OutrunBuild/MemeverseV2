@@ -28,20 +28,6 @@ contract InitialPriceCalculatorTest is Test {
         return InitialPriceCalculator.calculateInitialSqrtPriceX96(tokenA, tokenB, amountADesired, amountBDesired);
     }
 
-    /// @notice Exposes the `fundBasedAmount` helper for external revert assertions.
-    /// @dev Allows `vm.expectRevert` to target the library via an external call.
-    /// @param memecoin The memecoin address.
-    /// @param upt The uAsset address.
-    /// @param fundBasedAmount The memecoin units minted per 1 uAsset.
-    /// @return sqrtPriceX96 The computed Uniswap v4 start price.
-    function calculateMemecoinStartPriceX96External(address memecoin, address upt, uint256 fundBasedAmount)
-        external
-        pure
-        returns (uint160)
-    {
-        return InitialPriceCalculator.calculateMemecoinStartPriceX96(memecoin, upt, fundBasedAmount);
-    }
-
     /// @notice Verifies equal budgets produce the canonical 1:1 `sqrtPriceX96`.
     /// @dev Confirms the helper returns `Q96` for a 1:1 18-decimal pair.
     function testCalculateInitialSqrtPriceX96AtOneToOne() external pure {
@@ -59,17 +45,17 @@ contract InitialPriceCalculatorTest is Test {
         assertEq(sqrtPriceX96, Q96 / 2);
     }
 
-    /// @notice Verifies `fundBasedAmount` mapping when memecoin sorts as token0.
-    /// @dev When memecoin is token0, `fundBasedAmount` maps to the inverse pool price.
-    function testCalculateMemecoinStartPriceX96UsesFundBasedAmountWhenMemecoinSortsFirst() external pure {
-        uint160 sqrtPriceX96 = InitialPriceCalculator.calculateMemecoinStartPriceX96(LOWER, HIGHER, 4);
+    /// @notice Verifies the amount-based helper reproduces the legacy memecoin bootstrap ratio when memecoin sorts first.
+    /// @dev The legacy helper semantics were equivalent to passing `(fundBasedAmount, 1)` into the amount-based helper.
+    function testCalculateInitialSqrtPriceX96MatchesLegacyFundBasedRatioWhenMemecoinSortsFirst() external pure {
+        uint160 sqrtPriceX96 = InitialPriceCalculator.calculateInitialSqrtPriceX96(LOWER, HIGHER, 4, 1);
         assertEq(sqrtPriceX96, Q96 / 2);
     }
 
-    /// @notice Verifies `fundBasedAmount` mapping when uAsset sorts as token0.
-    /// @dev When uAsset is token0, `fundBasedAmount` maps directly to the pool price.
-    function testCalculateMemecoinStartPriceX96UsesFundBasedAmountWhenUptSortsFirst() external pure {
-        uint160 sqrtPriceX96 = InitialPriceCalculator.calculateMemecoinStartPriceX96(HIGHER, LOWER, 4);
+    /// @notice Verifies the amount-based helper reproduces the legacy memecoin bootstrap ratio when uAsset sorts first.
+    /// @dev Address ordering should still map `(fundBasedAmount, 1)` to the same sorted pool price as the removed helper.
+    function testCalculateInitialSqrtPriceX96MatchesLegacyFundBasedRatioWhenUAssetSortsFirst() external pure {
+        uint160 sqrtPriceX96 = InitialPriceCalculator.calculateInitialSqrtPriceX96(HIGHER, LOWER, 4, 1);
         assertEq(sqrtPriceX96, Q96 * 2);
     }
 
@@ -80,11 +66,11 @@ contract InitialPriceCalculatorTest is Test {
         this.calculateInitialSqrtPriceX96External(LOWER, HIGHER, 0, 1 ether);
     }
 
-    /// @notice Verifies zero `fundBasedAmount` is rejected for the memecoin helper.
-    /// @dev A zero bootstrap ratio is invalid for the launcher-scoped helper.
-    function testCalculateMemecoinStartPriceX96RevertOnZeroInput() external {
+    /// @notice Verifies zero desired amount is rejected for the amount-based helper.
+    /// @dev The removed legacy helper required a non-zero `fundBasedAmount`; the replacement path now rejects the same case via `amountADesired`.
+    function testCalculateInitialSqrtPriceX96RevertOnZeroLegacyFundBasedAmount() external {
         vm.expectRevert(InitialPriceCalculator.ZeroInput.selector);
-        this.calculateMemecoinStartPriceX96External(LOWER, HIGHER, 0);
+        this.calculateInitialSqrtPriceX96External(LOWER, HIGHER, 0, 1);
     }
 
     /// @notice Verifies extremely low price ratios still respect the TickMath lower bound.
@@ -105,12 +91,12 @@ contract InitialPriceCalculatorTest is Test {
         this.calculateInitialSqrtPriceX96External(LOWER, HIGHER, 1, 1 << 64);
     }
 
-    /// @notice Verifies unsupported high `fundBasedAmount` values fail explicitly.
-    /// @dev Oversized launcher ratios must fail before reaching `FullMath.mulDiv`.
-    function testCalculateMemecoinStartPriceX96RevertOnUnsupportedHighRatio() external {
+    /// @notice Verifies unsupported high legacy fund-based ratios still fail explicitly through the amount-based helper.
+    /// @dev Oversized `(fundBasedAmount, 1)` ratios must fail before reaching `FullMath.mulDiv`.
+    function testCalculateInitialSqrtPriceX96RevertOnUnsupportedHighLegacyFundBasedRatio() external {
         vm.expectRevert(
             abi.encodeWithSelector(InitialPriceCalculator.PriceRatioTooHigh.selector, uint256(1), uint256(1 << 64))
         );
-        this.calculateMemecoinStartPriceX96External(HIGHER, LOWER, 1 << 64);
+        this.calculateInitialSqrtPriceX96External(HIGHER, LOWER, 1 << 64, 1);
     }
 }

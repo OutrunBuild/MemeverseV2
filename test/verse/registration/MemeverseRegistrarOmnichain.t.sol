@@ -20,7 +20,7 @@ import {IMemeverseRegistrationCenter} from "../../../src/verse/interfaces/IMemev
 
 contract MockOmnichainLauncher {
     uint256 public lastRegisteredUniqueId;
-    address public lastRegisteredUPT;
+    address public lastRegisteredUAsset;
     bool public lastRegisteredFlashGenesis;
     uint256 public lastExternalInfoUniqueId;
     string public lastUri;
@@ -50,7 +50,7 @@ contract MockOmnichainLauncher {
         unlockTime;
         omnichainIds;
         lastRegisteredUniqueId = uniqueId;
-        lastRegisteredUPT = uAsset;
+        lastRegisteredUAsset = uAsset;
         lastRegisteredFlashGenesis = flashGenesis;
     }
 
@@ -280,7 +280,7 @@ contract MemeverseRegistrarOmnichainTest is Test {
         registrar.lzReceive(origin, bytes32("guid"), abi.encode(param), address(0), "");
 
         assertEq(launcher.lastRegisteredUniqueId(), param.uniqueId);
-        assertEq(launcher.lastRegisteredUPT(), param.uAsset);
+        assertEq(launcher.lastRegisteredUAsset(), param.uAsset);
         assertEq(launcher.lastRegisteredFlashGenesis(), param.flashGenesis);
         assertEq(launcher.lastExternalInfoUniqueId(), param.uniqueId);
         assertEq(launcher.lastUri(), param.uri);

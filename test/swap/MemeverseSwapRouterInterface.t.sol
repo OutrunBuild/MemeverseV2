@@ -10,7 +10,7 @@ contract MemeverseSwapRouterInterfaceTest is Test {
     /// @notice Verifies the router public interface selectors match the implementation selectors.
     /// @dev Guards against selector drift while refactoring router internals.
     function testInterfaceSelectorsMatchRouter() external pure {
-        bytes4[] memory interfaceSelectors = new bytes4[](14);
+        bytes4[] memory interfaceSelectors = new bytes4[](13);
         interfaceSelectors[0] = IMemeverseSwapRouter.hook.selector;
         interfaceSelectors[1] = IMemeverseSwapRouter.permit2.selector;
         interfaceSelectors[2] = IMemeverseSwapRouter.quoteSwap.selector;
@@ -24,9 +24,8 @@ contract MemeverseSwapRouterInterfaceTest is Test {
         interfaceSelectors[10] = IMemeverseSwapRouter.removeLiquidity.selector;
         interfaceSelectors[11] = IMemeverseSwapRouter.removeLiquidityWithPermit2.selector;
         interfaceSelectors[12] = IMemeverseSwapRouter.createPoolAndAddLiquidity.selector;
-        interfaceSelectors[13] = IMemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector;
 
-        bytes4[] memory routerSelectors = new bytes4[](14);
+        bytes4[] memory routerSelectors = new bytes4[](13);
         routerSelectors[0] = bytes4(keccak256("hook()"));
         routerSelectors[1] = bytes4(keccak256("permit2()"));
         routerSelectors[2] = MemeverseSwapRouter.quoteSwap.selector;
@@ -40,7 +39,6 @@ contract MemeverseSwapRouterInterfaceTest is Test {
         routerSelectors[10] = MemeverseSwapRouter.removeLiquidity.selector;
         routerSelectors[11] = MemeverseSwapRouter.removeLiquidityWithPermit2.selector;
         routerSelectors[12] = MemeverseSwapRouter.createPoolAndAddLiquidity.selector;
-        routerSelectors[13] = MemeverseSwapRouter.createPoolAndAddLiquidityWithPermit2.selector;
 
         for (uint256 i = 0; i < interfaceSelectors.length; ++i) {
             assertEq(interfaceSelectors[i], routerSelectors[i]);
