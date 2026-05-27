@@ -15,7 +15,6 @@ esac
 
 current_root="$(git rev-parse --show-toplevel)"
 canonical_lib="$canonical_root/lib"
-current_lib="$current_root/lib"
 
 if [ "$current_root" = "$canonical_root" ]; then
     echo "canonical worktree: lib already local"
@@ -58,38 +57,34 @@ if [ -n "$dependency_status" ]; then
     exit 1
 fi
 
-if [ -L "$current_lib" ]; then
-    linked_target="$(readlink "$current_lib")"
-    if [ "$linked_target" = "$canonical_lib" ]; then
-        echo "worktree lib already linked"
-        exit 0
-    fi
+linked_count=0
 
-    echo "blocked: existing lib symlink points to $linked_target"
-    exit 1
-fi
+for dependency in "${expected_dependencies[@]}"; do
+    current_dependency="$current_root/lib/$dependency"
+    canonical_dependency="$canonical_lib/$dependency"
 
-if [ -e "$current_lib" ]; then
-    has_real_content=0
-    while IFS= read -r -d '' entry; do
-        if [ -f "$entry" ] || [ -L "$entry" ]; then
-            has_real_content=1
-            break
+    if [ -L "$current_dependency" ]; then
+        linked_target="$(readlink "$current_dependency")"
+        if [ "$linked_target" = "$canonical_dependency" ]; then
+            linked_count=$((linked_count + 1))
+            continue
         fi
 
-        if [ -d "$entry" ] && find "$entry" -mindepth 1 -print -quit | grep -q .; then
-            has_real_content=1
-            break
-        fi
-    done < <(find "$current_lib" -mindepth 1 -maxdepth 1 -print0)
-
-    if [ "$has_real_content" -ne 0 ]; then
-        echo "blocked: existing lib is non-empty; not deleting automatically"
+        echo "blocked: existing $current_dependency symlink points to $linked_target"
         exit 1
     fi
 
-    rm -rf "$current_lib"
-fi
+    if [ -e "$current_dependency" ] && find "$current_dependency" -mindepth 1 -print -quit | grep -q .; then
+        echo "blocked: existing $current_dependency is non-empty; not deleting automatically"
+        exit 1
+    fi
 
-ln -s "$canonical_lib" "$current_lib"
-echo "linked worktree lib to canonical lib"
+    rm -rf "$current_dependency"
+    mkdir -p "$(dirname "$current_dependency")"
+    ln -s "$canonical_dependency" "$current_dependency"
+    linked_count=$((linked_count + 1))
+done
+
+if [ "$linked_count" -eq "${#expected_dependencies[@]}" ]; then
+    echo "linked worktree submodule libs to canonical lib"
+fi
