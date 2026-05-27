@@ -44,6 +44,67 @@ expected_dependencies=(
     v4-hooks-public
 )
 
+prepare_submodule_worktree() {
+    local parent_canonical="$1"
+    local parent_current="$2"
+    local relative_path="$3"
+    local canonical_submodule="$parent_canonical/$relative_path"
+    local current_submodule="$parent_current/$relative_path"
+    local canonical_top
+    local expected_commit
+
+    canonical_top="$(git -C "$canonical_submodule" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ "$canonical_top" != "$canonical_submodule" ]; then
+        echo "blocked: missing initialized canonical submodule $canonical_submodule"
+        exit 1
+    fi
+
+    expected_commit="$(git -C "$parent_current" rev-parse "HEAD:$relative_path")"
+    if ! git -C "$canonical_submodule" cat-file -e "$expected_commit^{commit}" 2>/dev/null; then
+        echo "blocked: canonical submodule $canonical_submodule does not contain $expected_commit"
+        exit 1
+    fi
+
+    if [ "$(git -C "$current_submodule" rev-parse --show-toplevel 2>/dev/null || true)" = "$current_submodule" ]; then
+        if [ "$(git -C "$current_submodule" rev-parse HEAD)" != "$expected_commit" ]; then
+            echo "blocked: $current_submodule is checked out at a different commit"
+            exit 1
+        fi
+    else
+        if [ -e "$current_submodule" ] && find "$current_submodule" -mindepth 1 -print -quit | grep -q .; then
+            echo "blocked: existing $current_submodule is non-empty; not deleting automatically"
+            exit 1
+        fi
+
+        git -C "$canonical_submodule" worktree prune
+        rm -rf "$current_submodule"
+        mkdir -p "$(dirname "$current_submodule")"
+        git -C "$canonical_submodule" worktree add --detach "$current_submodule" "$expected_commit" >/dev/null
+    fi
+
+    prepare_initialized_nested_submodules "$canonical_submodule" "$current_submodule"
+}
+
+prepare_initialized_nested_submodules() {
+    local parent_canonical="$1"
+    local parent_current="$2"
+    local nested_path
+
+    if [ ! -f "$parent_canonical/.gitmodules" ]; then
+        return
+    fi
+
+    while IFS= read -r nested_path; do
+        if [ -z "$nested_path" ]; then
+            continue
+        fi
+
+        if [ "$(git -C "$parent_canonical/$nested_path" rev-parse --show-toplevel 2>/dev/null || true)" = "$parent_canonical/$nested_path" ]; then
+            prepare_submodule_worktree "$parent_canonical" "$parent_current" "$nested_path"
+        fi
+    done < <(git -C "$parent_canonical" config --file .gitmodules --get-regexp 'submodule\..*\.path' | awk '{print $2}')
+}
+
 for dependency in "${expected_dependencies[@]}"; do
     if [ ! -d "$canonical_lib/$dependency" ]; then
         echo "blocked: missing $canonical_lib/$dependency; prepare canonical dependencies first"
@@ -57,34 +118,8 @@ if [ -n "$dependency_status" ]; then
     exit 1
 fi
 
-linked_count=0
-
 for dependency in "${expected_dependencies[@]}"; do
-    current_dependency="$current_root/lib/$dependency"
-    canonical_dependency="$canonical_lib/$dependency"
-
-    if [ -L "$current_dependency" ]; then
-        linked_target="$(readlink "$current_dependency")"
-        if [ "$linked_target" = "$canonical_dependency" ]; then
-            linked_count=$((linked_count + 1))
-            continue
-        fi
-
-        echo "blocked: existing $current_dependency symlink points to $linked_target"
-        exit 1
-    fi
-
-    if [ -e "$current_dependency" ] && find "$current_dependency" -mindepth 1 -print -quit | grep -q .; then
-        echo "blocked: existing $current_dependency is non-empty; not deleting automatically"
-        exit 1
-    fi
-
-    rm -rf "$current_dependency"
-    mkdir -p "$(dirname "$current_dependency")"
-    ln -s "$canonical_dependency" "$current_dependency"
-    linked_count=$((linked_count + 1))
+    prepare_submodule_worktree "$canonical_root" "$current_root" "lib/$dependency"
 done
 
-if [ "$linked_count" -eq "${#expected_dependencies[@]}" ]; then
-    echo "linked worktree submodule libs to canonical lib"
-fi
+echo "prepared worktree submodules from canonical lib"
