@@ -47,6 +47,13 @@ Do not override policy or gate evidence with natural-language guesses.
 - Do not create a parallel control plane outside policy, gate, and project agent files.
 - Deleting untracked files from the current git working tree requires explicit human confirmation.
 
+## Worktree Dependency Rule
+
+- In project-local `.worktrees/*`, never run `git submodule update`, `forge install`, or dependency repair to fix missing `lib/` dependencies.
+- Before any `forge build`, `forge test`, or `gate.sh` run from `.worktrees/*`, run `bash script/harness/prepare-worktree-libs.sh`.
+- If `prepare-worktree-libs.sh` fails, report the environment blocker. Do not clone, repair, delete, or overwrite submodules from the worktree.
+- If a task intentionally modifies `.gitmodules` or `lib/**`, stop and get explicit human direction before dependency setup.
+
 ## High-Priority Beginner-Readable Code
 
 - This section is high-priority. Optimize for code a beginner can read top to bottom.
