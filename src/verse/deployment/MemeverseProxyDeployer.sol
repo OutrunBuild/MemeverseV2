@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
+/* solhint-disable one-contract-per-file */
 pragma solidity ^0.8.28;
+
+// MemeverseERC1967Proxy exists only for this deployer's circular CREATE2 governor/incentivizer flow.
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -11,6 +14,22 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IMemeverseProxyDeployer} from "../interfaces/IMemeverseProxyDeployer.sol";
 import {IMemecoinDaoGovernor} from "../../governance/interfaces/IMemecoinDaoGovernor.sol";
 import {IGovernanceCycleIncentivizer} from "../../governance/interfaces/IGovernanceCycleIncentivizer.sol";
+
+/**
+ * @title Memeverse ERC1967 Proxy
+ * @notice ERC1967 proxy variant used only for circular governor/incentivizer deployments.
+ * @dev The paired governor and incentivizer each need the other's final CREATE2 address in their initializer.
+ */
+contract MemeverseERC1967Proxy is ERC1967Proxy {
+    /// @notice Deploys the proxy without constructor initialization.
+    /// @param implementation Initial implementation address.
+    constructor(address implementation) ERC1967Proxy(implementation, "") {}
+
+    /// @dev Deployment is followed by both initializers in the same `deployGovernorAndIncentivizer` transaction.
+    function _unsafeAllowUninitialized() internal pure override returns (bool) {
+        return true;
+    }
+}
 
 /**
  * @title MemeverseProxyDeployer Contract
@@ -84,13 +103,13 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
     {
         governor = Create2.computeAddress(
             keccak256(abi.encode(uniqueId)),
-            keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(governorImplementation, bytes(""))))
+            keccak256(abi.encodePacked(type(MemeverseERC1967Proxy).creationCode, abi.encode(governorImplementation)))
         );
 
         incentivizer = Create2.computeAddress(
             keccak256(abi.encode(uniqueId)),
             keccak256(
-                abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(incentivizerImplementation, bytes("")))
+                abi.encodePacked(type(MemeverseERC1967Proxy).creationCode, abi.encode(incentivizerImplementation))
             )
         );
     }
@@ -146,20 +165,20 @@ contract MemeverseProxyDeployer is IMemeverseProxyDeployer, Ownable {
         uint256 uniqueId,
         uint256 proposalThreshold
     ) external override onlyMemeverseLauncher returns (address governor, address incentivizer) {
+        // Read external token state before deploying the temporarily uninitialized proxy pair.
+        uint256 _minQuorum = IERC20(memecoin).totalSupply() * minQuorumNumerator / 100;
+
         // Deploy
         governor = Create2.deploy(
             0,
             keccak256(abi.encode(uniqueId)),
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(governorImplementation, bytes("")))
+            abi.encodePacked(type(MemeverseERC1967Proxy).creationCode, abi.encode(governorImplementation))
         );
         incentivizer = Create2.deploy(
             0,
             keccak256(abi.encode(uniqueId)),
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(incentivizerImplementation, bytes("")))
+            abi.encodePacked(type(MemeverseERC1967Proxy).creationCode, abi.encode(incentivizerImplementation))
         );
-
-        // Calculate absolute minQuorum from memecoin total supply
-        uint256 _minQuorum = IERC20(memecoin).totalSupply() * minQuorumNumerator / 100;
 
         // Initialize
         IMemecoinDaoGovernor(governor)

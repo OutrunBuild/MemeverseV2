@@ -855,7 +855,8 @@ contract MemeverseLauncherPOLendIntegrationTest is Test {
         returns (POLend realPolend, POLSplitter realSplitter, address realPT)
     {
         POLSplitter splitterImplementation = new POLSplitter();
-        realSplitter = POLSplitter(address(new ERC1967Proxy(address(splitterImplementation), "")));
+        bytes memory splitterData = abi.encodeCall(POLSplitter.initialize, (address(this), address(launcher)));
+        realSplitter = POLSplitter(address(new ERC1967Proxy(address(splitterImplementation), splitterData)));
 
         POLend polendImplementation = new POLend();
         bytes memory polendData = abi.encodeCall(
@@ -865,7 +866,6 @@ contract MemeverseLauncherPOLendIntegrationTest is Test {
         realPolend = POLend(address(new ERC1967Proxy(address(polendImplementation), polendData)));
 
         launcher.setPolendForTest(address(realPolend));
-        POLSplitter(address(realSplitter)).initialize(address(this), address(launcher));
         launcher.setPolSplitterForTest(address(realSplitter));
 
         vm.prank(address(launcher));
