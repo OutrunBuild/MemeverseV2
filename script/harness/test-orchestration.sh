@@ -574,7 +574,10 @@ subdir_repo_relative_record="$(run_classify_from_subdir subdirrepo docs 1 src/ve
 jq -e '
   .changed_files == ["src/verse/MemeverseLauncher.sol"] and
   .surfaces == "solidity_prod" and
+  .change_class == "blocked" and
   .final_verdict == "blocked" and
+  .semantic_prod_files == [] and
+  .non_semantic_prod_files == [] and
   (.blocking_findings[] | select(.rule_id == "semantic-classification-requires-diff"))
 ' "$subdir_repo_relative_record" >/dev/null
 assert_no_removed_fields "$subdir_repo_relative_record"
@@ -583,6 +586,9 @@ absolute_inside_record="$(run_classify_with_changed_args absinside 1 --changed-f
 jq -e '
   .changed_files == ["src/verse/MemeverseLauncher.sol"] and
   .surfaces == "solidity_prod" and
+  .change_class == "blocked" and
+  .semantic_prod_files == [] and
+  .non_semantic_prod_files == [] and
   .final_verdict == "blocked"
 ' "$absolute_inside_record" >/dev/null
 assert_no_removed_fields "$absolute_inside_record"

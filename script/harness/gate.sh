@@ -1316,6 +1316,7 @@ classification_json="$(
     PATCH_FILE="$patch_file" \
     ALL_MODE="$all_mode" \
     PLANNED_SOLIDITY_CLASSIFICATION="$planned_solidity_classification" \
+    DIFF_EVIDENCE_MISSING="$classification_requires_diff" \
     node <<'EOF'
 const fs = require('fs');
 
@@ -1324,6 +1325,7 @@ const testFiles = JSON.parse(process.env.TEST_FILES_JSON || '[]');
 const patchPath = process.env.PATCH_FILE || '';
 const allMode = process.env.ALL_MODE === '1';
 const plannedSolidityClassification = process.env.PLANNED_SOLIDITY_CLASSIFICATION === '1';
+const diffEvidenceMissing = process.env.DIFF_EVIDENCE_MISSING === '1';
 const patch = patchPath && fs.existsSync(patchPath) ? fs.readFileSync(patchPath, 'utf8') : '';
 const trackedFiles = [...prodFiles, ...testFiles];
 
@@ -1342,7 +1344,9 @@ function isNonSemanticLine(line) {
 
 const analysis = new Map(trackedFiles.map((file) => [file, { semantic: false, semanticLines: 0 }]));
 
-if (allMode) {
+if (diffEvidenceMissing) {
+  // Leave all Solidity files unclassified; the shell layer blocks the record.
+} else if (allMode) {
   for (const file of trackedFiles) {
     const entry = analysis.get(file);
     entry.semantic = true;
@@ -1377,15 +1381,17 @@ if (allMode) {
   }
 }
 
-const semanticProdFiles = prodFiles.filter((file) => analysis.get(file)?.semantic);
-const semanticTestFiles = testFiles.filter((file) => analysis.get(file)?.semantic);
-const nonSemanticProdFiles = prodFiles.filter((file) => !analysis.get(file)?.semantic);
-const nonSemanticTestFiles = testFiles.filter((file) => !analysis.get(file)?.semantic);
+const semanticProdFiles = diffEvidenceMissing ? [] : prodFiles.filter((file) => analysis.get(file)?.semantic);
+const semanticTestFiles = diffEvidenceMissing ? [] : testFiles.filter((file) => analysis.get(file)?.semantic);
+const nonSemanticProdFiles = diffEvidenceMissing ? [] : prodFiles.filter((file) => !analysis.get(file)?.semantic);
+const nonSemanticTestFiles = diffEvidenceMissing ? [] : testFiles.filter((file) => !analysis.get(file)?.semantic);
 const semanticProdLineCount = semanticProdFiles.reduce((sum, file) => sum + (analysis.get(file)?.semanticLines || 0), 0);
 const semanticTestLineCount = semanticTestFiles.reduce((sum, file) => sum + (analysis.get(file)?.semanticLines || 0), 0);
 
 let changeClass = 'no-op';
-if (semanticProdFiles.length > 0) {
+if (diffEvidenceMissing && trackedFiles.length > 0) {
+  changeClass = 'blocked';
+} else if (semanticProdFiles.length > 0) {
   changeClass = 'prod-semantic';
 } else if (semanticTestFiles.length > 0) {
   changeClass = 'test-semantic';

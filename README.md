@@ -22,7 +22,7 @@ Harness commands:
 
 1. **Classify surfaces** - every changed file is matched against `.harness/policy.json`.
 2. **Classify change class** - Solidity diffs are parsed for semantic changes while ignoring comments, whitespace, and punctuation-only lines.
-3. **Select orchestration** - gate emits `orchestration_profile`, `selected_writer_roles`, and `selected_review_roles`.
+3. **Select orchestration** - gate emits `orchestration_profile`, `harness_writer_roles`, `code_writer_roles`, and `code_review_roles`.
 4. **Run verification** - normal gate profiles run commands selected by profile and changed-file scope.
 5. **Emit run record** - when `RUN_RECORD_PATH` is set, the gate writes classification, orchestration, command results, and final verdict.
 
