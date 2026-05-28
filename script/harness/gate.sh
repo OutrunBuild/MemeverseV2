@@ -1780,20 +1780,20 @@ if [ "${#changed_files[@]}" -gt 0 ]; then
                 src_scope_json="$(json_array_from_values "${existing_src_solidity_files[@]}")"
                 test_scope_json="$(json_array_from_values "${existing_test_solidity_files[@]}")"
                 if [ "$hard_blocked" -eq 1 ]; then
-                    record_blocked_command "$command_id" "npx solhint -c solhint.config.js <src-solidity> && npx solhint -c solhint-test.config.js <test-solidity>" "lint selected Solidity files" "$selected_solidity_json" "command blocked before execution by policy hard-block"
+                    record_blocked_command "$command_id" "npx solhint --disc --noPoster -c solhint.config.js <src-solidity> && npx solhint --disc --noPoster -c solhint-test.config.js <test-solidity>" "lint selected Solidity files" "$selected_solidity_json" "command blocked before execution by policy hard-block"
                 elif [ "${#existing_src_solidity_files[@]}" -gt 0 ]; then
-                    lint_command="npx solhint -c solhint.config.js $(shell_join "${existing_src_solidity_files[@]}")"
+                    lint_command="npx solhint --disc --noPoster -c solhint.config.js $(shell_join "${existing_src_solidity_files[@]}")"
                     if [ "${#existing_test_solidity_files[@]}" -gt 0 ]; then
-                        lint_command="$lint_command && npx solhint -c solhint-test.config.js $(shell_join "${existing_test_solidity_files[@]}")"
+                        lint_command="$lint_command && npx solhint --disc --noPoster -c solhint-test.config.js $(shell_join "${existing_test_solidity_files[@]}")"
                         lint_scope_json="$(jq -cn --argjson src "$src_scope_json" --argjson test "$test_scope_json" '$src + $test')"
                     else
                         lint_scope_json="$src_scope_json"
                     fi
                     run_single_command "$command_id" "lint selected Solidity files" "$lint_scope_json" bash -lc "$lint_command"
                 elif [ "${#existing_src_solidity_files[@]}" -eq 0 ] && [ "${#existing_test_solidity_files[@]}" -gt 0 ]; then
-                    run_single_command "$command_id" "lint selected Solidity files" "$test_scope_json" npx solhint -c solhint-test.config.js "${existing_test_solidity_files[@]}"
+                    run_single_command "$command_id" "lint selected Solidity files" "$test_scope_json" npx solhint --disc --noPoster -c solhint-test.config.js "${existing_test_solidity_files[@]}"
                 else
-                    record_not_applicable_command "$command_id" "npx solhint -c solhint.config.js && npx solhint -c solhint-test.config.js" "lint selected Solidity files" "$selected_solidity_json" "no Solidity files in scope"
+                    record_not_applicable_command "$command_id" "npx solhint --disc --noPoster -c solhint.config.js && npx solhint --disc --noPoster -c solhint-test.config.js" "lint selected Solidity files" "$selected_solidity_json" "no Solidity files in scope"
                 fi
                 ;;
             forge_build)
