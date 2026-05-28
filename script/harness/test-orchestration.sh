@@ -262,7 +262,7 @@ run_pre_edit_check() {
 assert_pre_edit_check_guidance() {
     local output="$1"
 
-    grep -Fq "classify-only with the exact changed-file set" <<<"$output"
+    grep -Fq "classify-only --planned-files with the exact planned-file set" <<<"$output"
     grep -Fq "Follow emitted orchestration_profile and phase fields" <<<"$output"
     grep -Fq "Main session may edit direct/direct-review" <<<"$output"
     grep -Fq "delegated/full-review/full-subagent must use configured writers/reviewers" <<<"$output"
@@ -500,6 +500,32 @@ jq -e '
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"]
 ' "$src_record" >/dev/null
 assert_no_removed_fields "$src_record"
+
+planned_src_record="$(run_classify_with_changed_args plannedsrc 0 --planned-files src/verse/MemeverseLauncher.sol)"
+jq -e '
+  .changed_files == ["src/verse/MemeverseLauncher.sol"] and
+  .file_input_mode == "planned-files" and
+  .change_class == "prod-semantic" and
+  .orchestration_profile == "full-review" and
+  .harness_writer_roles == [] and
+  .code_writer_roles == ["solidity-implementer"] and
+  (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
+  (.residual_risks[] | select(.rule_id == "planned-solidity-classification"))
+' "$planned_src_record" >/dev/null
+assert_no_removed_fields "$planned_src_record"
+
+planned_test_record="$(run_classify_with_changed_args plannedtest 0 --planned-files test/verse/MemeverseLauncherConfig.t.sol)"
+jq -e '
+  .changed_files == ["test/verse/MemeverseLauncherConfig.t.sol"] and
+  .file_input_mode == "planned-files" and
+  .change_class == "test-semantic" and
+  .orchestration_profile == "direct-review" and
+  .harness_writer_roles == [] and
+  .code_writer_roles == ["solidity-implementer"] and
+  .code_review_roles == ["logic-reviewer"] and
+  (.residual_risks[] | select(.rule_id == "planned-solidity-classification"))
+' "$planned_test_record" >/dev/null
+assert_no_removed_fields "$planned_test_record"
 
 mixed_changed="$(write_changed_files mixed src/verse/MemeverseLauncher.sol docs/spec/verse/state-machines.md)"
 mixed_record="$(run_classify mixed "$mixed_changed" "$src_diff")"

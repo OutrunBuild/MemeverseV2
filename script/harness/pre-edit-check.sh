@@ -22,5 +22,5 @@ if [ -z "$repo_root" ]; then
     exit 0
 fi
 
-echo "[harness] This repo has .harness/policy.json. Before repository edits, run gate.sh --classify-only with the exact changed-file set. Follow emitted orchestration_profile and phase fields. Main session may edit direct/direct-review. delegated/full-review/full-subagent must use configured writers/reviewers."
+echo "[harness] This repo has .harness/policy.json. Before repository edits, run gate.sh --classify-only --planned-files with the exact planned-file set. Follow emitted orchestration_profile and phase fields. Main session may edit direct/direct-review. delegated/full-review/full-subagent must use configured writers/reviewers."
 exit 0

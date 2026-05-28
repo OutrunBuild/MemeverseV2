@@ -1,7 +1,8 @@
 # MemeverseV2 Verification
 
 - Verification entrypoint: `script/harness/gate.sh`
-- Classification-only entrypoint: `bash script/harness/gate.sh --classify-only --changed-files <path> [<path> ...]`
+- Pre-edit classification entrypoint: `bash script/harness/gate.sh --classify-only --planned-files <path> [<path> ...]`
+- Changed-file classification or verification entrypoint: `bash script/harness/gate.sh --changed-files <path> [<path> ...]`
 - Default local profile: `npm run gate` (`fast`)
 - Fast local profile: `npm run gate:fast`
 - Full local profile: `npm run gate:full`
@@ -16,9 +17,11 @@ Gate output controls:
 - `--log-level error|warn|info|debug`: defaults to `info`. `error` prints only error-oriented output, `warn` prints warnings/errors without success summaries, and `debug` includes the structured gate record in text mode.
 - `--output text|json`: defaults to JSON for `--classify-only` and text for normal verification. `json` prints the structured classification or final record to stdout and takes precedence over `--quiet`.
 
-`--changed-files` accepts one or more repo-relative paths. Every positional argument after `--changed-files` is treated as a changed file until the next option. The old "path to a changed-files manifest" form is removed.
+`--planned-files` accepts one or more repo-relative paths and can only be used with `--classify-only`. Use it before edits to classify the intended file set for routing. Planned Solidity files do not require diff evidence and are conservatively classified as semantic.
 
-Local current-work gate invocations must use exact changed-file input. Solidity changed-files mode requires diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`; without it, semantic classification is blocked.
+`--changed-files` accepts one or more repo-relative paths. Use it after edits or in CI for real changed-file verification. Every positional argument after `--changed-files` is treated as a changed file until the next option. The old "path to a changed-files manifest" form is removed.
+
+Local current-work verification must use exact changed-file input. Solidity changed-files mode requires diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`; without it, semantic classification is blocked.
 
 Gate verifies classification and command outcomes. Spec/document impact is decided before doc writers, `spec-reviewer`, code writers, or code reviewers are dispatched, not by gate.
 

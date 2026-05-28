@@ -8,7 +8,7 @@ Route repository work through the harness without violating policy, ownership, r
 
 A task is complete only when:
 
-- the intended changed-file set is known, or the task is reported blocked
+- the intended planned-file set is known, or the task is reported blocked
 - every edited path is classified by `gate.sh --classify-only` before editing
 - every edited path matches `.harness/policy.json`
 - writer, reviewer, and verifier routing follows policy and gate evidence
@@ -84,7 +84,8 @@ Do not override policy or gate evidence with natural-language guesses.
 
 - gate.sh is the enforcement entrypoint.
 - Completion, readiness, or pass claims require fresh output from the selected matching gate profile.
-- For local current work, invoke `gate.sh` with the exact changed-file set. If any Solidity file is involved, also provide diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`.
+- For pre-edit routing, invoke `gate.sh --classify-only` with the exact planned-file set via `--planned-files`.
+- For local current-work verification, invoke `gate.sh` with the exact changed-file set via `--changed-files`. If any Solidity file is involved, also provide diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`.
 - See docs/VERIFICATION.md for profile meanings and command entrypoints.
 
 ## Harness Dispatch Procedure
@@ -93,7 +94,9 @@ When `.harness/policy.json` exists and the task modifies repository files, follo
 
 ### Mandatory Pre-condition
 
-After the intended changed-file set is known and before the first edit, run `bash script/harness/gate.sh --classify-only --changed-files <path>` with exact existing paths and intended-created paths. If the changed-file set is not knowable yet, inspect only enough context to identify candidate paths, then classify before editing.
+After the intended planned-file set is known and before the first edit, run `bash script/harness/gate.sh --classify-only --planned-files <path> [<path> ...]` with exact existing paths and intended-created paths. If the planned-file set is not knowable yet, inspect only enough context to identify candidate paths, then classify before editing.
+
+`--planned-files` is for pre-edit routing only. It does not require diff evidence and conservatively classifies planned Solidity files as semantic. Use `--changed-files` only for real changed-file verification after edits or in CI.
 
 Do not use stale mental classification.
 
