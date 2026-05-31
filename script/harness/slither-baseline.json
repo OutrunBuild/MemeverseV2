@@ -199,8 +199,8 @@
       "impact": "Medium",
       "confidence": "High",
       "location": "src/swap/MemeverseUniswapHook.sol#L1166-L1176",
-      "summary": "MemeverseUniswapHook._quoteLaunchFeeBps(PoolId) uses a dangerous strict equality:",
-      "key": "incorrect-equality|src/swap/MemeverseUniswapHook.sol|MemeverseUniswapHook._quoteLaunchFeeBps(PoolId) uses a dangerous strict equality:"
+      "summary": "MemeverseUniswapHook._quoteLaunchFeeBps(MemeverseUniswapHookStorage,PoolId) uses a dangerous strict equality:",
+      "key": "incorrect-equality|src/swap/MemeverseUniswapHook.sol|MemeverseUniswapHook._quoteLaunchFeeBps(MemeverseUniswapHookStorage,PoolId) uses a dangerous strict equality:"
     },
     {
       "id": "ffb3d7761d984a3d14219208a68b680aa8291f74fe0682db91cb6c0e2ca17a36",
@@ -1909,8 +1909,8 @@
       "impact": "Low",
       "confidence": "Medium",
       "location": "src/swap/MemeverseUniswapHook.sol#L1166-L1176",
-      "summary": "MemeverseUniswapHook._quoteLaunchFeeBps(PoolId) uses timestamp for comparisons",
-      "key": "timestamp|src/swap/MemeverseUniswapHook.sol|MemeverseUniswapHook._quoteLaunchFeeBps(PoolId) uses timestamp for comparisons"
+      "summary": "MemeverseUniswapHook._quoteLaunchFeeBps(MemeverseUniswapHookStorage,PoolId) uses timestamp for comparisons",
+      "key": "timestamp|src/swap/MemeverseUniswapHook.sol|MemeverseUniswapHook._quoteLaunchFeeBps(MemeverseUniswapHookStorage,PoolId) uses timestamp for comparisons"
     },
     {
       "id": "9d094a36fe3645cfa17999a75b28f0b9069087efeeaa8af2c41a1eeaec8be1f5",

@@ -35,6 +35,28 @@ interface IMemeverseUniswapHook {
         uint256 pendingFee1;
     }
 
+    /// @notice Per-pool exponentially weighted state used by dynamic fee computation.
+    struct EWVWAPParams {
+        /// @notice Exponentially weighted token0 volume.
+        uint256 weightedVolume0;
+        /// @notice Exponentially weighted (price * token0 volume) at 1e18 spot precision.
+        uint256 weightedPriceVolume0;
+        /// @notice Exponentially weighted VWAP spot in X18 precision.
+        uint256 ewVWAPX18;
+        /// @notice Anchor sqrt price used to measure reference-price deviation.
+        uint160 volAnchorSqrtPriceX96;
+        /// @notice Last timestamp when the volatility deviation accumulator observed a non-zero move.
+        uint40 volLastMoveTs;
+        /// @notice Accumulated reference-price deviation state.
+        uint24 volDeviationAccumulator;
+        /// @notice Carried-over accumulator after filter/decay handling.
+        uint24 volCarryAccumulator;
+        /// @notice Short-term cumulative impact accumulator (decay applied on read/update).
+        uint24 shortImpactPpm;
+        /// @notice Last timestamp for short-term impact decay.
+        uint40 shortLastTs;
+    }
+
     // ==========================
     // External Call Structures
     // ==========================
@@ -95,20 +117,20 @@ interface IMemeverseUniswapHook {
 
     /// @notice Exposes the launcher consulted for post-unlock public-swap protection.
     /// @dev Returns the explicit launcher binding used by hook implementations for launch-state checks.
-    /// @return launcher_ Explicit launcher binding used for public-swap protection checks.
-    function launcher() external view returns (address launcher_);
+    /// @return Explicit launcher binding used for public-swap protection checks.
+    function launcher() external view returns (address);
 
     /// @notice Exposes the public-swap resume time for a hook-managed pool.
     /// @dev `0` means no active post-unlock public-swap protection is recorded for the pool.
     /// @param poolId Pool being queried.
-    /// @return resumeTime Stored public-swap resume timestamp for the pool.
-    function publicSwapResumeTime(PoolId poolId) external view returns (uint40 resumeTime);
+    /// @return Stored public-swap resume timestamp for the pool.
+    function publicSwapResumeTime(PoolId poolId) external view returns (uint40);
 
     /// @notice Exposes when a hook-managed pool was initialized.
     /// @dev The launch timestamp anchors the launch-fee decay schedule.
     /// @param poolId Pool being queried.
-    /// @return timestamp Recorded launch timestamp.
-    function poolLaunchTimestamp(PoolId poolId) external view returns (uint40 timestamp);
+    /// @return Recorded launch timestamp.
+    function poolLaunchTimestamp(PoolId poolId) external view returns (uint40);
 
     /// @notice Exposes the default launch-fee decay schedule.
     /// @dev New pools use this configuration unless a future implementation introduces pool-specific overrides.
@@ -121,8 +143,8 @@ interface IMemeverseUniswapHook {
         returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds);
 
     /// @notice Exposes the router authorized to initialize hook-managed pools.
-    /// @return initializer Router address allowed to authorize and trigger pool initialization.
-    function poolInitializer() external view returns (address initializer);
+    /// @return Router address allowed to authorize and trigger pool initialization.
+    function poolInitializer() external view returns (address);
 
     /// @notice Updates the launcher consulted for public-swap protection.
     /// @dev Implementations are expected to restrict this to an admin or owner role.
@@ -268,6 +290,9 @@ interface IMemeverseUniswapHook {
         uint32 newDecayDurationSeconds
     );
 
+    /// @notice Emitted when the public swap resume time is updated for a pool.
+    event PublicSwapResumeTimeUpdated(PoolId indexed poolId, uint40 oldResumeTime, uint40 newResumeTime);
+
     /// @notice Emitted when a pool is initialized
     event PoolInitialized(
         PoolId indexed poolId, address indexed liquidityToken, Currency indexed currency0, Currency currency1
@@ -332,6 +357,9 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when an exact-input swap underdelivers the expected pool-side input.
     error ExactInputPartialFill();
 
+    /// @notice Reverts when an exact-output swap underdelivers the expected pool-side output.
+    error ExactOutputPartialFill();
+
     /// @notice Reverts when the launch settlement caller is zero.
     error ZeroAddress();
 
@@ -364,4 +392,7 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when an ERC20 transfer returns false.
     error ERC20TransferFailed();
+
+    /// @notice Reverts when a pool-manager upgrade target does not match the current manager.
+    error UpgradePoolManagerMismatch(address currentPoolManager, address newPoolManager);
 }

@@ -10,6 +10,7 @@ library MemeverseTransientState {
     bytes32 private constant SWAP_CONTEXT_DEPTH_TAG = keccak256("mv.ts.swap.depth");
     bytes32 private constant SWAP_CONTEXT_FEE_TAG = keccak256("mv.ts.swap.fee");
     bytes32 private constant SWAP_CONTEXT_PRICE_TAG = keccak256("mv.ts.swap.price");
+    bytes32 private constant SWAP_CONTEXT_EXACT_OUTPUT_PROTOCOL_FEE_TAG = keccak256("mv.ts.swap.eo.protocolFee");
 
     function pushSwapContext(PoolId poolId, uint256 feeBps, uint160 preSqrtPriceX96) internal returns (uint256 depth) {
         depth = _incrementSwapContextDepth();
@@ -38,6 +39,23 @@ library MemeverseTransientState {
             tstore(feeSlot, 0)
             tstore(priceSlot, 0)
             tstore(depthSlot, sub(depth, 1))
+        }
+    }
+
+    function storeExactOutputProtocolFee(PoolId poolId, uint256 depth, uint256 amount) internal {
+        bytes32 exactOutputProtocolFeeSlot =
+            _swapContextFieldSlot(SWAP_CONTEXT_EXACT_OUTPUT_PROTOCOL_FEE_TAG, poolId, depth);
+        assembly {
+            tstore(exactOutputProtocolFeeSlot, amount)
+        }
+    }
+
+    function consumeExactOutputProtocolFee(PoolId poolId, uint256 depth) internal returns (uint256 amount) {
+        bytes32 exactOutputProtocolFeeSlot =
+            _swapContextFieldSlot(SWAP_CONTEXT_EXACT_OUTPUT_PROTOCOL_FEE_TAG, poolId, depth);
+        assembly {
+            amount := tload(exactOutputProtocolFeeSlot)
+            tstore(exactOutputProtocolFeeSlot, 0)
         }
     }
 

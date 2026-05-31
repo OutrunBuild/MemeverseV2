@@ -29,6 +29,7 @@
  - protocol fee 与 LP fee 归集
  - LP token per pool + fee per share 记账
  - `addLiquidityCore/removeLiquidityCore/claimFeesCore` 低层能力；其中 fee claim 执行入口是 `claimFeesCore(...)`，fee owner 由 `msg.sender` 推导，`recipient` 可指定，当前不支持 relayed/signature-based claim
+- `removeLiquidityCore(...)` 要求 `recipient != address(0)`，否则回退 `ZeroAddress()`。
 - Hook 强制池约束：动态费 + tickSpacing=200。
 
 `[代码已证]`
@@ -51,6 +52,7 @@
 - `LP fee` 永远在输入侧。
 - `Protocol fee` 币种由 `supportedProtocolFeeCurrencies` 决定：输入侧优先，输入不支持再看输出侧。
 - 若输入和输出都不在支持列表，swap 回退 `CurrencyNotSupported`。
+- Exact-output swap 若实际 gross output 小于请求输出，Hook 回退 `ExactOutputPartialFill()`。
 - `PROTOCOL_FEE_RATIO_BPS = 3000`，即 `feeBps` 中 30% 归 protocol、70% 归 LP。
 
 `[代码已证]`
@@ -67,7 +69,8 @@
 ## 5. LP 总量与零供给语义
 
 - `cachedLpTotalSupply[poolId]` 追踪每池 LP token 真实总量，无 `MINIMUM_LIQUIDITY` 锁定，所有 LP token 均参与 fee 分配。
-- `_activeLpSupplyForSwap`：`cachedLpTotalSupply == 0` 时 fallback 到 `poolManager.getLiquidity(poolId)`。
+- 加/减流动性路径在 LP token `mint` / `burn` 后直接同步 `cachedLpTotalSupply[poolId]`，保持缓存总量与实际 LP token supply 一致；不要求额外的一行转发 helper。
+- swap 路径使用 `_activeLpSupplyForSwap` 作为有效 LP 供应量的业务入口：`cachedLpTotalSupply == 0` 时 fallback 到 `poolManager.getLiquidity(poolId)`。
   - 两者均为 0 → 返回 0，允许零流动性 quote 语义正常执行。
   - 缓存为 0 但 pool liquidity > 0 → revert `NoActiveLiquidityShares`（不一致状态，不应出现）。
 - LP 全部移除后：swap 走零流动性路径不 revert，但 `_collectLaunchSettlementInputFees` 检测到 `effectiveSupply == 0` 时 revert，因为没有 LP 可接收 fee 分配。

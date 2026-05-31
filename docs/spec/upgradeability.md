@@ -20,7 +20,6 @@
 | **构造函数部署（不可升级）** | | | | |
 | Launcher | constructor 部署 | constructor | 不适用 | `src/verse/MemeverseLauncher.sol:69` |
 | Router | constructor 部署 | constructor | 不适用 | `src/swap/MemeverseSwapRouter.sol:75` |
-| Hook | constructor 部署 | constructor | 不适用 | `src/swap/MemeverseUniswapHook.sol:158` |
 | RegistrationCenter | constructor 部署 | constructor | 不适用 | `src/verse/registration/MemeverseRegistrationCenter.sol:46` |
 | RegistrarAtLocal | constructor 部署 | constructor | 不适用 | `src/verse/registration/MemeverseRegistrarAtLocal.sol:16` |
 | RegistrarOmnichain | constructor 部署 | constructor | 不适用 | `src/verse/registration/MemeverseRegistrarOmnichain.sol:33` |
@@ -36,6 +35,7 @@
 | `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:148-169`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:86`, `:656` |
 | `POLend` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, interestRate_, leveragedDebtFactor_, treasury_, launcher_, splitter_)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLend.sol:18`, `:54`, `:68`, `:520` |
 | `POLSplitter` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, _launcher)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLSplitter.sol:18`, `:85`, `:99`, `:282` |
+| `MemeverseUniswapHook` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, treasury_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseUniswapHook.sol:211`, `:228-235` |
 
 ## 3. 初始化约束（当前代码实际支持）
 
@@ -78,6 +78,8 @@
   - 证据：`src/governance/MemecoinDaoGovernorUpgradeable.sol:377`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:68-71`, `:656`
 - `POLend` 与 `POLSplitter` 不由 `MemeverseProxyDeployer` 部署；它们通过外部脚本/工厂独立部署，并以构造参数形式传入 Launcher（`_polend`、`_polSplitter`）。其 proxy 部署与升级授权独立于 ProxyDeployer。`[代码已证]`
 - Launcher 保存的是 `POLend` / `POLSplitter` 的 proxy 地址，当前规范不提供 setter、地址级替换、迁移或降级零地址模式；这只约束 proxy 地址本身，不否定 proxy 实现升级。`POLend` 与 `POLSplitter` 均为 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行。`[代码已证]`
+- `MemeverseUniswapHook` 也是 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行，并额外通过新实现暴露的 `poolManager()` getter 检查返回地址是否与当前 `poolManager` 一致。该检查是防止诚实升级误部署错误 PoolManager 构造参数的 guardrail，不是针对恶意 owner 或恶意新实现的安全边界；新实现可以自定义 getter 返回期望地址。`poolManager` 不在 proxy storage 中，升级替换字节码后若真实值不同，hook 回调将指向错误目标，导致所有 swap 和流动性操作永久失效。`[代码已证]`
+- `MemeverseUniswapHook.initialize(initialOwner, treasury_)` 初始化 owner、treasury 与默认启动费率配置；成功初始化时会触发 `TreasuryUpdated(address(0), treasury_)` 与 `DefaultLaunchFeeConfigUpdated(0,0,0,5000,100,900)`，作为代理实例的初始配置事件。`[代码已证]`
 - `POLend.initialize(...)` 必须拒绝 `leveragedDebtFactor_ > uint128.max * 1e18`；后续 owner setter 使用同一技术上限，升级不得放宽该边界。`[代码已证]`
 
 ## 5. 与文档链的关系
