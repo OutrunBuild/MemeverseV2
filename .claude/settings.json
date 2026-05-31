@@ -23,6 +23,9 @@
     "deny": [
       "Bash(git push *)",
       "Bash(rm -rf *)",
+      "Bash(git restore *)",
+      "Bash(git checkout *)",
+      "Bash(git clean *)",
       "Read(.env)",
       "Read(.env.*)"
     ]

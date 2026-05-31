@@ -50,7 +50,8 @@ bsc_mainnet = { key = "${ETHEREUMSCAN_API_KEY}", chain = "56", url = "${ETHEREUM
 [lint]
 exclude_lints = [
     "mixed-case-variable", "mixed-case-function", "screaming-snake-case-immutable", "unsafe-typecast", "unwrapped-modifier-logic",
-    "screaming-snake-case-const", "unaliased-plain-import", "asm-keccak256", "pascal-case-struct", "named-struct-fields"
+    "screaming-snake-case-const", "unaliased-plain-import", "asm-keccak256", "pascal-case-struct", "named-struct-fields",
+    "unsafe-cheatcode"
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
