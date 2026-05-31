@@ -57,7 +57,7 @@ contract MemecoinDaoGovernorUpgradeable is
 
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.MemecoinDaoGovernor")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MEMECOIN_DAO_GOVERNOR_STORAGE_LOCATION =
-        0x173bbd0db440ff8dcb0efb05aced4279e21e45a07b4974973a371552ef840a00;
+        0x268497fe5dd9452fe73d6476bb0f21165f748dafac6b1c2687b0261939d22c00;
 
     function _getMemecoinDaoGovernorStorage() private pure returns (MemecoinDaoGovernorStorage storage $) {
         assembly {

@@ -34,7 +34,7 @@ contract GovernanceCycleIncentivizerUpgradeable is IGovernanceCycleIncentivizer,
 
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.GovernanceCycleIncentivizer")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant GOVERNANCE_CYCLE_INCENTIVIZER_STORAGE_LOCATION =
-        0x173bbd0db440ff8dcb0efb05aced4279e21e45a07b4974973a371552ef840a00;
+        0x99c67075de64491849821c50466dd705dae8bfdda77a190b7f78ed5af150e100;
 
     function _getGovernanceCycleIncentivizerStorage()
         private

@@ -11,7 +11,7 @@ import {Initializable} from "../access/Initializable.sol";
  * @title Outrun's ERC20Init implementation, modified from @openzeppelin implementation (Just for minimal proxy)
  */
 abstract contract OutrunERC20Init is IERC20, Initializable, IERC20Metadata, IERC20Errors {
-    /// @custom:storage-location erc7201:openzeppelin.storage.ERC20
+    /// @custom:storage-location erc7201:outrun.storage.ERC20
     struct ERC20Storage {
         mapping(address account => uint256) _balances;
 

@@ -12,7 +12,7 @@ abstract contract OutrunNoncesInit is Initializable {
      */
     error InvalidAccountNonce(address account, uint256 currentNonce);
 
-    /// @custom:storage-location erc7201:openzeppelin.storage.Nonces
+    /// @custom:storage-location erc7201:outrun.storage.Nonces
     struct NoncesStorage {
         mapping(address account => uint256) _nonces;
     }

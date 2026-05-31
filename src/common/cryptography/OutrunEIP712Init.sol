@@ -33,7 +33,7 @@ import {Initializable} from "../access/Initializable.sol";
  * @custom:oz-upgrades-unsafe-allow state-variable-immutable
  */
 abstract contract OutrunEIP712Init is Initializable, IERC5267 {
-    /// @custom:storage-location erc7201:openzeppelin.storage.EIP712
+    /// @custom:storage-location erc7201:outrun.storage.EIP712
     struct EIP712Storage {
         /// @custom:oz-renamed-from _HASHED_NAME
         bytes32 _hashedName;

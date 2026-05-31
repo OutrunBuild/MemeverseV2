@@ -8,7 +8,7 @@ import {Initializable} from "./Initializable.sol";
  * @dev Outrun's minimal-proxy-friendly Ownable implementation, adapted from OpenZeppelin.
  */
 abstract contract OutrunOwnableInit is Initializable {
-    /// @custom:storage-location erc7201:openzeppelin.storage.Ownable
+    /// @custom:storage-location erc7201:outrun.storage.Ownable
     struct OwnableStorage {
         address _owner;
     }
