@@ -16,7 +16,7 @@
 
 | 事件 | 触发模块 | 触发时机 | 用途 |
 | --- | --- | --- | --- |
-| `Registration(uniqueId,param)` | `MemeverseRegistrationCenter` | 中心链注册成功后 | 跟踪 symbol 占用与参数快照 |
+| `Registration(uint256 indexed uniqueId, RegistrationParam param)` | `MemeverseRegistrationCenter` | 中心链注册成功后 | 跟踪 symbol 占用与参数快照 |
 | `RegisterMemeverse(verseId,verse)` | `MemeverseLauncher` | launcher 完成新 verse 写入 | 建立 verse 主索引 |
 | `Genesis(verseId,user,...)` | `MemeverseLauncher` | Genesis 入金成功 | 跟踪募资累计 |
 | `Preorder(verseId,caller,user,amountInUAsset)` | `MemeverseLauncher` | Preorder 入金成功 | preorder 资金流入与累计索引；区分 caller 与 user 覆盖 relayer 场景 |

@@ -53,6 +53,7 @@
 - `Protocol fee` 币种由 `supportedProtocolFeeCurrencies` 决定：输入侧优先，输入不支持再看输出侧。
 - 若输入和输出都不在支持列表，swap 回退 `CurrencyNotSupported`。
 - Exact-output swap 若实际 gross output 小于请求输出，Hook 回退 `ExactOutputPartialFill()`。
+- Exact-input swap 若实际 pool input 与预期不符，Hook 回退 `ExactInputPartialFill()`。
 - `PROTOCOL_FEE_RATIO_BPS = 3000`，即 `feeBps` 中 30% 归 protocol、70% 归 LP。
 
 `[代码已证]`

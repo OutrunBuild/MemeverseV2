@@ -5,7 +5,7 @@
 本文档描述 MemeverseV2 “产品真相层”规则，不做逐行代码注释。
 
 规则分层（从高到低）：
-- POLend / POLSplitter 目标产品真源：[docs/spec/polend/polend.md](polend/polend.md)。
+- POLend / POLSplitter 当前规则真源：[docs/spec/polend/polend.md](polend/polend.md)。
 - 其他当前规则真源：`docs/spec/*.md`（含本文档）。
 - 落地证据：`src/**` 与 `test/**` 可验证行为。
 
@@ -29,7 +29,7 @@
 | `MemecoinYieldVault` | memecoin 收益累积、份额化与延迟赎回 | 质押收益、请求赎回与延迟执行 | 当前规则（代码已证） |
 | `MemecoinDaoGovernorUpgradeable` + `GovernanceCycleIncentivizerUpgradeable` | DAO treasury 与投票激励周期 | 国库收入记录、周期奖励结算 | 当前规则（代码已证） |
 | `YieldDispatcher` / `MemeverseOmnichainInteroperation` / `OmnichainMemecoinStaker` | 跨链收益与跨链 staking 路径 | 异链 fee 要求、到帐目标（Governor / Vault） | 当前规则（代码已证） |
-| `POLend` / `POLSplitter` | 杠杆创世、PT/YT、辅助池、settlement、残值领取 | 杠杆 YT、PT/YT 兑付、辅助池退出、杠杆残值 | 目标规则（见 [docs/spec/polend/polend.md](polend/polend.md)；当前实现差异不得覆盖目标规范） |
+| `POLend` / `POLSplitter` | 杠杆创世、PT/YT、辅助池、settlement、残值领取 | 杠杆 YT、PT/YT 兑付、辅助池退出、杠杆残值 | 当前规则（代码已证） |
 
 ## 4. 用户可见主流程
 
@@ -94,7 +94,7 @@
 - 这部分属于当前用户可见行为。
 
 ### 7.3 注册时间单位
-- `MemeverseRegistrationCenter` 当前把 `DAY` 定义为 `180` 秒（测试常量），`durationDays` 在中心链按此单位换算。
+- `MemeverseRegistrationCenter` 把 `DAY` 定义为 `180` 秒（测试常量），`durationDays` 在中心链按此单位换算。
 - `unlockTime` 由中心链按 `endTime + 365 days` 固定派生。
 - `MemeverseRegistrarAtLocal.quoteRegister` 读取 `registrationCenter.DAY()` 换算 end 时间，并使用固定 `365 days` 派生 unlock 时间。
 - 因此“天数”在当前实现里由 registration center 的 `DAY` 语义决定。

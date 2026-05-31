@@ -43,7 +43,7 @@
 | 模块 | 参数 | 当前值 | 说明 | 来源 |
 | --- | --- | --- | --- | --- |
 | `MemeverseLauncher` | `RATIO` | `10000` | 比率基数 | `[代码已证]` |
-| `MemeverseRegistrationCenter` | `DAY` | `180` 秒 | 注册时间单位（中心链实际生效） | `[代码已证]` |
+| `MemeverseRegistrationCenter` | `DAY` | `180` 秒（测试值） | 注册时间单位（中心链实际生效） | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `FIXED_LOCKUP_DURATION` | `365 days` | 注册时固定锁定期；`unlockTime = endTime + 365 days`，不是注册参数或 owner 配置项 | `[代码已证]` |
 | `MemeverseRegistrarAtLocal` | `registrationCenter.DAY()` | 中心链配置值 | 本地报价读取 registration center 的时间单位 | `[代码已证]` |
 | `MemeverseRegistrarAtLocal` | unlock 辅助计算 | `365 days` | 本地报价辅助使用固定锁定期，与中心链最终写入语义一致 | `[代码已证]` |

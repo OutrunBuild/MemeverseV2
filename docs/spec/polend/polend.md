@@ -1164,6 +1164,8 @@ burn POL collateral
 
 `preRedeemedPT` 逻辑上是 `{ ptAmount, uAssetBacking }` 结构，包含 `Locked` 阶段主动分发时已经预兑付给 Memeverse DAO governor 路径的杠杆侧 PT fee raw 数量及其固定 ratio 转换后的 backing。不得用两个互不关联的 mapping 表达该状态。
 
+> **代码实现说明：** 代码中 `preRedeemedPT(verseId)` 是便利 getter，仅返回 `ptAmount`（`uint256`）；完整的 `{ ptAmount, uAssetBacking }` 结构体通过 `preRedeemedStates(verseId)` 访问，返回 `PreRedeemedState`。
+
 `preRedeemedPT` 不包含：
 
 - 普通用户领取到地址上的 PT fee
@@ -1805,7 +1807,7 @@ Launcher 调 IOFT.send
 `POLend` deployment / proxy 初始化 ABI：
 
 ```solidity
-function initialize(address initialOwner, uint256 defaultInterestRate, uint256 leveragedDebtFactor, address protocolTreasury, address launcher, address splitter) external;
+function initialize(address initialOwner, uint256 interestRate_, uint256 leveragedDebtFactor_, address treasury_, address launcher_, address splitter_) external;
 ```
 
 `POLend` runtime integration ABI：
@@ -1850,7 +1852,7 @@ function initialize(address initialOwner, address launcher) external;
 function initializeVerse(uint256 verseId, address pol, address memecoin, address uAsset, string calldata name, string calldata symbol) external returns (address pt, address yt);
 function recordPTBackingRatio(uint256 verseId, uint256 numerator, uint256 denominator) external;
 function split(uint256 verseId, uint256 polAmount) external returns (uint256 ptAmount, uint256 ytAmount);
-function merge(uint256 verseId, uint256 ptAmount) external returns (uint256 polAmount);
+function merge(uint256 verseId, uint256 amount) external returns (uint256 polAmount);
 function settle(uint256 verseId) external returns (uint256 settlementUAsset, uint256 settlementMemecoin);
 function preRedeemPTFee(uint256 verseId, uint256 ptAmount) external returns (uint256 uAssetBacking);
 function redeemPT(uint256 verseId, uint256 ptAmount, address to) external returns (uint256 uAssetAmount);
