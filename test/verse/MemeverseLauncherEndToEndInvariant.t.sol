@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -14,6 +15,7 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForRouterTest} from "../swap/MemeverseSwapRouter.t.sol";
 import {
@@ -427,14 +429,20 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
             2_500,
             7 days
         );
-        hook = new TestableMemeverseUniswapHookForLauncherIntegration(
-            IPoolManager(address(manager)), address(this), treasury
+        TestableMemeverseUniswapHookForLauncherIntegration implementation =
+            new TestableMemeverseUniswapHookForLauncherIntegration(IPoolManager(address(manager)));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), treasury));
+        hook = TestableMemeverseUniswapHookForLauncherIntegration(
+            address(new ERC1967Proxy(address(implementation), data))
         );
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
         hook.setLauncher(address(launcher));
         hook.setPoolInitializer(address(router));
+        assertEq(address(router.hook()), address(hook), "router hook");
+        assertEq(hook.launcher(), address(launcher), "hook launcher");
+        assertEq(hook.poolInitializer(), address(router), "hook initializer");
 
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
@@ -624,8 +632,11 @@ contract MemeverseLauncherRefundEndToEndInvariantTest is StdInvariant, Test {
             2_500,
             7 days
         );
-        hook = new TestableMemeverseUniswapHookForLauncherIntegration(
-            IPoolManager(address(manager)), address(this), treasury
+        TestableMemeverseUniswapHookForLauncherIntegration implementation =
+            new TestableMemeverseUniswapHookForLauncherIntegration(IPoolManager(address(manager)));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), treasury));
+        hook = TestableMemeverseUniswapHookForLauncherIntegration(
+            address(new ERC1967Proxy(address(implementation), data))
         );
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
@@ -635,6 +646,9 @@ contract MemeverseLauncherRefundEndToEndInvariantTest is StdInvariant, Test {
 
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
+        assertEq(address(router.hook()), address(hook), "router hook");
+        assertEq(hook.launcher(), address(launcher), "hook launcher");
+        assertEq(hook.poolInitializer(), address(router), "hook initializer");
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);

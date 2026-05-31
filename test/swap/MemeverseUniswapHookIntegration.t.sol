@@ -73,6 +73,92 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         assertEq(delta.amount1(), int128(int256(quote.estimatedUserOutputAmount)), "delta1 exact");
     }
 
+    function testDirectManager_ExactOutput_InputFee_Underfill_RevertsAndRollsBack() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+
+        manager.setNextExactOutputAmount(poolId, 9 ether);
+        RollbackSnapshot memory before_ = _rollbackSnapshot(address(this));
+
+        vm.expectRevert(IMemeverseUniswapHook.ExactOutputPartialFill.selector);
+        integrator.swap(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: 10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
+            }),
+            address(this),
+            bytes("")
+        );
+
+        _assertRollback(address(this), before_);
+    }
+
+    function testDirectManager_ExactOutput_OutputFee_GrossUnderfill_RevertsAndRollsBack() external {
+        hook.setProtocolFeeCurrency(key.currency1);
+        _matureLaunchWindow();
+
+        SwapParams memory params = SwapParams({
+            zeroForOne: true, amountSpecified: 10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
+        });
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        manager.setNextExactOutputAmount(poolId, quote.estimatedUserOutputAmount + quote.estimatedProtocolFeeAmount - 1);
+        RollbackSnapshot memory before_ = _rollbackSnapshot(address(this));
+
+        vm.expectRevert(IMemeverseUniswapHook.ExactOutputPartialFill.selector);
+        integrator.swap(key, params, address(this), bytes(""));
+
+        _assertRollback(address(this), before_);
+    }
+
+    function testDirectManager_ExactOutput_OutputFee_OverfillKeepsSurplusWithRecipient() external {
+        hook.setProtocolFeeCurrency(key.currency1);
+        _matureLaunchWindow();
+
+        SwapParams memory params = SwapParams({
+            zeroForOne: true, amountSpecified: 10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
+        });
+        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        uint256 surplus = 1 ether;
+        manager.setNextExactOutputAmount(
+            poolId, quote.estimatedUserOutputAmount + quote.estimatedProtocolFeeAmount + surplus
+        );
+        uint256 payer1Before = token1.balanceOf(address(this));
+        uint256 treasury1Before = token1.balanceOf(treasury);
+
+        integrator.swap(key, params, address(this), bytes(""));
+
+        assertEq(
+            token1.balanceOf(address(this)) - payer1Before,
+            quote.estimatedUserOutputAmount + surplus,
+            "recipient keeps surplus"
+        );
+        assertEq(
+            token1.balanceOf(treasury) - treasury1Before,
+            quote.estimatedProtocolFeeAmount,
+            "treasury gets reserved fee only"
+        );
+    }
+
+    function testDirectManager_ExactOutput_ZeroFill_RevertsAndRollsBack() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+
+        manager.setNextExactOutputAmount(poolId, 0);
+        RollbackSnapshot memory before_ = _rollbackSnapshot(address(this));
+
+        vm.expectRevert(IMemeverseUniswapHook.ExactOutputPartialFill.selector);
+        integrator.swap(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: 10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
+            }),
+            address(this),
+            bytes("")
+        );
+
+        _assertRollback(address(this), before_);
+    }
+
     function testDirectManager_RawTransferBypass_RevertsAtUnlock() external {
         hook.setProtocolFeeCurrency(key.currency1);
         _matureLaunchWindow();

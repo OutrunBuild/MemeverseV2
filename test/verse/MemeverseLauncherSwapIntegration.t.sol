@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
@@ -13,6 +14,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {
@@ -188,7 +190,10 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
             2_500,
             7 days
         );
-        hook = new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)), address(this), TREASURY);
+        TestableMemeverseUniswapHookForIntegration implementation =
+            new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), TREASURY));
+        hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(implementation), data)));
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0))
         );
@@ -198,6 +203,9 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
 
         launcher.setMemeverseUniswapHook(address(hook));
         launcher.setMemeverseSwapRouter(address(router));
+        assertEq(address(router.hook()), address(hook), "router hook");
+        assertEq(hook.launcher(), address(launcher), "hook launcher");
+        assertEq(hook.poolInitializer(), address(router), "hook initializer");
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
         launcher.setYieldDispatcher(address(dispatcher));

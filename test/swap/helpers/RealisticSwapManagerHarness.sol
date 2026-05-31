@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -56,6 +57,7 @@ contract RealisticSwapManagerHarness {
     mapping(PoolId => uint128) internal liquidityState;
     mapping(PoolId => uint256) internal nextExactInputPoolInputAmount;
     mapping(PoolId => uint256) internal nextExactOutputAmount;
+    mapping(PoolId => bool) internal hasNextExactOutputAmount;
     mapping(PoolId => uint160) internal nextSwapSqrtPriceX96;
     mapping(PoolId => mapping(address => uint160)) internal callerSlot0OverrideX96;
     mapping(bytes32 => int256) internal currencyDeltaState;
@@ -237,6 +239,7 @@ contract RealisticSwapManagerHarness {
 
     function setNextExactOutputAmount(PoolId poolId, uint256 amount) external {
         nextExactOutputAmount[poolId] = amount;
+        hasNextExactOutputAmount[poolId] = true;
     }
 
     function setNextSwapSqrtPriceX96(PoolId poolId, uint160 sqrtPriceX96) external {
@@ -304,10 +307,11 @@ contract RealisticSwapManagerHarness {
         internal
         returns (BalanceDelta delta)
     {
-        uint256 configuredOutputAmount = nextExactOutputAmount[poolId];
-        if (configuredOutputAmount != 0) {
+        if (hasNextExactOutputAmount[poolId]) {
+            uint256 configuredOutputAmount = nextExactOutputAmount[poolId];
             outputAmount = configuredOutputAmount;
             delete nextExactOutputAmount[poolId];
+            delete hasNextExactOutputAmount[poolId];
         }
 
         uint128 liquidity = liquidityState[poolId];
@@ -374,11 +378,11 @@ contract RealisticSwapManagerHarness {
 }
 
 contract TestableMemeverseUniswapHookForIntegration is MemeverseUniswapHook {
-    constructor(IPoolManager _manager, address _owner, address _treasury)
-        MemeverseUniswapHook(_manager, _owner, _treasury)
-    {}
+    constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
 
     function validateHookAddress(BaseHook) internal pure override {}
+
+    function _validateProxyHookAddress() internal view virtual override {}
 }
 
 contract MockPermit2ForRouterIntegration {
@@ -576,7 +580,10 @@ abstract contract RealisticSwapIntegrationBase is Test {
         token0.mint(alice, 1_000_000 ether);
         token1.mint(alice, 1_000_000 ether);
 
-        hook = new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)), address(this), treasury);
+        TestableMemeverseUniswapHookForIntegration implementation =
+            new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), treasury));
+        hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(implementation), data)));
         router = new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), permit2_);
         integrator = new UnlockSwapIntegrator(manager);
         rawTransferIntegrator = new RawTransferSwapIntegrator(manager);

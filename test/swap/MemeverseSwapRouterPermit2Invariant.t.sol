@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -14,6 +15,7 @@ import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IS
 import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {
@@ -248,11 +250,22 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
     Permit2AccountingHandler internal accountingHandler;
     Permit2SpoofHandler internal spoofHandler;
 
+    function _deployHookProxy(IPoolManager manager_, address owner_, address treasury_)
+        internal
+        returns (TestableMemeverseUniswapHookForPermit2Router deployed)
+    {
+        TestableMemeverseUniswapHookForPermit2Router implementation =
+            new TestableMemeverseUniswapHookForPermit2Router(manager_);
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        deployed =
+            TestableMemeverseUniswapHookForPermit2Router(address(new ERC1967Proxy(address(implementation), data)));
+    }
+
     /// @notice Test helper for setUp.
     function setUp() external {
         manager = new MockPoolManagerForPermit2RouterTest();
         treasury = makeAddr("treasury");
-        hook = new TestableMemeverseUniswapHookForPermit2Router(IPoolManager(address(manager)), address(this), treasury);
+        hook = _deployHookProxy(IPoolManager(address(manager)), address(this), treasury);
         permit2 = new MockPermit2ForRouterTest();
 
         token0 = new MockERC20("Token0", "TK0", 18);

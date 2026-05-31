@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -392,20 +393,20 @@ interface IUnlockCallbackLike {
 }
 
 contract TestableMemeverseUniswapHookForRouter is MemeverseUniswapHook {
-    constructor(IPoolManager _manager, address _owner, address _treasury)
-        MemeverseUniswapHook(_manager, _owner, _treasury)
-    {}
+    constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
 
     function seedActiveLiquidityShares(PoolKey memory key, address owner, uint256 activeShares) external {
         PoolId id = key.toId();
-        address liquidityToken = poolInfo[id].liquidityToken;
+        address liquidityToken = _getMemeverseUniswapHookStorage().poolInfo[id].liquidityToken;
         if (liquidityToken == address(0)) revert PoolNotInitialized();
 
         UniswapLP(liquidityToken).mint(owner, activeShares);
-        cachedLpTotalSupply[id] += activeShares;
+        _getMemeverseUniswapHookStorage().cachedLpTotalSupply[id] += activeShares;
     }
 
     function validateHookAddress(BaseHook) internal pure override {}
+
+    function _validateProxyHookAddress() internal view virtual override {}
 }
 
 contract NonPayableSwapCaller {
@@ -519,19 +520,31 @@ contract MemeverseSwapRouterTest is Test {
         return (true, abi.decode(data, (uint40)));
     }
 
+    function _deployHookProxyForManager(IPoolManager manager_, address owner_, address treasury_)
+        internal
+        returns (TestableMemeverseUniswapHookForRouter deployed)
+    {
+        TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
+    }
+
     /// @notice Deploys the mock manager, hook, router, and test tokens.
     /// @dev Seeds balances and approvals used throughout the router test suite.
     function setUp() public {
         manager = new MockPoolManagerForRouterTest();
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
-        hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury);
+        hook = _deployHookProxyForManager(IPoolManager(address(manager)), address(this), treasury);
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );
 
-        token0 = new MockERC20("Token0", "TK0", 18);
-        token1 = new MockERC20("Token1", "TK1", 18);
+        MockERC20 tokenA = new MockERC20("Token0", "TK0", 18);
+        MockERC20 tokenB = new MockERC20("Token1", "TK1", 18);
+        // `token0` and `token1` mean Uniswap currency order here, not deployment order.
+        // Proxy deployment changes can move token addresses, so sort once before building the PoolKey.
+        (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
         token0.mint(address(this), 1_000_000 ether);
         token1.mint(address(this), 1_000_000 ether);
         token0.mint(alice, 1_000_000 ether);
@@ -587,13 +600,6 @@ contract MemeverseSwapRouterTest is Test {
         return PoolKey({
             currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(hookAddress)
         });
-    }
-
-    /// @notice Verifies hook deployment rejects a zero treasury address.
-    /// @dev Covers constructor validation.
-    function testConstructor_RevertsWhenTreasuryIsZeroAddress() external {
-        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
-        new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), address(0));
     }
 
     /// @notice Verifies explicit launcher binding rejects the zero address.
@@ -1009,7 +1015,7 @@ contract MemeverseSwapRouterTest is Test {
     function testSwap_RevertsDuringPostUnlockProtectionWindow() external {
         MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
         TestableMemeverseUniswapHookForRouter guardedHook =
-            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), treasury);
+            _deployHookProxyForManager(IPoolManager(address(guardedManager)), address(this), treasury);
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
@@ -1088,7 +1094,7 @@ contract MemeverseSwapRouterTest is Test {
     function testSwap_LocalProtectionBlocksOnlyTargetPool() external {
         MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
         TestableMemeverseUniswapHookForRouter guardedHook =
-            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), treasury);
+            _deployHookProxyForManager(IPoolManager(address(guardedManager)), address(this), treasury);
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
@@ -1291,7 +1297,7 @@ contract MemeverseSwapRouterTest is Test {
 
         MockPoolManagerForRouterTest pristineManager = new MockPoolManagerForRouterTest();
         TestableMemeverseUniswapHookForRouter pristineHook =
-            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(pristineManager)), address(this), treasury);
+            _deployHookProxyForManager(IPoolManager(address(pristineManager)), address(this), treasury);
         PoolKey memory pristineKey = _dynamicPoolKeyForHook(
             address(pristineHook), Currency.wrap(address(token0)), Currency.wrap(address(token1))
         );
@@ -1318,7 +1324,7 @@ contract MemeverseSwapRouterTest is Test {
     function testDirectPoolManagerSwap_RevertsDuringPostUnlockProtectionWindow() external {
         MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
         TestableMemeverseUniswapHookForRouter guardedHook =
-            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), treasury);
+            _deployHookProxyForManager(IPoolManager(address(guardedManager)), address(this), treasury);
         new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
@@ -1619,16 +1625,14 @@ contract MemeverseSwapRouterTest is Test {
         );
     }
 
-    /// @notice Covers the local underfill revert surface when the mock execution path returns less than the requested output.
-    /// @dev Locks router-side exact-output checks against deterministic harness output instead of caller-provided `amountOutMinimum`.
+    /// @notice Covers the hook-level underfill revert surface when the mock execution path returns less than requested.
+    /// @dev Hook fail-closed output checks run before router-side minimum-output validation.
     function testSwapReverts_WhenExactOutputUnderfillsRequestedAmount() external {
         _setProtocolFeeCurrency(key.currency0);
         manager.setNextExactOutputAmount(poolId, 80 ether);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IMemeverseSwapRouter.OutputAmountBelowMinimum.selector, 80 ether, 100 ether)
-        );
+        vm.expectRevert(IMemeverseUniswapHook.ExactOutputPartialFill.selector);
         router.swap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),

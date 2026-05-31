@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -13,6 +14,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForHookLiquidity, TestableMemeverseUniswapHook} from "./MemeverseUniswapHookLiquidity.t.sol";
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
@@ -219,12 +221,21 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
     PoolId internal poolId;
     LaunchFeeQuoteHandler internal handler;
 
+    function _deployHookProxy(IPoolManager manager_, address owner_, address treasury_)
+        internal
+        returns (TestableMemeverseUniswapHook deployed)
+    {
+        TestableMemeverseUniswapHook implementation = new TestableMemeverseUniswapHook(manager_);
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        deployed = TestableMemeverseUniswapHook(address(new ERC1967Proxy(address(implementation), data)));
+    }
+
     /// @notice Test helper for setUp.
     function setUp() external {
         manager = new MockPoolManagerForHookLiquidity();
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
-        hook = new TestableMemeverseUniswapHook(IPoolManager(address(manager)), address(this), address(this));
+        hook = _deployHookProxy(IPoolManager(address(manager)), address(this), address(this));
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -290,6 +301,15 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
     address internal settlementRecipient;
     DirectLaunchSettlementHandler internal handler;
 
+    function _deployRouterHookProxy(IPoolManager manager_, address owner_, address treasury_)
+        internal
+        returns (TestableMemeverseUniswapHookForRouter deployed)
+    {
+        TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
+    }
+
     /// @notice Test helper for setUp.
     function setUp() external {
         manager = new MockPoolManagerForRouterTest();
@@ -297,7 +317,7 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
         settlementRecipient = makeAddr("settlementRecipient");
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
-        hook = new TestableMemeverseUniswapHookForRouter(IPoolManager(address(manager)), address(this), treasury);
+        hook = _deployRouterHookProxy(IPoolManager(address(manager)), address(this), treasury);
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),

@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
@@ -17,6 +18,7 @@ import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {
     TestableMemeverseLauncher,
     MockSwapRouter,
@@ -51,6 +53,15 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
     MockERC20 internal polUAssetLp;
     MockERC20 internal ptUAssetLp;
     MockERC20 internal ptPolLp;
+
+    function _deployHookProxy(IPoolManager manager_, address owner_, address treasury_)
+        internal
+        returns (TestableMemeverseUniswapHookForRouter deployed)
+    {
+        TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
+    }
 
     address internal constant ALICE = address(0xA11CE);
 
@@ -136,7 +147,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         _setLockedVerseReadyToUnlock(localLauncher, verseId);
         MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
         TestableMemeverseUniswapHookForRouter guardedHook =
-            new TestableMemeverseUniswapHookForRouter(IPoolManager(address(guardedManager)), address(this), address(1));
+            _deployHookProxy(IPoolManager(address(guardedManager)), address(this), address(1));
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
