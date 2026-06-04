@@ -349,21 +349,26 @@ contract MemeverseLauncherPreorderIntegrationTest is Test {
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForPreorderIntegration();
         splitter = new MockPOLSplitterForPreorderIntegration(address(pt), address(yt));
-        launcher = new MemeverseLauncher(
-            address(this),
-            address(0x1111),
-            REGISTRAR,
-            address(0),
-            address(0x4444),
-            address(0),
-            address(polend),
-            address(splitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
+        MemeverseLauncher launcherImplementation = new MemeverseLauncher();
+        bytes memory launcherInitData = abi.encodeCall(
+            MemeverseLauncher.initialize,
+            (
+                address(this),
+                address(0x1111),
+                REGISTRAR,
+                address(0x3333),
+                address(0x4444),
+                address(0x5555),
+                address(polend),
+                address(splitter),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                7 days
+            )
         );
+        launcher = MemeverseLauncher(address(new ERC1967Proxy(address(launcherImplementation), launcherInitData)));
         TestableMemeverseUniswapHookForLauncherIntegration implementation =
             new TestableMemeverseUniswapHookForLauncherIntegration(IPoolManager(address(manager)));
         bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this)));

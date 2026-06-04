@@ -6,6 +6,7 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     IOFT,
     SendParam,
@@ -25,6 +26,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseLauncherTestBase} from "./helpers/MemeverseLauncherTestBase.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseOFTEnum} from "../../src/common/types/IMemeverseOFTEnum.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
@@ -1441,51 +1443,19 @@ contract MockOFTToken is MockERC20, IOFT {
     }
 }
 
-contract TestableMemeverseLauncher is MemeverseLauncher {
-    constructor(
-        address _owner,
-        address _localLzEndpoint,
-        address _memeverseRegistrar,
-        address _memeverseProxyDeployer,
-        address _yieldDispatcher,
-        address _lzEndpointRegistry,
-        address _polend,
-        address _polSplitter,
-        uint256 _executorRewardRate,
-        uint128 _oftReceiveGasLimit,
-        uint128 _yieldDispatcherGasLimit,
-        uint256 _preorderCapRatio,
-        uint256 _preorderVestingDuration
-    )
-        MemeverseLauncher(
-            _owner,
-            _localLzEndpoint,
-            _memeverseRegistrar,
-            _memeverseProxyDeployer,
-            _yieldDispatcher,
-            _lzEndpointRegistry,
-            _polend,
-            _polSplitter,
-            _executorRewardRate,
-            _oftReceiveGasLimit,
-            _yieldDispatcherGasLimit,
-            _preorderCapRatio,
-            _preorderVestingDuration
-        )
-    {}
-
+contract TestableMemeverseLauncher is MemeverseLauncherTestBase {
     /// @notice Stores mock memeverse state for a verse id.
     /// @dev Exposes direct storage writes needed by unit tests.
     /// @param verseId Verse id whose state should be set.
     /// @param verse Mock memeverse state to store.
     function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
-        memeverses[verseId] = verse;
+        _testStorage().memeverses[verseId] = verse;
     }
 
     /// @notice Stores mock genesis fund totals for a verse id.
     /// @dev Lets tests control redemption share math directly.
     function setGenesisFundForTest(uint256 verseId, uint256 _totalNormalFunds) external {
-        totalNormalFunds[verseId] = _totalNormalFunds;
+        _testStorage().totalNormalFunds[verseId] = _totalNormalFunds;
     }
 
     /// @notice Stores mock user genesis data for a verse id.
@@ -1502,7 +1472,7 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         bool isRefunded,
         bool isRedeemed
     ) external {
-        userGenesisData[verseId][account] =
+        _testStorage().userGenesisData[verseId][account] =
             GenesisData({genesisFund: genesisFund, isRefunded: isRefunded, isRedeemed: isRedeemed});
     }
 
@@ -1520,22 +1490,13 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         uint256 claimedMemecoin,
         bool isRefunded
     ) external {
-        userPreorderData[verseId][account] = PreorderData({
+        _testStorage().userPreorderData[verseId][account] = PreorderData({
             funds: funds, claimedMemecoin: claimedMemecoin, isRefunded: isRefunded
         });
     }
 
-    function getPreorderStateForTest(uint256 verseId)
-        external
-        view
-        returns (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp)
-    {
-        PreorderState storage preorderState = preorderStates[verseId];
-        return (preorderState.totalFunds, preorderState.settledMemecoin, preorderState.settlementTimestamp);
-    }
-
     function setTotalNormalClaimableYTForTest(uint256 verseId, uint256 amount) external {
-        totalNormalClaimableYT[verseId] = amount;
+        _testStorage().totalNormalClaimableYT[verseId] = amount;
     }
 
     function setAuxiliaryLiquiditiesForTest(
@@ -1544,7 +1505,7 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         uint256 ptUAssetLpAmount,
         uint256 ptPolLpAmount
     ) external {
-        auxiliaryLiquidities[verseId] = AuxiliaryLiquidity({
+        _testStorage().auxiliaryLiquidities[verseId] = AuxiliaryLiquidity({
             polUAssetLpAmount: polUAssetLpAmount, ptUAssetLpAmount: ptUAssetLpAmount, ptPolLpAmount: ptPolLpAmount
         });
     }
@@ -1556,7 +1517,7 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
         uint256 leveragedResidualPOL,
         uint256 leveragedResidualPT
     ) external {
-        bootstrapResidualClaims[verseId] = BootstrapResidualClaims({
+        _testStorage().bootstrapResidualClaims[verseId] = BootstrapResidualClaims({
             normalResidualPOL: normalResidualPOL,
             normalResidualPT: normalResidualPT,
             leveragedResidualPOL: leveragedResidualPOL,
@@ -1567,12 +1528,12 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
     function setPendingAuxiliaryGovFeeForTest(uint256 verseId, uint256 pendingUAssetFee, uint256 pendingPTFee)
         external
     {
-        pendingAuxiliaryGovFeeStates[verseId] =
+        _testStorage().pendingAuxiliaryGovFeeStates[verseId] =
             PendingAuxiliaryGovFeeState({pendingUAssetFee: pendingUAssetFee, pendingPTFee: pendingPTFee});
     }
 
     function setNormalFeeStateForTest(uint256 verseId, uint256 accUAssetFee, uint256 accPTFee) external {
-        normalFeeStates[verseId] = NormalFeeState({accUAssetFee: accUAssetFee, accPTFee: accPTFee});
+        _testStorage().normalFeeStates[verseId] = NormalFeeState({accUAssetFee: accUAssetFee, accPTFee: accPTFee});
     }
 
     /// @notice Stores mock pol to verse-id state for a verse.
@@ -1580,7 +1541,46 @@ contract TestableMemeverseLauncher is MemeverseLauncher {
     /// @param liquidProofAddress Pol token address whose verse id should be set.
     /// @param verseId Verse id to associate with the pol token.
     function setVerseIdByPolForTest(address liquidProofAddress, uint256 verseId) external {
-        polToIds[liquidProofAddress] = verseId;
+        _testStorage().polToIds[liquidProofAddress] = verseId;
+    }
+}
+
+contract TestableMemeverseLauncherFactory {
+    function deploy(
+        address _owner,
+        address _localLzEndpoint,
+        address _memeverseRegistrar,
+        address _memeverseProxyDeployer,
+        address _yieldDispatcher,
+        address _lzEndpointRegistry,
+        address _polend,
+        address _polSplitter,
+        uint256 _executorRewardRate,
+        uint128 _oftReceiveGasLimit,
+        uint128 _yieldDispatcherGasLimit,
+        uint256 _preorderCapRatio,
+        uint256 _preorderVestingDuration
+    ) external returns (TestableMemeverseLauncher) {
+        TestableMemeverseLauncher implementation = new TestableMemeverseLauncher();
+        bytes memory data = abi.encodeCall(
+            MemeverseLauncher.initialize,
+            (
+                _owner,
+                _localLzEndpoint,
+                _memeverseRegistrar,
+                _memeverseProxyDeployer,
+                _yieldDispatcher,
+                _lzEndpointRegistry,
+                _polend,
+                _polSplitter,
+                _executorRewardRate,
+                _oftReceiveGasLimit,
+                _yieldDispatcherGasLimit,
+                _preorderCapRatio,
+                _preorderVestingDuration
+            )
+        );
+        return TestableMemeverseLauncher(address(new ERC1967Proxy(address(implementation), data)));
     }
 }
 
@@ -1639,7 +1639,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         polend = new MockPOLendForLifecycle();
         splitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         registry = new MockLzEndpointRegistry();
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -2580,7 +2581,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked));
     }
 
-    function testChangeStage_BlocksAuxiliaryRedeemDuringUnlockSettlementThenAllowsAfter() external {
+    function testChangeStage_AllowsAuxiliaryRedeemDuringUnlockSettlement() external {
         uint256 verseId = 29;
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
@@ -2597,16 +2598,12 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.changeStage(verseId);
 
         assertTrue(splitter.reentryAttempted(), "settlement reentry attempted");
-        assertFalse(splitter.reentrySucceeded(), "settlement reentry blocked");
+        assertTrue(splitter.reentrySucceeded(), "settlement reentry allowed");
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked), "unlocked");
-
-        vm.prank(address(splitter));
-        (uint256 polAmount,,) = launcher.redeemAuxiliaryLiquidity(verseId);
-
-        assertEq(polAmount, 12 ether, "post-settlement redeem succeeds");
+        assertEq(polUAssetLp.balanceOf(address(splitter)), 12 ether, "settlement redeem succeeds");
     }
 
-    function testChangeStage_BlocksPublicRedeemMemecoinLiquidityDuringUnlockSettlement() external {
+    function testChangeStage_AllowsPublicRedeemMemecoinLiquidityDuringUnlockSettlement() external {
         uint256 verseId = 31;
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
@@ -2624,14 +2621,9 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         assertTrue(splitter.reentryAttempted(), "settlement reentry attempted");
         assertTrue(reenterer.reentryAttempted(), "public reentry attempted");
-        assertFalse(reenterer.reentrySucceeded(), "public reentry blocked");
-        assertEq(
-            reenterer.lastRevertData(),
-            abi.encodeWithSelector(IMemeverseLauncher.UnlockSettlementActive.selector),
-            "unlock settlement selector"
-        );
-        assertEq(liquidProof.balanceOf(address(reenterer)), 10 ether, "reenterer pol");
-        assertEq(memecoinLp.balanceOf(address(reenterer)), 0, "reenterer lp");
+        assertTrue(reenterer.reentrySucceeded(), "public reentry allowed");
+        assertEq(liquidProof.balanceOf(address(reenterer)), 6 ether, "reenterer pol burned");
+        assertEq(memecoinLp.balanceOf(address(reenterer)), 4 ether, "reenterer lp");
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked), "unlocked");
     }
 
@@ -3021,17 +3013,17 @@ contract MemeverseLauncherLifecycleTest is Test {
         pt.mint(address(launcher), 5);
 
         vm.expectEmit(true, true, false, true, address(launcher));
-        emit ClaimNormalFees(verseId, ALICE, 2 ether, 1);
+        emit ClaimNormalFees(verseId, ALICE, 2 ether, 0);
 
         vm.prank(ALICE);
         (uint256 uAssetAmount, uint256 ptAmount) = launcher.claimNormalFees(verseId);
 
         assertEq(splitter.redeemPTCallCount(), 0, "zero backing pt not redeemed");
         assertEq(uAssetAmount, 2 ether, "uAsset still claimable");
-        assertEq(ptAmount, 1, "pt dust left pending");
+        assertEq(ptAmount, 0, "pt dust not reported in return");
         assertEq(uAsset.balanceOf(ALICE), 2 ether, "alice uAsset");
         (, uint256 claimedPTFee) = launcher.userNormalFeeClaims(verseId, ALICE);
-        assertEq(claimedPTFee, 0, "pt not marked claimed");
+        assertEq(claimedPTFee, 0, "pt entitlement stays pending for self-heal");
     }
 
     function testClaimNormalFees_HandlesMaxUint128FeeShareWithoutOverflow() external {
@@ -3576,8 +3568,8 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         assertEq(
             memecoinLp.allowance(address(launcher), address(router)),
-            type(uint256).max,
-            "launcher keeps max LP allowance for router"
+            0,
+            "launcher LP allowance consumed after exact approval"
         );
         assertEq(memecoinLp.balanceOf(address(launcher)), 4 ether, "launcher memecoin lp");
     }

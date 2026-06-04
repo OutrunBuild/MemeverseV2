@@ -6,6 +6,10 @@ import {Test} from "forge-std/Test.sol";
 import {MemeverseScript} from "../../script/MemeverseScript.s.sol";
 
 contract MockScriptLauncher {
+    address public owner;
+    address public memeverseRegistrar;
+    address public memeverseProxyDeployer;
+    address public yieldDispatcher;
     address public polend;
     address public polSplitter;
     address public memeverseSwapRouter;
@@ -15,6 +19,16 @@ contract MockScriptLauncher {
     struct FundMetaData {
         uint256 minTotalFund;
         uint256 fundBasedAmount;
+    }
+
+    function setOwner(address owner_) external {
+        owner = owner_;
+    }
+
+    function setLauncherDependencies(address registrar_, address proxyDeployer_, address yieldDispatcher_) external {
+        memeverseRegistrar = registrar_;
+        memeverseProxyDeployer = proxyDeployer_;
+        yieldDispatcher = yieldDispatcher_;
     }
 
     function setPolend(address polend_) external {
@@ -40,6 +54,30 @@ contract MockScriptLauncher {
     function fundMetaDatas(address uAsset) external view returns (uint256 minTotalFund, uint256 fundBasedAmount) {
         FundMetaData memory data = metadata[uAsset];
         return (data.minTotalFund, data.fundBasedAmount);
+    }
+}
+
+contract MockScriptRegistrar {
+    address public MEMEVERSE_LAUNCHER;
+
+    constructor(address launcher_) {
+        MEMEVERSE_LAUNCHER = launcher_;
+    }
+}
+
+contract MockScriptProxyDeployer {
+    address public memeverseLauncher;
+
+    constructor(address launcher_) {
+        memeverseLauncher = launcher_;
+    }
+}
+
+contract MockScriptYieldDispatcher {
+    address public memeverseLauncher;
+
+    constructor(address launcher_) {
+        memeverseLauncher = launcher_;
     }
 }
 
@@ -86,14 +124,6 @@ contract MockScriptPOLSplitter {
     }
 }
 
-contract MockScriptPOLSplitterWithoutPolendGetter {
-    address public launcher;
-
-    constructor(address launcher_) {
-        launcher = launcher_;
-    }
-}
-
 contract MockScriptHook {
     address public launcher;
     address public poolInitializer;
@@ -121,18 +151,30 @@ contract MockScriptRegistrationCenter {
 }
 
 contract MemeverseScriptHarness is MemeverseScript {
-    function setDeploymentAddresses(address ueth, address uusd, address launcher, address polend, address polSplitter)
-        external
-    {
+    function setDeploymentAddresses(
+        address owner_,
+        address ueth,
+        address uusd,
+        address launcher,
+        address registrar,
+        address proxyDeployer,
+        address yieldDispatcher,
+        address polend,
+        address polSplitter
+    ) external {
+        owner = owner_;
         UETH = ueth;
         UUSD = uusd;
         MEMEVERSE_LAUNCHER = launcher;
+        MEMEVERSE_REGISTRAR = registrar;
+        MEMEVERSE_PROXY_DEPLOYER = proxyDeployer;
+        MEMEVERSE_YIELD_DISPATCHER = yieldDispatcher;
         POLEND = polend;
         POLSPLITTER = polSplitter;
     }
 
-    function requireDeploymentReady() external view {
-        _requireDeploymentReady();
+    function requireDeploymentReady(address swapRouter, address hook) external view {
+        _requireDeploymentReady(swapRouter, hook);
     }
 
     function requireSwapReady(address router, address hook) external view {
@@ -157,26 +199,42 @@ contract MemeverseScriptHarness is MemeverseScript {
 contract MemeverseScriptTest is Test {
     address internal constant UETH = address(0x1001);
     address internal constant UUSD = address(0x1002);
-    uint256 internal constant POLSPLITTER_STORAGE_LOCATION =
-        0xab504a6dee30096d32ccac13a30a002829c5eeb4c38a0196ed16a6c4e9faca00;
 
     MemeverseScriptHarness internal script;
     MockScriptLauncher internal launcher;
+    MockScriptRegistrar internal registrar;
+    MockScriptProxyDeployer internal proxyDeployer;
+    MockScriptYieldDispatcher internal yieldDispatcher;
     MockScriptPOLend internal polend;
     MockScriptPOLSplitter internal splitter;
 
     function setUp() external {
         script = new MemeverseScriptHarness();
         launcher = new MockScriptLauncher();
+        registrar = new MockScriptRegistrar(address(launcher));
+        proxyDeployer = new MockScriptProxyDeployer(address(launcher));
+        yieldDispatcher = new MockScriptYieldDispatcher(address(launcher));
         splitter = new MockScriptPOLSplitter(address(launcher), address(0));
         polend = new MockScriptPOLend(address(launcher), address(splitter));
         splitter.setPolend(address(polend));
 
+        launcher.setOwner(address(script));
+        launcher.setLauncherDependencies(address(registrar), address(proxyDeployer), address(yieldDispatcher));
         launcher.setPolend(address(polend));
         launcher.setPolSplitter(address(splitter));
         launcher.setFundMetaData(UETH, 1, 1);
         launcher.setFundMetaData(UUSD, 1, 1);
-        script.setDeploymentAddresses(UETH, UUSD, address(launcher), address(polend), address(splitter));
+        script.setDeploymentAddresses(
+            address(script),
+            UETH,
+            UUSD,
+            address(launcher),
+            address(registrar),
+            address(proxyDeployer),
+            address(yieldDispatcher),
+            address(polend),
+            address(splitter)
+        );
     }
 
     function testReadinessRevertsWhenUethReserveMaxIsZero() external {
@@ -184,7 +242,7 @@ contract MemeverseScriptTest is Test {
         polend.setSettlementDustState(UUSD, 0, 1);
 
         vm.expectRevert("UETH_RESERVE_NOT_READY");
-        script.requireDeploymentReady();
+        script.requireDeploymentReady(address(0), address(0));
     }
 
     function testSwapReadinessRejectsHookFlagsAndAcceptsExpectedFlags() external {
@@ -212,26 +270,6 @@ contract MemeverseScriptTest is Test {
         launcher.setMemeverseUniswapHook(goodHook);
 
         script.requireSwapReady(address(goodRouter), goodHook);
-    }
-
-    function testReadinessFallsBackToSplitterStorageWhenPolendGetterIsMissing() external {
-        MockScriptPOLSplitterWithoutPolendGetter splitterWithoutGetter =
-            new MockScriptPOLSplitterWithoutPolendGetter(address(launcher));
-        bytes32 polendSlot = bytes32(POLSPLITTER_STORAGE_LOCATION + 3);
-
-        launcher.setPolSplitter(address(splitterWithoutGetter));
-        polend.setSplitter(address(splitterWithoutGetter));
-        polend.setSettlementDustState(UETH, 0, 1);
-        polend.setSettlementDustState(UUSD, 0, 1);
-        script.setDeploymentAddresses(UETH, UUSD, address(launcher), address(polend), address(splitterWithoutGetter));
-
-        vm.store(address(splitterWithoutGetter), polendSlot, bytes32(uint256(uint160(address(polend)))));
-        script.requireDeploymentReady();
-
-        vm.store(address(splitterWithoutGetter), polendSlot, bytes32(uint256(uint160(address(0xBEEF)))));
-
-        vm.expectRevert("POLSPLITTER_POLEND_NOT_READY");
-        script.requireDeploymentReady();
     }
 
     function testOpenSupportedUAssetsAfterReadinessDoesNotOpenWhenReadinessFails() external {
@@ -275,7 +313,7 @@ contract MemeverseScriptTest is Test {
         (address readyRouter, address readyHook) = _configureReadySwap();
         polend.setSettlementDustState(UETH, 0, 1);
         polend.setSettlementDustState(UUSD, 0, 1);
-        _setReadinessEnv(address(launcher), address(polend), address(splitter));
+        _setReadinessEnv(address(script), address(launcher), address(polend), address(splitter));
 
         publicEntryScript.openSupportedUAssetsAfterReadiness(address(center), readyRouter, readyHook);
 
@@ -307,10 +345,14 @@ contract MemeverseScriptTest is Test {
         return (address(router), readyHook);
     }
 
-    function _setReadinessEnv(address launcher_, address polend_, address splitter_) internal {
+    function _setReadinessEnv(address owner_, address launcher_, address polend_, address splitter_) internal {
+        vm.setEnv("OWNER", vm.toString(owner_));
         vm.setEnv("UETH", vm.toString(UETH));
         vm.setEnv("UUSD", vm.toString(UUSD));
         vm.setEnv("MEMEVERSE_LAUNCHER", vm.toString(launcher_));
+        vm.setEnv("MEMEVERSE_REGISTRAR", vm.toString(address(registrar)));
+        vm.setEnv("MEMEVERSE_PROXY_DEPLOYER", vm.toString(address(proxyDeployer)));
+        vm.setEnv("MEMEVERSE_YIELD_DISPATCHER", vm.toString(address(yieldDispatcher)));
         vm.setEnv("POLEND", vm.toString(polend_));
         vm.setEnv("POLSPLITTER", vm.toString(splitter_));
     }

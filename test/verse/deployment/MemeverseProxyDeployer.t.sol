@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {CREATE3} from "solmate/utils/CREATE3.sol";
 
 import {MemeverseProxyDeployer} from "../../../src/verse/deployment/MemeverseProxyDeployer.sol";
 import {IMemeverseProxyDeployer} from "../../../src/verse/interfaces/IMemeverseProxyDeployer.sol";
@@ -87,18 +88,165 @@ contract MockDeployerMemecoin {
 
 contract MockScriptOutrunDeployer is IOutrunDeployer {
     address public lastDeployed;
+    address public lastDeployCaller;
+    bytes32 public lastSalt;
+    mapping(address deployCaller => mapping(bytes32 salt => address deployed)) public deployments;
 
-    function deploy(bytes32, bytes memory creationCode) external payable returns (address deployed) {
-        assembly {
-            deployed := create(callvalue(), add(creationCode, 0x20), mload(creationCode))
-        }
-        require(deployed != address(0), "DEPLOY_FAILED");
+    function deploy(bytes32 salt, bytes memory creationCode) external payable returns (address deployed) {
+        bytes32 namespacedSalt = keccak256(abi.encodePacked(msg.sender, salt));
+        deployed = CREATE3.deploy(namespacedSalt, creationCode, msg.value);
+        deployments[msg.sender][salt] = deployed;
+        lastDeployCaller = msg.sender;
+        lastSalt = salt;
         lastDeployed = deployed;
     }
 
-    function getDeployed(address, bytes32) external view returns (address deployed) {
-        return lastDeployed;
+    function getDeployed(address deployCaller, bytes32 salt) external view returns (address deployed) {
+        bytes32 namespacedSalt = keccak256(abi.encodePacked(deployCaller, salt));
+        return CREATE3.getDeployed(namespacedSalt);
     }
+}
+
+contract MockReadinessLauncher {
+    address public owner;
+    address public memeverseRegistrar;
+    address public memeverseProxyDeployer;
+    address public yieldDispatcher;
+    address public polend;
+    address public polSplitter;
+    address public memeverseSwapRouter;
+    address public memeverseUniswapHook;
+    mapping(address uAsset => uint256 minTotalFund) internal minTotalFunds;
+    mapping(address uAsset => uint256 fundBasedAmount) internal fundBasedAmounts;
+
+    constructor(
+        address owner_,
+        address registrar_,
+        address proxyDeployer_,
+        address yieldDispatcher_,
+        address polend_,
+        address polSplitter_
+    ) {
+        owner = owner_;
+        memeverseRegistrar = registrar_;
+        memeverseProxyDeployer = proxyDeployer_;
+        yieldDispatcher = yieldDispatcher_;
+        polend = polend_;
+        polSplitter = polSplitter_;
+    }
+
+    function setFundMetaData(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external {
+        minTotalFunds[uAsset] = minTotalFund;
+        fundBasedAmounts[uAsset] = fundBasedAmount;
+    }
+
+    function setOwner(address owner_) external {
+        owner = owner_;
+    }
+
+    function setMemeverseSwapRouter(address router_) external {
+        memeverseSwapRouter = router_;
+    }
+
+    function setMemeverseUniswapHook(address hook_) external {
+        memeverseUniswapHook = hook_;
+    }
+
+    function fundMetaDatas(address uAsset) external view returns (uint256, uint256) {
+        return (minTotalFunds[uAsset], fundBasedAmounts[uAsset]);
+    }
+}
+
+contract MockReadinessRegistrar {
+    address public MEMEVERSE_LAUNCHER;
+
+    constructor(address launcher_) {
+        MEMEVERSE_LAUNCHER = launcher_;
+    }
+
+    function setLauncher(address launcher_) external {
+        MEMEVERSE_LAUNCHER = launcher_;
+    }
+}
+
+contract MockReadinessProxyDeployer {
+    address public memeverseLauncher;
+
+    constructor(address launcher_) {
+        memeverseLauncher = launcher_;
+    }
+
+    function setLauncher(address launcher_) external {
+        memeverseLauncher = launcher_;
+    }
+}
+
+contract MockReadinessYieldDispatcher {
+    address public memeverseLauncher;
+
+    constructor(address launcher_) {
+        memeverseLauncher = launcher_;
+    }
+
+    function setLauncher(address launcher_) external {
+        memeverseLauncher = launcher_;
+    }
+}
+
+contract MockReadinessPOLend {
+    address public launcher;
+    address public splitter;
+    mapping(address uAsset => uint128 maxReserve) internal maxReserves;
+
+    constructor(address launcher_, address splitter_) {
+        launcher = launcher_;
+        splitter = splitter_;
+    }
+
+    function setDependencies(address launcher_, address splitter_) external {
+        launcher = launcher_;
+        splitter = splitter_;
+    }
+
+    function setReserve(address uAsset, uint128 maxReserve) external {
+        maxReserves[uAsset] = maxReserve;
+    }
+
+    function settlementDustStates(address uAsset) external view returns (uint128, uint128) {
+        return (0, maxReserves[uAsset]);
+    }
+}
+
+contract MockReadinessPOLSplitter {
+    address public launcher;
+    address public polend;
+
+    constructor(address launcher_, address polend_) {
+        launcher = launcher_;
+        polend = polend_;
+    }
+
+    function setDependencies(address launcher_, address polend_) external {
+        launcher = launcher_;
+        polend = polend_;
+    }
+}
+
+contract MockReadinessRouter {
+    address public hook;
+
+    constructor(address hook_) {
+        hook = hook_;
+    }
+
+    function setHook(address hook_) external {
+        hook = hook_;
+    }
+}
+
+contract MockReadinessHook {
+    address public launcher;
+    address public poolInitializer;
 }
 
 contract TestableMemeverseScript is MemeverseScript {
@@ -114,7 +262,35 @@ contract TestableMemeverseScript is MemeverseScript {
         address ueth_,
         address uusd_
     ) external {
-        owner = address(this);
+        configureLauncherDeploymentWithOwner(
+            address(this),
+            localEndpoint_,
+            memeverseRegistrar_,
+            memeverseProxyDeployer_,
+            yieldDispatcher_,
+            lzEndpointRegistry_,
+            polend_,
+            polSplitter_,
+            outrunDeployer_,
+            ueth_,
+            uusd_
+        );
+    }
+
+    function configureLauncherDeploymentWithOwner(
+        address initialOwner_,
+        address localEndpoint_,
+        address memeverseRegistrar_,
+        address memeverseProxyDeployer_,
+        address yieldDispatcher_,
+        address lzEndpointRegistry_,
+        address polend_,
+        address polSplitter_,
+        address outrunDeployer_,
+        address ueth_,
+        address uusd_
+    ) public {
+        owner = initialOwner_;
         MEMEVERSE_REGISTRAR = memeverseRegistrar_;
         MEMEVERSE_PROXY_DEPLOYER = memeverseProxyDeployer_;
         MEMEVERSE_YIELD_DISPATCHER = yieldDispatcher_;
@@ -129,6 +305,38 @@ contract TestableMemeverseScript is MemeverseScript {
 
     function deployMemeverseLauncherHarness(uint256 nonce) external {
         _deployMemeverseLauncher(nonce);
+    }
+
+    function configureReadinessHarness(
+        address launcher_,
+        address memeverseRegistrar_,
+        address memeverseProxyDeployer_,
+        address yieldDispatcher_,
+        address polend_,
+        address polSplitter_,
+        address ueth_,
+        address uusd_
+    ) external {
+        MEMEVERSE_LAUNCHER = launcher_;
+        MEMEVERSE_REGISTRAR = memeverseRegistrar_;
+        MEMEVERSE_PROXY_DEPLOYER = memeverseProxyDeployer_;
+        MEMEVERSE_YIELD_DISPATCHER = yieldDispatcher_;
+        POLEND = polend_;
+        POLSPLITTER = polSplitter_;
+        UETH = ueth_;
+        UUSD = uusd_;
+    }
+
+    function requireDeploymentReadyHarness(address swapRouter, address hook) external view {
+        _requireDeploymentReady(swapRouter, hook);
+    }
+
+    function _beginMemeverseLauncherOwnerExecution(address initialOwner) internal override {
+        vm.startPrank(initialOwner);
+    }
+
+    function _endMemeverseLauncherOwnerExecution() internal override {
+        vm.stopPrank();
     }
 
     function envAddressWithFallbackHarness(string memory primary, string memory fallbackName)
@@ -321,6 +529,8 @@ contract MemeverseProxyDeployerTest is Test {
 }
 
 contract MemeverseScriptLauncherDeploymentTest is Test {
+    bytes32 internal constant IMPLEMENTATION_SLOT = bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
+
     address internal constant LOCAL_ENDPOINT = address(0x1001);
     address internal constant REGISTRAR = address(0x1002);
     address internal constant PROXY_DEPLOYER = address(0x1003);
@@ -333,6 +543,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
 
     TestableMemeverseScript internal scriptHarness;
     MockScriptOutrunDeployer internal outrunDeployer;
+    address internal readySwapRouter;
+    address internal readySwapHook;
 
     function setUp() external {
         scriptHarness = new TestableMemeverseScript();
@@ -351,11 +563,23 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         );
     }
 
-    function testDeployMemeverseLauncherUsesCurrentConstructorShapeAndInitializesFundMetadata() external {
-        scriptHarness.deployMemeverseLauncherHarness(2);
+    function testDeployMemeverseLauncherDeploysUupsProxyAtCanonicalAddress() external {
+        uint256 nonce = 2;
+        address deployCaller = address(scriptHarness);
+        address initialOwner = address(scriptHarness);
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
 
-        MemeverseLauncher deployedLauncher = MemeverseLauncher(outrunDeployer.lastDeployed());
-        assertEq(deployedLauncher.owner(), address(scriptHarness));
+        address predictedProxy = outrunDeployer.getDeployed(deployCaller, launcherSalt);
+        scriptHarness.deployMemeverseLauncherHarness(nonce);
+
+        address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
+        address implementation = address(uint160(uint256(vm.load(proxy, IMPLEMENTATION_SLOT))));
+        MemeverseLauncher deployedLauncher = MemeverseLauncher(proxy);
+
+        assertEq(proxy, predictedProxy);
+        assertNotEq(proxy, implementation);
+        assertGt(implementation.code.length, 0);
+        assertEq(deployedLauncher.owner(), initialOwner);
         assertEq(deployedLauncher.localLzEndpoint(), LOCAL_ENDPOINT);
         assertEq(deployedLauncher.memeverseRegistrar(), REGISTRAR);
         assertEq(deployedLauncher.memeverseProxyDeployer(), PROXY_DEPLOYER);
@@ -376,6 +600,108 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         assertEq(uethFundBasedAmount, 1000000);
         assertEq(uusdMinTotalFund, 50000 * 1e18);
         assertEq(uusdFundBasedAmount, 200);
+
+        // Verify implementation storage is completely isolated from proxy storage.
+        // Direct calls on the implementation (not through the proxy) should return default values.
+        MemeverseLauncher impl = MemeverseLauncher(implementation);
+        assertEq(impl.owner(), address(0), "impl owner should be zero");
+        assertEq(impl.executorRewardRate(), 0, "impl reward rate should be zero");
+        assertEq(impl.preorderCapRatio(), 0, "impl preorder cap should be zero");
+    }
+
+    function testDeployMemeverseLauncherKeepsDeployNamespaceWhenInitialOwnerDiffers() external {
+        uint256 nonce = 3;
+        address deployCaller = address(scriptHarness);
+        address initialOwner = address(0x4567);
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        scriptHarness.configureLauncherDeploymentWithOwner(
+            initialOwner,
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+
+        address predictedProxy = outrunDeployer.getDeployed(deployCaller, launcherSalt);
+        scriptHarness.deployMemeverseLauncherHarness(nonce);
+
+        address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
+        MemeverseLauncher deployedLauncher = MemeverseLauncher(proxy);
+        (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = deployedLauncher.fundMetaDatas(UETH);
+        (uint256 uusdMinTotalFund, uint256 uusdFundBasedAmount) = deployedLauncher.fundMetaDatas(UUSD);
+
+        assertEq(proxy, predictedProxy);
+        assertEq(deployedLauncher.owner(), initialOwner);
+        assertEq(deployedLauncher.polend(), POLEND);
+        assertEq(deployedLauncher.polSplitter(), POLSPLITTER);
+        // fund metadata remains zero: _setMemeverseLauncherFundMetaData is skipped when deployCaller != initialOwner
+        assertEq(uethMinTotalFund, 0);
+        assertEq(uethFundBasedAmount, 0);
+        assertEq(uusdMinTotalFund, 0);
+        assertEq(uusdFundBasedAmount, 0);
+    }
+
+    /// @notice Dual-role end-to-end: after deployCaller != initialOwner deploys the
+    ///         proxy with zero metadata, initialOwner can call setFundMetaData and
+    ///         the values are stored correctly.  This proves the handoff path that
+    ///         readiness and open-registration depend on actually works on the real
+    ///         MemeverseLauncher — not just on mock contracts.
+    function testDualRoleOwnerCanWriteFundMetaDataAfterDeployment() external {
+        uint256 nonce = 4;
+        address deployCaller = address(scriptHarness);
+        address initialOwner = address(0x4567);
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        scriptHarness.configureLauncherDeploymentWithOwner(
+            initialOwner,
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+
+        scriptHarness.deployMemeverseLauncherHarness(nonce);
+
+        address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
+        MemeverseLauncher deployedLauncher = MemeverseLauncher(proxy);
+
+        // Phase 1: metadata is zero immediately after dual-role deployment.
+        (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = deployedLauncher.fundMetaDatas(UETH);
+        (uint256 uusdMinTotalFund, uint256 uusdFundBasedAmount) = deployedLauncher.fundMetaDatas(UUSD);
+        assertEq(uethMinTotalFund, 0, "ueth min should be zero before handoff");
+        assertEq(uethFundBasedAmount, 0, "ueth based should be zero before handoff");
+        assertEq(uusdMinTotalFund, 0, "uusd min should be zero before handoff");
+        assertEq(uusdFundBasedAmount, 0, "uusd based should be zero before handoff");
+
+        // Phase 2: initialOwner writes metadata — the handoff step that the
+        // deploy script prints a WARNING about and that readiness depends on.
+        vm.prank(initialOwner);
+        deployedLauncher.setFundMetaData(UETH, 1e19, 1000000);
+        vm.prank(initialOwner);
+        deployedLauncher.setFundMetaData(UUSD, 50000 * 1e18, 200);
+
+        (uethMinTotalFund, uethFundBasedAmount) = deployedLauncher.fundMetaDatas(UETH);
+        (uusdMinTotalFund, uusdFundBasedAmount) = deployedLauncher.fundMetaDatas(UUSD);
+        assertEq(uethMinTotalFund, 1e19, "ueth min should match after handoff");
+        assertEq(uethFundBasedAmount, 1000000, "ueth based should match after handoff");
+        assertEq(uusdMinTotalFund, 50000 * 1e18, "uusd min should match after handoff");
+        assertEq(uusdFundBasedAmount, 200, "uusd based should match after handoff");
+
+        // Phase 3: non-owner cannot write metadata — guard is still active.
+        vm.prank(deployCaller);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployCaller));
+        deployedLauncher.setFundMetaData(UETH, 1, 1);
     }
 
     function testDeployMemeverseLauncherRevertsWhenUethUnset() external {
@@ -446,7 +772,7 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
             UUSD
         );
 
-        vm.expectRevert("ZERO_POLEND");
+        vm.expectRevert("ZERO_POLEND_PROXY");
         scriptHarness.deployMemeverseLauncherHarness(2);
     }
 
@@ -464,8 +790,42 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
             UUSD
         );
 
-        vm.expectRevert("ZERO_POLSPLITTER");
+        vm.expectRevert("ZERO_POLSPLITTER_PROXY");
         scriptHarness.deployMemeverseLauncherHarness(2);
+    }
+
+    function testRequireDeploymentReadyChecksLauncherBoundDependencies() external {
+        _configureReadyDependencies(address(0), address(0), address(0), address(0));
+
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
+    function testRequireDeploymentReadyRevertsWhenLauncherOwnerDiffers() external {
+        _configureReadyDependencies(address(0xDEAD), address(0), address(0), address(0));
+
+        vm.expectRevert("LAUNCHER_OWNER_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
+    function testRequireDeploymentReadyRevertsWhenRegistrarUsesWrongLauncher() external {
+        _configureReadyDependencies(address(0), address(0xDEAD), address(0), address(0));
+
+        vm.expectRevert("REGISTRAR_LAUNCHER_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
+    function testRequireDeploymentReadyRevertsWhenProxyDeployerUsesWrongLauncher() external {
+        _configureReadyDependencies(address(0), address(0), address(0xDEAD), address(0));
+
+        vm.expectRevert("PROXY_DEPLOYER_LAUNCHER_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
+    function testRequireDeploymentReadyRevertsWhenYieldDispatcherUsesWrongLauncher() external {
+        _configureReadyDependencies(address(0), address(0), address(0), address(0xDEAD));
+
+        vm.expectRevert("YIELD_DISPATCHER_LAUNCHER_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
     }
 
     function testEnvAddressWithFallbackUsesPrimaryWhenPresent() external {
@@ -487,5 +847,60 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         );
 
         assertEq(resolved, address(0x9ABC));
+    }
+
+    function _configureReadyDependencies(
+        address launcherOwner,
+        address registrarLauncher,
+        address proxyDeployerLauncher,
+        address dispatcherLauncher
+    ) internal {
+        MockReadinessRegistrar registrar = new MockReadinessRegistrar(address(0));
+        MockReadinessProxyDeployer proxyDeployer = new MockReadinessProxyDeployer(address(0));
+        MockReadinessYieldDispatcher dispatcher = new MockReadinessYieldDispatcher(address(0));
+        MockReadinessPOLend polend = new MockReadinessPOLend(address(0), address(0));
+        MockReadinessPOLSplitter splitter = new MockReadinessPOLSplitter(address(0), address(0));
+        MockReadinessLauncher launcher = new MockReadinessLauncher(
+            launcherOwner == address(0) ? address(scriptHarness) : launcherOwner,
+            address(registrar),
+            address(proxyDeployer),
+            address(dispatcher),
+            address(polend),
+            address(splitter)
+        );
+
+        address launcherAddress = address(launcher);
+        registrar.setLauncher(registrarLauncher == address(0) ? launcherAddress : registrarLauncher);
+        proxyDeployer.setLauncher(proxyDeployerLauncher == address(0) ? launcherAddress : proxyDeployerLauncher);
+        dispatcher.setLauncher(dispatcherLauncher == address(0) ? launcherAddress : dispatcherLauncher);
+        polend.setDependencies(launcherAddress, address(splitter));
+        splitter.setDependencies(launcherAddress, address(polend));
+        polend.setReserve(UETH, 1);
+        polend.setReserve(UUSD, 1);
+        launcher.setFundMetaData(UETH, 1, 1);
+        launcher.setFundMetaData(UUSD, 1, 1);
+
+        MockReadinessRouter router = new MockReadinessRouter(address(0));
+        MockReadinessHook hookImpl = new MockReadinessHook();
+        readySwapHook = address(uint160(0x28cc));
+        vm.etch(readySwapHook, address(hookImpl).code);
+        vm.mockCall(readySwapHook, abi.encodeWithSignature("launcher()"), abi.encode(launcherAddress));
+        vm.mockCall(readySwapHook, abi.encodeWithSignature("poolInitializer()"), abi.encode(address(router)));
+
+        router.setHook(readySwapHook);
+        readySwapRouter = address(router);
+        launcher.setMemeverseSwapRouter(readySwapRouter);
+        launcher.setMemeverseUniswapHook(readySwapHook);
+
+        scriptHarness.configureReadinessHarness(
+            launcherAddress,
+            address(registrar),
+            address(proxyDeployer),
+            address(dispatcher),
+            address(polend),
+            address(splitter),
+            UETH,
+            UUSD
+        );
     }
 }

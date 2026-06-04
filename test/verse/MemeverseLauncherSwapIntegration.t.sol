@@ -21,7 +21,11 @@ import {
     RealisticSwapManagerHarness,
     TestableMemeverseUniswapHookForIntegration
 } from "../swap/helpers/RealisticSwapManagerHarness.sol";
-import {MockOFTDispatcher, TestableMemeverseLauncher} from "./MemeverseLauncherLifecycle.t.sol";
+import {
+    MockOFTDispatcher,
+    TestableMemeverseLauncher,
+    TestableMemeverseLauncherFactory
+} from "./MemeverseLauncherLifecycle.t.sol";
 import {
     MockIntegrationLiquidProof,
     MockIntegrationMemecoin,
@@ -175,13 +179,14 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForSwapIntegration();
         splitter = new MockPOLSplitterForPreorderIntegration(address(pt), address(yt));
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1111),
             REGISTRAR,
-            address(0),
-            address(0),
-            address(0),
+            address(0x3333),
+            address(0x4444),
+            address(0x5555),
             address(polend),
             address(splitter),
             25,

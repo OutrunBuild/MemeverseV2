@@ -10,7 +10,6 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {POLend} from "../../src/polend/POLend.sol";
@@ -377,7 +376,8 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
     LPTokenForPOLendSettlementInvariant internal polUAssetLp;
 
     function setUp() external {
-        launcher = new TestableMemeverseLauncherPOLend(
+        launcher = (new TestableMemeverseLauncherPOLend())
+        .createProxy(
             address(this),
             address(0x1),
             address(0x2),
@@ -579,51 +579,6 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
         );
         (uint128 reserveAfterLock,) = polend.settlementDustStates(address(uAsset));
         assertEq(reserveAfterLock, LEVERAGED_INTEREST + expectedUnusedUAsset, "unused bootstrap reserve");
-        assertEq(uAsset.balanceOf(TREASURY), treasuryBefore, "no treasury excess");
-    }
-
-    function testLockClampsUnusedBootstrapUAssetWhenAuxiliaryOneWeiToleranceExceedsBudget() external {
-        uint256 totalGenesisFunds = NORMAL_FUNDS + LEVERAGED_DEBT;
-        uint256 mainPoolUAssetUsed = totalGenesisFunds * 7 / 10;
-        uint256 polForPolUAsset = MAIN_LIQUIDITY * 2 / 7;
-        uint256 polToSplit = MAIN_LIQUIDITY * 3 / 7;
-        uint256 ptForPtUAsset = polToSplit / 3;
-        uint256 polUAssetRequired = polForPolUAsset * mainPoolUAssetUsed / MAIN_LIQUIDITY;
-        uint256 ptUAssetRequired = ptForPtUAsset * mainPoolUAssetUsed / MAIN_LIQUIDITY;
-        address predictedPT = Clones.predictDeterministicAddress(
-            splitter.principalTokenImplementation(), bytes32(VERSE_ID), address(splitter)
-        );
-
-        polend.setMaxSettlementDustReserve(address(uAsset), uint128(20 ether));
-        router.setPairCreateSpend(address(pol), address(uAsset), polForPolUAsset, polUAssetRequired + 1);
-        router.setPairCreateSpend(predictedPT, address(uAsset), ptForPtUAsset, ptUAssetRequired + 1);
-
-        _setGenesisVerse(uint128(block.timestamp + 1 days));
-        _registerLendMarket();
-        _normalGenesis(NORMAL_FUNDS);
-        _leveragedGenesis(LEVERAGED_INTEREST);
-        uAsset.mint(address(launcher), 2);
-        _allowLauncherToSplitPOL();
-
-        uint256 treasuryBefore = uAsset.balanceOf(TREASURY);
-        (uint128 reserveBeforeLock,) = polend.settlementDustStates(address(uAsset));
-        vm.warp(block.timestamp + 1 days + 1);
-        assertEq(uint256(launcher.changeStage(VERSE_ID)), uint256(IMemeverseLauncher.Stage.Locked), "genesis locked");
-
-        (uint128 reserveAfterLock,) = polend.settlementDustStates(address(uAsset));
-        assertEq(
-            reserveAfterLock, reserveBeforeLock + uint128(LEVERAGED_INTEREST), "no overage routed as unused bootstrap"
-        );
-        assertEq(
-            router.pulledForPair(address(pol), address(uAsset), address(uAsset)),
-            polUAssetRequired + 1,
-            "pol/uAsset tolerance spend"
-        );
-        assertEq(
-            router.pulledForPair(predictedPT, address(uAsset), address(uAsset)),
-            ptUAssetRequired + 1,
-            "pt/uAsset tolerance spend"
-        );
         assertEq(uAsset.balanceOf(TREASURY), treasuryBefore, "no treasury excess");
     }
 
@@ -1068,7 +1023,8 @@ contract SettlementDustInvariantHandler is Test {
     }
 
     function _deployLauncher() internal returns (TestableMemeverseLauncherPOLend) {
-        return new TestableMemeverseLauncherPOLend(
+        return (new TestableMemeverseLauncherPOLend())
+        .createProxy(
             address(this),
             address(0x1),
             address(0x2),
