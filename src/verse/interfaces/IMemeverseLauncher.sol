@@ -14,7 +14,6 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         Unlocked
     }
 
-    error UnlockSettlementActive();
     event BootstrapUnusedAssetsHandled(
         uint256 indexed verseId,
         address indexed uAsset,
@@ -25,12 +24,14 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         uint256 burnedMemecoin
     );
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct AuxiliaryLiquidity {
         uint256 polUAssetLpAmount;
         uint256 ptUAssetLpAmount;
         uint256 ptPolLpAmount;
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct BootstrapResidualClaims {
         uint256 normalResidualPOL;
         uint256 normalResidualPT;
@@ -38,6 +39,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         uint256 leveragedResidualPT;
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct Memeverse {
         string name; // Token name
         string symbol; // Token symbol
@@ -56,23 +58,27 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         bool flashGenesis; // Allowing the transition to the liquidity lock stage once the minimum funding requirement is met, without waiting for the genesis stage to end.
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct FundMetaData {
         uint256 minTotalFund; // The minimum participation genesis fund corresponding to uAsset
         uint256 fundBasedAmount; // The number of Memecoins minted per unit of Memecoin genesis fund
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct GenesisData {
         uint256 genesisFund; // The amount of uAsset user has contributed to the genesis fund
         bool isRefunded; // Whether the user has refunded the uAsset contribution
         bool isRedeemed; // Whether the user has redeemed the POL liquidity
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct PreorderData {
         uint256 funds; // The amount of uAsset user has contributed to the preorder pool
         uint256 claimedMemecoin; // The amount of preorder memecoin already claimed by the user
         bool isRefunded; // Whether the user has refunded the preorder contribution
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct PreorderState {
         uint256 totalFunds;
         uint256 settledMemecoin;
@@ -86,16 +92,26 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         uint256 polForPtPol;
     }
 
+    struct BootstrapPoolResult {
+        uint256 burnedMemecoin;
+        uint256 mainPoolUAssetUsed;
+        uint256 polUAssetUsed;
+        uint256 ptUAssetUsed;
+    }
+
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct NormalFeeState {
         uint256 accUAssetFee;
         uint256 accPTFee;
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct UserNormalFeeClaim {
         uint256 claimedUAssetFee;
         uint256 claimedPTFee;
     }
 
+    /// @notice Storage struct. When adding fields in upgrades, append only at the end.
     struct PendingAuxiliaryGovFeeState {
         uint256 pendingUAssetFee;
         uint256 pendingPTFee;
@@ -448,8 +464,6 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     error PermissionDenied();
 
     error NotUnlockedStage();
-
-    error InsufficientLzFee();
 
     error InvalidLzFee(uint256 expected, uint256 actual);
 

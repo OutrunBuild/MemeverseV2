@@ -73,6 +73,8 @@ interface IPOLSplitter {
 
     function getPOLAndMemecoin(uint256 verseId) external view returns (address pol, address memecoin);
 
+    function polend() external view returns (address);
+
     function initializeVerse(
         uint256 verseId,
         address pol,
