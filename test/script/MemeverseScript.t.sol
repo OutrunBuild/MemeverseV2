@@ -259,6 +259,7 @@ contract MemeverseScriptTest is Test {
         vm.mockCall(badHook, abi.encodeWithSignature("poolInitializer()"), abi.encode(address(badRouter)));
         vm.mockCall(goodHook, abi.encodeWithSignature("launcher()"), abi.encode(address(launcher)));
         vm.mockCall(goodHook, abi.encodeWithSignature("poolInitializer()"), abi.encode(address(goodRouter)));
+        _mockEngineOnHook(goodHook);
 
         launcher.setMemeverseSwapRouter(address(badRouter));
         launcher.setMemeverseUniswapHook(badHook);
@@ -270,6 +271,45 @@ contract MemeverseScriptTest is Test {
         launcher.setMemeverseUniswapHook(goodHook);
 
         script.requireSwapReady(address(goodRouter), goodHook);
+    }
+
+    function testSwapReadinessRevertsWhenEngineCodeMissing() external {
+        (address readyRouter, address readyHook) = _configureReadySwap();
+        // Overwrite dynamicFeeEngine() to return an address with no code.
+        vm.mockCall(readyHook, abi.encodeWithSignature("dynamicFeeEngine()"), abi.encode(address(0xDEAD)));
+
+        vm.expectRevert("ENGINE_CODE_NOT_READY");
+        script.requireSwapReady(readyRouter, readyHook);
+    }
+
+    function testSwapReadinessRevertsWhenEngineAuthorizedHookMismatch() external {
+        (address readyRouter, address readyHook) = _configureReadySwap();
+        address engineAddr = address(0xAEEE);
+        // Override authorizedHook to a different address.
+        vm.mockCall(engineAddr, abi.encodeWithSignature("authorizedHook()"), abi.encode(address(0xBAD)));
+
+        vm.expectRevert("ENGINE_AUTHORIZED_HOOK_NOT_READY");
+        script.requireSwapReady(readyRouter, readyHook);
+    }
+
+    function testSwapReadinessRevertsWhenEngineOwnerMismatch() external {
+        (address readyRouter, address readyHook) = _configureReadySwap();
+        address engineAddr = address(0xAEEE);
+        // Override owner to a different address.
+        vm.mockCall(engineAddr, abi.encodeWithSignature("owner()"), abi.encode(address(0xBAD)));
+
+        vm.expectRevert("ENGINE_OWNER_NOT_READY");
+        script.requireSwapReady(readyRouter, readyHook);
+    }
+
+    function testSwapReadinessRevertsWhenEnginePoolManagerMismatch() external {
+        (address readyRouter, address readyHook) = _configureReadySwap();
+        address engineAddr = address(0xAEEE);
+        // Override poolManager to a different address.
+        vm.mockCall(engineAddr, abi.encodeWithSignature("poolManager()"), abi.encode(address(0xBAD)));
+
+        vm.expectRevert("ENGINE_POOL_MANAGER_NOT_READY");
+        script.requireSwapReady(readyRouter, readyHook);
     }
 
     function testOpenSupportedUAssetsAfterReadinessDoesNotOpenWhenReadinessFails() external {
@@ -340,9 +380,20 @@ contract MemeverseScriptTest is Test {
         vm.etch(readyHook, address(hookImpl).code);
         vm.mockCall(readyHook, abi.encodeWithSignature("launcher()"), abi.encode(address(launcher)));
         vm.mockCall(readyHook, abi.encodeWithSignature("poolInitializer()"), abi.encode(address(router)));
+        _mockEngineOnHook(readyHook);
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setMemeverseUniswapHook(readyHook);
         return (address(router), readyHook);
+    }
+
+    function _mockEngineOnHook(address readyHook) internal returns (address engineAddr) {
+        engineAddr = address(0xAEEE);
+        // vm.etch does not copy storage, so mock each getter individually.
+        vm.mockCall(readyHook, abi.encodeWithSignature("dynamicFeeEngine()"), abi.encode(engineAddr));
+        vm.mockCall(readyHook, abi.encodeWithSignature("poolManager()"), abi.encode(address(0xBBBB)));
+        vm.mockCall(engineAddr, abi.encodeWithSignature("authorizedHook()"), abi.encode(readyHook));
+        vm.mockCall(engineAddr, abi.encodeWithSignature("owner()"), abi.encode(readyHook));
+        vm.mockCall(engineAddr, abi.encodeWithSignature("poolManager()"), abi.encode(address(0xBBBB)));
     }
 
     function _setReadinessEnv(address owner_, address launcher_, address polend_, address splitter_) internal {

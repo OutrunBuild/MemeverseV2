@@ -1,0 +1,566 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.28;
+
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {wadExp} from "solmate/utils/SignedWadMath.sol";
+
+import {IMemeverseDynamicFeeEngine} from "./interfaces/IMemeverseDynamicFeeEngine.sol";
+import {FeeMath} from "./libraries/FeeMath.sol";
+
+/// @title MemeverseDynamicFeeEngine
+/// @notice Owns Memeverse dynamic fee state, quote math, and realized swap state updates.
+/// @dev State-mutating APIs use `msg.sender` as the hook namespace and consume hook-supplied
+///      pool and launch-fee inputs instead of reading hook or PoolManager state.
+///      `quoteSwapWithContext` is a read-only quote path using the hook-supplied context for the
+///      explicit hook namespace.
+///      Upgradeable UUPS proxy; mutable state lives in the ERC7201 namespace.
+contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    uint256 internal constant EWVWAP_PRECISION = 1e18;
+    uint256 internal constant Q192 = uint256(1) << 192;
+    uint256 internal constant Q192_MASK = Q192 - 1;
+    uint256 public constant BPS_BASE = FeeMath.BPS_BASE;
+    uint256 public constant PPM_BASE = 1_000_000;
+    uint24 internal constant FEE_ALPHA = 500_000;
+    uint24 internal constant FEE_DFF_MAX_PPM = 800_000;
+    int256 internal constant LAUNCH_FEE_EXP_SHAPE_WAD = 4e18;
+    uint24 internal constant FEE_BASE_BPS = 100;
+    uint24 internal constant FEE_MAX_BPS = 10_000;
+    uint24 internal constant PIF_CAP_PPM = 150_000;
+    uint24 internal constant VOL_DEVIATION_STEP_BPS = 1;
+    uint24 internal constant VOL_FILTER_PERIOD_SEC = 10;
+    uint24 internal constant VOL_DECAY_PERIOD_SEC = 60;
+    uint24 internal constant VOL_DECAY_FACTOR_BPS = 5_000;
+    uint24 internal constant VOL_MAX_FEE_BPS = 50;
+    uint24 internal constant VOL_MAX_DEVIATION_ACCUMULATOR = 1_500_000;
+    uint24 internal constant SHORT_DECAY_WINDOW_SEC = 15;
+    uint24 internal constant SHORT_COEFF_BPS = 2_500;
+    uint24 internal constant SHORT_FLOOR_PPM = 20_000;
+    uint24 internal constant SHORT_CAP_PPM = 100_000;
+    uint24 internal constant VOL_INCREMENT_PER_STEP = 1_000;
+    uint256 internal constant ADDRESS_BATCH_WINDOW_SEC = 3;
+    uint256 internal constant UP_SHORT_BUCKET = 1072380529476360830;
+    uint256 internal constant DOWN_SHORT_BUCKET = 921954445729288731;
+
+    IPoolManager public immutable override poolManager;
+
+    /// @notice Storage layout for the MemeverseDynamicFeeEngine ERC7201 namespace.
+    ///         When adding fields in upgrades, append only at the end.
+    ///         Never reorder or insert fields between existing ones.
+    /// @custom:storage-location erc7201:outrun.storage.MemeverseDynamicFeeEngine
+    struct MemeverseDynamicFeeEngineStorage {
+        mapping(address hook => mapping(PoolId poolId => DynamicFeeState)) dynamicFeeStates;
+        mapping(address hook => mapping(address trader => mapping(PoolId poolId => AddressBatchState)))
+            addressBatchStates;
+        address authorizedHook;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("outrun.storage.MemeverseDynamicFeeEngine")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION =
+        0xb7b6769a89985fd739eb1342563b5dbd4d11da8b84d601f10d877057788e0e00;
+
+    function _getMemeverseDynamicFeeEngineStorage() internal pure returns (MemeverseDynamicFeeEngineStorage storage $) {
+        assembly {
+            $.slot := MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION
+        }
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    /// @param _poolManager PoolManager shared with the hook.
+    constructor(IPoolManager _poolManager) {
+        if (address(_poolManager) == address(0)) revert ZeroAddress();
+        poolManager = _poolManager;
+        _disableInitializers();
+    }
+
+    /// @notice Initializes the UUPS proxy owner and the single authorized hook caller.
+    /// @param initialOwner Owner authorized to upgrade the engine.
+    /// @param authorizedHook_ Hook address authorized to call mutating engine APIs. Must be non-zero.
+    function initialize(address initialOwner, address authorizedHook_) external initializer {
+        if (initialOwner == address(0) || authorizedHook_ == address(0)) revert ZeroAddress();
+        __Ownable_init(initialOwner);
+        _getMemeverseDynamicFeeEngineStorage().authorizedHook = authorizedHook_;
+    }
+
+    /// @notice Engine ownership is managed through the Hook contract.
+    ///         To change the engine, deploy a new one and call Hook.upgradeDynamicFeeEngine().
+    function transferOwnership(address) public pure override {
+        revert EngineOwnershipManagedByHook();
+    }
+
+    /// @notice Engine ownership cannot be renounced.
+    ///         To decommission the engine, replace it via Hook.upgradeDynamicFeeEngine().
+    function renounceOwnership() public pure override {
+        revert EngineOwnershipManagedByHook();
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
+        address currentPoolManager = address(poolManager);
+        address newPoolManager = address(MemeverseDynamicFeeEngine(newImplementation).poolManager());
+        // Operational guardrail, not a security boundary: the external poolManager() call trusts the new
+        // implementation to self-report honestly. A malicious owner can bypass this by deploying an
+        // implementation with a custom poolManager() getter that returns the expected address. This check
+        // protects against accidental mismatches (wrong PoolManager constructor arg) during honest upgrades.
+        if (newPoolManager != currentPoolManager) {
+            revert UpgradePoolManagerMismatch(currentPoolManager, newPoolManager);
+        }
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function authorizedHook() external view override returns (address) {
+        return _getMemeverseDynamicFeeEngineStorage().authorizedHook;
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function refreshBeforeSwap(RefreshBeforeSwapParams calldata params) external override onlyAuthorizedCaller {
+        DynamicFeeState storage stored =
+            _getMemeverseDynamicFeeEngineStorage().dynamicFeeStates[msg.sender][params.poolId];
+        _refreshVolatilityAnchorAndCarry(stored, params.preSqrtPriceX96);
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function prepareSwapFee(PrepareSwapFeeParams calldata params)
+        external
+        override
+        onlyAuthorizedCaller
+        returns (PreparedSwapFee memory quote)
+    {
+        MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
+        DynamicFeeState storage stored = $.dynamicFeeStates[msg.sender][params.poolId];
+        _refreshVolatilityAnchorAndCarry(stored, params.preSqrtPriceX96);
+        return _estimateDynamicFeeQuote(
+            stored,
+            $.addressBatchStates[msg.sender][params.trader][params.poolId],
+            params.liquidity,
+            params.preSqrtPriceX96,
+            params.swapParams.zeroForOne,
+            params.swapParams.amountSpecified,
+            params.protocolFeeOnInput,
+            _quoteLaunchFeeBps(params.launchFeeConfig, params.launchTimestamp)
+        );
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function updateAfterSwap(UpdateAfterSwapParams calldata params) external override onlyAuthorizedCaller {
+        if (params.preSqrtPriceX96 == 0) return;
+
+        uint256 pifPpm = _priceMovePpmCapped(params.preSqrtPriceX96, params.postSqrtPriceX96);
+        MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
+        DynamicFeeState storage state = $.dynamicFeeStates[msg.sender][params.poolId];
+        AddressBatchState storage batch = $.addressBatchStates[msg.sender][params.trader][params.poolId];
+
+        if (batch.batchStartTs > 0 && block.timestamp - uint256(batch.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC) {
+            batch.batchAccumPpm = uint192(uint256(batch.batchAccumPpm) + pifPpm);
+        } else {
+            batch.batchAccumPpm = uint192(pifPpm);
+            batch.batchStartTs = uint64(block.timestamp);
+        }
+
+        uint256 updatedShortPpm =
+            _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC) + pifPpm;
+        if (updatedShortPpm > SHORT_CAP_PPM) updatedShortPpm = SHORT_CAP_PPM;
+        state.shortImpactPpm = uint24(updatedShortPpm);
+        state.shortLastTs = uint40(block.timestamp);
+
+        uint256 spotX18 = _spotX18FromSqrtPrice(params.postSqrtPriceX96);
+        int256 amount0 = params.delta.amount0();
+        uint256 volume0 = uint256(amount0 < 0 ? -amount0 : amount0);
+        _updateVolatilityDeviationAccumulatorAfterSwap(state, params.postSqrtPriceX96);
+        if (volume0 == 0 || spotX18 == 0) return;
+
+        uint256 priceVolume = FullMath.mulDiv(volume0, spotX18, EWVWAP_PRECISION);
+        if (state.weightedVolume0 == 0) {
+            state.weightedVolume0 = volume0;
+            state.weightedPriceVolume0 = priceVolume;
+            state.ewVWAPX18 = spotX18;
+            return;
+        }
+
+        uint256 alphaR = PPM_BASE - FEE_ALPHA;
+        uint256 newWeightedVolume0 =
+            FullMath.mulDiv(FEE_ALPHA, volume0, PPM_BASE) + FullMath.mulDiv(alphaR, state.weightedVolume0, PPM_BASE);
+        uint256 newWeightedPriceVolume0 = FullMath.mulDiv(FEE_ALPHA, priceVolume, PPM_BASE)
+            + FullMath.mulDiv(alphaR, state.weightedPriceVolume0, PPM_BASE);
+        state.weightedVolume0 = newWeightedVolume0;
+        state.weightedPriceVolume0 = newWeightedPriceVolume0;
+        if (newWeightedVolume0 > 0) {
+            state.ewVWAPX18 = FullMath.mulDiv(newWeightedPriceVolume0, EWVWAP_PRECISION, newWeightedVolume0);
+        }
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function quoteSwapWithContext(address hook, QuoteSwapContext calldata context)
+        external
+        view
+        override
+        onlyAuthorizedCaller
+        returns (PreparedSwapFee memory quote)
+    {
+        MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
+        DynamicFeeState memory state = $.dynamicFeeStates[hook][context.poolId];
+        // Inline volatility refresh on the memory copy — mirrors _refreshVolatilityAnchorAndCarry
+        // without touching storage, since quoteSwapWithContext is a view function.
+        if (state.volAnchorSqrtPriceX96 == 0) state.volAnchorSqrtPriceX96 = context.preSqrtPriceX96;
+        uint256 elapsed = block.timestamp > state.volLastMoveTs ? block.timestamp - state.volLastMoveTs : 0;
+        if (elapsed >= VOL_FILTER_PERIOD_SEC) {
+            state.volAnchorSqrtPriceX96 = context.preSqrtPriceX96;
+            state.volCarryAccumulator = state.volLastMoveTs != 0 && elapsed < VOL_DECAY_PERIOD_SEC
+                ? uint24(FullMath.mulDiv(state.volDeviationAccumulator, VOL_DECAY_FACTOR_BPS, BPS_BASE))
+                : 0;
+            state.volDeviationAccumulator = state.volCarryAccumulator;
+        }
+
+        return _estimateDynamicFeeQuote(
+            state,
+            $.addressBatchStates[hook][context.trader][context.poolId],
+            context.liquidity,
+            context.preSqrtPriceX96,
+            context.swapParams.zeroForOne,
+            context.swapParams.amountSpecified,
+            context.protocolFeeOnInput,
+            _quoteLaunchFeeBps(context.launchFeeConfig, context.launchTimestamp)
+        );
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function getDynamicFeeState(address hook, PoolId poolId)
+        external
+        view
+        override
+        returns (DynamicFeeState memory state)
+    {
+        return _getMemeverseDynamicFeeEngineStorage().dynamicFeeStates[hook][poolId];
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function getAddressBatchState(address hook, address trader, PoolId poolId)
+        external
+        view
+        override
+        returns (AddressBatchState memory state)
+    {
+        return _getMemeverseDynamicFeeEngineStorage().addressBatchStates[hook][trader][poolId];
+    }
+
+    modifier onlyAuthorizedCaller() {
+        if (msg.sender != _getMemeverseDynamicFeeEngineStorage().authorizedHook) {
+            revert UnauthorizedCaller(msg.sender);
+        }
+        _;
+    }
+
+    function _quoteLaunchFeeBps(LaunchFeeConfig memory config, uint40 launchTimestamp)
+        internal
+        view
+        returns (uint256 feeBps)
+    {
+        if (launchTimestamp == 0) return config.minFeeBps;
+        uint256 elapsed = block.timestamp > launchTimestamp ? block.timestamp - launchTimestamp : 0;
+        if (elapsed >= config.decayDurationSeconds) return config.minFeeBps;
+        // This normalized exponential decay is part of the launch-fee invariant.
+        uint256 decayWad = _normalizedLaunchDecayWad(elapsed, config.decayDurationSeconds);
+        return config.minFeeBps + FullMath.mulDiv(config.startFeeBps - config.minFeeBps, decayWad, 1e18);
+    }
+
+    function _normalizedLaunchDecayWad(uint256 elapsed, uint256 duration) internal pure returns (uint256 decayWad) {
+        int256 expAtElapsedWad = wadExp(-int256(FullMath.mulDiv(elapsed, uint256(LAUNCH_FEE_EXP_SHAPE_WAD), duration)));
+        int256 expAtEndWad = wadExp(-LAUNCH_FEE_EXP_SHAPE_WAD);
+        decayWad = uint256((expAtElapsedWad - expAtEndWad) * 1e18 / (1e18 - expAtEndWad));
+    }
+
+    function _estimateDynamicFeeQuote(
+        DynamicFeeState memory state,
+        AddressBatchState memory senderBatchState,
+        uint128 liquidity,
+        uint160 preSqrtPriceX96,
+        bool zeroForOne,
+        int256 amountSpecified,
+        bool feeOnInput,
+        uint256 launchFeeBps
+    ) internal view returns (PreparedSwapFee memory quote) {
+        quote.feeBps = launchFeeBps > FEE_BASE_BPS ? launchFeeBps : FEE_BASE_BPS;
+        if (amountSpecified == 0 || liquidity == 0) return quote;
+
+        int256 workingAmountSpecified = amountSpecified;
+        uint256 userInputAmount = amountSpecified < 0 ? uint256(-amountSpecified) : 0;
+        uint256 requestedNetOutputAmount = amountSpecified > 0 ? uint256(amountSpecified) : 0;
+
+        uint256 spotBeforeX18;
+        uint256 preVolatilityPartBps;
+        uint256 preDecayedShortPpm;
+        spotBeforeX18 = _spotX18FromSqrtPrice(preSqrtPriceX96);
+        preVolatilityPartBps = _volatilitySqrtFeeBps(state.volDeviationAccumulator);
+        preDecayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
+
+        for (uint256 i = 0; i < 3; ++i) {
+            uint160 postSqrtPriceX96;
+            (
+                quote.estimatedInputAmount,
+                quote.estimatedOutputAmount,
+                quote.estimatedGrossOutputAmount,
+                postSqrtPriceX96
+            ) = _estimateSwapFlowAndPostPrice(liquidity, preSqrtPriceX96, zeroForOne, workingAmountSpecified);
+            if (quote.estimatedInputAmount == 0) return quote;
+
+            quote.spotBeforeX18 = spotBeforeX18;
+            quote.spotAfterX18 = _spotX18FromSqrtPrice(postSqrtPriceX96);
+            quote.pifPpm = _priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
+            _populateDynamicFeeQuoteFromState(quote, state, senderBatchState, preVolatilityPartBps, preDecayedShortPpm);
+
+            if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
+
+            if (amountSpecified < 0) {
+                uint256 inputSideFeeBps = feeOnInput ? quote.feeBps : FeeMath.lpFeeBps(quote.feeBps);
+                uint256 inputSideFeeAmount = FullMath.mulDiv(userInputAmount, inputSideFeeBps, BPS_BASE);
+                uint256 netPoolInputAmount =
+                    userInputAmount > inputSideFeeAmount ? userInputAmount - inputSideFeeAmount : 0;
+                if (netPoolInputAmount == quote.estimatedInputAmount) return quote;
+                workingAmountSpecified = -int256(netPoolInputAmount);
+                continue;
+            }
+
+            if (feeOnInput) return quote;
+            uint256 grossedOutputAmount = requestedNetOutputAmount
+                + _grossUpFeeFromNetOutput(requestedNetOutputAmount, FeeMath.protocolFeeBps(quote.feeBps));
+            if (grossedOutputAmount == quote.estimatedGrossOutputAmount) {
+                quote.estimatedOutputAmount = requestedNetOutputAmount;
+                return quote;
+            }
+            workingAmountSpecified = int256(grossedOutputAmount);
+        }
+
+        if (amountSpecified > 0 && !feeOnInput) quote.estimatedOutputAmount = requestedNetOutputAmount;
+    }
+
+    function _populateDynamicFeeQuoteFromState(
+        PreparedSwapFee memory quote,
+        DynamicFeeState memory state,
+        AddressBatchState memory senderBatchState,
+        uint256 preVolatilityPartBps,
+        uint256 preDecayedShortPpm
+    ) internal view {
+        bool hasHistory = state.weightedVolume0 > 0 && state.ewVWAPX18 > 0;
+        quote.isAdverse = hasHistory
+            ? _absDiff(quote.spotAfterX18, state.ewVWAPX18) > _absDiff(quote.spotBeforeX18, state.ewVWAPX18)
+            : true;
+        if (hasHistory && !quote.isAdverse) {
+            quote.feeBps = FEE_BASE_BPS;
+            return;
+        }
+
+        uint256 effectivePifPpm = quote.pifPpm;
+        if (
+            senderBatchState.batchStartTs > 0
+                && block.timestamp - uint256(senderBatchState.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC
+        ) {
+            effectivePifPpm = uint256(senderBatchState.batchAccumPpm) + quote.pifPpm;
+        }
+        uint256 satPpm = FullMath.mulDiv(effectivePifPpm, PPM_BASE, effectivePifPpm + PIF_CAP_PPM);
+        uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
+        uint256 dynamicPpm = FullMath.mulDiv(dffPpm, effectivePifPpm, PPM_BASE);
+        quote.adverseImpactPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
+        quote.volatilityPartBps = preVolatilityPartBps;
+
+        uint256 projectedShortPpm = preDecayedShortPpm + quote.pifPpm;
+        if (projectedShortPpm > SHORT_CAP_PPM) projectedShortPpm = SHORT_CAP_PPM;
+        uint256 chargeableShortPpm = projectedShortPpm > SHORT_FLOOR_PPM ? projectedShortPpm - SHORT_FLOOR_PPM : 0;
+        quote.shortImpactPartBps = FullMath.mulDiv(chargeableShortPpm, SHORT_COEFF_BPS, PPM_BASE);
+
+        uint256 feeBps = FEE_BASE_BPS + quote.adverseImpactPartBps + quote.volatilityPartBps + quote.shortImpactPartBps;
+        quote.feeBps = feeBps > FEE_MAX_BPS ? FEE_MAX_BPS : feeBps;
+    }
+
+    function _estimateSwapFlowAndPostPrice(
+        uint128 liquidity,
+        uint160 preSqrtPriceX96,
+        bool zeroForOne,
+        int256 amountSpecified
+    )
+        internal
+        pure
+        returns (uint256 inputAmount, uint256 outputAmount, uint256 grossOutputAmount, uint160 postSqrtPriceX96)
+    {
+        if (amountSpecified == 0) return (0, 0, 0, preSqrtPriceX96);
+        if (amountSpecified < 0) {
+            inputAmount = uint256(-amountSpecified);
+            postSqrtPriceX96 =
+                SqrtPriceMath.getNextSqrtPriceFromInput(preSqrtPriceX96, liquidity, inputAmount, zeroForOne);
+            outputAmount = zeroForOne
+                ? SqrtPriceMath.getAmount1Delta(postSqrtPriceX96, preSqrtPriceX96, liquidity, false)
+                : SqrtPriceMath.getAmount0Delta(preSqrtPriceX96, postSqrtPriceX96, liquidity, false);
+            grossOutputAmount = outputAmount;
+            return (inputAmount, outputAmount, grossOutputAmount, postSqrtPriceX96);
+        }
+        outputAmount = uint256(amountSpecified);
+        grossOutputAmount = outputAmount;
+        postSqrtPriceX96 =
+            SqrtPriceMath.getNextSqrtPriceFromOutput(preSqrtPriceX96, liquidity, grossOutputAmount, zeroForOne);
+        inputAmount = zeroForOne
+            ? SqrtPriceMath.getAmount0Delta(postSqrtPriceX96, preSqrtPriceX96, liquidity, true)
+            : SqrtPriceMath.getAmount1Delta(preSqrtPriceX96, postSqrtPriceX96, liquidity, true);
+    }
+
+    function _grossUpFeeFromNetOutput(uint256 netOutputAmount, uint256 feeBps)
+        internal
+        pure
+        returns (uint256 feeAmount)
+    {
+        if (netOutputAmount == 0 || feeBps == 0) return 0;
+        if (feeBps >= BPS_BASE) return type(uint256).max;
+        uint256 grossOutputAmount = FullMath.mulDivRoundingUp(netOutputAmount, BPS_BASE, BPS_BASE - feeBps);
+        return grossOutputAmount - netOutputAmount;
+    }
+
+    function _decayLinearPpm(uint256 accumulatorPpm, uint256 lastTs, uint256 windowSec)
+        internal
+        view
+        returns (uint256)
+    {
+        if (accumulatorPpm == 0 || lastTs == 0 || windowSec == 0) return 0;
+        if (block.timestamp <= lastTs) return accumulatorPpm;
+        uint256 elapsed = block.timestamp - lastTs;
+        if (elapsed >= windowSec) return 0;
+        return FullMath.mulDiv(accumulatorPpm, windowSec - elapsed, windowSec);
+    }
+
+    function _refreshVolatilityAnchorAndCarry(DynamicFeeState storage state, uint160 preSqrtPriceX96) internal {
+        if (state.volAnchorSqrtPriceX96 == 0) state.volAnchorSqrtPriceX96 = preSqrtPriceX96;
+        uint40 lastMoveTs = state.volLastMoveTs;
+        uint256 elapsed = block.timestamp > lastMoveTs ? block.timestamp - lastMoveTs : 0;
+        if (elapsed < VOL_FILTER_PERIOD_SEC) return;
+
+        state.volAnchorSqrtPriceX96 = preSqrtPriceX96;
+        uint24 refreshedCarry = lastMoveTs != 0 && elapsed < VOL_DECAY_PERIOD_SEC
+            ? uint24(FullMath.mulDiv(state.volDeviationAccumulator, VOL_DECAY_FACTOR_BPS, BPS_BASE))
+            : 0;
+        // Keep carry and deviation in lockstep at refresh boundaries so post-swap movement starts from the decayed base.
+        state.volCarryAccumulator = refreshedCarry;
+        state.volDeviationAccumulator = refreshedCarry;
+    }
+
+    function _updateVolatilityDeviationAccumulatorAfterSwap(DynamicFeeState storage state, uint160 postSqrtPriceX96)
+        internal
+    {
+        if (state.volAnchorSqrtPriceX96 == 0) {
+            state.volAnchorSqrtPriceX96 = postSqrtPriceX96;
+            return;
+        }
+        uint256 deltaSteps =
+            _volatilityDeltaSteps(state.volAnchorSqrtPriceX96, postSqrtPriceX96, VOL_DEVIATION_STEP_BPS);
+        uint256 updatedAccumulator = uint256(state.volCarryAccumulator) + deltaSteps * uint256(VOL_INCREMENT_PER_STEP);
+        if (updatedAccumulator > VOL_MAX_DEVIATION_ACCUMULATOR) updatedAccumulator = VOL_MAX_DEVIATION_ACCUMULATOR;
+        state.volDeviationAccumulator = uint24(updatedAccumulator);
+        if (deltaSteps > 0) state.volLastMoveTs = uint40(block.timestamp);
+    }
+
+    function _volatilitySqrtFeeBps(uint256 accumulator) internal pure returns (uint256) {
+        if (accumulator == 0) return 0;
+        return Math.sqrt(accumulator * uint256(VOL_MAX_FEE_BPS) ** 2 / uint256(VOL_MAX_DEVIATION_ACCUMULATOR));
+    }
+
+    function _volatilityDeltaSteps(uint160 referenceSqrtPriceX96, uint160 currentSqrtPriceX96, uint256 stepBps)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (referenceSqrtPriceX96 == 0 || currentSqrtPriceX96 == 0 || stepBps == 0) return 0;
+        (uint256 upper, uint256 lower) = referenceSqrtPriceX96 > currentSqrtPriceX96
+            ? (uint256(referenceSqrtPriceX96), uint256(currentSqrtPriceX96))
+            : (uint256(currentSqrtPriceX96), uint256(referenceSqrtPriceX96));
+        uint256 sqrtRatioX18 = FullMath.mulDiv(upper, EWVWAP_PRECISION, lower);
+        if (sqrtRatioX18 <= EWVWAP_PRECISION) return 0;
+        return FullMath.mulDiv(sqrtRatioX18 - EWVWAP_PRECISION, BPS_BASE * 2, stepBps * EWVWAP_PRECISION);
+    }
+
+    function _spotX18FromSqrtPrice(uint160 sqrtPriceX96) internal pure returns (uint256) {
+        (uint256 squareHi, uint256 squareLo) = _squareWide(sqrtPriceX96);
+        uint256 integerPart = (squareHi << 64) | (squareLo >> 192);
+        uint256 fractionalPart = squareLo & Q192_MASK;
+        return integerPart * EWVWAP_PRECISION + FullMath.mulDiv(fractionalPart, EWVWAP_PRECISION, Q192);
+    }
+
+    function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : b - a;
+    }
+
+    function _priceMovePpmCapped(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
+        if (preSqrtPrice == postSqrtPrice) return 0;
+        uint256 sqrtRatioX18 = FullMath.mulDiv(uint256(postSqrtPrice), EWVWAP_PRECISION, uint256(preSqrtPrice));
+        if (postSqrtPrice > preSqrtPrice) {
+            if (sqrtRatioX18 > UP_SHORT_BUCKET) return PIF_CAP_PPM;
+            uint256 upSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
+            uint256 candidate = (upSquaredRatioX18 - EWVWAP_PRECISION) / 1e12;
+            if (
+                candidate < PIF_CAP_PPM
+                    && _wideSquareTimesSmallGte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE + candidate + 1)
+            ) ++candidate;
+            return candidate;
+        }
+        if (sqrtRatioX18 < DOWN_SHORT_BUCKET) return PIF_CAP_PPM;
+        uint256 downSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
+        uint256 candidatePpm = (EWVWAP_PRECISION - downSquaredRatioX18) / 1e12;
+        if (
+            candidatePpm != 0
+                && !_wideSquareTimesSmallLte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE - candidatePpm)
+        ) --candidatePpm;
+        return candidatePpm;
+    }
+
+    function _squareWide(uint160 value) internal pure returns (uint256 hi, uint256 lo) {
+        uint256 upper = uint256(value) >> 128;
+        uint256 lower = uint128(value);
+        uint256 lowerSquared = lower * lower;
+        uint256 cross = (lower * upper) << 1;
+        unchecked {
+            lo = lowerSquared + (cross << 128);
+        }
+        hi = (upper * upper) + (cross >> 128);
+        if (lo < lowerSquared) ++hi;
+    }
+
+    function _mulWideBySmall(uint256 hi, uint256 lo, uint256 factor)
+        internal
+        pure
+        returns (uint256 outHi, uint256 outLo)
+    {
+        uint256 loLower = uint128(lo);
+        uint256 loUpper = lo >> 128;
+        uint256 lowerProduct = loLower * factor;
+        uint256 upperProduct = loUpper * factor;
+        unchecked {
+            outLo = lowerProduct + (upperProduct << 128);
+        }
+        outHi = (hi * factor) + (upperProduct >> 128);
+        if (outLo < lowerProduct) ++outHi;
+    }
+
+    function _wideSquareTimesSmallGte(uint160 left, uint256 leftFactor, uint160 right, uint256 rightFactor)
+        internal
+        pure
+        returns (bool)
+    {
+        (uint256 leftSquareHi, uint256 leftSquareLo) = _squareWide(left);
+        (uint256 rightSquareHi, uint256 rightSquareLo) = _squareWide(right);
+        (uint256 leftHi, uint256 leftLo) = _mulWideBySmall(leftSquareHi, leftSquareLo, leftFactor);
+        (uint256 rightHi, uint256 rightLo) = _mulWideBySmall(rightSquareHi, rightSquareLo, rightFactor);
+        return leftHi > rightHi || (leftHi == rightHi && leftLo >= rightLo);
+    }
+
+    function _wideSquareTimesSmallLte(uint160 left, uint256 leftFactor, uint160 right, uint256 rightFactor)
+        internal
+        pure
+        returns (bool)
+    {
+        (uint256 leftSquareHi, uint256 leftSquareLo) = _squareWide(left);
+        (uint256 rightSquareHi, uint256 rightSquareLo) = _squareWide(right);
+        (uint256 leftHi, uint256 leftLo) = _mulWideBySmall(leftSquareHi, leftSquareLo, leftFactor);
+        (uint256 rightHi, uint256 rightLo) = _mulWideBySmall(rightSquareHi, rightSquareLo, rightFactor);
+        return leftHi < rightHi || (leftHi == rightHi && leftLo <= rightLo);
+    }
+}

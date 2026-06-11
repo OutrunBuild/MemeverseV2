@@ -55,6 +55,7 @@
 - Exact-output swap 若实际 gross output 小于请求输出，Hook 回退 `ExactOutputPartialFill()`。
 - Exact-input swap 若实际 pool input 与预期不符，Hook 回退 `ExactInputPartialFill()`。
 - `PROTOCOL_FEE_RATIO_BPS = 3000`，即 `feeBps` 中 30% 归 protocol、70% 归 LP。
+- 公开 swap 始终使用正常费率路径：`feeBps = max(current launch fee, dynamic fee, FEE_BASE_BPS)`；dynamic fee engine 故障通过升级/修复处理，不提供 bypass mode。
 
 `[代码已证]`
 
@@ -84,7 +85,6 @@
 - Hook owner 可改：
  - `treasury`
  - protocol fee 币种支持
- - `emergencyFlag`
  - `launcher`
  - `defaultLaunchFeeConfig`
 - Launcher owner 配置 router / hook 时，必须同时校验 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；其中 launcher 侧 `memeverseUniswapHook` 是 write-once。

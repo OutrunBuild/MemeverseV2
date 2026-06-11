@@ -19,8 +19,10 @@ import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {LiquidityQuote} from "../../src/swap/libraries/LiquidityQuote.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
+import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
@@ -480,8 +482,6 @@ contract DirectProtectedSwapCaller {
 contract MemeverseSwapRouterTest is Test {
     using PoolIdLibrary for PoolKey;
 
-    event EmergencyFlagUpdated(bool oldFlag, bool newFlag);
-
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint160 internal constant FULL_RANGE_MIN_SQRT_PRICE_X96 = 4_310_618_292;
     uint160 internal constant FULL_RANGE_MAX_SQRT_PRICE_X96 =
@@ -524,8 +524,18 @@ contract MemeverseSwapRouterTest is Test {
         internal
         returns (TestableMemeverseUniswapHookForRouter deployed)
     {
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
+                )
+            )
+        );
         TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
         deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
     }
 
@@ -686,213 +696,6 @@ contract MemeverseSwapRouterTest is Test {
     function testSetTreasury_RevertsOnZeroAddress() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
         hook.setTreasury(address(0));
-    }
-
-    /// @notice Verifies toggling the emergency flag updates state and emits the event.
-    /// @dev Covers the hook emergency configuration path.
-    function testSetEmergencyFlag_EmitsEventAndUpdatesState() external {
-        vm.expectEmit(false, false, false, true);
-        emit EmergencyFlagUpdated(false, true);
-        hook.setEmergencyFlag(true);
-
-        assertTrue(hook.emergencyFlag(), "emergency flag");
-    }
-
-    /// @notice Verifies swap quotes fall back to the base fee when emergency mode is enabled.
-    /// @dev Covers quote behavior under the emergency flag.
-    function testQuoteSwap_WhenEmergencyFlagEnabled_ReturnsBaseFee() external {
-        _setProtocolFeeCurrency(key.currency0);
-        _matureLaunchWindow();
-
-        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this)
-        );
-        hook.setEmergencyFlag(true);
-        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0}), address(this)
-        );
-
-        assertEq(emergencyQuote.feeBps, 100, "base fee only");
-        assertGe(normalQuote.feeBps, emergencyQuote.feeBps, "normal fee not below emergency fee");
-    }
-
-    /// @notice Verifies emergency mode still allows healthy-pool exact-output execution at the base fee.
-    /// @dev Protects the `beforeSwap` emergency fallback from routing exact-output swaps into the zero-liquidity quick return.
-    function testSwapPass_WhenEmergencyFlagEnabled_ExactOutputStillExecutes() external {
-        _setProtocolFeeCurrency(key.currency0);
-        _matureLaunchWindow();
-        hook.setEmergencyFlag(true);
-        manager.setQuoteAlignedSwapMath(true);
-
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
-        );
-        uint256 balance0Before = token0.balanceOf(address(this));
-        uint256 balance1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(treasury);
-        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
-
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            block.timestamp,
-            0,
-            quote.estimatedUserInputAmount,
-            ""
-        );
-
-        assertEq(quote.feeBps, 100, "base fee only");
-        assertEq(token1.balanceOf(address(this)) - balance1Before, 100 ether, "exact output received");
-        assertEq(balance0Before - token0.balanceOf(address(this)), quote.estimatedUserInputAmount, "quote guardrail");
-        assertGt(token0.balanceOf(treasury) - treasury0Before, 0, "treasury collected");
-        assertEq(delta.amount1(), int128(int256(100 ether)), "delta1");
-    }
-
-    /// @notice Covers the emergency exact-output branch where the local harness still routes output-side fee accounting.
-    /// @dev Locks router-side handling under the local manager harness; integration tests cover real output-fee execution semantics.
-    function testSwapPass_WhenEmergencyFlagEnabled_ZeroForOneExactOutput_OutputSideProtocolFeeStillGrossesUp()
-        external
-    {
-        _setProtocolFeeCurrency(key.currency1);
-        _matureLaunchWindow();
-        hook.setEmergencyFlag(true);
-        manager.setQuoteAlignedSwapMath(true);
-
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
-        );
-        uint256 balance0Before = token0.balanceOf(address(this));
-        uint256 balance1Before = token1.balanceOf(address(this));
-        uint256 treasury1Before = token1.balanceOf(treasury);
-        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
-
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            block.timestamp,
-            0,
-            quote.estimatedUserInputAmount,
-            ""
-        );
-
-        assertEq(quote.feeBps, 100, "base fee only");
-        assertFalse(quote.protocolFeeOnInput, "protocolFeeOnInput");
-        assertGt(quote.estimatedProtocolFeeAmount, 0, "output fee quoted");
-        assertEq(quote.estimatedUserOutputAmount, 100 ether, "quoted net output");
-        assertEq(token1.balanceOf(address(this)) - balance1Before, 100 ether, "exact net output");
-        assertEq(balance0Before - token0.balanceOf(address(this)), quote.estimatedUserInputAmount, "quote guardrail");
-        assertEq(token1.balanceOf(treasury) - treasury1Before, quote.estimatedProtocolFeeAmount, "treasury collected");
-        assertEq(delta.amount1(), int128(int256(100 ether)), "delta1 net output");
-    }
-
-    /// @notice Verifies the emergency output-side fee exact-output path is symmetric for one-for-zero swaps.
-    /// @dev Locks gross-output quoting for pools that charge protocol fees in currency0.
-    function testSwapPass_WhenEmergencyFlagEnabled_OneForZeroExactOutput_OutputSideProtocolFeeStillGrossesUp()
-        external
-    {
-        _setProtocolFeeCurrency(key.currency0);
-        _matureLaunchWindow();
-        manager.setQuoteAlignedSwapMath(true);
-        router.swap(
-            key,
-            SwapParams({
-                zeroForOne: false, amountSpecified: -10_000 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(false)
-            }),
-            address(this),
-            block.timestamp,
-            0,
-            10_000 ether,
-            ""
-        );
-
-        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
-        );
-        hook.setEmergencyFlag(true);
-        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
-        );
-        uint256 balance0Before = token0.balanceOf(address(this));
-        uint256 balance1Before = token1.balanceOf(address(this));
-        uint256 treasury0Before = token0.balanceOf(treasury);
-        uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 101) / 100);
-
-        BalanceDelta delta = router.swap(
-            key,
-            SwapParams({zeroForOne: false, amountSpecified: 100 ether, sqrtPriceLimitX96: priceLimit}),
-            address(this),
-            block.timestamp,
-            0,
-            emergencyQuote.estimatedUserInputAmount,
-            ""
-        );
-
-        assertGt(normalQuote.feeBps, emergencyQuote.feeBps, "emergency fee should collapse to base");
-        assertEq(emergencyQuote.feeBps, 100, "base fee only");
-        assertFalse(emergencyQuote.protocolFeeOnInput, "protocolFeeOnInput");
-        assertGt(emergencyQuote.estimatedProtocolFeeAmount, 0, "output fee quoted");
-        assertEq(emergencyQuote.estimatedUserOutputAmount, 100 ether, "quoted net output");
-        assertEq(token0.balanceOf(address(this)) - balance0Before, 100 ether, "exact net output");
-        assertEq(
-            balance1Before - token1.balanceOf(address(this)), emergencyQuote.estimatedUserInputAmount, "quote guardrail"
-        );
-        assertEq(
-            token0.balanceOf(treasury) - treasury0Before,
-            emergencyQuote.estimatedProtocolFeeAmount,
-            "treasury collected"
-        );
-        assertEq(delta.amount0(), int128(int256(100 ether)), "delta0 net output");
-    }
-
-    /// @notice Verifies emergency-mode exact-output output-side fees stay aligned while a non-base launch floor is active.
-    /// @dev Locks the case where normal-mode dynamic fee rises above the configured launch floor but emergency collapses back to it.
-    function testSwapPass_WhenEmergencyFlagEnabled_ExactOutput_OutputSideProtocolFeeStaysAlignedUnderLaunchFloor()
-        external
-    {
-        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: 10_000 ether, sqrtPriceLimitX96: 0});
-        hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 300, minFeeBps: 300, decayDurationSeconds: 900})
-        );
-        _setProtocolFeeCurrency(key.currency1);
-        manager.setQuoteAlignedSwapMath(true);
-        hook.setLauncher(address(this));
-        token0.approve(address(hook), type(uint256).max);
-        manager.setNextSwapSqrtPriceX96(poolId, uint160((uint256(SQRT_PRICE_1_1) * 120) / 100));
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
-                key: key,
-                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
-                recipient: address(this)
-            })
-        );
-
-        IMemeverseUniswapHook.SwapQuote memory normalQuote = hook.quoteSwap(key, params, address(this));
-        hook.setEmergencyFlag(true);
-        IMemeverseUniswapHook.SwapQuote memory emergencyQuote = hook.quoteSwap(key, params, address(this));
-        uint256 balance0Before = token0.balanceOf(address(this));
-        uint256 balance1Before = token1.balanceOf(address(this));
-        uint256 treasury1Before = token1.balanceOf(treasury);
-
-        BalanceDelta delta =
-            router.swap(key, params, address(this), block.timestamp, 0, emergencyQuote.estimatedUserInputAmount, "");
-
-        assertGt(normalQuote.feeBps, emergencyQuote.feeBps, "emergency fee should collapse to launch floor");
-        assertFalse(emergencyQuote.protocolFeeOnInput, "protocolFeeOnInput");
-        assertEq(emergencyQuote.feeBps, 300, "launch fee floor");
-        assertGt(emergencyQuote.estimatedProtocolFeeAmount, 0, "output fee quoted");
-        assertEq(emergencyQuote.estimatedUserOutputAmount, 10_000 ether, "quoted net output");
-        assertEq(token1.balanceOf(address(this)) - balance1Before, 10_000 ether, "exact net output");
-        assertEq(
-            balance0Before - token0.balanceOf(address(this)), emergencyQuote.estimatedUserInputAmount, "quote guardrail"
-        );
-        assertEq(
-            token1.balanceOf(treasury) - treasury1Before,
-            emergencyQuote.estimatedProtocolFeeAmount,
-            "treasury collected"
-        );
-        assertEq(delta.amount1(), int128(int256(10_000 ether)), "delta1 net output");
     }
 
     /// @notice Verifies native protocol-fee pools now fail before reaching treasury handling.
@@ -1239,7 +1042,7 @@ contract MemeverseSwapRouterTest is Test {
     function testExecuteLaunchSettlement_IgnoresConfigurableLaunchFeeFloor() external {
         _setProtocolFeeCurrency(key.currency0);
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 300, decayDurationSeconds: 900})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 300, decayDurationSeconds: 900})
         );
         hook.setLauncher(address(this));
         token0.approve(address(hook), type(uint256).max);
@@ -1266,7 +1069,7 @@ contract MemeverseSwapRouterTest is Test {
         _setProtocolFeeCurrency(key.currency0);
         hook.setLauncher(address(this));
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
         );
         token0.approve(address(hook), type(uint256).max);
 
@@ -1287,7 +1090,7 @@ contract MemeverseSwapRouterTest is Test {
             uint256 ewVWAPX18,,,
             uint24 volDeviationAccumulator,,
             uint24 shortImpactPpm,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
 
         assertGt(weightedVolume0, 0, "weighted volume");
         assertGt(weightedPriceVolume0, 0, "weighted price volume");
@@ -1307,7 +1110,7 @@ contract MemeverseSwapRouterTest is Test {
         pristineHook.seedActiveLiquidityShares(pristineKey, address(this), 1e18);
         pristineHook.setProtocolFeeCurrency(pristineKey.currency0);
         pristineHook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
         );
 
         SwapParams memory followUpParams =
@@ -1736,7 +1539,7 @@ contract MemeverseSwapRouterTest is Test {
                 uint160 volAnchorBefore,,
                 uint24 volDevBefore,,
                 uint24 shortImpactBefore,
-            ) = hook.poolEWVWAPParams(poolId);
+            ) = hook.poolDynamicFeeState(poolId);
 
             manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
             vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -1756,7 +1559,7 @@ contract MemeverseSwapRouterTest is Test {
                 uint160 volAnchorAfter,,
                 uint24 volDevAfter,,
                 uint24 shortImpactAfter,
-            ) = hook.poolEWVWAPParams(poolId);
+            ) = hook.poolDynamicFeeState(poolId);
             assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
             assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
             assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
@@ -1820,7 +1623,7 @@ contract MemeverseSwapRouterTest is Test {
                 uint160 volAnchorBefore,,
                 uint24 volDevBefore,,
                 uint24 shortImpactBefore,
-            ) = hook.poolEWVWAPParams(poolId);
+            ) = hook.poolDynamicFeeState(poolId);
 
             manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
             vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -1840,7 +1643,7 @@ contract MemeverseSwapRouterTest is Test {
                 uint160 volAnchorAfter,,
                 uint24 volDevAfter,,
                 uint24 shortImpactAfter,
-            ) = hook.poolEWVWAPParams(poolId);
+            ) = hook.poolDynamicFeeState(poolId);
             assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
             assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
             assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");

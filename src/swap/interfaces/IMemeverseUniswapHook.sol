@@ -6,6 +6,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IMemeverseDynamicFeeEngine} from "./IMemeverseDynamicFeeEngine.sol";
 
 /**
  * @title IMemeverseUniswapHook
@@ -33,28 +34,6 @@ interface IMemeverseUniswapHook {
         uint256 pendingFee0;
         /// @notice Earned but unclaimed currency1 fees.
         uint256 pendingFee1;
-    }
-
-    /// @notice Per-pool exponentially weighted state used by dynamic fee computation.
-    struct EWVWAPParams {
-        /// @notice Exponentially weighted token0 volume.
-        uint256 weightedVolume0;
-        /// @notice Exponentially weighted (price * token0 volume) at 1e18 spot precision.
-        uint256 weightedPriceVolume0;
-        /// @notice Exponentially weighted VWAP spot in X18 precision.
-        uint256 ewVWAPX18;
-        /// @notice Anchor sqrt price used to measure reference-price deviation.
-        uint160 volAnchorSqrtPriceX96;
-        /// @notice Last timestamp when the volatility deviation accumulator observed a non-zero move.
-        uint40 volLastMoveTs;
-        /// @notice Accumulated reference-price deviation state.
-        uint24 volDeviationAccumulator;
-        /// @notice Carried-over accumulator after filter/decay handling.
-        uint24 volCarryAccumulator;
-        /// @notice Short-term cumulative impact accumulator (decay applied on read/update).
-        uint24 shortImpactPpm;
-        /// @notice Last timestamp for short-term impact decay.
-        uint40 shortLastTs;
     }
 
     // ==========================
@@ -95,12 +74,6 @@ interface IMemeverseUniswapHook {
         bool protocolFeeOnInput;
     }
 
-    struct LaunchFeeConfig {
-        uint24 startFeeBps;
-        uint24 minFeeBps;
-        uint32 decayDurationSeconds;
-    }
-
     /**
      * @notice Core quote API for the hook's latest swap state.
      * @dev Official integrations should prefer `MemeverseSwapRouter.quoteSwap(...)`. This low-level quote remains
@@ -115,6 +88,13 @@ interface IMemeverseUniswapHook {
         view
         returns (SwapQuote memory quote);
 
+    /// @notice Exposes the dynamic fee engine bound to this hook implementation.
+    /// @dev The engine address is owner-upgradeable via `upgradeDynamicFeeEngine`. After replacement,
+    ///      the new engine starts from zero dynamic-fee state (EWVWAP, volatility, short-impact all reset).
+    ///      UUPS upgrades of the hook itself do not affect the engine pointer — it lives in hook storage.
+    /// @return Engine used for dynamic fee quotes and realized swap state.
+    function dynamicFeeEngine() external view returns (IMemeverseDynamicFeeEngine);
+
     /// @notice Exposes the launcher consulted for post-unlock public-swap protection.
     /// @dev Returns the explicit launcher binding used by hook implementations for launch-state checks.
     /// @return Explicit launcher binding used for public-swap protection checks.
@@ -128,12 +108,43 @@ interface IMemeverseUniswapHook {
 
     /// @notice Exposes when a hook-managed pool was initialized.
     /// @dev The launch timestamp anchors the launch-fee decay schedule.
+    ///      UPGRADE INVARIANT: Hook.quoteSwap() reads this getter to assemble QuoteSwapContext for the engine.
+    ///      Hook UUPS upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
     /// @param poolId Pool being queried.
     /// @return Recorded launch timestamp.
     function poolLaunchTimestamp(PoolId poolId) external view returns (uint40);
 
+    /// @notice Returns the current dynamic fee state for a pool, sourced from the bound engine.
+    /// @dev The underlying state lives in the dynamic fee engine and is namespaced by hook address.
+    /// @param poolId Pool being queried.
+    /// @return weightedVolume0 Exponentially weighted token0 volume.
+    /// @return weightedPriceVolume0 Exponentially weighted (price * token0 volume) at 1e18 spot precision.
+    /// @return ewVWAPX18 Exponentially weighted VWAP spot in X18 precision.
+    /// @return volAnchorSqrtPriceX96 Anchor sqrt price used to measure reference-price deviation.
+    /// @return volLastMoveTs Last timestamp when the volatility deviation accumulator observed a non-zero move.
+    /// @return volDeviationAccumulator Accumulated reference-price deviation state.
+    /// @return volCarryAccumulator Carried-over accumulator after filter/decay handling.
+    /// @return shortImpactPpm Short-term cumulative impact accumulator (decay applied on read/update).
+    /// @return shortLastTs Last timestamp for short-term impact decay.
+    function poolDynamicFeeState(PoolId poolId)
+        external
+        view
+        returns (
+            uint256 weightedVolume0,
+            uint256 weightedPriceVolume0,
+            uint256 ewVWAPX18,
+            uint160 volAnchorSqrtPriceX96,
+            uint40 volLastMoveTs,
+            uint24 volDeviationAccumulator,
+            uint24 volCarryAccumulator,
+            uint24 shortImpactPpm,
+            uint40 shortLastTs
+        );
+
     /// @notice Exposes the default launch-fee decay schedule.
     /// @dev New pools use this configuration unless a future implementation introduces pool-specific overrides.
+    ///      UPGRADE INVARIANT: Hook.quoteSwap() reads this getter to assemble QuoteSwapContext for the engine.
+    ///      Hook UUPS upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
     /// @return startFeeBps Launch fee applied immediately after pool initialization.
     /// @return minFeeBps Floor fee reached after decay completes.
     /// @return decayDurationSeconds Time required for the launch fee to decay to its floor.
@@ -173,7 +184,7 @@ interface IMemeverseUniswapHook {
     /// @notice Updates the default launch-fee decay configuration.
     /// @dev Implementations are expected to restrict this to an admin or owner role.
     /// @param config New default launch-fee schedule.
-    function setDefaultLaunchFeeConfig(LaunchFeeConfig calldata config) external;
+    function setDefaultLaunchFeeConfig(IMemeverseDynamicFeeEngine.LaunchFeeConfig calldata config) external;
 
     /**
      * @notice Returns stored pool information for a hook-managed pool.
@@ -268,9 +279,6 @@ interface IMemeverseUniswapHook {
     /// @notice Emitted when a currency's protocol-fee support flag is updated.
     event ProtocolFeeCurrencySupportUpdated(Currency indexed currency, bool supported);
 
-    /// @notice Emitted when the emergency fixed-fee mode is toggled.
-    event EmergencyFlagUpdated(bool oldFlag, bool newFlag);
-
     /// @notice Emitted when the launcher binding is updated.
     event LauncherUpdated(address oldLauncher, address newLauncher);
 
@@ -342,6 +350,9 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when the pool fee configuration is not set to dynamic fee.
     error FeeMustBeDynamic();
 
+    /// @notice Reverts when a supplied PoolKey points at a different hook address.
+    error HookAddressMismatch();
+
     /// @notice Reverts when pool liquidity exists but no tracked LP shares can earn fees.
     error NoActiveLiquidityShares();
 
@@ -395,4 +406,28 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when a pool-manager upgrade target does not match the current manager.
     error UpgradePoolManagerMismatch(address currentPoolManager, address newPoolManager);
+
+    /// @notice Reverts when the hook and engine are constructed with different PoolManager addresses.
+    error DynamicFeeEnginePoolManagerMismatch(address hookPoolManager, address enginePoolManager);
+
+    /// @notice Reverts when the new dynamic fee engine has not authorized this hook as a caller.
+    error EngineNotAuthorizedCaller(address engine);
+
+    /// @notice Reverts when the dynamic fee engine owner is not the hook proxy itself.
+    error DynamicFeeEngineOwnerMismatch(address engine, address expectedOwner, address actualOwner);
+
+    /// @notice Migrates the hook to a new dynamic fee engine proxy.
+    /// @dev `newEngine` must be an initialized engine proxy owned by this hook proxy and authorized for this hook.
+    ///      Do not pass an implementation address here; use `upgradeDynamicFeeEngineImplementation` to upgrade the
+    ///      currently bound engine proxy implementation.
+    /// @param newEngine Initialized engine proxy owned by this hook proxy and authorized for this hook.
+    function upgradeDynamicFeeEngine(IMemeverseDynamicFeeEngine newEngine) external;
+
+    /// @notice Upgrades the implementation used by the currently bound dynamic fee engine proxy.
+    /// @param newImplementation New engine implementation address.
+    /// @param data Optional initialization or migration calldata forwarded to the engine upgrade.
+    function upgradeDynamicFeeEngineImplementation(address newImplementation, bytes calldata data) external;
+
+    /// @notice Emitted when the dynamic fee engine pointer is updated.
+    event DynamicFeeEngineUpdated(address oldEngine, address newEngine);
 }

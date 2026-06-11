@@ -795,6 +795,16 @@ contract MemeverseScript is BaseScript {
         require(_readAddress(swapRouter, "hook()") == hook, "ROUTER_HOOK_NOT_READY");
         require(_readAddress(hook, "launcher()") == MEMEVERSE_LAUNCHER, "HOOK_LAUNCHER_NOT_READY");
         require(_readAddress(hook, "poolInitializer()") == swapRouter, "HOOK_POOL_INITIALIZER_NOT_READY");
+
+        // DynamicFeeEngine must exist and be correctly bound to hook.
+        address engine = _readAddress(hook, "dynamicFeeEngine()");
+        _requireContractCode(engine, "ENGINE_CODE_NOT_READY");
+        require(_readAddress(engine, "authorizedHook()") == hook, "ENGINE_AUTHORIZED_HOOK_NOT_READY");
+        require(_readAddress(engine, "owner()") == hook, "ENGINE_OWNER_NOT_READY");
+        require(
+            _readAddress(engine, "poolManager()") == _readAddress(hook, "poolManager()"),
+            "ENGINE_POOL_MANAGER_NOT_READY"
+        );
     }
 
     function _hookFlags(address hook) internal pure returns (uint160) {

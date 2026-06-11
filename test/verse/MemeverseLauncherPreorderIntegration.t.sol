@@ -14,6 +14,7 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForRouterTest} from "../swap/MemeverseSwapRouter.t.sol";
@@ -369,9 +370,19 @@ contract MemeverseLauncherPreorderIntegrationTest is Test {
             )
         );
         launcher = MemeverseLauncher(address(new ERC1967Proxy(address(launcherImplementation), launcherInitData)));
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
+                )
+            )
+        );
         TestableMemeverseUniswapHookForLauncherIntegration implementation =
             new TestableMemeverseUniswapHookForLauncherIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this)));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine));
         hook = TestableMemeverseUniswapHookForLauncherIntegration(
             address(new ERC1967Proxy(address(implementation), data))
         );

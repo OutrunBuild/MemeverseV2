@@ -87,7 +87,9 @@
 
 - Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits` 等
 - RegistrationCenter：`SetSupportedUAsset`、`SetDurationDaysRange`、`SetRegisterGasLimit`
-- Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`EmergencyFlagUpdated`、`LauncherUpdated`、`DefaultLaunchFeeConfigUpdated`
+- Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`LauncherUpdated`、`PoolInitializerUpdated`、`PoolInitializationAuthorized`、`DefaultLaunchFeeConfigUpdated`、`DynamicFeeEngineUpdated`
+  - `DynamicFeeEngineUpdated`：在 `upgradeDynamicFeeEngine` 中 emit，标记 engine pointer 替换（非 implementation 升级）。
+  - `PoolInitializationAuthorized`：一次性授权消费事件，记录单次池初始化授权。
 - Interoperation：`SetGasLimits`
 - ProxyDeployer：`SetQuorumNumerator`
 

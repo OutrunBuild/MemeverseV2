@@ -12,7 +12,7 @@ import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -21,8 +21,10 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
+import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
@@ -259,60 +261,8 @@ contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
         return FEE_BASE_BPS;
     }
 
-    function exposedSpotX18FromSqrtPrice(uint160 sqrtPriceX96) external pure returns (uint256) {
-        return _spotX18FromSqrtPrice(sqrtPriceX96);
-    }
-
-    function exposedPriceMovePpmCapped(uint160 preSqrtPriceX96, uint160 postSqrtPriceX96)
-        external
-        pure
-        returns (uint256)
-    {
-        return _priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
-    }
-
     function exposedCachedLpTotalSupply(PoolId poolId) external view returns (uint256) {
         return _getMemeverseUniswapHookStorage().cachedLpTotalSupply[poolId];
-    }
-
-    function exposedSetBatchState(PoolId poolId, address account, uint192 accumPpm, uint64 startTs) external {
-        _getMemeverseUniswapHookStorage().addressBatchState[account][poolId] =
-            AddressBatchState({batchAccumPpm: accumPpm, batchStartTs: startTs});
-    }
-
-    function exposedVolatilitySqrtFeeBps(uint256 accumulator) external pure returns (uint256) {
-        return _volatilitySqrtFeeBps(accumulator);
-    }
-
-    function exposedPopulateDynamicFeeQuote(
-        uint256 pifPpm,
-        uint256 spotBeforeX18,
-        uint256 spotAfterX18,
-        uint256 weightedVolume0,
-        uint256 ewVWAPX18,
-        uint24 volDeviationAccumulator,
-        uint24 shortImpactPpm,
-        uint40 shortLastTs
-    ) external view returns (DynamicFeeQuote memory quote) {
-        quote.feeBps = FEE_BASE_BPS;
-        quote.pifPpm = pifPpm;
-        quote.spotBeforeX18 = spotBeforeX18;
-        quote.spotAfterX18 = spotAfterX18;
-
-        EWVWAPParams memory state;
-        state.weightedVolume0 = weightedVolume0;
-        state.ewVWAPX18 = ewVWAPX18;
-        state.volDeviationAccumulator = volDeviationAccumulator;
-        state.shortImpactPpm = shortImpactPpm;
-        state.shortLastTs = shortLastTs;
-
-        _populateDynamicFeeQuoteFromState(
-            quote,
-            state,
-            AddressBatchState(0, 0),
-            _volatilitySqrtFeeBps(volDeviationAccumulator),
-            _decayLinearPpm(shortImpactPpm, shortLastTs, SHORT_DECAY_WINDOW_SEC)
-        );
     }
 }
 
@@ -321,6 +271,25 @@ contract TestableMemeverseUniswapHookV2 is TestableMemeverseUniswapHook {
 
     function version() external pure returns (uint256) {
         return 2;
+    }
+}
+
+contract TestableMemeverseDynamicFeeEngineV2 is MemeverseDynamicFeeEngine {
+    bytes32 private constant MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION =
+        0xb7b6769a89985fd739eb1342563b5dbd4d11da8b84d601f10d877057788e0e00;
+    uint256 private constant AUTHORIZED_HOOK_OFFSET = 2;
+
+    constructor(IPoolManager _poolManager) MemeverseDynamicFeeEngine(_poolManager) {}
+
+    function version() external pure returns (uint256) {
+        return 2;
+    }
+
+    function migrateAuthorizedHook(address badAuthorizedHook) external {
+        bytes32 slot = bytes32(uint256(MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION) + AUTHORIZED_HOOK_OFFSET);
+        assembly {
+            sstore(slot, badAuthorizedHook)
+        }
     }
 }
 
@@ -428,6 +397,11 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         bytes4(keccak256("UnauthorizedPoolInitializer()"));
     bytes4 internal constant UPGRADE_POOL_MANAGER_MISMATCH_SELECTOR =
         bytes4(keccak256("UpgradePoolManagerMismatch(address,address)"));
+    bytes4 internal constant DYNAMIC_FEE_ENGINE_POOL_MANAGER_MISMATCH_SELECTOR =
+        bytes4(keccak256("DynamicFeeEnginePoolManagerMismatch(address,address)"));
+    bytes4 internal constant DYNAMIC_FEE_ENGINE_OWNER_MISMATCH_SELECTOR =
+        bytes4(keccak256("DynamicFeeEngineOwnerMismatch(address,address,address)"));
+    event DynamicFeeEngineUpdated(address oldEngine, address newEngine);
 
     MockPoolManagerForHookLiquidity internal mockManager;
     TestableMemeverseUniswapHook internal hook;
@@ -441,9 +415,34 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         internal
         returns (TestableMemeverseUniswapHook deployed)
     {
+        // Hook proxy is 3 CREATEs away: engine impl (+1), engine proxy (+2), hook impl (+3), hook proxy (+4).
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        MemeverseDynamicFeeEngine engine = _deployEngineProxyForManager(manager_, predictedHook, predictedHook);
         TestableMemeverseUniswapHook implementation = new TestableMemeverseUniswapHook(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
         deployed = TestableMemeverseUniswapHook(address(new ERC1967Proxy(address(implementation), data)));
+    }
+
+    function _deployEngineProxyForManager(IPoolManager manager_, address owner_)
+        internal
+        returns (MemeverseDynamicFeeEngine deployed)
+    {
+        deployed = _deployEngineProxyForManager(manager_, owner_, address(0xBAD));
+    }
+
+    function _deployEngineProxyForManager(IPoolManager manager_, address owner_, address authorizedHook_)
+        internal
+        returns (MemeverseDynamicFeeEngine deployed)
+    {
+        MemeverseDynamicFeeEngine implementation = new MemeverseDynamicFeeEngine(manager_);
+        deployed = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(implementation),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (owner_, authorizedHook_))
+                )
+            )
+        );
     }
 
     function _deployHookProxy(address owner_, address treasury_)
@@ -464,16 +463,16 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         return flags == expectedFlags;
     }
 
-    function _deployInvalidAddressProductionProxy(MemeverseUniswapHook implementation, bytes memory data) internal {
-        address predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+    function _nextInvalidProductionHookProxyAddress() internal returns (address predictedProxy) {
+        // Hook proxy is 3 CREATEs away: engine impl, engine proxy, hook impl, then hook proxy.
+        predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         for (uint256 i = 0; _hasExpectedHookPermissions(predictedProxy); i++) {
             require(i < 256, "ProxyDeploy: max burns exceeded");
             new MockERC20("DUMMY", "DUMMY", 18);
-            predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+            predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         }
 
         require(!_hasExpectedHookPermissions(predictedProxy), "hook-valid proxy");
-        new ERC1967Proxy(address(implementation), data);
     }
 
     /// @notice Executes set up.
@@ -1166,6 +1165,25 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
+    function testQuoteSwapReverts_WhenPoolKeyUsesDifferentHook() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+
+        PoolKey memory mismatchedKey = PoolKey({
+            currency0: key.currency0,
+            currency1: key.currency1,
+            fee: key.fee,
+            tickSpacing: key.tickSpacing,
+            hooks: IHooks(address(0xBEEF))
+        });
+
+        vm.expectRevert(IMemeverseUniswapHook.HookAddressMismatch.selector);
+        hook.quoteSwap(
+            mismatchedKey,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this)
+        );
+    }
+
     function testDirectManagerSwapReverts_WhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
 
@@ -1293,6 +1311,28 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(token0.balanceOf(address(hook)), hookToken0Before, "hook token0 unchanged");
     }
 
+    function testExecuteLaunchSettlement_RevertsWhenDynamicFeeEngineUnauthorized() external {
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+        hook.setLauncher(address(this));
+        token0.approve(address(hook), type(uint256).max);
+
+        // Bypass the admin guard so settlement exercises a broken bound engine directly.
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
+        bytes32 baseSlot = 0x9f27a56b97c42ac08d93ff5a852851d11eb052b06dc4c041fc6bfa4414f7e000;
+        vm.store(address(hook), bytes32(uint256(baseSlot) + 11), bytes32(uint256(uint160(address(newEngine)))));
+
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseDynamicFeeEngine.UnauthorizedCaller.selector, address(hook)));
+        hook.executeLaunchSettlement(
+            IMemeverseUniswapHook.LaunchSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+    }
+
     /// @notice Verifies launch fee floor dominates immediately after pool initialization and decays to the minimum fee.
     /// @dev Covers the new launch fee scheduler on top of the existing dynamic fee engine.
     function testQuoteSwap_UsesLaunchFeeFloorAndDecaysToMinFee() external {
@@ -1309,263 +1349,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
             key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
         );
         assertEq(maturedQuote.feeBps, 100, "matured fee");
-    }
-
-    function testDynamicFeeQuote_RevertingTradePaysBaseFeeOnly() external view {
-        MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: 50_000,
-            spotBeforeX18: 1.3e18,
-            spotAfterX18: 1.15e18,
-            weightedVolume0: 1,
-            ewVWAPX18: 1e18,
-            volDeviationAccumulator: 100_000,
-            shortImpactPpm: 50_000,
-            shortLastTs: uint40(block.timestamp)
-        });
-
-        assertFalse(quote.isAdverse, "reverting quote should not be adverse");
-        assertEq(quote.adverseImpactPartBps, 0, "reverting quote adverse impact");
-        assertEq(quote.volatilityPartBps, 0, "reverting quote volatility surcharge");
-        assertEq(quote.shortImpactPartBps, 0, "reverting quote short-impact surcharge");
-        assertEq(quote.feeBps, hook.exposedBaseFeeBps(), "reverting quote fee is base only");
-    }
-
-    function testDynamicFeeQuote_AdverseTradeStillPaysAllThreeSurcharges() external view {
-        MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: 50_000,
-            spotBeforeX18: 1.3e18,
-            spotAfterX18: 1.45e18,
-            weightedVolume0: 1,
-            ewVWAPX18: 1e18,
-            volDeviationAccumulator: 100_000,
-            shortImpactPpm: 50_000,
-            shortLastTs: uint40(block.timestamp)
-        });
-
-        assertTrue(quote.isAdverse, "adverse quote flag");
-        assertGt(quote.adverseImpactPartBps, 0, "adverse impact surcharge");
-        assertGt(quote.volatilityPartBps, 0, "volatility surcharge");
-        assertGt(quote.shortImpactPartBps, 0, "short-impact surcharge");
-        assertEq(
-            quote.feeBps,
-            hook.exposedBaseFeeBps() + quote.adverseImpactPartBps + quote.volatilityPartBps + quote.shortImpactPartBps,
-            "adverse quote fee composition"
-        );
-    }
-
-    function testDynamicFeeQuote_RevertingTradeCostsBaseAndLessThanAdverse() external view {
-        MemeverseUniswapHook.DynamicFeeQuote memory revertingQuote = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: 50_000,
-            spotBeforeX18: 1.3e18,
-            spotAfterX18: 1.15e18,
-            weightedVolume0: 1,
-            ewVWAPX18: 1e18,
-            volDeviationAccumulator: 100_000,
-            shortImpactPpm: 50_000,
-            shortLastTs: uint40(block.timestamp)
-        });
-        MemeverseUniswapHook.DynamicFeeQuote memory adverseQuote = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: 50_000,
-            spotBeforeX18: 1.3e18,
-            spotAfterX18: 1.45e18,
-            weightedVolume0: 1,
-            ewVWAPX18: 1e18,
-            volDeviationAccumulator: 100_000,
-            shortImpactPpm: 50_000,
-            shortLastTs: uint40(block.timestamp)
-        });
-
-        uint256 baseFeeBps = hook.exposedBaseFeeBps();
-        assertEq(revertingQuote.feeBps, baseFeeBps, "reverting quote equals base");
-        assertLt(revertingQuote.feeBps, adverseQuote.feeBps, "reverting quote below adverse");
-    }
-
-    function testDynamicFeeQuote_BatchAccumulationIncreasesAdverseFee() external {
-        // Pre-populate batch state with accumulated PIF.
-        // exposedPopulateDynamicFeeQuote uses PoolId.wrap(bytes32(0)) and address(0) internally,
-        // so we must match those exact keys for the batch lookup to find our state.
-        uint192 existingAccum = 50_000; // 50K ppm already accumulated
-        hook.exposedSetBatchState(PoolId.wrap(bytes32(0)), address(0), existingAccum, uint64(block.timestamp));
-
-        // No EWVWAP history => always adverse. The batch accumulator adds 50K ppm on top of
-        // the single-trade pifPpm, so the adverse fee part must be strictly positive.
-        MemeverseUniswapHook.DynamicFeeQuote memory quote = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: 10_000,
-            spotBeforeX18: 1e18,
-            spotAfterX18: 1.01e18,
-            weightedVolume0: 0,
-            ewVWAPX18: 0,
-            volDeviationAccumulator: 0,
-            shortImpactPpm: 0,
-            shortLastTs: 0
-        });
-
-        assertGt(quote.adverseImpactPartBps, 0, "batch adverse fee > 0");
-    }
-
-    function testVolatilitySqrtFeeBps_ZeroAccumulator() external view {
-        assertEq(hook.exposedVolatilitySqrtFeeBps(0), 0, "zero accumulator must yield 0 bps");
-    }
-
-    function testVolatilitySqrtFeeBps_MaxAccumulator_IsExactly50Bps() external view {
-        assertEq(hook.exposedVolatilitySqrtFeeBps(1_500_000), 50, "max accumulator must yield exactly VOL_MAX_FEE_BPS");
-    }
-
-    function testVolatilitySqrtFeeBps_HalfAccumulator() external view {
-        // sqrt(0.5) * 50 ≈ 35.35 → 35 bps with integer truncation
-        assertEq(hook.exposedVolatilitySqrtFeeBps(750_000), 35, "half accumulator");
-    }
-
-    function testMath_SpotX18FromSqrtPrice_ExactAtReferencePoints() external view {
-        assertEq(hook.exposedSpotX18FromSqrtPrice(SQRT_PRICE_1_1), 1e18, "q96");
-        assertEq(hook.exposedSpotX18FromSqrtPrice(SQRT_PRICE_1_1 - 1), 999999999999999999, "q96-1");
-        assertEq(hook.exposedSpotX18FromSqrtPrice(SQRT_PRICE_1_1 + 1), 1e18, "q96+1");
-        assertEq(hook.exposedSpotX18FromSqrtPrice(TickMath.MIN_SQRT_PRICE + 1), 0, "min+1");
-        assertEq(
-            hook.exposedSpotX18FromSqrtPrice(TickMath.MAX_SQRT_PRICE - 1),
-            340256786836388094070642339899681172762184831912254825631,
-            "max-1"
-        );
-        assertEq(
-            hook.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_128_PLUS_1), 18446744073709551616000000000000000000, "2^128+1"
-        );
-        assertEq(
-            hook.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_128_64_12345),
-            18446744073709551618000000000000001338,
-            "2^128+2^64+12345"
-        );
-        assertEq(
-            hook.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_128_127_PLUS_1),
-            41505174165846491136000000000000000000,
-            "2^128+2^127+1"
-        );
-        assertEq(
-            hook.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_129_MINUS_1), 73786976294838206463999999999999999999, "2^129-1"
-        );
-        assertEq(
-            hook.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_140_PLUS_987654321),
-            309485009821345068724781056000000438606627017,
-            "2^140+987654321"
-        );
-    }
-
-    function testMath_PriceMovePpmCapped_ReturnsZeroWhenUnchanged() external view {
-        assertEq(hook.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, SQRT_PRICE_1_1), 0, "unchanged");
-    }
-
-    function testMath_PriceMovePpmCapped_MatchesKnownLowerBoundSample() external view {
-        uint160 pre = TickMath.MIN_SQRT_PRICE + 1;
-        uint160 post = pre + 500_000;
-
-        assertEq(hook.exposedPriceMovePpmCapped(pre, post), 232, "hook lower bound");
-    }
-
-    function testMath_PriceMovePpmCapped_SaturatesAtCapInBothDirections() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-
-        assertEq(hook.exposedPriceMovePpmCapped(pre, TickMath.MAX_SQRT_PRICE - 1), PIF_CAP_PPM, "up saturates");
-        assertEq(hook.exposedPriceMovePpmCapped(pre, TickMath.MIN_SQRT_PRICE + 1), PIF_CAP_PPM, "down saturates");
-    }
-
-    function testMath_PriceMovePpmCapped_Preserves59999And60000BoundariesUp() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_59_999_UP_POST), 59_999, "hook 59999 up");
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_60_000_UP_POST), 60_000, "hook 60000 up");
-    }
-
-    function testMath_PriceMovePpmCapped_Preserves59999And60000BoundariesDown() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_59_999_DOWN_POST), 59_999, "hook 59999 down");
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_60_000_DOWN_POST), 60_000, "hook 60000 down");
-    }
-
-    function testMath_PriceMovePpmCapped_Preserves149999And150000BoundariesUp() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_149_999_UP_POST), 149_999, "hook 149999 up");
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_150_000_UP_POST), 150_000, "hook 150000 up");
-    }
-
-    function testMath_PriceMovePpmCapped_Preserves149999And150000BoundariesDown() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_149_999_DOWN_POST), 149_999, "hook 149999 down");
-        assertEq(hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_150_000_DOWN_POST), 150_000, "hook 150000 down");
-    }
-
-    function testMath_PriceMovePpmCapped_UsesExactFallbackOutsideCapEdges() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-        uint160 post = PRICE_MOVE_AMBIGUOUS_POST;
-
-        assertEq(_approxRatioMovePpm(pre, post), 999, "approx candidate");
-        assertEq(hook.exposedPriceMovePpmCapped(pre, post), 1000, "hook exact");
-    }
-
-    function testMath_DynamicFeeQuote_Tracks59999And60000AdverseFeeBoundary() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-        uint256 spotBefore = hook.exposedSpotX18FromSqrtPrice(pre);
-
-        MemeverseUniswapHook.DynamicFeeQuote memory quote59999 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_59_999_UP_POST),
-            spotBeforeX18: spotBefore,
-            spotAfterX18: hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_59_999_UP_POST),
-            weightedVolume0: 0,
-            ewVWAPX18: 0,
-            volDeviationAccumulator: 0,
-            shortImpactPpm: 0,
-            shortLastTs: 0
-        });
-        MemeverseUniswapHook.DynamicFeeQuote memory quote60000 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_60_000_UP_POST),
-            spotBeforeX18: spotBefore,
-            spotAfterX18: hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_60_000_UP_POST),
-            weightedVolume0: 0,
-            ewVWAPX18: 0,
-            volDeviationAccumulator: 0,
-            shortImpactPpm: 0,
-            shortLastTs: 0
-        });
-
-        assertEq(quote59999.pifPpm, 59_999, "pif 59999");
-        assertEq(quote60000.pifPpm, 60_000, "pif 60000");
-        assertEq(quote59999.feeBps, _expectedFeeBps(59_999), "fee 59999");
-        assertEq(quote60000.feeBps, _expectedFeeBps(60_000), "fee 60000");
-        assertLt(quote59999.feeBps, quote60000.feeBps, "fee boundary ordering");
-    }
-
-    function testMath_DynamicFeeQuote_Tracks149999And150000ShortImpactBoundary() external view {
-        uint160 pre = SQRT_PRICE_1_1;
-        uint256 spotBefore = hook.exposedSpotX18FromSqrtPrice(pre);
-        uint256 spot149999 = hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_149_999_UP_POST);
-        uint256 spot150000 = hook.exposedSpotX18FromSqrtPrice(PRICE_MOVE_150_000_UP_POST);
-
-        MemeverseUniswapHook.DynamicFeeQuote memory quote149999 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_149_999_UP_POST),
-            spotBeforeX18: spotBefore,
-            spotAfterX18: spot149999,
-            weightedVolume0: 0,
-            ewVWAPX18: 0,
-            volDeviationAccumulator: 0,
-            shortImpactPpm: 0,
-            shortLastTs: 0
-        });
-        MemeverseUniswapHook.DynamicFeeQuote memory quote150000 = hook.exposedPopulateDynamicFeeQuote({
-            pifPpm: hook.exposedPriceMovePpmCapped(pre, PRICE_MOVE_150_000_UP_POST),
-            spotBeforeX18: spotBefore,
-            spotAfterX18: spot150000,
-            weightedVolume0: 0,
-            ewVWAPX18: 0,
-            volDeviationAccumulator: 0,
-            shortImpactPpm: 0,
-            shortLastTs: 0
-        });
-
-        assertEq(quote149999.pifPpm, 149_999, "pif 149999");
-        assertEq(quote150000.pifPpm, 150_000, "pif 150000");
-        assertEq(quote149999.shortImpactPartBps, _expectedShortBps(149_999), "short 149999");
-        assertEq(quote150000.shortImpactPartBps, _expectedShortBps(150_000), "short 150000");
     }
 
     /// @notice Verifies launch settlement can only be initiated by the bound launcher.
@@ -1634,26 +1417,28 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 5000, minFeeBps: 100, decayDurationSeconds: 0})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 5000, minFeeBps: 100, decayDurationSeconds: 0})
         );
 
         vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 99, minFeeBps: 100, decayDurationSeconds: 900})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 99, minFeeBps: 100, decayDurationSeconds: 900})
         );
 
         vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 10_001, minFeeBps: 100, decayDurationSeconds: 900})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 10_001, minFeeBps: 100, decayDurationSeconds: 900})
         );
 
         vm.expectRevert(IMemeverseUniswapHook.ZeroValue.selector);
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 5_000, minFeeBps: 10_001, decayDurationSeconds: 900})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({
+                startFeeBps: 5_000, minFeeBps: 10_001, decayDurationSeconds: 900
+            })
         );
 
         hook.setDefaultLaunchFeeConfig(
-            IMemeverseUniswapHook.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 100, decayDurationSeconds: 900})
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 100, decayDurationSeconds: 900})
         );
 
         (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds) = hook.defaultLaunchFeeConfig();
@@ -1663,11 +1448,20 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     function testImplementationInitializeReverts() external {
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(mockManager)));
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (address(this), address(this)))
+                )
+            )
+        );
         TestableMemeverseUniswapHook implementation =
             new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        implementation.initialize(address(this), address(this));
+        implementation.initialize(address(this), address(this), engine);
     }
 
     function testProxyInitializeSetsOwnerTreasuryAndLaunchFeeConfig() external {
@@ -1683,11 +1477,32 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     function testProductionProxyInitializeRevertsWhenProxyAddressHasInvalidHookFlags() external {
+        address predictedProxy = _nextInvalidProductionHookProxyAddress();
+        MemeverseDynamicFeeEngine engine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), predictedProxy, predictedProxy);
         MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this)));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine));
 
-        vm.expectRevert();
-        _deployInvalidAddressProductionProxy(implementation, data);
+        vm.expectRevert(abi.encodeWithSelector(Hooks.HookAddressNotValid.selector, predictedProxy));
+        new ERC1967Proxy(address(implementation), data);
+    }
+
+    function testProxyInitializeRevertsWhenEngineOwnerIsNotHook() external {
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        MemeverseDynamicFeeEngine engine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this), predictedHook);
+        TestableMemeverseUniswapHook implementation =
+            new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DYNAMIC_FEE_ENGINE_OWNER_MISMATCH_SELECTOR, address(engine), predictedHook, address(this)
+            )
+        );
+        new ERC1967Proxy(
+            address(implementation),
+            abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine))
+        );
     }
 
     function testNonOwnerCannotUpgrade() external {
@@ -1704,7 +1519,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         TestableMemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
         initialized.setLauncher(address(0xD00D));
         initialized.setPoolInitializer(address(0xBEEF));
-        initialized.setEmergencyFlag(true);
 
         TestableMemeverseUniswapHookV2 newImplementation =
             new TestableMemeverseUniswapHookV2(IPoolManager(address(mockManager)));
@@ -1716,7 +1530,6 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(initialized.treasury(), address(0xFEE), "treasury");
         assertEq(initialized.launcher(), address(0xD00D), "launcher");
         assertEq(initialized.poolInitializer(), address(0xBEEF), "poolInitializer");
-        assertTrue(initialized.emergencyFlag(), "emergencyFlag");
     }
 
     function testOwnerCannotUpgradeToImplementationWithDifferentPoolManager() external {
@@ -1733,11 +1546,220 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         initialized.upgradeToAndCall(address(newImplementation), bytes(""));
     }
 
+    function testConstructorRevertsWhenPoolManagerIsZero() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        new TestableMemeverseUniswapHook(IPoolManager(address(0)));
+    }
+
     function testProxyInitializeRevertsOnSecondCall() external {
         TestableMemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
+        IMemeverseDynamicFeeEngine engine = IMemeverseDynamicFeeEngine(address(initialized.dynamicFeeEngine()));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        initialized.initialize(address(0xABCD), address(0xBEEF));
+        initialized.initialize(address(0xABCD), address(0xBEEF), engine);
+    }
+
+    function testUpgradeDynamicFeeEngineRevertsForInvalidEngine() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.upgradeDynamicFeeEngine(IMemeverseDynamicFeeEngine(address(0)));
+
+        MockPoolManagerForHookLiquidity differentManager = new MockPoolManagerForHookLiquidity();
+        MemeverseDynamicFeeEngine differentEngine =
+            _deployEngineProxyForManager(IPoolManager(address(differentManager)), address(this));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DYNAMIC_FEE_ENGINE_POOL_MANAGER_MISMATCH_SELECTOR, address(mockManager), address(differentManager)
+            )
+        );
+        hook.upgradeDynamicFeeEngine(differentEngine);
+    }
+
+    function testUpgradeDynamicFeeEngineRevertsForNonOwner() external {
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
+
+        vm.prank(address(0xB0B));
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
+        hook.upgradeDynamicFeeEngine(newEngine);
+    }
+
+    function testUpgradeDynamicFeeEngineUpdatesPointerAndEmitsEvent() external {
+        address oldEngine = address(hook.dynamicFeeEngine());
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(hook), address(hook));
+
+        vm.expectEmit(false, false, false, true);
+        emit DynamicFeeEngineUpdated(oldEngine, address(newEngine));
+        hook.upgradeDynamicFeeEngine(newEngine);
+
+        assertEq(address(hook.dynamicFeeEngine()), address(newEngine), "engine pointer");
+    }
+
+    function testHookUpgradePreservesDynamicFeeEnginePointer() external {
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(hook), address(hook));
+        hook.upgradeDynamicFeeEngine(newEngine);
+
+        TestableMemeverseUniswapHookV2 newImplementation =
+            new TestableMemeverseUniswapHookV2(IPoolManager(address(mockManager)));
+        hook.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        assertEq(TestableMemeverseUniswapHookV2(address(hook)).version(), 2, "version");
+        assertEq(address(hook.dynamicFeeEngine()), address(newEngine), "engine pointer");
+    }
+
+    /// @notice Regression: upgrading to an engine that hasn't authorized this hook must revert.
+    /// @dev Without this guard, all subsequent swaps and settlements revert with UnauthorizedCaller.
+    function testUpgradeDynamicFeeEngineRevertsForUnauthorizedEngine() external {
+        // Deploy engine that authorizes a different address (not this hook).
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IMemeverseUniswapHook.EngineNotAuthorizedCaller.selector, address(newEngine))
+        );
+        hook.upgradeDynamicFeeEngine(newEngine);
+    }
+
+    function testUpgradeDynamicFeeEngineRejectsBareImplementationAddress() external {
+        MemeverseDynamicFeeEngine bareImplementation = new MemeverseDynamicFeeEngine(IPoolManager(address(mockManager)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseUniswapHook.EngineNotAuthorizedCaller.selector, address(bareImplementation)
+            )
+        );
+        hook.upgradeDynamicFeeEngine(bareImplementation);
+    }
+
+    function testUpgradeDynamicFeeEngineRevertsWhenEngineOwnerIsNotHook() external {
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this), address(hook));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DYNAMIC_FEE_ENGINE_OWNER_MISMATCH_SELECTOR, address(newEngine), address(hook), address(this)
+            )
+        );
+        hook.upgradeDynamicFeeEngine(newEngine);
+    }
+
+    function testTransferredHookOwnerControlsCurrentEngineImplementationUpgradeThroughHookOnly() external {
+        address oldOwner = address(this);
+        address newOwner = address(0xA11CE);
+        MemeverseDynamicFeeEngine currentEngine = MemeverseDynamicFeeEngine(address(hook.dynamicFeeEngine()));
+        TestableMemeverseDynamicFeeEngineV2 newImplementation =
+            new TestableMemeverseDynamicFeeEngineV2(IPoolManager(address(mockManager)));
+
+        hook.transferOwnership(newOwner);
+
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, oldOwner));
+        currentEngine.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        (bool oldOwnerHookUpgradeSucceeded, bytes memory oldOwnerHookUpgradeData) = address(hook)
+            .call(
+                abi.encodeWithSignature(
+                    "upgradeDynamicFeeEngineImplementation(address,bytes)", address(newImplementation), bytes("")
+                )
+            );
+        assertFalse(oldOwnerHookUpgradeSucceeded, string(oldOwnerHookUpgradeData));
+
+        vm.prank(newOwner);
+        (bool newOwnerHookUpgradeSucceeded, bytes memory newOwnerHookUpgradeData) = address(hook)
+            .call(
+                abi.encodeWithSignature(
+                    "upgradeDynamicFeeEngineImplementation(address,bytes)", address(newImplementation), bytes("")
+                )
+            );
+        assertTrue(newOwnerHookUpgradeSucceeded, string(newOwnerHookUpgradeData));
+        assertEq(TestableMemeverseDynamicFeeEngineV2(address(currentEngine)).version(), 2, "engine version");
+    }
+
+    function testUpgradeDynamicFeeEngineImplementationRevertsWhenMigrationBreaksAuthorizedHook() external {
+        MemeverseDynamicFeeEngine currentEngine = MemeverseDynamicFeeEngine(address(hook.dynamicFeeEngine()));
+        TestableMemeverseDynamicFeeEngineV2 newImplementation =
+            new TestableMemeverseDynamicFeeEngineV2(IPoolManager(address(mockManager)));
+        address badAuthorizedHook = address(0xB0B);
+        bytes memory migrationData =
+            abi.encodeCall(TestableMemeverseDynamicFeeEngineV2.migrateAuthorizedHook, (badAuthorizedHook));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IMemeverseUniswapHook.EngineNotAuthorizedCaller.selector, address(currentEngine))
+        );
+        hook.upgradeDynamicFeeEngineImplementation(address(newImplementation), migrationData);
+
+        assertEq(currentEngine.authorizedHook(), address(hook), "authorized hook unchanged");
+    }
+
+    // ── Upgrade regression: real engine swap after upgrade ──────────
+
+    function test_UpgradeEngine_ThenSwap_SucceedsWithRealFeeMath() external {
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(hook), address(hook));
+        hook.upgradeDynamicFeeEngine(newEngine);
+
+        assertEq(address(hook.dynamicFeeEngine()), address(newEngine), "engine pointer");
+
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+        vm.warp(block.timestamp + 900);
+
+        BalanceDelta delta = mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+
+        assertTrue(delta.amount0() < 0, "consumed input");
+        assertTrue(delta.amount1() > 0, "produced output");
+
+        // Real engine must have written EWVWAP state — proves full fee math path executed.
+        IMemeverseDynamicFeeEngine.DynamicFeeState memory state = newEngine.getDynamicFeeState(address(hook), poolId);
+        assertTrue(state.weightedVolume0 > 0, "EWVWAP state accumulated");
+    }
+
+    function test_UpgradeEngine_MultipleSwaps_StateAccumulates() external {
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(hook), address(hook));
+        hook.upgradeDynamicFeeEngine(newEngine);
+
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+        vm.warp(block.timestamp + 900);
+
+        // First swap — engine state starts accumulating
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+        IMemeverseDynamicFeeEngine.DynamicFeeState memory state1 = newEngine.getDynamicFeeState(address(hook), poolId);
+        assertTrue(state1.weightedVolume0 > 0, "first swap wrote EWVWAP state");
+
+        // Second swap — engine still active, state remains non-zero
+        vm.warp(block.timestamp + 1);
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+        IMemeverseDynamicFeeEngine.DynamicFeeState memory state2 = newEngine.getDynamicFeeState(address(hook), poolId);
+        assertTrue(state2.weightedVolume0 > 0, "second swap preserved EWVWAP state");
+        assertTrue(state2.shortLastTs > state1.shortLastTs, "short impact timestamp advanced");
+    }
+
+    /// @notice Deploy engine with a different authorized hook — engine rejects the hot-path call.
+    function test_UpgradeEngine_UnauthorizedHook_SwapReverts() external {
+        // Deploy engine authorized to a different address, not this hook.
+        // Use vm.store to bypass upgradeDynamicFeeEngine's authorization check.
+        MemeverseDynamicFeeEngine newEngine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
+        bytes32 baseSlot = 0x9f27a56b97c42ac08d93ff5a852851d11eb052b06dc4c041fc6bfa4414f7e000;
+        vm.store(address(hook), bytes32(uint256(baseSlot) + 11), bytes32(uint256(uint160(address(newEngine)))));
+
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+        vm.warp(block.timestamp + 900);
+
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseDynamicFeeEngine.UnauthorizedCaller.selector, address(hook)));
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
     }
 
     struct RollbackSnapshot {
@@ -1760,7 +1782,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         s.treasury0 = token0.balanceOf(hook.treasury());
         s.treasury1 = token1.balanceOf(hook.treasury());
         (, s.fee0PerShare, s.fee1PerShare) = hook.poolInfo(poolId);
-        (s.wv0,, s.ewVWAP, s.volAnchor,, s.volDev,, s.shortImpact,) = hook.poolEWVWAPParams(poolId);
+        (s.wv0,, s.ewVWAP, s.volAnchor,, s.volDev,, s.shortImpact,) = hook.poolDynamicFeeState(poolId);
     }
 
     function _assertRollbackUnchanged(RollbackSnapshot memory s) internal view {
@@ -1772,7 +1794,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(fee0, s.fee0PerShare, "fee0 per share unchanged");
         assertEq(fee1, s.fee1PerShare, "fee1 per share unchanged");
         (uint256 wv0,, uint256 ewvwap, uint160 volAnchor,, uint24 volDev,, uint24 shortImpact,) =
-            hook.poolEWVWAPParams(poolId);
+            hook.poolDynamicFeeState(poolId);
         assertEq(wv0, s.wv0, "ewvwap weightedVolume0 unchanged");
         assertEq(ewvwap, s.ewVWAP, "ewvwap unchanged");
         assertEq(volAnchor, s.volAnchor, "vol anchor unchanged");

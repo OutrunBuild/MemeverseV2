@@ -35,7 +35,8 @@
 | `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/governance/GovernanceCycleIncentivizerUpgradeable.sol`（`_authorizeUpgrade`）; `src/verse/deployment/MemeverseProxyDeployer.sol`（proxy 部署） |
 | `POLend` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, interestRate_, leveragedDebtFactor_, treasury_, launcher_, splitter_)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLend.sol`（`_authorizeUpgrade`） |
 | `POLSplitter` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, _launcher)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLSplitter.sol`（`_authorizeUpgrade`） |
-| `MemeverseUniswapHook` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, treasury_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseUniswapHook.sol`（`_authorizeUpgrade`） |
+| `MemeverseDynamicFeeEngine` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, authorizedHook_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseDynamicFeeEngine.sol:85`, `:103-113` |
+| `MemeverseUniswapHook` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, treasury_, dynamicFeeEngine_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseUniswapHook.sol:177`, `:228-235` |
 
 ## 3. 初始化约束（当前代码实际支持）
 
@@ -97,7 +98,8 @@
 - `POLend` 与 `POLSplitter` 不由 `MemeverseProxyDeployer` 部署；它们通过外部脚本/工厂独立部署，并以 Launcher `initialize(...)` 参数 `polend_`、`polSplitter_` 接线。其 proxy 部署与升级授权独立于 ProxyDeployer。`[代码已证]`
 - Launcher 保存的是 `POLend` / `POLSplitter` 的 proxy 地址，当前规范不提供 setter、地址级替换、迁移或降级零地址模式；这只约束 proxy 地址本身，不否定 proxy 实现升级。`POLend` 与 `POLSplitter` 均为 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行。`[代码已证]`
 - `MemeverseUniswapHook` 也是 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行，并额外通过新实现暴露的 `poolManager()` getter 检查返回地址是否与当前 `poolManager` 一致。该检查是防止诚实升级误部署错误 PoolManager 构造参数的 guardrail，不是针对恶意 owner 或恶意新实现的安全边界；新实现可以自定义 getter 返回期望地址。`poolManager` 不在 proxy storage 中，升级替换字节码后若真实值不同，hook 回调将指向错误目标，导致所有 swap 和流动性操作永久失效。`[代码已证]`
-- `MemeverseUniswapHook.initialize(initialOwner, treasury_)` 初始化 owner、treasury 与默认启动费率配置；成功初始化时会触发 `TreasuryUpdated(address(0), treasury_)` 与 `DefaultLaunchFeeConfigUpdated(0,0,0,5000,100,900)`，作为代理实例的初始配置事件。`[代码已证]`
+- `MemeverseDynamicFeeEngine.initialize(initialOwner, authorizedHook_)` 初始化 owner 与 authorizedHook；`authorizedHook_` 在首次部署后不可变更，限定唯一 Hook proxy 可写入 engine fee state。`_authorizeUpgrade(...)` 由 `onlyOwner` 放行，并额外校验新实现的 `poolManager()` getter 返回值与当前 immutable `poolManager` 一致（防诚实升级误部署的 guardrail，非安全边界）。`[代码已证]`
+- `MemeverseUniswapHook.initialize(initialOwner, treasury_, dynamicFeeEngine_)` 初始化 owner、treasury、dynamicFeeEngine 绑定与默认启动费率配置。初始化时执行双向绑定校验：`dynamicFeeEngine_.authorizedHook() == address(this)` 且 `dynamicFeeEngine_.owner() == address(this)`；前者确保 engine 仅接受本 hook 的 fee state 写入，后者确保 hook 持有 engine 的 UUPS 升级授权。部署顺序为 engine impl → engine proxy（owner=hook proxy, authorizedHook=hook proxy）→ hook impl → hook proxy（传入 engine 地址）。成功初始化时会触发 `TreasuryUpdated(address(0), treasury_)` 与 `DefaultLaunchFeeConfigUpdated(0,0,0,5000,100,900)`。`[代码已证]`
 - `POLend.initialize(...)` 必须拒绝 `leveragedDebtFactor_ > uint128.max * 1e18`；后续 owner setter 使用同一技术上限，升级不得放宽该边界。`[代码已证]`
 
 ## 5. 与文档链的关系

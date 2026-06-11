@@ -30,7 +30,6 @@
 | `MemeverseRegistrarOmnichain` | `registrationGasLimit`（base/local/omnichain） | `setRegistrationGasLimit` | owner-only（数值不做额外边界） | remote registrar -> center 的 quote/send gas 预算 | `[代码已证]` |
 | `MemeverseUniswapHook` | `treasury` | `setTreasury` | 非零 | protocol fee 接收地址 | `[代码已证]` |
 | `MemeverseUniswapHook` | `supportedProtocolFeeCurrencies[currency]` | `setProtocolFeeCurrency` / `setProtocolFeeCurrencySupport` | owner-only | 协议费币种选择（输入侧优先） | `[代码已证]` |
-| `MemeverseUniswapHook` | `emergencyFlag` | `setEmergencyFlag` | owner-only | 动态费（adverse/volatility/short 三分量）退化到 base fee | `[代码已证]` |
 | `MemeverseUniswapHook` | `launcher` | `setLauncher` | 非零；允许 owner 在部署后 retarget，属于同一 trust boundary 的接受语义 | launch settlement 授权 + pair-based `setPublicSwapResumeTime` 写入权限绑定 | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig={start,min,decaySeconds}` | `setDefaultLaunchFeeConfig` | 全部非零；`min<=start<=10000` | 启动窗口费率衰减 | `[代码已证]` |
 | `MemeverseOmnichainInteroperation` | `oftReceiveGasLimit`,`omnichainStakingGasLimit` | `setGasLimits` | 两者 `>0` | memecoin 远端 staking OFT options | `[代码已证]` |
@@ -76,6 +75,7 @@ canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy
 | `MemeverseUniswapHook` | `LAUNCH_SETTLEMENT_FEE_BPS` | `100` | 启动结算固定 1% | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig` 初始值 | `start=5000,min=100,decay=900s` | proxy `initialize(initialOwner, treasury_)` 初始化；owner 可通过 `setDefaultLaunchFeeConfig(...)` 后续修改 | `[代码已证]` |
 | `MemeverseSwapRouter` | `hook`,`permit2` | 构造注入（immutable） | 外部依赖地址，部署后不可改 | `[代码已证]` |
+| `DeployMemeverseHookProxy` | `DEPLOYMENT_NONCE` | 首次 `0`，每次新部署递增 | 嵌入 CREATE3 salt，决定 engine impl/proxy + hook impl/proxy 四份合约地址；同 nonce 同配置幂等，同 nonce 不同配置 revert，失败后递增 nonce 重试 | `[代码已证]` |
 | `MemeverseLauncher` | `UNLOCK_PROTECTION_WINDOW` | `24 hours` 固定常量 | 不再暴露 owner 配置面；用于 `Locked -> Unlocked` 后受保护公开 swap 的固定恢复窗口 | `[代码已证]` |
 | `MemeverseLauncher` / `POLend` | `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` | `type(uint128).max` | 普通创世与杠杆创世共享的聚合部署资金上限；preorder 不计入该口径 | `[代码已证]` |
 | `GovernanceCycleIncentivizerUpgradeable` | `CYCLE_DURATION` | `90 days` | 治理周期长度 | `[代码已证]` |

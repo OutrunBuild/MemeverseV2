@@ -10,7 +10,7 @@
 
 ## 2. 角色与职责边界
 
-- `owner`：改配置、应急开关、地址指针调整。`[代码已证]`
+- `owner`：改配置、地址指针调整。`[代码已证]`
 - `keeper/executor`：推进阶段、触发 fee 分发并领取执行奖励。`[代码已证]`
 - 任意用户：参与 Genesis/Preorder、领取、赎回、staking。`[代码已证]`
 - registrar/center：注册链路入口与跨链 fan-out。`[代码已证]`
@@ -87,8 +87,8 @@
 
 ### 3.6 Swap/LP 运维配置
 
-- Hook owner 可改：`treasury`、protocol fee 币种支持、`emergencyFlag`、`launcher`、launch fee 衰减参数。
-- `emergencyFlag` 启用后，所有 swap 的动态费计算回退为仅收 base fee（`FEE_BASE_BPS = 100`，即 1%），adverse / volatility / short-term 分量全部跳过；launch fee 衰减下限不受影响。`[代码已证]`
+- Hook owner 可改：`treasury`、protocol fee 币种支持、`launcher`、launch fee 衰减参数。
+- 公开 swap 始终使用正常费率路径：`feeBps = max(current launch fee, dynamic fee, FEE_BASE_BPS)`；dynamic fee engine 故障通过升级/修复处理，不提供 bypass mode。`[代码已证]`
 - Launcher owner 配置 router / hook 时，会同时校验 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`，配置不一致会直接拒绝；其中 `memeverseUniswapHook` 仅允许首次设置。`[代码已证]`
 - Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内运维能力，不否定 set-time 三重校验的必要性。`[代码已证]`
 - `createPoolAndAddLiquidity(...)` 的 `onlyLauncher` 是有意设计；建池要求 `Launcher -> Router` 调用链，并要求 Hook 的 `poolInitializer` 授权 Router。部署或配置变更后必须复核：`launcher.memeverseSwapRouter()==router`、`launcher.memeverseUniswapHook()==hook`、`router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；`Genesis -> Locked` 建池前也会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
@@ -394,6 +394,51 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 - 对 Governor 调用 `state(proposalId)` 确认治理状态机正常
 
 `[代码已证]`
+
+### 3.9 Hook + Engine 部署流程
+
+部署脚本 `script/DeployMemeverseHookProxy.s.sol` 通过 OutrunDeployer（CREATE3）按序部署四份合约：
+
+1. Engine 实现（`MemeverseDynamicFeeEngine`）
+2. Engine proxy（`ERC1967Proxy`，initialize 绑定 hook owner + authorized hook）
+3. Hook 实现（`MemeverseUniswapHook`）
+4. Hook proxy（`ERC1967Proxy`，initialize 绑定 owner/treasury/engine）
+
+四份合约地址由 `(deployer, DEPLOYMENT_NONCE)` 唯一确定。同一 nonce 重跑是幂等的：已部署的同配置 proxy 会被复用，中间合约若已存在则 revert。
+
+**所需环境变量**（见 `.env.example`）：
+
+| 变量 | 说明 |
+| --- | --- |
+| `PRIVATE_KEY` | 部署者私钥 |
+| `OUTRUN_DEPLOYER` | 目标链 OutrunDeployer 地址 |
+| `POOL_MANAGER` | 目标链 Uniswap v4 PoolManager 地址 |
+| `HOOK_OWNER` | Hook proxy owner |
+| `HOOK_TREASURY` | protocol fee 接收地址 |
+| `DEPLOYMENT_NONCE` | 部署版本号，首次用 `0`，每次新部署递增 |
+| `EXPECTED_HOOK_IMPLEMENTATION_CODEHASH` | 可选，用于同 nonce 复用时校验实现字节码 |
+| `EXPECTED_ENGINE_IMPLEMENTATION_CODEHASH` | 可选，同上 |
+
+**`DEPLOYMENT_NONCE` 语义**：
+
+- 嵌入所有 CREATE3 salt，决定四份合约的最终地址
+- 同 nonce + 同配置 → 幂等复用
+- 同 nonce + 不同配置 → revert（中间合约不可复用）
+- 不同 nonce → 全新地址集
+
+**原子性保证**：
+
+`run()` 和 `deployHookProxy()` 在单笔交易中执行全部四步 CREATE3 部署。任一步失败则整笔交易回滚，不会留下中间部署的僵尸合约，CREATE3 salt 也不会被消耗。
+
+**⚠️ 禁止拆分部署步骤到多笔交易**。Engine proxy 在部署时立即以预测的 hook proxy 地址初始化（owner 和 authorizedHook 均为 hook proxy 地址）。这是因为 hook 的 `initialize()` 会验证 `engine.authorizedHook() == address(this)`，所以 engine 必须先于 hook 初始化。Hook proxy 地址在部署前已通过 CREATE3 salt 挖矿确定。
+
+若将 engine proxy 部署和 hook proxy 部署拆成两笔交易，且第二笔失败，engine proxy 将永久绑定到一个不存在的 owner，无法恢复。
+
+**失败恢复**：
+
+在单笔交易的原子部署中，失败不会消耗 salt。若通过非标准方式（如手动拆分步骤）导致中间部署残留，该 nonce 下的 CREATE3 salt 已消耗，恢复方式为递增 `DEPLOYMENT_NONCE` 重新执行。残留的中间合约地址不会被新 nonce 覆盖，不影响新部署。
+
+脚本为每个失败路径提供明确的错误类型（`Create3SaltConsumed`、`ExistingIntermediateDeploymentNotReusable`、`EngineImplementationCreate3SaltConsumed` 等），而非 solmate 默认的 `DEPLOYMENT_FAILED`。
 
 ## 4. 治理周期相关操作语义
 

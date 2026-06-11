@@ -14,6 +14,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
@@ -195,9 +196,19 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
             2_500,
             7 days
         );
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
+                )
+            )
+        );
         TestableMemeverseUniswapHookForIntegration implementation =
             new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), TREASURY));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), TREASURY, engine));
         hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(implementation), data)));
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0))
