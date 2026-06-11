@@ -20,6 +20,7 @@ import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IS
 import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
 import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
+import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
@@ -614,9 +615,19 @@ contract MemeverseSwapRouterPermit2Test is Test {
         internal
         returns (TestableMemeverseUniswapHookForPermit2Router deployed)
     {
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
+                )
+            )
+        );
         TestableMemeverseUniswapHookForPermit2Router implementation =
             new TestableMemeverseUniswapHookForPermit2Router(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
         deployed =
             TestableMemeverseUniswapHookForPermit2Router(address(new ERC1967Proxy(address(implementation), data)));
     }
@@ -868,7 +879,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             uint160 volAnchorBefore,,
             uint24 volDevBefore,,
             uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
 
         vm.prank(alice);
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -897,7 +908,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             uint160 volAnchorAfter,,
             uint24 volDevAfter,,
             uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
         assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
         assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
         assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
@@ -939,7 +950,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             uint160 volAnchorBefore,,
             uint24 volDevBefore,,
             uint24 shortImpactBefore,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
 
         vm.prank(alice);
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -968,7 +979,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
             uint160 volAnchorAfter,,
             uint24 volDevAfter,,
             uint24 shortImpactAfter,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
         assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
         assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
         assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");

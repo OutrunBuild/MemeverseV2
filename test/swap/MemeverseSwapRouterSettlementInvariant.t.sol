@@ -14,6 +14,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
@@ -193,8 +194,18 @@ contract MemeverseSwapRouterSettlementInvariantTest is StdInvariant, Test {
         internal
         returns (TestableMemeverseUniswapHookForRouter deployed)
     {
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
+                )
+            )
+        );
         TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
         deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
     }
 

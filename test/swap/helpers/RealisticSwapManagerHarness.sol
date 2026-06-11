@@ -23,6 +23,7 @@ import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol"
 
 import {LiquidityAmounts} from "../../../src/swap/libraries/LiquidityAmounts.sol";
 import {MemeverseSwapRouter} from "../../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseDynamicFeeEngine} from "../../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../../src/swap/interfaces/IMemeverseUniswapHook.sol";
@@ -580,9 +581,20 @@ abstract contract RealisticSwapIntegrationBase is Test {
         token0.mint(alice, 1_000_000 ether);
         token1.mint(alice, 1_000_000 ether);
 
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
+        // Hook proxy is 3 CREATEs away: engine proxy (nonce+1), hook impl (nonce+2), hook proxy (nonce+3).
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(engineImpl),
+                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
+                )
+            )
+        );
         TestableMemeverseUniswapHookForIntegration implementation =
             new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), treasury));
+        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), treasury, engine));
         hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(implementation), data)));
         router = new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), permit2_);
         integrator = new UnlockSwapIntegrator(manager);
@@ -644,7 +656,7 @@ abstract contract RealisticSwapIntegrationBase is Test {
             snapshot.volAnchorSqrtPriceX96,,
             snapshot.volDeviationAccumulator,,
             snapshot.shortImpactPpm,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
     }
 
     function _assertRollback(address payer, RollbackSnapshot memory before_) internal view {
@@ -663,7 +675,7 @@ abstract contract RealisticSwapIntegrationBase is Test {
             uint160 volAnchorSqrtPriceX96After,,
             uint24 volDeviationAccumulatorAfter,,
             uint24 shortImpactPpmAfter,
-        ) = hook.poolEWVWAPParams(poolId);
+        ) = hook.poolDynamicFeeState(poolId);
         assertEq(weightedVolume0After, before_.weightedVolume0, "weightedVolume0 rollback");
         assertEq(ewVWAPX18After, before_.ewVWAPX18, "ewvwap rollback");
         assertEq(volAnchorSqrtPriceX96After, before_.volAnchorSqrtPriceX96, "vol anchor rollback");

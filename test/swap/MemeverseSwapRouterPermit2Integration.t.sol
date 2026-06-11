@@ -33,10 +33,13 @@ contract MemeverseSwapRouterPermit2IntegrationTest is RealisticSwapIntegrationBa
         IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 alice0Before = token0.balanceOf(alice);
         uint256 alice1Before = token1.balanceOf(alice);
+        RollbackSnapshot memory dynamicBefore = _rollbackSnapshot(alice);
         vm.prank(alice);
         BalanceDelta delta = router.swapWithPermit2(
             _singlePermit(address(token0), 100 ether), key, params, alice, block.timestamp, 0, 100 ether, ""
         );
+        RollbackSnapshot memory dynamicAfter = _rollbackSnapshot(alice);
+        IMemeverseUniswapHook.SwapQuote memory followUpQuote = router.quoteSwap(key, params, address(this));
 
         assertEq(permit2.lastOwner(), alice, "permit2 owner");
         assertEq(permit2.lastRecipient(), address(router), "permit2 recipient");
@@ -55,6 +58,11 @@ contract MemeverseSwapRouterPermit2IntegrationTest is RealisticSwapIntegrationBa
         assertEq(fee0PerShareAfter, _expectedLpFeeGrowth(quote.estimatedLpFeeAmount), "exact lp fee growth");
         assertEq(delta.amount0(), -int128(int256(quote.estimatedUserInputAmount)), "delta0 exact");
         assertEq(delta.amount1(), int128(int256(quote.estimatedUserOutputAmount)), "delta1 exact");
+        assertGt(dynamicAfter.weightedVolume0, dynamicBefore.weightedVolume0, "weightedVolume0 changed");
+        assertGt(dynamicAfter.ewVWAPX18, dynamicBefore.ewVWAPX18, "ewvwap changed");
+        assertGt(dynamicAfter.volDeviationAccumulator, dynamicBefore.volDeviationAccumulator, "vol deviation changed");
+        assertGt(dynamicAfter.shortImpactPpm, dynamicBefore.shortImpactPpm, "short impact changed");
+        assertGt(followUpQuote.feeBps, quote.feeBps, "state affects next quote fee");
     }
 
     function testPermit2_ExactInput_OutputFee_PartialFill_RevertsAndRollsBack() external {

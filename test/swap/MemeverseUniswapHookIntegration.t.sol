@@ -5,6 +5,7 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {BalanceDelta, BalanceDeltaLibrary} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
+import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {RealisticSwapIntegrationBase, RealisticSwapManagerHarness} from "./helpers/RealisticSwapManagerHarness.sol";
 
@@ -172,5 +173,117 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
             address(this),
             bytes("")
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Context wiring: verify hook correctly assembles QuoteSwapContext from
+    // PoolManager state and hook storage before passing it to the engine.
+    // These tests catch wiring bugs that engine-only unit tests cannot detect:
+    // wrong poolId, stale liquidity, launch config, fee side, and price context.
+    // ---------------------------------------------------------------------------
+
+    /// @notice Verifies the hook reads `launchTimestamp` from `$.poolLaunchTimestamp[poolId]`
+    ///         and passes it to the engine. A just-initialized pool has a recent launch
+    ///         timestamp, so the launch fee should be higher than the base fee.
+    function testQuoteSwapContext_LaunchTimestampWiring() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        // Do NOT mature the launch window — pool was just initialized, so launch fee is active.
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
+
+        IMemeverseUniswapHook.SwapQuote memory launchQuote = hook.quoteSwap(key, params, address(this));
+
+        // Launch fee should be above the minimum (100 bps) because we're within the decay window.
+        assertGt(launchQuote.feeBps, 100, "launch fee above base during decay window");
+    }
+
+    /// @notice Verifies the hook reads `defaultLaunchFeeConfig` from its storage and
+    ///         passes it to the engine. Changing the config should change the quoted fee.
+    function testQuoteSwapContext_LaunchFeeConfigWiring() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
+
+        IMemeverseUniswapHook.SwapQuote memory defaultQuote = hook.quoteSwap(key, params, address(this));
+
+        // Set a config with a much higher start fee.
+        hook.setDefaultLaunchFeeConfig(
+            IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 9000, minFeeBps: 100, decayDurationSeconds: 900})
+        );
+        IMemeverseUniswapHook.SwapQuote memory highStartQuote = hook.quoteSwap(key, params, address(this));
+
+        assertGt(highStartQuote.feeBps, defaultQuote.feeBps, "higher start fee config increases quote");
+    }
+
+    /// @notice Verifies the hook reads `liquidity` from `poolManager.getLiquidity(poolId)`
+    ///         and passes it to the engine. Adding more liquidity should reduce the dynamic
+    ///         fee because the same trade size causes less price impact.
+    function testQuoteSwapContext_LiquidityWiring() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+        // First swap to build up volatility state so the dynamic fee is sensitive to liquidity.
+        integrator.swap(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
+            }),
+            address(this),
+            bytes("")
+        );
+
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
+        IMemeverseUniswapHook.SwapQuote memory lowLiqQuote = hook.quoteSwap(key, params, address(this));
+
+        // Add more liquidity — this increases poolManager.getLiquidity(poolId).
+        _addLiquidity(address(this));
+        IMemeverseUniswapHook.SwapQuote memory highLiqQuote = hook.quoteSwap(key, params, address(this));
+
+        assertLe(highLiqQuote.feeBps, lowLiqQuote.feeBps, "more liquidity reduces dynamic fee");
+    }
+
+    /// @notice Verifies the hook reads `protocolFeeOnInput` via `_resolveSwapFeeContext`
+    ///         and passes it to the engine. Setting the fee currency to the input side
+    ///         should yield `protocolFeeOnInput = true`; setting it to the output side
+    ///         should yield `protocolFeeOnInput = false`.
+    function testQuoteSwapContext_ProtocolFeeOnInputWiring() external {
+        _matureLaunchWindow();
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
+
+        // Input side: currency0 is the input for zeroForOne.
+        hook.setProtocolFeeCurrency(key.currency0);
+        IMemeverseUniswapHook.SwapQuote memory inputSideQuote = hook.quoteSwap(key, params, address(this));
+        assertTrue(inputSideQuote.protocolFeeOnInput, "fee on input when input currency supported");
+
+        // Output side: disable input currency, enable output currency only.
+        hook.setProtocolFeeCurrencySupport(key.currency0, false);
+        hook.setProtocolFeeCurrency(key.currency1);
+        IMemeverseUniswapHook.SwapQuote memory outputSideQuote = hook.quoteSwap(key, params, address(this));
+        assertFalse(outputSideQuote.protocolFeeOnInput, "fee on output when only output currency supported");
+    }
+
+    /// @notice Verifies the hook reads `preSqrtPriceX96` from `poolManager.getSlot0(poolId)`
+    ///         and passes it to the engine. After a swap moves the price, a subsequent quote
+    ///         should reflect the new price, not the original.
+    function testQuoteSwapContext_SqrtPriceWiring() external {
+        hook.setProtocolFeeCurrency(key.currency0);
+        _matureLaunchWindow();
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
+
+        IMemeverseUniswapHook.SwapQuote memory beforeQuote = hook.quoteSwap(key, params, address(this));
+
+        // Execute a swap to move the price.
+        integrator.swap(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
+            }),
+            address(this),
+            bytes("")
+        );
+
+        IMemeverseUniswapHook.SwapQuote memory afterQuote = hook.quoteSwap(key, params, address(this));
+
+        // After a zeroForOne swap the price moves down. The dynamic fee should differ
+        // because the engine now sees a different preSqrtPriceX96.
+        // We can't assert exact values, but the spot price before should differ.
+        assertNotEq(afterQuote.feeBps, beforeQuote.feeBps, "price move changes fee quote");
     }
 }
