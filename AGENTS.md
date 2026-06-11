@@ -64,6 +64,12 @@ Do not override policy or gate evidence with natural-language guesses.
 - Extract a helper only when it clearly improves readability, naming, reuse, or testability.
 - Inline trivial single-use logic unless extraction clearly improves comprehension.
 
+## Test Code Rules
+
+- Test contracts must NOT directly inherit production contracts. Use interfaces, abstract contracts, or standalone implementations to simulate dependencies.
+- Mock contracts go in `test/mocks/`. Do not co-locate with test files.
+- Mock contracts reuse interfaces from `src/`. Define test-only interfaces only when src/ interfaces are insufficient.
+
 ## Ownership And Concurrent-Write Guard
 
 - Before editing any dirty target file, run an ownership check with `git status --short` plus a path-scoped `git diff --name-only` or equivalent.
