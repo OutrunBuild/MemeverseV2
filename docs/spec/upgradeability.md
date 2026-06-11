@@ -18,7 +18,6 @@
 | Surface | 机制 | 初始化入口 | 升级授权 | 证据 |
 | --- | --- | --- | --- | --- |
 | **构造函数部署（不可升级）** | | | | |
-| Launcher | constructor 部署 | constructor | 不适用 | `src/verse/MemeverseLauncher.sol:69` |
 | Router | constructor 部署 | constructor | 不适用 | `src/swap/MemeverseSwapRouter.sol:75` |
 | RegistrationCenter | constructor 部署 | constructor | 不适用 | `src/verse/registration/MemeverseRegistrationCenter.sol:46` |
 | RegistrarAtLocal | constructor 部署 | constructor | 不适用 | `src/verse/registration/MemeverseRegistrarAtLocal.sol:16` |
@@ -31,10 +30,11 @@
 | **最小代理 clone（不可升级）** | | | | |
 | `Memecoin` / `MemePol` / `MemecoinYieldVault` | EIP-1167 clone | 外部 `initialize`（单次） | 无实现内升级入口 | `src/verse/deployment/MemeverseProxyDeployer.sol:93-117`; `src/token/Memecoin.sol:24`; `src/token/MemePol.sol:37`; `src/yield/MemecoinYieldVault.sol:37` |
 | **UUPS 可升级** | | | | |
-| `MemecoinDaoGovernorUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:148-169`; `src/governance/MemecoinDaoGovernorUpgradeable.sol:103`, `:377` |
-| `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/verse/deployment/MemeverseProxyDeployer.sol:148-169`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:86`, `:656` |
-| `POLend` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, interestRate_, leveragedDebtFactor_, treasury_, launcher_, splitter_)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLend.sol:18`, `:54`, `:68`, `:520` |
-| `POLSplitter` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, _launcher)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLSplitter.sol:18`, `:85`, `:99`, `:282` |
+| `MemeverseLauncher` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, localLzEndpoint_, memeverseRegistrar_, memeverseProxyDeployer_, yieldDispatcher_, lzEndpointRegistry_, polend_, polSplitter_, executorRewardRate_, oftReceiveGasLimit_, yieldDispatcherGasLimit_, preorderCapRatio_, preorderVestingDuration_)` | `_authorizeUpgrade(...) => onlyOwner` | `src/verse/MemeverseLauncher.sol`（`_authorizeUpgrade`）; `script/MemeverseScript.s.sol`（部署脚本） |
+| `MemecoinDaoGovernorUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/governance/MemecoinDaoGovernorUpgradeable.sol`（`_authorizeUpgrade`）; `src/verse/deployment/MemeverseProxyDeployer.sol`（proxy 部署） |
+| `GovernanceCycleIncentivizerUpgradeable` | `ERC1967Proxy` + UUPS | `initialize(...)` | `_authorizeUpgrade(...) => onlyGovernance` | `src/governance/GovernanceCycleIncentivizerUpgradeable.sol`（`_authorizeUpgrade`）; `src/verse/deployment/MemeverseProxyDeployer.sol`（proxy 部署） |
+| `POLend` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, interestRate_, leveragedDebtFactor_, treasury_, launcher_, splitter_)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLend.sol`（`_authorizeUpgrade`） |
+| `POLSplitter` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, _launcher)` | `_authorizeUpgrade(...) => onlyOwner` | `src/polend/POLSplitter.sol`（`_authorizeUpgrade`） |
 | `MemeverseDynamicFeeEngine` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, authorizedHook_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseDynamicFeeEngine.sol:85`, `:103-113` |
 | `MemeverseUniswapHook` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, treasury_, dynamicFeeEngine_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseUniswapHook.sol:177`, `:228-235` |
 
@@ -50,25 +50,43 @@
 ### 3.2 由 launcher 驱动 token 初始化
 
 - launcher 在注册时通过 deployer 克隆 `memecoin`/`POL` 并立即 `initialize`。
-  - 证据：`src/verse/MemeverseLauncher.sol:1087-1097`
+  - 证据：`src/verse/MemeverseLauncher.sol::_deployAndInitializeVerseTokens`
 
 **owner 与 delegate 的初始化值：**
 
 - `initialize` 调用时，`owner` 和 `delegate` 均被设为 `msg.sender`——即执行调用的 launcher 实例（`address(this)`）。
   - 含义：刚部署的 memecoin / POL token 的 admin 权限（owner）与治理代理权（delegate）都归属于 launcher。
-  - 证据：`src/verse/MemeverseLauncher.sol:1089-1097`; `src/token/Memecoin.sol:29-33`; `src/token/MemePol.sol:44-49`
+  - 证据：`src/verse/MemeverseLauncher.sol::_deployAndInitializeVerseTokens`; `src/token/Memecoin.sol:29-33`; `src/token/MemePol.sol:44-49`
 - 此行为仅反映源码层的初始化语义；线上部署后 owner 是否被迁移（例如转给多签 / timelock）不在仓库证据范围内。
   - 同源：section 6 "中确定性" 条目
 
 ### 3.3 governance 组件仅在治理链本地部署初始化
 
 - 当 `govChainId == block.chainid`：部署并初始化 `yieldVault/governor/incentivizer`。
-  - 证据：`src/verse/MemeverseLauncher.sol:487-499`
+  - 证据：`src/verse/MemeverseLauncher.sol::_deployGovernanceComponents`（local 分支 `:772-784`）
 - 否则只做地址预测，不在当前链初始化。
-  - 证据：`src/verse/MemeverseLauncher.sol:500-503`
+  - 证据：`src/verse/MemeverseLauncher.sol::_deployGovernanceComponents`（remote 分支 `:786-790`）
+
+### 3.4 Launcher UUPS 初始化事实
+
+- 当前 `MemeverseLauncher` 是 `ERC1967Proxy + UUPS` surface。实现合约 constructor 只调用 `_disableInitializers()`，阻止 implementation 本体被初始化。
+  - 证据：`src/verse/MemeverseLauncher.sol::constructor`
+- Launcher proxy 通过 `initialize(...)` 写入原 constructor-equivalent 配置：`initialOwner`、local endpoint、registrar、proxy deployer、yield dispatcher、endpoint registry、`POLend`、`POLSplitter`、gas、reward 与 preorder 初始配置。
+  - 证据：`src/verse/MemeverseLauncher.sol::initialize`
+- Launcher 升级通过 UUPS `upgradeToAndCall(...)` 进入实现合约，并由 `_authorizeUpgrade(...) => onlyOwner` 放行。
+  - 证据：`src/verse/MemeverseLauncher.sol::_authorizeUpgrade`
+- 协议真实 Launcher 地址是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy 地址，不是 implementation 地址。脚本对 implementation salt 与 proxy salt 分开建模，`MemeverseLauncher` salt 对应 canonical proxy 地址。
+  - 证据：`script/MemeverseScript.s.sol:431-533`
+- `deployCaller` 是执行 CREATE3 / proxy 部署的调用者，`initialOwner` 是 Launcher proxy 初始化后的 owner；两者显式拆分。默认脚本支持两种模式：`deployCaller == initialOwner` 时脚本在部署中直接写入 `setFundMetaData`；`deployCaller != initialOwner` 时跳过 fund metadata，由 `initialOwner` 单独调用 `setFundMetaData`。测试 harness 通过覆盖 `_beginMemeverseLauncherOwnerExecution` 实现 `vm.startPrank` 以在单交易内测试双角色路径。`[代码已证]`
+  - 证据：`script/MemeverseScript.s.sol:431-466`; `test/verse/deployment/MemeverseProxyDeployer.t.sol::_beginMemeverseLauncherOwnerExecution`
+- `POLend` / `POLSplitter` 通过 Launcher `initialize(...)` 参数（`polend_`、`polSplitter_`）写入，且必须是各自 canonical proxy address。
+- readiness 检查覆盖 Launcher proxy 可读配置、launcher-bound 依赖 back-reference、`fundMetaDatas[uAsset]`、以及 `POLend.settlementDustStates(uAsset).maxReserve`，不能只检查 implementation 或 proxy code 存在。
+  - 证据：`script/MemeverseScript.s.sol:568-645`
+- `proxiableUUID()` 在 implementation 上可读；通过 proxy 调用 `proxiableUUID()` 必须按 UUPS guard 回退，不能作为 proxy readiness 成功检查。
 
 ## 4. Proxy / Deployer 假设（仅限代码可证）
 
+- 当前 `MemeverseLauncher` 是 UUPS surface，不使用独立 `ProxyAdmin`。
 - `MemeverseProxyDeployer` 只允许 launcher 调用 deploy 系列函数。
   - 证据：`src/verse/deployment/MemeverseProxyDeployer.sol:29-36`, `:93`, `:103`, `:113`, `:139`
 - governor 与 incentivizer 使用 `Create2 + ERC1967Proxy`，部署后立即执行 `initialize(...)`。
@@ -77,7 +95,7 @@
   - governor：`_authorizeUpgrade(...) => onlyGovernance`
   - incentivizer：`_authorizeUpgrade(...) => onlyGovernance`（实际校验 `msg.sender == governor`）
   - 证据：`src/governance/MemecoinDaoGovernorUpgradeable.sol:377`; `src/governance/GovernanceCycleIncentivizerUpgradeable.sol:68-71`, `:656`
-- `POLend` 与 `POLSplitter` 不由 `MemeverseProxyDeployer` 部署；它们通过外部脚本/工厂独立部署，并以构造参数形式传入 Launcher（`_polend`、`_polSplitter`）。其 proxy 部署与升级授权独立于 ProxyDeployer。`[代码已证]`
+- `POLend` 与 `POLSplitter` 不由 `MemeverseProxyDeployer` 部署；它们通过外部脚本/工厂独立部署，并以 Launcher `initialize(...)` 参数 `polend_`、`polSplitter_` 接线。其 proxy 部署与升级授权独立于 ProxyDeployer。`[代码已证]`
 - Launcher 保存的是 `POLend` / `POLSplitter` 的 proxy 地址，当前规范不提供 setter、地址级替换、迁移或降级零地址模式；这只约束 proxy 地址本身，不否定 proxy 实现升级。`POLend` 与 `POLSplitter` 均为 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行。`[代码已证]`
 - `MemeverseUniswapHook` 也是 UUPS，`_authorizeUpgrade(...)` 由 `onlyOwner` 放行，并额外通过新实现暴露的 `poolManager()` getter 检查返回地址是否与当前 `poolManager` 一致。该检查是防止诚实升级误部署错误 PoolManager 构造参数的 guardrail，不是针对恶意 owner 或恶意新实现的安全边界；新实现可以自定义 getter 返回期望地址。`poolManager` 不在 proxy storage 中，升级替换字节码后若真实值不同，hook 回调将指向错误目标，导致所有 swap 和流动性操作永久失效。`[代码已证]`
 - `MemeverseDynamicFeeEngine.initialize(initialOwner, authorizedHook_)` 初始化 owner 与 authorizedHook；`authorizedHook_` 在首次部署后不可变更，限定唯一 Hook proxy 可写入 engine fee state。`_authorizeUpgrade(...)` 由 `onlyOwner` 放行，并额外校验新实现的 `poolManager()` getter 返回值与当前 immutable `poolManager` 一致（防诚实升级误部署的 guardrail，非安全边界）。`[代码已证]`

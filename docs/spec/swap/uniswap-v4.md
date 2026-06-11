@@ -64,8 +64,8 @@
 - 当前普通 swap 路径为 execute-or-revert。
 - 启动保护语义体现为 launch fee 衰减窗口与显式 launch settlement 结算通道。
 - launch settlement 只消费 preorder 托管的 `uAsset`，不消费普通 genesis 本金；preorder 容量口径由 launcher 侧 `totalNormalFunds + totalLeveragedDebt` 决定。
-- 解锁后的公开 swap 保护由 launcher 在 `Locked -> Unlocked` 迁移时写入各受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 执行；未到该时间前，受保护 pair 的公开 swap 会被拒绝。
-- `hook.beforeSwap` 负责 pool-level 公开 swap 恢复时点；launcher 还在 `changeStage()` 的 unlock settlement 同交易内用 `unlockSettlementActive` 暂时阻断普通外部赎回，避免结算中与 LP 提取并发。
+- 解锁后的公开 swap 保护由 launcher 在 `Locked -> Unlocked` 迁移的 settlement 调用完成后写入各受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 执行；hook-side public swap protection 在该写入后生效。
+- `Locked -> Unlocked` 的 `changeStage()` 同交易内完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`，然后写入 hook 公开 swap 恢复时间；不声明 settlement callback window 由 launcher-side transient gate 或已生效的公开 swap block 保护。
 - swap API 保持单路径结算语义。
 
 ## 5. LP 总量与零供给语义

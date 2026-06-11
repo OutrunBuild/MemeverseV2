@@ -8,6 +8,7 @@ import {
     IMessageLibManager,
     SetConfigParam
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/IMessageLibManager.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "./BaseScript.s.sol";
 import {Memecoin} from "../src/token/Memecoin.sol";
@@ -20,6 +21,8 @@ import {MemeverseRegistrarAtLocal} from "../src/verse/registration/MemeverseRegi
 import {MemeverseRegistrationCenter} from "../src/verse/registration/MemeverseRegistrationCenter.sol";
 import {MemeverseRegistrarOmnichain} from "../src/verse/registration/MemeverseRegistrarOmnichain.sol";
 import {MemeverseLauncher, IMemeverseLauncher} from "../src/verse/MemeverseLauncher.sol";
+import {POLend} from "../src/polend/POLend.sol";
+import {POLSplitter} from "../src/polend/POLSplitter.sol";
 import {OmnichainMemecoinStaker} from "../src/interoperation/OmnichainMemecoinStaker.sol";
 import {LzEndpointRegistry} from "../src/common/omnichain/LzEndpointRegistry.sol";
 import {ILzEndpointRegistry} from "../src/common/omnichain/interfaces/ILzEndpointRegistry.sol";
@@ -34,8 +37,6 @@ contract MemeverseScript is BaseScript {
     uint256 public constant DAY = 24 * 3600;
     uint160 internal constant MEMEVERSE_HOOK_FLAGS = 0x28cc;
     uint160 internal constant UNISWAP_V4_HOOK_FLAG_MASK = 0x3fff;
-    bytes32 internal constant POLSPLITTER_STORAGE_LOCATION =
-        0xab504a6dee30096d32ccac13a30a002829c5eeb4c38a0196ed16a6c4e9faca00;
 
     address internal owner;
     address internal factory;
@@ -61,6 +62,10 @@ contract MemeverseScript is BaseScript {
     address internal POLEND;
     address internal POLSPLITTER;
     address internal MEMEVERSE_SWAP_ROUTER;
+
+    uint256 internal POLEND_INTEREST_RATE;
+    uint256 internal POLEND_LEVERAGED_DEBT_FACTOR;
+    address internal POLEND_TREASURY;
     address internal MEMEVERSE_UNISWAP_HOOK;
 
     uint32[] public omnichainIds;
@@ -87,9 +92,13 @@ contract MemeverseScript is BaseScript {
         // _getDeployedMemeverseOmnichainInteroperation(2);
         // _getDeployedOmnichainMemecoinStaker(2);
         // _getDeployedMemeverseLauncher(2);
+        // _getDeployedPOLend(2);
+        // _getDeployedPOLSplitter(2);
 
         // Update OutrunRouter after deployed
+        // _deployPOLend(2);                            // optimizer-runs: 200
         // _deployMemeverseLauncher(2);                 // optimizer-runs: 200
+        // _deployPOLSplitter(2);                       // optimizer-runs: 200
         // _deployMemecoinGovernorImplementation(2);    // optimizer-runs: 2000
         // _deployMemecoinPOLImplementation(2);         // optimizer-runs: 5000
         // _deployImplementation(2);
@@ -129,15 +138,25 @@ contract MemeverseScript is BaseScript {
         OMNICHAIN_MEMECOIN_STAKER = vm.envAddress("OMNICHAIN_MEMECOIN_STAKER");
         MEMEVERSE_SWAP_ROUTER = _optionalEnvAddress("MEMEVERSE_SWAP_ROUTER");
         MEMEVERSE_UNISWAP_HOOK = _optionalEnvAddress("MEMEVERSE_UNISWAP_HOOK");
+        POLEND_INTEREST_RATE = vm.envUint("POLEND_INTEREST_RATE");
+        POLEND_LEVERAGED_DEBT_FACTOR = vm.envUint("POLEND_LEVERAGED_DEBT_FACTOR");
+        POLEND_TREASURY = vm.envAddress("POLEND_TREASURY");
         _loadReadinessEnv();
     }
 
+    // POLEND/POLSPLITTER use optional loading: during deployment the deploy functions set them
+    // directly; for standalone readiness checks (openSupportedUAssetsAfterReadiness) the env vars
+    // must be set to the deployed addresses.
     function _loadReadinessEnv() internal {
+        owner = vm.envAddress("OWNER");
         UUSD = vm.envAddress("UUSD");
         UETH = vm.envAddress("UETH");
         MEMEVERSE_LAUNCHER = vm.envAddress("MEMEVERSE_LAUNCHER");
-        POLEND = vm.envAddress("POLEND");
-        POLSPLITTER = vm.envAddress("POLSPLITTER");
+        MEMEVERSE_REGISTRAR = vm.envAddress("MEMEVERSE_REGISTRAR");
+        MEMEVERSE_PROXY_DEPLOYER = vm.envAddress("MEMEVERSE_PROXY_DEPLOYER");
+        MEMEVERSE_YIELD_DISPATCHER = vm.envAddress("MEMEVERSE_YIELD_DISPATCHER");
+        POLEND = _optionalEnvAddress("POLEND");
+        POLSPLITTER = _optionalEnvAddress("POLSPLITTER");
     }
 
     function _chainsInit() internal {
@@ -223,7 +242,8 @@ contract MemeverseScript is BaseScript {
 
     function _getDeployedMemeverseLauncher(uint256 nonce) internal view {
         bytes32 salt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
-        address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(owner, salt);
+        address deployCaller = _memeverseLauncherDeployCaller();
+        address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, salt);
 
         console.log("MemeverseLauncher deployed on %s", deployed);
     }
@@ -247,6 +267,22 @@ contract MemeverseScript is BaseScript {
         address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(owner, salt);
 
         console.log("OmnichainMemecoinStaker deployed on %s", deployed);
+    }
+
+    function _getDeployedPOLend(uint256 nonce) internal view {
+        bytes32 salt = keccak256(abi.encodePacked("POLend", nonce));
+        address deployCaller = _memeverseLauncherDeployCaller();
+        address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, salt);
+
+        console.log("POLend deployed on %s", deployed);
+    }
+
+    function _getDeployedPOLSplitter(uint256 nonce) internal view {
+        bytes32 salt = keccak256(abi.encodePacked("POLSplitter", nonce));
+        address deployCaller = _memeverseLauncherDeployCaller();
+        address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, salt);
+
+        console.log("POLSplitter deployed on %s", deployed);
     }
 
     /**
@@ -425,43 +461,249 @@ contract MemeverseScript is BaseScript {
     }
 
     function _deployMemeverseLauncher(uint256 nonce) internal {
+        address deployCaller = _memeverseLauncherDeployCaller();
+        address initialOwner = owner;
         address localEndpoint = endpoints[uint32(block.chainid)];
-        bytes memory creationCode = _buildMemeverseLauncherCreationCode(localEndpoint);
-        bytes32 salt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
-        address memeverseLauncherAddr = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(salt, creationCode);
-        IMemeverseLauncher(memeverseLauncherAddr).setFundMetaData(UETH, 1e19, 1000000);
-        IMemeverseLauncher(memeverseLauncherAddr).setFundMetaData(UUSD, 50000 * 1e18, 200);
 
+        // Predict POLend and POLSplitter proxy addresses via CREATE3 salt
+        bytes32 polendSalt = keccak256(abi.encodePacked("POLend", nonce));
+        address polendProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, polendSalt);
+        bytes32 polSplitterSalt = keccak256(abi.encodePacked("POLSplitter", nonce));
+        address polSplitterProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, polSplitterSalt);
+
+        bytes32 salt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        address predictedLauncherProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, salt);
+        bytes32 implementationSalt = keccak256(abi.encodePacked("MemeverseLauncherImplementation", nonce));
+        address implementation =
+            IOutrunDeployer(OUTRUN_DEPLOYER).deploy(implementationSalt, type(MemeverseLauncher).creationCode);
+
+        bytes memory creationCode = _buildMemeverseLauncherCreationCode(
+            implementation, initialOwner, localEndpoint, predictedLauncherProxy, polendProxy, polSplitterProxy
+        );
+        address memeverseLauncherAddr = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(salt, creationCode);
+        require(memeverseLauncherAddr == predictedLauncherProxy, "LAUNCHER_PROXY_MISMATCH");
+
+        IMemeverseLauncher launcher = IMemeverseLauncher(memeverseLauncherAddr);
+        _beginMemeverseLauncherOwnerExecution(initialOwner);
+        if (deployCaller == initialOwner) {
+            _setMemeverseLauncherFundMetaData(launcher);
+        } else {
+            console.log(
+                "WARNING: deployCaller(%s) != initialOwner(%s) -- fund metadata must be set by initialOwner",
+                deployCaller,
+                initialOwner
+            );
+        }
+        _endMemeverseLauncherOwnerExecution();
+        _checkMemeverseLauncherDeployment(
+            launcher, initialOwner, localEndpoint, polendProxy, polSplitterProxy, deployCaller == initialOwner
+        );
+
+        MEMEVERSE_LAUNCHER = memeverseLauncherAddr;
         console.log("MemeverseLauncher deployed on %s", memeverseLauncherAddr);
     }
 
-    function _buildMemeverseLauncherCreationCode(address localEndpoint) internal view returns (bytes memory) {
+    function _deployPOLend(uint256 nonce) internal {
+        address deployCaller = _memeverseLauncherDeployCaller();
+        address initialOwner = owner;
+
+        // Predict Launcher and POLSplitter proxy addresses (not yet deployed)
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        address predictedLauncherProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, launcherSalt);
+        bytes32 polSplitterSalt = keccak256(abi.encodePacked("POLSplitter", nonce));
+        address predictedPOLSplitterProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, polSplitterSalt);
+
+        // Predict POLend proxy address and deploy implementation via CREATE3
+        bytes32 polendSalt = keccak256(abi.encodePacked("POLend", nonce));
+        address predictedPolendProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, polendSalt);
+        bytes32 implementationSalt = keccak256(abi.encodePacked("POLendImplementation", nonce));
+        address implementation = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(implementationSalt, type(POLend).creationCode);
+
+        // Build proxy creation code with predicted dependency addresses
+        bytes memory creationCode =
+            _buildPOLendCreationCode(implementation, initialOwner, predictedLauncherProxy, predictedPOLSplitterProxy);
+
+        // Deploy POLend proxy via CREATE3 and verify against cached prediction
+        address polendAddr = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(polendSalt, creationCode);
+        require(polendAddr == predictedPolendProxy, "POLEND_PROXY_MISMATCH");
+
+        // Verify local config (owner, treasury, interest rate, leverage factor).
+        // Cross-contract wiring (launcher, splitter) is verified after all three are deployed.
+        require(_readAddress(polendAddr, "owner()") == initialOwner, "POLEND_OWNER_MISMATCH");
+        require(_readAddress(polendAddr, "treasury()") == POLEND_TREASURY, "POLEND_TREASURY_MISMATCH");
+
+        POLEND = polendAddr;
+        console.log("POLend deployed on %s", polendAddr);
+    }
+
+    function _deployPOLSplitter(uint256 nonce) internal {
+        address deployCaller = _memeverseLauncherDeployCaller();
+        address initialOwner = owner;
+        // Launcher must already be deployed; POLSplitter.initialize reads launcher.polend()
+        address launcherProxy = MEMEVERSE_LAUNCHER;
+        require(launcherProxy != address(0), "ZERO_LAUNCHER_FOR_SPLITTER");
+
+        // Predict POLSplitter proxy address
+        bytes32 polSplitterSalt = keccak256(abi.encodePacked("POLSplitter", nonce));
+        address predictedPOLSplitterProxy = IOutrunDeployer(OUTRUN_DEPLOYER).getDeployed(deployCaller, polSplitterSalt);
+
+        // Deploy POLSplitter implementation via CREATE3
+        bytes32 implementationSalt = keccak256(abi.encodePacked("POLSplitterImplementation", nonce));
+        address implementation =
+            IOutrunDeployer(OUTRUN_DEPLOYER).deploy(implementationSalt, type(POLSplitter).creationCode);
+
+        // Build proxy creation code with actual Launcher address
+        bytes memory creationCode = _buildPOLSplitterCreationCode(implementation, initialOwner, launcherProxy);
+
+        // Deploy POLSplitter proxy via CREATE3
+        address polSplitterAddr = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(polSplitterSalt, creationCode);
+        require(polSplitterAddr == predictedPOLSplitterProxy, "POLSPLITTER_PROXY_MISMATCH");
+
+        // Verify wiring: polend() must match the already-deployed POLend proxy
+        _checkPOLSplitterDeployment(polSplitterAddr, initialOwner, launcherProxy, POLEND);
+
+        POLSPLITTER = polSplitterAddr;
+        console.log("POLSplitter deployed on %s", polSplitterAddr);
+    }
+
+    function _beginMemeverseLauncherOwnerExecution(address initialOwner) internal virtual {
+        // Hook point for subclasses. The default implementation does nothing —
+        // fund metadata is set inline when deployCaller == initialOwner, or
+        // skipped with a warning when they differ (handled in _deployMemeverseLauncher).
+        initialOwner; // silence unused parameter warning
+    }
+
+    function _endMemeverseLauncherOwnerExecution() internal virtual {}
+
+    function _setMemeverseLauncherFundMetaData(IMemeverseLauncher launcher) internal {
+        launcher.setFundMetaData(UETH, 1e19, 1000000);
+        launcher.setFundMetaData(UUSD, 50000 * 1e18, 200);
+    }
+
+    function _memeverseLauncherDeployCaller() internal view returns (address) {
+        // OutrunDeployer hashes msg.sender into each CREATE3 salt; tests call through this harness without broadcast.
+        if (deployer != address(0)) return deployer;
+        return address(this);
+    }
+
+    function _buildMemeverseLauncherCreationCode(
+        address implementation,
+        address initialOwner,
+        address localEndpoint,
+        address launcherProxy,
+        address polendProxy,
+        address polSplitterProxy
+    ) internal view returns (bytes memory) {
+        require(implementation != address(0), "ZERO_LAUNCHER_IMPLEMENTATION");
+        require(initialOwner != address(0), "ZERO_INITIAL_OWNER");
+        require(launcherProxy != address(0), "ZERO_LAUNCHER_PROXY");
         require(localEndpoint != address(0), "ZERO_LOCAL_ENDPOINT");
         require(MEMEVERSE_REGISTRAR != address(0), "ZERO_MEMEVERSE_REGISTRAR");
         require(MEMEVERSE_PROXY_DEPLOYER != address(0), "ZERO_MEMEVERSE_PROXY_DEPLOYER");
         require(MEMEVERSE_YIELD_DISPATCHER != address(0), "ZERO_MEMEVERSE_YIELD_DISPATCHER");
         require(MEMEVERSE_COMMON_INFO != address(0), "ZERO_LZ_ENDPOINT_REGISTRY");
-        require(POLEND != address(0), "ZERO_POLEND");
-        require(POLSPLITTER != address(0), "ZERO_POLSPLITTER");
+        require(polendProxy != address(0), "ZERO_POLEND_PROXY");
+        require(polSplitterProxy != address(0), "ZERO_POLSPLITTER_PROXY");
         require(UETH != address(0), "ZERO_UETH");
         require(UUSD != address(0), "ZERO_UUSD");
 
-        bytes memory encodedArgs = abi.encode(
-            owner,
-            localEndpoint,
-            MEMEVERSE_REGISTRAR,
-            MEMEVERSE_PROXY_DEPLOYER,
-            MEMEVERSE_YIELD_DISPATCHER,
-            MEMEVERSE_COMMON_INFO,
-            POLEND,
-            POLSPLITTER,
-            25,
-            115000,
-            135000,
-            2500,
-            7 days
+        bytes memory initializeData = abi.encodeCall(
+            MemeverseLauncher.initialize,
+            (
+                initialOwner,
+                localEndpoint,
+                MEMEVERSE_REGISTRAR,
+                MEMEVERSE_PROXY_DEPLOYER,
+                MEMEVERSE_YIELD_DISPATCHER,
+                MEMEVERSE_COMMON_INFO,
+                // These are canonical dependency proxy addresses, not the launcher proxy.
+                polendProxy,
+                polSplitterProxy,
+                25,
+                115000,
+                135000,
+                2500,
+                7 days
+            )
         );
-        return abi.encodePacked(type(MemeverseLauncher).creationCode, encodedArgs);
+        return abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initializeData));
+    }
+
+    function _buildPOLendCreationCode(
+        address implementation,
+        address initialOwner,
+        address launcherProxy,
+        address polSplitterProxy
+    ) internal view returns (bytes memory) {
+        require(implementation != address(0), "ZERO_POLEND_IMPLEMENTATION");
+        require(initialOwner != address(0), "ZERO_INITIAL_OWNER");
+        require(launcherProxy != address(0), "ZERO_LAUNCHER_PROXY");
+        require(polSplitterProxy != address(0), "ZERO_POLSPLITTER_PROXY");
+        require(POLEND_TREASURY != address(0), "ZERO_POLEND_TREASURY");
+        require(POLEND_INTEREST_RATE > 0, "ZERO_POLEND_INTEREST_RATE");
+        require(POLEND_INTEREST_RATE <= 1e18, "POLEND_INTEREST_RATE_OVERFLOW");
+        require(POLEND_LEVERAGED_DEBT_FACTOR > 0, "ZERO_POLEND_LEVERAGED_DEBT_FACTOR");
+        require(
+            POLEND_LEVERAGED_DEBT_FACTOR <= uint256(type(uint128).max) * 1e18, "POLEND_LEVERAGED_DEBT_FACTOR_OVERFLOW"
+        );
+
+        bytes memory initializeData = abi.encodeCall(
+            POLend.initialize,
+            (
+                initialOwner,
+                POLEND_INTEREST_RATE,
+                POLEND_LEVERAGED_DEBT_FACTOR,
+                POLEND_TREASURY,
+                launcherProxy,
+                polSplitterProxy
+            )
+        );
+        return abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initializeData));
+    }
+
+    function _buildPOLSplitterCreationCode(address implementation, address initialOwner, address launcherProxy)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        require(implementation != address(0), "ZERO_POLSPLITTER_IMPLEMENTATION");
+        require(initialOwner != address(0), "ZERO_INITIAL_OWNER");
+        require(launcherProxy != address(0), "ZERO_LAUNCHER_PROXY");
+
+        bytes memory initializeData = abi.encodeCall(POLSplitter.initialize, (initialOwner, launcherProxy));
+        return abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initializeData));
+    }
+
+    function _checkPOLSplitterDeployment(
+        address polSplitterProxy,
+        address initialOwner,
+        address launcherProxy,
+        address polendProxy
+    ) internal view {
+        require(_readAddress(polSplitterProxy, "owner()") == initialOwner, "SPLITTER_OWNER_MISMATCH");
+        require(_readAddress(polSplitterProxy, "launcher()") == launcherProxy, "SPLITTER_LAUNCHER_MISMATCH");
+        require(_readAddress(polSplitterProxy, "polend()") == polendProxy, "SPLITTER_POLEND_MISMATCH");
+    }
+
+    function _checkMemeverseLauncherDeployment(
+        IMemeverseLauncher launcher,
+        address initialOwner,
+        address localEndpoint,
+        address polendProxy,
+        address polSplitterProxy,
+        bool checkFundMetaData
+    ) internal view {
+        require(MemeverseLauncher(address(launcher)).owner() == initialOwner, "LAUNCHER_OWNER_MISMATCH");
+        require(MemeverseLauncher(address(launcher)).localLzEndpoint() == localEndpoint, "LAUNCHER_ENDPOINT_MISMATCH");
+        require(MemeverseLauncher(address(launcher)).polend() == polendProxy, "LAUNCHER_POLEND_MISMATCH");
+        require(MemeverseLauncher(address(launcher)).polSplitter() == polSplitterProxy, "LAUNCHER_SPLITTER_MISMATCH");
+
+        if (checkFundMetaData) {
+            (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = launcher.fundMetaDatas(UETH);
+            (uint256 uusdMinTotalFund, uint256 uusdFundBasedAmount) = launcher.fundMetaDatas(UUSD);
+            require(uethMinTotalFund == 1e19 && uethFundBasedAmount == 1000000, "LAUNCHER_UETH_META_MISMATCH");
+            require(uusdMinTotalFund == 50000 * 1e18 && uusdFundBasedAmount == 200, "LAUNCHER_UUSD_META_MISMATCH");
+        }
     }
 
     function _envAddressWithFallback(string memory primary, string memory fallbackName)
@@ -482,8 +724,7 @@ contract MemeverseScript is BaseScript {
         internal
     {
         _requireContractCode(registrationCenter, "REGISTRATION_CENTER_CODE_NOT_READY");
-        _requireDeploymentReady();
-        _requireSwapReady(swapRouter, hook);
+        _requireDeploymentReady(swapRouter, hook);
 
         IMemeverseRegistrationCenter(registrationCenter).setSupportedUAsset(UETH, true);
         IMemeverseRegistrationCenter(registrationCenter).setSupportedUAsset(UUSD, true);
@@ -497,13 +738,41 @@ contract MemeverseScript is BaseScript {
         _openSupportedUAssetsAfterReadiness(registrationCenter, swapRouter, hook);
     }
 
-    function _requireDeploymentReady() internal view {
+    function _requireDeploymentReady(address swapRouter, address hook) internal view {
         _requireContractCode(MEMEVERSE_LAUNCHER, "LAUNCHER_CODE_NOT_READY");
+        _requireContractCode(MEMEVERSE_REGISTRAR, "REGISTRAR_CODE_NOT_READY");
+        _requireContractCode(MEMEVERSE_PROXY_DEPLOYER, "PROXY_DEPLOYER_CODE_NOT_READY");
+        _requireContractCode(MEMEVERSE_YIELD_DISPATCHER, "YIELD_DISPATCHER_CODE_NOT_READY");
         _requireContractCode(POLEND, "POLEND_CODE_NOT_READY");
         _requireContractCode(POLSPLITTER, "POLSPLITTER_CODE_NOT_READY");
 
+        require(_readAddress(MEMEVERSE_LAUNCHER, "owner()") == owner, "LAUNCHER_OWNER_NOT_READY");
+        require(
+            _readAddress(MEMEVERSE_LAUNCHER, "memeverseRegistrar()") == MEMEVERSE_REGISTRAR,
+            "LAUNCHER_REGISTRAR_NOT_READY"
+        );
+        require(
+            _readAddress(MEMEVERSE_LAUNCHER, "memeverseProxyDeployer()") == MEMEVERSE_PROXY_DEPLOYER,
+            "LAUNCHER_PROXY_DEPLOYER_NOT_READY"
+        );
+        require(
+            _readAddress(MEMEVERSE_LAUNCHER, "yieldDispatcher()") == MEMEVERSE_YIELD_DISPATCHER,
+            "LAUNCHER_YIELD_DISPATCHER_NOT_READY"
+        );
         require(_readAddress(MEMEVERSE_LAUNCHER, "polend()") == POLEND, "LAUNCHER_POLEND_NOT_READY");
         require(_readAddress(MEMEVERSE_LAUNCHER, "polSplitter()") == POLSPLITTER, "LAUNCHER_POLSPLITTER_NOT_READY");
+        require(
+            _readAddress(MEMEVERSE_REGISTRAR, "MEMEVERSE_LAUNCHER()") == MEMEVERSE_LAUNCHER,
+            "REGISTRAR_LAUNCHER_NOT_READY"
+        );
+        require(
+            _readAddress(MEMEVERSE_PROXY_DEPLOYER, "memeverseLauncher()") == MEMEVERSE_LAUNCHER,
+            "PROXY_DEPLOYER_LAUNCHER_NOT_READY"
+        );
+        require(
+            _readAddress(MEMEVERSE_YIELD_DISPATCHER, "memeverseLauncher()") == MEMEVERSE_LAUNCHER,
+            "YIELD_DISPATCHER_LAUNCHER_NOT_READY"
+        );
         require(_readAddress(POLEND, "launcher()") == MEMEVERSE_LAUNCHER, "POLEND_LAUNCHER_NOT_READY");
         require(_readAddress(POLEND, "splitter()") == POLSPLITTER, "POLEND_SPLITTER_NOT_READY");
         require(_readAddress(POLSPLITTER, "launcher()") == MEMEVERSE_LAUNCHER, "POLSPLITTER_LAUNCHER_NOT_READY");
@@ -513,6 +782,7 @@ contract MemeverseScript is BaseScript {
         _requireReserveReady(UUSD, "UUSD_RESERVE_NOT_READY");
         _requireFundMetaDataReady(UETH, "UETH_FUND_METADATA_NOT_READY");
         _requireFundMetaDataReady(UUSD, "UUSD_FUND_METADATA_NOT_READY");
+        _requireSwapReady(swapRouter, hook);
     }
 
     function _requireSwapReady(address swapRouter, address hook) internal view {
@@ -564,12 +834,7 @@ contract MemeverseScript is BaseScript {
     }
 
     function _readPolSplitterPolend() internal view returns (address value) {
-        (bool success, bytes memory data) = POLSPLITTER.staticcall(abi.encodeWithSignature("polend()"));
-        if (success && data.length >= 32) return abi.decode(data, (address));
-
-        // POLSplitter stores `polend` in its ERC-7201 namespace at base + 3.
-        bytes32 rawValue = vm.load(POLSPLITTER, bytes32(uint256(POLSPLITTER_STORAGE_LOCATION) + 3));
-        return address(uint160(uint256(rawValue)));
+        return _readAddress(POLSPLITTER, "polend()");
     }
 
     function _readSettlementDustState(address uAsset) internal view returns (uint128 reserve, uint128 maxReserve) {

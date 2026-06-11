@@ -2,7 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
@@ -58,6 +61,49 @@ contract MemeverseLauncherConfigTest is Test {
     uint256 internal constant MAX_SUPPORTED_FUND_BASED_AMOUNT = (1 << 64) - 1;
     MemeverseLauncher internal launcher;
 
+    function _launcherInitData(address initialOwner, uint256 rewardRate) internal pure returns (bytes memory) {
+        return abi.encodeWithSignature(
+            "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
+            initialOwner,
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            address(0x10),
+            address(0x11),
+            rewardRate,
+            115_000,
+            135_000,
+            2_500,
+            7 days
+        );
+    }
+
+    function _initializeLauncher(MemeverseLauncher target, address initialOwner, uint256 rewardRate) internal {
+        target.initialize(
+            initialOwner,
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            address(0x5),
+            address(0x10),
+            address(0x11),
+            rewardRate,
+            115_000,
+            135_000,
+            2_500,
+            7 days
+        );
+    }
+
+    function _deployProxyLauncher(address initialOwner) internal returns (MemeverseLauncher) {
+        MemeverseLauncher implementation = new MemeverseLauncher();
+        return
+            MemeverseLauncher(address(new ERC1967Proxy(address(implementation), _launcherInitData(initialOwner, 25))));
+    }
+
     function _setMemeverseUniswapHook(address hookAddress) internal returns (bool ok, bytes memory data) {
         return address(launcher).call(abi.encodeWithSignature("setMemeverseUniswapHook(address)", hookAddress));
     }
@@ -72,15 +118,66 @@ contract MemeverseLauncherConfigTest is Test {
     /// @notice Set up.
     /// @dev Deploys the launcher with dummy dependencies for the configuration tests.
     function setUp() external {
-        launcher = new MemeverseLauncher(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
+        launcher = _deployProxyLauncher(address(this));
+    }
+
+    function testProxyInitializeStoresOwnerAndConfiguration() external view {
+        assertEq(launcher.owner(), address(this));
+        assertFalse(launcher.paused());
+        assertEq(launcher.localLzEndpoint(), address(0x1));
+        assertEq(launcher.memeverseRegistrar(), address(0x2));
+        assertEq(launcher.memeverseProxyDeployer(), address(0x3));
+        assertEq(launcher.yieldDispatcher(), address(0x4));
+        assertEq(launcher.lzEndpointRegistry(), address(0x5));
+        assertEq(launcher.polend(), address(0x10));
+        assertEq(launcher.polSplitter(), address(0x11));
+        assertEq(launcher.executorRewardRate(), 25);
+        assertEq(launcher.oftReceiveGasLimit(), 115_000);
+        assertEq(launcher.yieldDispatcherGasLimit(), 135_000);
+        assertEq(launcher.preorderCapRatio(), 2_500);
+        assertEq(launcher.preorderVestingDuration(), 7 days);
+    }
+
+    function testImplementationInitializeIsDisabled() external {
+        MemeverseLauncher implementation = new MemeverseLauncher();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        _initializeLauncher(implementation, address(this), 25);
+    }
+
+    function testProxyInitializeRevertsSecondTime() external {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        _initializeLauncher(launcher, address(this), 25);
+    }
+
+    function testInitializeRevertsWhenExecutorRewardRateEqualsRatio() external {
+        MemeverseLauncher implementation = new MemeverseLauncher();
+        vm.expectRevert(IMemeverseLauncher.FeeRateOverFlow.selector);
+        new ERC1967Proxy(address(implementation), _launcherInitData(address(this), 10_000));
+    }
+
+    // ----------------------------------------------------------------
+    // initialize: zero-value parameter revert tests
+    // ----------------------------------------------------------------
+
+    /// @notice Builds init data with one address parameter zeroed out by index.
+    /// @dev Index 0 = initialOwner, 1 = localLzEndpoint_, ..., 7 = polSplitter_.
+    /// @param zeroIndex Which address parameter to set to address(0).
+    /// @return ABI-encoded initialize calldata.
+    function _launcherInitDataWithZeroAddr(uint256 zeroIndex) internal pure returns (bytes memory) {
+        address[8] memory addrs = [
+            address(0xA1),  // initialOwner
+            address(0x1),   // localLzEndpoint_
+            address(0x2),   // memeverseRegistrar_
+            address(0x3),   // memeverseProxyDeployer_
+            address(0x4),   // yieldDispatcher_
+            address(0x5),   // lzEndpointRegistry_
+            address(0x10),  // polend_
+            address(0x11)   // polSplitter_
+        ];
+        addrs[zeroIndex] = address(0);
+        return abi.encodeWithSignature(
+            "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
+            addrs[0], addrs[1], addrs[2], addrs[3], addrs[4], addrs[5], addrs[6], addrs[7],
             25,
             115_000,
             135_000,
@@ -89,45 +186,135 @@ contract MemeverseLauncherConfigTest is Test {
         );
     }
 
-    /// @notice Test constructor stores preorder config.
-    /// @dev Ensures the given cap ratio and vesting duration survive in storage.
-    function testConstructorStoresPreorderConfig() external view {
-        assertEq(launcher.preorderCapRatio(), 2_500);
-        assertEq(launcher.preorderVestingDuration(), 7 days);
+    /// @notice Verifies initialize reverts for each zero-valued address parameter.
+    /// @dev Each address is zeroed individually; index 0 (initialOwner) triggers OwnableInvalidOwner
+    ///      before ZeroInput because __Ownable_init runs first.
+    function testInitializeRevertsZeroAddressParams() external {
+        // index 0: initialOwner → __Ownable_init reverts first
+        {
+            MemeverseLauncher impl = new MemeverseLauncher();
+            vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
+            new ERC1967Proxy(address(impl), _launcherInitDataWithZeroAddr(0));
+        }
+
+        // indices 1-7: other address params → ZeroInput
+        for (uint256 i = 1; i < 8; i++) {
+            MemeverseLauncher impl = new MemeverseLauncher();
+            vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+            new ERC1967Proxy(address(impl), _launcherInitDataWithZeroAddr(i));
+        }
     }
 
-    /// @notice Test constructor rejects an executor reward rate at the ratio bound.
-    function testConstructorRevertsWhenExecutorRewardRateEqualsRatio() external {
-        vm.expectRevert(IMemeverseLauncher.FeeRateOverFlow.selector);
-        new MemeverseLauncher(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            10_000,
-            115_000,
-            135_000,
-            2_500,
-            7 days
+    /// @notice Verifies initialize reverts ZeroInput when gas limits are zero.
+    function testInitializeRevertsZeroGasLimits() external {
+        MemeverseLauncher impl1 = new MemeverseLauncher();
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        new ERC1967Proxy(
+            address(impl1),
+            abi.encodeWithSignature(
+                "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
+                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
+                address(0x11), 25, uint128(0), 135_000, 2_500, 7 days
+            )
         );
+
+        MemeverseLauncher impl2 = new MemeverseLauncher();
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        new ERC1967Proxy(
+            address(impl2),
+            abi.encodeWithSignature(
+                "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
+                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
+                address(0x11), 25, 115_000, uint128(0), 2_500, 7 days
+            )
+        );
+    }
+
+    /// @notice Verifies initialize reverts ZeroInput when preorder params are zero.
+    function testInitializeRevertsZeroPreorderParams() external {
+        MemeverseLauncher impl1 = new MemeverseLauncher();
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        new ERC1967Proxy(
+            address(impl1),
+            abi.encodeWithSignature(
+                "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
+                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
+                address(0x11), 25, 115_000, 135_000, 0, 7 days
+            )
+        );
+
+        MemeverseLauncher impl2 = new MemeverseLauncher();
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        new ERC1967Proxy(
+            address(impl2),
+            abi.encodeWithSignature(
+                "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
+                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
+                address(0x11), 25, 115_000, 135_000, 2_500, 0
+            )
+        );
+    }
+
+    function testOwnerCanUpgradeAndNonOwnerCannot() external {
+        MemeverseLauncher newImplementation = new MemeverseLauncher();
+
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        launcher.upgradeToAndCall(address(newImplementation), "");
+
+        launcher.upgradeToAndCall(address(newImplementation), "");
+    }
+
+    /// @notice Re-initialization through upgradeToAndCall must revert.
+    /// @dev The initializer modifier checks _initialized in proxy storage, which is already 1.
+    function testUpgradeToAndCall_RevertsWhenCallingInitialize() external {
+        MemeverseLauncher newImplementation = new MemeverseLauncher();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        launcher.upgradeToAndCall(address(newImplementation), _launcherInitData(address(this), 25));
+    }
+
+    /// @notice Direct upgradeToAndCall on implementation must revert (onlyProxy guard).
+    /// @dev UUPSUpgradeable._checkProxy() rejects calls where address(this) == __self.
+    function testImplementationUpgradeToAndCallIsDisabled() external {
+        MemeverseLauncher implementation = new MemeverseLauncher();
+        vm.expectRevert(UUPSUpgradeable.UUPSUnauthorizedCallContext.selector);
+        implementation.upgradeToAndCall(address(0), "");
+    }
+
+    function testConfigSetterRevertsForNonOwner() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        launcher.setLzEndpointRegistry(address(0xBEEF));
+    }
+
+    /// @notice Verifies onlyOwner enforcement on config setters works through the proxy.
+    function testSetExecutorRewardRate_RevertsWhenNotOwner() external {
+        vm.prank(OTHER);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        launcher.setExecutorRewardRate(500);
+    }
+
+    /// @notice Test proxiableUUID returns the expected ERC-1967 value.
+    /// @dev proxiableUUID uses the notDelegated modifier (reverts via proxy),
+    /// so we call it directly on the implementation.
+    function testProxiableUUID_ReturnsExpectedValue() external {
+        bytes32 expectedUUID = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        MemeverseLauncher implementation = new MemeverseLauncher();
+        assertEq(implementation.proxiableUUID(), expectedUUID);
     }
 
     /// @notice Test pause and unpause are owner only.
     /// @dev Verifies only the owner can toggle the paused state.
     function testPauseAndUnpauseAreOwnerOnly() external {
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.pause();
 
         launcher.pause();
         assertTrue(launcher.paused());
 
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.unpause();
 
         launcher.unpause();

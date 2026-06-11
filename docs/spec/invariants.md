@@ -14,19 +14,19 @@
 
 - 约束：`MemeverseLauncher.registerMemeverse(...)` 只能由 `memeverseRegistrar` 调用；注册中心与 registrar 只能作为上游入口。`[代码已证]`
 - 价值：保证 verse 创建不会被任意地址绕过中心化校验路径。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:946`，`src/verse/registration/MemeverseRegistrarAbstract.sol:31-44`，`src/verse/registration/MemeverseRegistrationCenter.sol:150`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::registerMemeverse`，`src/verse/registration/MemeverseRegistrarAbstract.sol:31-44`，`src/verse/registration/MemeverseRegistrationCenter.sol:150`
 
 ### INV-02 `memecoin -> verseId` 映射在注册时建立且后续不重写
 
 - 约束：注册时写入 `memecoinToIds[memecoin] = uniqueId`，后续无 setter 可改该映射。`[代码已证]`
 - 价值：跨模块按 memecoin 反查 verse 的主键语义稳定。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:962`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::registerMemeverse`
 
 ### INV-03 治理链统一取 `omnichainIds[0]`
 
 - 约束：launcher 费用分发与 interoperation staking 都把 `omnichainIds[0]` 解释为治理链。`[代码已证]`
 - 价值：避免“治理链”在不同模块使用不同索引。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:288`，`src/verse/MemeverseLauncher.sol:750`，`src/interoperation/MemeverseOmnichainInteroperation.sol:68`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::quoteDistributionLzFee`，`src/verse/MemeverseLauncher.sol::_deployAndSetupMemeverse`，`src/interoperation/MemeverseOmnichainInteroperation.sol:68`
 
 ### INV-04 启动结算必须走显式 `Launcher -> Hook` 结算路径
 
@@ -37,7 +37,7 @@
   - Launcher bootstrap 四池创建使用 desired budgets 作为计划输入，实际进入主池和辅助池的 token 数量以后续 actual spend 为准。`[代码已证]`
   - bootstrap auxiliary pool creation 以 actual spend 记账，不因 auxiliary underspend 本身触发单独的 bootstrap backing / equality guard，也不依赖单独文档化的 rounding-envelope accept/reject 规则。unused bootstrap `uAsset` 走 settlement dust reserve / treasury excess 路径，unused bootstrap `memecoin` 走 burn。`[目标规范]`
 - 价值：防止任意调用者伪造启动结算路径，并避免 router / hook / launcher 绑定失配或 unlock 保护漂移到错误 hook namespace。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:594-608`，`src/swap/MemeverseUniswapHook.sol:572-627`，`src/verse/MemeverseLauncher.sol:1224-1240`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::_validateLaunchSettlementConfig`，`src/swap/MemeverseUniswapHook.sol:572-627`，`src/verse/MemeverseLauncher.sol::_deployLiquidity`
 
 ### INV-05 Locked 费用分发恒等式
 
@@ -49,23 +49,20 @@
 
 - 约束：跨链分发与跨链 staking 都不是“至少足额”，而是“严格等于报价”。`[代码已证]`
 - 价值：调用方与脚本必须先 quote，再按精确值提交交易。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:791`，`src/interoperation/MemeverseOmnichainInteroperation.sol:123`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::redeemAndDistributeFees`，`src/interoperation/MemeverseOmnichainInteroperation.sol:123`
 
 ### INV-07 关键业务动作受阶段机约束
 
 - 约束：`genesis/preorder` 仅 `Genesis`；`refund/refundPreorder` 仅 `Refund`；`claimNormalYT/claimNormalFees/mintPOLToken/redeemAndDistributeFees` 至少 `Locked`；LP 赎回仅 `Unlocked`。`[代码已证]`
 - 约束：Router/Hook 的 ERC20 payout helper 都对 `recipient == address(0)` fail-close；`removeLiquidity(...)`、`removeLiquidityWithPermit2(...)` 与 Hook fee payout 不允许把代币发送到零地址。`[代码已证]`
 - 价值：跨模块资金动作不会越阶段执行。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:326`，`:362`，`:627`，`:654`，`:729`，`:823`，`:849`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::genesis`，`::preorder`，`::refund`，`::refundPreorder`，`::changeStage`，`::claimNormalYT`，`::claimNormalFees`
 
-### INV-07A unlock settlement 期间普通赎回必须被 launcher 侧结算门阻断
+### INV-07A Locked -> Unlocked 结算与公开 swap 保护必须同交易落地
 
-- 约束：`changeStage()` 执行 `Locked -> Unlocked` 时，launcher 会在同一笔交易内先置 `unlockSettlementActive[verseId] = true`，完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 的公开 swap 保护写入后再清回 `false`。在该标志为 `true` 时：
-  - `redeemAuxiliaryLiquidity` 必须回退；
-  - `redeemMemecoinLiquidity` 对普通外部调用者必须回退；
-  - 仅 `polSplitter` 与 `polend` 作为协议内 settlement caller 可继续走主池赎回路径。
-- 价值：防止用户在 unlock settlement 正处理中抢先提取普通侧流动性，破坏结算与剩余份额基准。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:117`，`:441-447`，`:856`，`:1027-1061`
+- 约束：`changeStage()` 执行 `Locked -> Unlocked` 时，先在同一笔交易内完成 `POLSplitter.settle(...)` 与可选 `POLend.executeGlobalSettlement(...)`，再写入 hook 的公开 swap 恢复时间；hook-side public swap protection 在该恢复时间写入后生效。该 settlement callback window 不由 launcher-side transient gate 或已生效的公开 swap block 保护。进入 `Unlocked` 后，赎回可用性由阶段与各函数自身条件决定。
+- 价值：保证全局结算状态与受保护池公开 swap 恢复时间锚定同一次解锁迁移，避免 settlement 与保护窗口出现时间分叉。
+- 主要锚点：`src/verse/MemeverseLauncher.sol` 的 `Locked -> Unlocked` 分支、POLSplitter/POLend settlement 调用、hook 公开 swap 恢复时间写入路径
 
 ### INV-08 Router/Hook 只操作动态费池且固定 tickSpacing
 
@@ -89,15 +86,15 @@
 
 - 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价读取注册中心 `DAY`，中心写入为最终来源，并写入固定 `unlockTime = endTime + 365 days`。`[代码已证]`
 - 价值：链上最终时间语义由中心写入决定，报价仅供参考。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:956-958`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:38-43`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:130`，`:135`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::_storeRegisteredMemeverse`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:38-43`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:130`，`:135`
 
 ### INV-12 解锁后必须先经过保护窗口，再恢复公开 swap
 
-- 约束：verse 在实际执行 `Locked -> Unlocked` 的 `changeStage()` 交易中，会按当时区块时间为受保护池写入 `publicSwapResumeTime = block.timestamp + 24 hours`。在该时刻之前，受保护的公开 swap 必须继续被阻断。`[代码已证]`
+- 约束：verse 在实际执行 `Locked -> Unlocked` 的 `changeStage()` 交易中，会先完成 settlement 调用，再按当时区块时间为受保护池写入 `publicSwapResumeTime = block.timestamp + 24 hours`。hook-side public swap protection 自该写入后生效；不声明 settlement callback window 已被公开 swap block 覆盖。`[代码已证]`
 - 价值：保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供一致的全局结算窗口。
 - 违反后果：先行动者可通过先赎回并抛售底层资产，把损失外部化给后续赎回者，造成用户重大亏损。`[产品安全要求]`
 - 当前实现状态：保护窗口没有单独阶段，而是通过 `Stage.Unlocked + hook 按 pool-level resume time 阻断公开 swap` 落地；赎回路径与公开 swap 可用性由不同模块分离控制。保护窗口为固定 `24 hours` 产品常量，不再存在 owner 配置面。`[代码已证]`
-- 主要锚点：`src/verse/MemeverseLauncher.sol:132-142`，`src/verse/MemeverseLauncher.sol:996-1000`，`src/swap/MemeverseUniswapHook.sol:309-377`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::UNLOCK_PROTECTION_WINDOW`，`src/verse/MemeverseLauncher.sol::_activatePostUnlockPublicSwapProtection`，`src/swap/MemeverseUniswapHook.sol:309-377`
 
 ### INV-13 POLend 全局结算只能用 bounded reserve 覆盖 dust
 
@@ -134,7 +131,7 @@
 - 约束：普通侧 PT fee 在 `settled=false` 时直接转 `PT`；在 `settled=true` 时改走 `previewPTToUAsset -> redeemPT -> uAsset`。若 `previewPTToUAsset(...) == 0`，本次不得把该 PT 份额标记为已领，而要保持未领取状态等待后续重试。`[代码已证]`
 - 约束：governor 路径的 `pending auxiliary gov PT fee` 也必须遵守同样的 zero-backing 保留语义；可分发的其它 `uAsset/memecoin/POL` fee 不因此被阻断。`[代码已证]`
 - 价值：保证 normal fee 账本在大数情况下可领取，并保证 settling 后的 PT dust 不会被错误吞掉或提前记为已处理。
-- 主要锚点：`src/verse/MemeverseLauncher.sol:808-842`，`:1588-1613`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::claimNormalFees`，`src/verse/MemeverseLauncher.sol::_mergePendingAuxiliaryGovFees`
 
 ### INV-17 创世总资金聚合上限必须保持累计且排除 preorder
 

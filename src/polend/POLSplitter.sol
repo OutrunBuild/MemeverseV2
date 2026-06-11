@@ -120,6 +120,10 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         return _getPOLSplitterStorage().launcher;
     }
 
+    function polend() external view returns (address) {
+        return _getPOLSplitterStorage().polend;
+    }
+
     function principalTokenImplementation() external view returns (address) {
         return _getPOLSplitterStorage().principalTokenImplementation;
     }

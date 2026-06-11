@@ -185,11 +185,13 @@ V2 当前已实现的启动保护是：
 - POLend leveraged residual claims
 - 按产品定义允许的兼容性补池行为
 
-但当前实现有一层更细的 launcher-side 结算保护：
+当前实现的解锁迁移在同一笔 `changeStage()` 交易内先完成 settlement 调用，再写入 hook 保护时间：
 
-- `changeStage()` 执行 `Locked -> Unlocked` 时，会先把 `unlockSettlementActive[verseId] = true`，在同一笔交易内依次完成 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、以及 hook 的 `publicSwapResumeTime` 写入，最后再清回 `false`。
-- `redeemAuxiliaryLiquidity` 带 `notDuringUnlockSettlement` 修饰符，在该窗口内一律拒绝外部调用。
-- `redeemMemecoinLiquidity` 对普通外部调用者也会检查 `_requireNoUnlockSettlement`；只有 `polSplitter` 与 `polend` 作为协议内结算调用者时可绕过该检查。
+- `POLSplitter.settle(...)`
+- 可选 `POLend.executeGlobalSettlement(...)`
+- hook 的 `publicSwapResumeTime` 写入；hook-side public swap protection 在该写入后生效
+- 进入 `Unlocked` 后，普通赎回可用性由阶段与各函数自身条件决定；公开 swap 仍由 hook 的保护时间单独阻断。
+- 不声明 settlement callback window 由 launcher-side transient gate 或已生效的公开 swap block 保护。
 - bootstrap residual 的 normal share 通过 `redeemAuxiliaryLiquidity` 发放；leveraged share 通过 POLend 的 leveraged auxiliary settlement 输出发放。协议不保留一个永久 launcher bucket 来长期托管这类 residual。
 
 ### 7.3 保护窗口内必须禁止什么
@@ -197,14 +199,13 @@ V2 当前已实现的启动保护是：
 - 普通公开 swap
 - 绕过公开入口的等价 swap 路径
 - 任何会改变后续赎回价值基准的公开市场行为
-- 在 launcher 正执行 unlock settlement 的同一笔交易里抢先提取普通侧主池或辅助池流动性
 
 ### 7.4 当前实现状态
 
 当前实现已经落地该窗口语义，但方式不是新增阶段：
 
 - verse 需先到达 `unlockTime`，然后在实际 `changeStage()` 调用里进入 `Unlocked`
-- launcher 在该次迁移里按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
+- launcher 在 settlement 调用完成后，按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
 - hook 在 `beforeSwap` 中读取该 pool-level 时间；未到期时继续拒绝受保护 pair 的公开 swap
 
 因此当前实现采用的是“阶段直接进入 `Unlocked`，但公开 swap 恢复时间锚定实际迁移调用”的实现方式。

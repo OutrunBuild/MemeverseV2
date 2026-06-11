@@ -30,6 +30,7 @@ import {
     MockLzEndpointRegistry,
     MockLiquidProof,
     MockLaunchSettlementHookForLauncherTest,
+    TestableMemeverseLauncherFactory,
     RedeemMemecoinLiquidityReenterer
 } from "./MemeverseLauncherLifecycle.t.sol";
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "../swap/MemeverseSwapRouter.t.sol";
@@ -90,7 +91,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         polend = new MockPOLendForLifecycle();
         splitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         registry = new MockLzEndpointRegistry();
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -140,7 +142,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         uint256 verseId = 2;
         MockPOLendForLifecycle localPolend = new MockPOLendForLifecycle();
         MockPOLSplitterForLifecycle localSplitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
-        TestableMemeverseLauncher localLauncher = new TestableMemeverseLauncher(
+        TestableMemeverseLauncher localLauncher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -227,7 +230,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         assertLt(routerDelta.amount0(), 0, "router input");
     }
 
-    function testUnlockSettlementBlocksPublicLiquidityRedemptionsButAllowsProtocolCallers() external {
+    function testUnlockSettlementAllowsPublicLiquidityRedemptionsDuringSettlement() external {
         uint256 verseId = 3;
         _setLockedVerseReadyToUnlock(verseId);
         _seedAuxiliaryLiquidity(verseId);
@@ -247,33 +250,25 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         launcher.changeStage(verseId);
 
         assertTrue(reenterer.reentryAttempted(), "public memecoin redeem tried during settlement");
-        assertFalse(reenterer.reentrySucceeded(), "public memecoin redeem blocked during settlement");
-        assertEq(
-            reenterer.lastRevertData(),
-            abi.encodeWithSelector(IMemeverseLauncher.UnlockSettlementActive.selector),
-            "public memecoin redeem selector"
-        );
-        assertEq(liquidProof.balanceOf(address(reenterer)), 10 ether, "public caller POL untouched");
+        assertTrue(reenterer.reentrySucceeded(), "public memecoin redeem allowed during settlement");
+        assertEq(memecoinLp.balanceOf(address(reenterer)), 4 ether, "public caller received LP");
+        assertEq(liquidProof.balanceOf(address(reenterer)), 6 ether, "public caller POL burned");
         assertGt(liquidProof.balanceOf(address(polend)), polendPolBefore, "polend POL settlement allowed");
         assertGt(pt.balanceOf(address(polend)), polendPtBefore, "polend PT settlement allowed");
         assertGt(uAsset.balanceOf(address(polend)), polendUAssetBefore, "polend uAsset settlement allowed");
     }
 
-    function testUnlockSettlementBlocksPublicAuxiliaryRedeemDuringSplitterSettlement() external {
+    function testUnlockSettlementAllowsPublicAuxiliaryRedeemDuringSplitterSettlement() external {
         uint256 verseId = 4;
         _setLockedVerseReadyToUnlock(verseId);
         _seedAuxiliaryLiquidity(verseId);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
         splitter.setSettleReentry(address(launcher), verseId);
 
         launcher.changeStage(verseId);
 
         assertTrue(splitter.reentryAttempted(), "public auxiliary redeem tried during settlement");
-        assertFalse(splitter.reentrySucceeded(), "public auxiliary redeem blocked during settlement");
-
-        vm.prank(ALICE);
-        (uint256 polAmount,,) = launcher.redeemAuxiliaryLiquidity(verseId);
-        assertGt(polAmount, 0, "public auxiliary redeem resumes after settlement");
+        assertTrue(splitter.reentrySucceeded(), "public auxiliary redeem allowed during settlement");
+        assertEq(polUAssetLp.balanceOf(address(splitter)), 12 ether, "public auxiliary LP redeemed");
     }
 
     function testPolSplitterCanRedeemMemecoinLiquidityDuringUnlockSettlement() external {
@@ -301,7 +296,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         uint256 verseId = 6;
         MockPOLSplitterForLifecycle localSplitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         POLendMemecoinRedeemDuringSettlement localPolend = new POLendMemecoinRedeemDuringSettlement(2 ether);
-        TestableMemeverseLauncher localLauncher = new TestableMemeverseLauncher(
+        TestableMemeverseLauncher localLauncher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -398,7 +394,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         internal
         returns (TestableMemeverseLauncher targetLauncher)
     {
-        targetLauncher = new TestableMemeverseLauncher(
+        targetLauncher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),

@@ -11,7 +11,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
-import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseLauncherTestBase} from "./helpers/MemeverseLauncherTestBase.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
@@ -135,8 +135,8 @@ contract MockPOLSplitterForEndToEndInvariant {
     }
 }
 
-contract InspectableEndToEndLauncher is MemeverseLauncher {
-    constructor(
+contract InspectableEndToEndLauncher is MemeverseLauncherTestBase {
+    function createProxy(
         address _owner,
         address _localLzEndpoint,
         address _memeverseRegistrar,
@@ -150,63 +150,26 @@ contract InspectableEndToEndLauncher is MemeverseLauncher {
         uint128 _yieldDispatcherGasLimit,
         uint256 _preorderCapRatio,
         uint256 _preorderVestingDuration
-    )
-        MemeverseLauncher(
-            _owner,
-            _localLzEndpoint,
-            _memeverseRegistrar,
-            _memeverseProxyDeployer,
-            _yieldDispatcher,
-            _lzEndpointRegistry,
-            _polend,
-            _polSplitter,
-            _executorRewardRate,
-            _oftReceiveGasLimit,
-            _yieldDispatcherGasLimit,
-            _preorderCapRatio,
-            _preorderVestingDuration
-        )
-    {}
-
-    /// @notice Test helper for getPreorderStateForTest.
-    /// @param verseId See implementation.
-    /// @return totalFunds See implementation.
-    /// @return settledMemecoin See implementation.
-    /// @return settlementTimestamp See implementation.
-    function getPreorderStateForTest(uint256 verseId)
-        external
-        view
-        returns (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp)
-    {
-        PreorderState storage state = preorderStates[verseId];
-        return (state.totalFunds, state.settledMemecoin, state.settlementTimestamp);
-    }
-
-    /// @notice Test helper for claimablePreorderMemecoinForTest.
-    /// @param verseId See implementation.
-    /// @param account See implementation.
-    /// @return amount See implementation.
-    function claimablePreorderMemecoinForTest(uint256 verseId, address account) external view returns (uint256 amount) {
-        PreorderState storage preorderState = preorderStates[verseId];
-        uint40 settlementTimestamp = preorderState.settlementTimestamp;
-        if (settlementTimestamp == 0) return 0;
-
-        PreorderData storage preorderData = userPreorderData[verseId][account];
-        uint256 userFunds = preorderData.funds;
-        uint256 totalFunds = preorderState.totalFunds;
-        if (userFunds == 0 || totalFunds == 0 || preorderData.isRefunded) return 0;
-
-        uint256 purchasedMemecoin = FullMath.mulDiv(preorderState.settledMemecoin, userFunds, totalFunds);
-        if (purchasedMemecoin <= preorderData.claimedMemecoin) return 0;
-
-        uint256 elapsed = block.timestamp - settlementTimestamp;
-        if (elapsed >= preorderVestingDuration) {
-            return purchasedMemecoin - preorderData.claimedMemecoin;
-        }
-
-        uint256 vested = FullMath.mulDiv(purchasedMemecoin, elapsed, preorderVestingDuration);
-        if (vested <= preorderData.claimedMemecoin) return 0;
-        return vested - preorderData.claimedMemecoin;
+    ) external returns (InspectableEndToEndLauncher) {
+        return InspectableEndToEndLauncher(
+            address(
+                _createProxy(
+                    _owner,
+                    _localLzEndpoint,
+                    _memeverseRegistrar,
+                    _memeverseProxyDeployer,
+                    _yieldDispatcher,
+                    _lzEndpointRegistry,
+                    _polend,
+                    _polSplitter,
+                    _executorRewardRate,
+                    _oftReceiveGasLimit,
+                    _yieldDispatcherGasLimit,
+                    _preorderCapRatio,
+                    _preorderVestingDuration
+                )
+            )
+        );
     }
 }
 
@@ -415,13 +378,14 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForEndToEndInvariant();
         splitter = new MockPOLSplitterForEndToEndInvariant(address(pt), address(yt));
-        launcher = new InspectableEndToEndLauncher(
+        launcher = (new InspectableEndToEndLauncher())
+        .createProxy(
             address(this),
             address(0x1111),
             REGISTRAR,
-            address(0),
+            address(0x3333),
             address(0x4444),
-            address(0),
+            address(0x5555),
             address(polend),
             address(splitter),
             25,
@@ -561,12 +525,15 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test {
     function invariant_endToEndPreorderClaimsRemainBounded() external view {
         (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp) =
             launcher.getPreorderStateForTest(VERSE_ID);
+        IMemeverseLauncher.Stage stage = launcher.getStageByVerseId(VERSE_ID);
+        bool preorderClaimPreviewAvailable = stage >= IMemeverseLauncher.Stage.Locked;
         uint256 totalClaimed;
 
         for (uint256 i; i < actors.length; ++i) {
             (uint256 funds, uint256 claimedMemecoin,) = launcher.userPreorderData(VERSE_ID, actors[i]);
             uint256 purchasedMemecoin = totalFunds == 0 ? 0 : FullMath.mulDiv(settledMemecoin, funds, totalFunds);
-            uint256 claimable = launcher.claimablePreorderMemecoinForTest(VERSE_ID, actors[i]);
+            uint256 claimable =
+                preorderClaimPreviewAvailable ? launcher.claimablePreorderMemecoinForTest(VERSE_ID, actors[i]) : 0;
 
             assertLe(claimedMemecoin, purchasedMemecoin, "claimed exceeds entitlement");
             assertLe(claimedMemecoin + claimable, purchasedMemecoin, "claimable exceeds entitlement");
@@ -628,13 +595,14 @@ contract MemeverseLauncherRefundEndToEndInvariantTest is StdInvariant, Test {
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForEndToEndInvariant();
         splitter = new MockPOLSplitterForEndToEndInvariant(address(pt), address(yt));
-        launcher = new InspectableEndToEndLauncher(
+        launcher = (new InspectableEndToEndLauncher())
+        .createProxy(
             address(this),
             address(0x1111),
             REGISTRAR,
-            address(0),
+            address(0x3333),
             address(0x4444),
-            address(0),
+            address(0x5555),
             address(polend),
             address(splitter),
             25,

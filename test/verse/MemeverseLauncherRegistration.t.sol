@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 
-import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseLauncherTestBase} from "./helpers/MemeverseLauncherTestBase.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract MockLauncherRegistrationToken {
@@ -59,8 +59,8 @@ contract MockLauncherRegistrationToken {
 
 contract MockGovernorForExternalInfo {}
 
-contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
-    constructor(
+contract TestableMemeverseLauncherRegistration is MemeverseLauncherTestBase {
+    function createProxy(
         address _owner,
         address _localLzEndpoint,
         address _memeverseRegistrar,
@@ -74,34 +74,39 @@ contract TestableMemeverseLauncherRegistration is MemeverseLauncher {
         uint128 _yieldDispatcherGasLimit,
         uint256 _preorderCapRatio,
         uint256 _preorderVestingDuration
-    )
-        MemeverseLauncher(
-            _owner,
-            _localLzEndpoint,
-            _memeverseRegistrar,
-            _memeverseProxyDeployer,
-            _yieldDispatcher,
-            _lzEndpointRegistry,
-            _polend,
-            _polSplitter,
-            _executorRewardRate,
-            _oftReceiveGasLimit,
-            _yieldDispatcherGasLimit,
-            _preorderCapRatio,
-            _preorderVestingDuration
-        )
-    {}
+    ) external returns (TestableMemeverseLauncherRegistration) {
+        return TestableMemeverseLauncherRegistration(
+            address(
+                _createProxy(
+                    _owner,
+                    _localLzEndpoint,
+                    _memeverseRegistrar,
+                    _memeverseProxyDeployer,
+                    _yieldDispatcher,
+                    _lzEndpointRegistry,
+                    _polend,
+                    _polSplitter,
+                    _executorRewardRate,
+                    _oftReceiveGasLimit,
+                    _yieldDispatcherGasLimit,
+                    _preorderCapRatio,
+                    _preorderVestingDuration
+                )
+            )
+        );
+    }
 
     /// @notice Set memeverse for test.
     /// @dev Writes directly to `memeverses` so tests can simulate registrar outputs.
     /// @param verseId See implementation.
     /// @param verse See implementation.
     function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
-        memeverses[verseId] = verse;
+        _testStorage().memeverses[verseId] = verse;
     }
 
     function setFundMetaDataForTest(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external {
-        fundMetaDatas[uAsset] = FundMetaData({minTotalFund: minTotalFund, fundBasedAmount: fundBasedAmount});
+        _testStorage().fundMetaDatas[uAsset] =
+            FundMetaData({minTotalFund: minTotalFund, fundBasedAmount: fundBasedAmount});
     }
 }
 
@@ -184,13 +189,14 @@ contract MemeverseLauncherRegistrationTest is Test {
         polend = new MockLauncherRegistrationPOLend();
         memecoin = new MockLauncherRegistrationToken();
         pol = new MockLauncherRegistrationToken();
-        launcher = new TestableMemeverseLauncherRegistration(
+        launcher = (new TestableMemeverseLauncherRegistration())
+        .createProxy(
             OWNER,
             address(0x1),
             REGISTRAR,
-            address(0),
+            address(0x3),
             address(0x4),
-            address(0),
+            address(0x5),
             address(polend),
             address(0x1234),
             25,

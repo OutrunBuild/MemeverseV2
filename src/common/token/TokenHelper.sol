@@ -26,6 +26,10 @@ abstract contract TokenHelper is ReentrancyGuard {
         if (amount != 0) token.safeTransferFrom(from, to, amount);
     }
 
+    /// @notice Single exit point for all outbound token transfers.
+    /// @dev `nonReentrant` here is the centralized reentrancy defense for contracts using TokenHelper.
+    ///      Entry-point functions in these contracts intentionally omit `nonReentrant` to avoid double-locking
+    ///      with the boolean-based ReentrancyGuard (see R3-S-002 analysis).
     function _transferOut(address token, address to, uint256 amount) internal nonReentrant {
         if (amount == 0) return;
         if (token == NATIVE) {

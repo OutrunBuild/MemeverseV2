@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -32,8 +34,21 @@ import {IPOLSplitter} from "../polend/interfaces/IPOLSplitter.sol";
 
 /**
  * @title Trapping into the memeverse
+ * @dev Reentrancy strategy: this contract inherits `ReentrancyGuard` via `TokenHelper` and applies
+ *      `nonReentrant` on `_transferOut` — the single exit point for all outbound token transfers.
+ *      Public entry-point functions intentionally omit `nonReentrant` to avoid double-locking with
+ *      the boolean-based guard. The exception is `changeStage`, which omits it because the
+ *      Locked→Unlocked transition triggers cross-contract callbacks (`IPOLSplitter.settle`,
+ *      `IPOLend.executeGlobalSettlement`) that must be able to re-enter the launcher.
  */
-contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable {
+contract MemeverseLauncher is
+    IMemeverseLauncher,
+    Initializable,
+    OwnableUpgradeable,
+    PausableUpgradeable,
+    UUPSUpgradeable,
+    TokenHelper
+{
     using OptionsBuilder for bytes;
     using PoolIdLibrary for PoolKey;
 
@@ -41,73 +56,259 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     uint256 internal constant UNLOCK_PROTECTION_WINDOW = 24 hours;
     uint256 internal constant MAX_FUND_BASED_AMOUNT = (1 << 64) - 1;
     uint256 internal constant MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max;
-    address public localLzEndpoint;
-    address public lzEndpointRegistry;
-    address public yieldDispatcher;
-    address public memeverseRegistrar;
-    address public memeverseProxyDeployer;
-    address public memeverseSwapRouter;
-    address public memeverseUniswapHook;
-    address public polend;
-    address public polSplitter;
 
-    uint256 public executorRewardRate;
-    uint256 public preorderCapRatio;
-    uint256 public preorderVestingDuration;
-    uint128 public oftReceiveGasLimit;
-    uint128 public yieldDispatcherGasLimit;
+    /// @notice Storage layout for the MemeverseLauncher ERC7201 namespace.
+    ///         When adding fields in upgrades, append only at the end.
+    ///         Never reorder or insert fields between existing ones.
+    /// @custom:storage-location erc7201:outrun.storage.MemeverseLauncher
+    struct MemeverseLauncherStorage {
+        address localLzEndpoint;
+        address lzEndpointRegistry;
+        address yieldDispatcher;
+        address memeverseRegistrar;
+        address memeverseProxyDeployer;
+        address memeverseSwapRouter;
+        address memeverseUniswapHook;
+        address polend;
+        address polSplitter;
+        uint256 executorRewardRate;
+        uint256 preorderCapRatio;
+        uint256 preorderVestingDuration;
+        uint128 oftReceiveGasLimit;
+        uint128 yieldDispatcherGasLimit;
+        mapping(address pol => uint256) polToIds;
+        mapping(address memecoin => uint256) memecoinToIds;
+        mapping(uint256 verseId => Memeverse) memeverses;
+        mapping(address uAsset => FundMetaData) fundMetaDatas;
+        mapping(uint256 verseId => uint256) totalNormalFunds;
+        mapping(uint256 verseId => PreorderState) preorderStates;
+        mapping(uint256 verseId => AuxiliaryLiquidity) auxiliaryLiquidities;
+        mapping(uint256 verseId => BootstrapResidualClaims) bootstrapResidualClaims;
+        mapping(uint256 verseId => uint256) totalNormalClaimableYT;
+        mapping(uint256 verseId => mapping(address account => bool)) normalYTClaimed;
+        mapping(uint256 verseId => mapping(address account => GenesisData)) userGenesisData;
+        mapping(uint256 verseId => mapping(address account => PreorderData)) userPreorderData;
+        mapping(uint256 verseId => mapping(uint256 provider => string)) communitiesMap;
+        mapping(uint256 verseId => NormalFeeState) normalFeeStates;
+        mapping(uint256 verseId => mapping(address account => UserNormalFeeClaim)) userNormalFeeClaims;
+        mapping(uint256 verseId => PendingAuxiliaryGovFeeState) pendingAuxiliaryGovFeeStates;
+    }
 
-    mapping(address uAsset => FundMetaData) public fundMetaDatas;
-    mapping(address memecoin => uint256) public memecoinToIds;
-    mapping(address pol => uint256) public polToIds;
-    mapping(uint256 verseId => Memeverse) public memeverses;
-    mapping(uint256 verseId => uint256) public totalNormalFunds;
-    mapping(uint256 verseId => PreorderState) internal preorderStates;
-    mapping(uint256 verseId => AuxiliaryLiquidity) public auxiliaryLiquidities;
-    mapping(uint256 verseId => BootstrapResidualClaims) public bootstrapResidualClaims;
-    mapping(uint256 verseId => uint256) public totalNormalClaimableYT;
-    mapping(uint256 verseId => mapping(address account => bool)) public normalYTClaimed;
-    mapping(uint256 verseId => mapping(address account => GenesisData)) public userGenesisData;
-    mapping(uint256 verseId => mapping(address account => PreorderData)) public userPreorderData;
-    mapping(uint256 verseId => mapping(uint256 provider => string)) public communitiesMap; // provider -> 0:Website, 1:X, 2:Discord, 3:Telegram, >4:Others
+    bytes32 internal constant MEMEVERSE_LAUNCHER_STORAGE_LOCATION =
+        0xe4d68b4f0bdabf27c869795dba7c9a87fd97b24006928b28f58769be5bd8f500;
 
-    mapping(uint256 verseId => NormalFeeState) public normalFeeStates;
-    mapping(uint256 verseId => mapping(address account => UserNormalFeeClaim)) public userNormalFeeClaims;
-    mapping(uint256 verseId => PendingAuxiliaryGovFeeState) public pendingAuxiliaryGovFeeStates;
-    mapping(uint256 verseId => bool) internal unlockSettlementActive;
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    /// @notice This is the UUPS implementation contract. Do not call directly.
+    ///         Use the proxy contract for all interactions.
+    constructor() {
+        _disableInitializers();
+    }
 
-    constructor(
-        address _owner,
-        address _localLzEndpoint,
-        address _memeverseRegistrar,
-        address _memeverseProxyDeployer,
-        address _yieldDispatcher,
-        address _lzEndpointRegistry,
-        address _polend,
-        address _polSplitter,
-        uint256 _executorRewardRate,
-        uint128 _oftReceiveGasLimit,
-        uint128 _yieldDispatcherGasLimit,
-        uint256 _preorderCapRatio,
-        uint256 _preorderVestingDuration
-    ) Ownable(_owner) {
-        require(_preorderCapRatio != 0 && _preorderVestingDuration != 0, ZeroInput());
-        require(_preorderCapRatio <= RATIO, FeeRateOverFlow());
-        require(_executorRewardRate < RATIO, FeeRateOverFlow());
-        require(_polend != address(0) && _polSplitter != address(0), ZeroInput());
+    /**
+     * @notice Initializes the launcher proxy.
+     * @dev Deterministic dependencies may be predicted addresses during CREATE3 deployment, so initialization checks
+     *      non-zero addresses and config bounds without requiring code to exist yet.
+     */
+    function initialize(
+        address initialOwner,
+        address localLzEndpoint_,
+        address memeverseRegistrar_,
+        address memeverseProxyDeployer_,
+        address yieldDispatcher_,
+        address lzEndpointRegistry_,
+        address polend_,
+        address polSplitter_,
+        uint256 executorRewardRate_,
+        uint128 oftReceiveGasLimit_,
+        uint128 yieldDispatcherGasLimit_,
+        uint256 preorderCapRatio_,
+        uint256 preorderVestingDuration_
+    ) external initializer {
+        __Ownable_init(initialOwner);
+        __Pausable_init();
+        require(
+            localLzEndpoint_ != address(0) && memeverseRegistrar_ != address(0) && memeverseProxyDeployer_ != address(0)
+                && yieldDispatcher_ != address(0) && lzEndpointRegistry_ != address(0) && polend_ != address(0)
+                && polSplitter_ != address(0),
+            ZeroInput()
+        );
+        require(oftReceiveGasLimit_ > 0 && yieldDispatcherGasLimit_ > 0, ZeroInput());
+        require(preorderCapRatio_ != 0 && preorderVestingDuration_ != 0, ZeroInput());
+        require(preorderCapRatio_ <= RATIO, FeeRateOverFlow());
+        require(executorRewardRate_ < RATIO, FeeRateOverFlow());
 
-        localLzEndpoint = _localLzEndpoint;
-        memeverseRegistrar = _memeverseRegistrar;
-        memeverseProxyDeployer = _memeverseProxyDeployer;
-        lzEndpointRegistry = _lzEndpointRegistry;
-        yieldDispatcher = _yieldDispatcher;
-        polend = _polend;
-        polSplitter = _polSplitter;
-        executorRewardRate = _executorRewardRate;
-        preorderCapRatio = _preorderCapRatio;
-        preorderVestingDuration = _preorderVestingDuration;
-        oftReceiveGasLimit = _oftReceiveGasLimit;
-        yieldDispatcherGasLimit = _yieldDispatcherGasLimit;
+        _storeInitializedConfig(
+            localLzEndpoint_,
+            memeverseRegistrar_,
+            memeverseProxyDeployer_,
+            yieldDispatcher_,
+            lzEndpointRegistry_,
+            polend_,
+            polSplitter_,
+            executorRewardRate_,
+            oftReceiveGasLimit_,
+            yieldDispatcherGasLimit_,
+            preorderCapRatio_,
+            preorderVestingDuration_
+        );
+    }
+
+    function _storeInitializedConfig(
+        address localLzEndpoint_,
+        address memeverseRegistrar_,
+        address memeverseProxyDeployer_,
+        address yieldDispatcher_,
+        address lzEndpointRegistry_,
+        address polend_,
+        address polSplitter_,
+        uint256 executorRewardRate_,
+        uint128 oftReceiveGasLimit_,
+        uint128 yieldDispatcherGasLimit_,
+        uint256 preorderCapRatio_,
+        uint256 preorderVestingDuration_
+    ) internal {
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        $.localLzEndpoint = localLzEndpoint_;
+        $.memeverseRegistrar = memeverseRegistrar_;
+        $.memeverseProxyDeployer = memeverseProxyDeployer_;
+        $.yieldDispatcher = yieldDispatcher_;
+        $.lzEndpointRegistry = lzEndpointRegistry_;
+        $.polend = polend_;
+        $.polSplitter = polSplitter_;
+        $.executorRewardRate = executorRewardRate_;
+        $.oftReceiveGasLimit = oftReceiveGasLimit_;
+        $.yieldDispatcherGasLimit = yieldDispatcherGasLimit_;
+        $.preorderCapRatio = preorderCapRatio_;
+        $.preorderVestingDuration = preorderVestingDuration_;
+    }
+
+    function _getMemeverseLauncherStorage() private pure returns (MemeverseLauncherStorage storage $) {
+        assembly {
+            $.slot := MEMEVERSE_LAUNCHER_STORAGE_LOCATION
+        }
+    }
+
+    function _authorizeUpgrade(address) internal view override onlyOwner {}
+
+    function localLzEndpoint() external view returns (address) {
+        return _getMemeverseLauncherStorage().localLzEndpoint;
+    }
+
+    function lzEndpointRegistry() external view returns (address) {
+        return _getMemeverseLauncherStorage().lzEndpointRegistry;
+    }
+
+    function yieldDispatcher() external view returns (address) {
+        return _getMemeverseLauncherStorage().yieldDispatcher;
+    }
+
+    function memeverseRegistrar() external view returns (address) {
+        return _getMemeverseLauncherStorage().memeverseRegistrar;
+    }
+
+    function memeverseProxyDeployer() external view returns (address) {
+        return _getMemeverseLauncherStorage().memeverseProxyDeployer;
+    }
+
+    function memeverseSwapRouter() external view returns (address) {
+        return _getMemeverseLauncherStorage().memeverseSwapRouter;
+    }
+
+    function memeverseUniswapHook() external view returns (address) {
+        return _getMemeverseLauncherStorage().memeverseUniswapHook;
+    }
+
+    function polend() external view override returns (address) {
+        return _getMemeverseLauncherStorage().polend;
+    }
+
+    function polSplitter() external view returns (address) {
+        return _getMemeverseLauncherStorage().polSplitter;
+    }
+
+    function executorRewardRate() external view returns (uint256) {
+        return _getMemeverseLauncherStorage().executorRewardRate;
+    }
+
+    function preorderCapRatio() external view returns (uint256) {
+        return _getMemeverseLauncherStorage().preorderCapRatio;
+    }
+
+    function preorderVestingDuration() external view returns (uint256) {
+        return _getMemeverseLauncherStorage().preorderVestingDuration;
+    }
+
+    function oftReceiveGasLimit() external view returns (uint128) {
+        return _getMemeverseLauncherStorage().oftReceiveGasLimit;
+    }
+
+    function yieldDispatcherGasLimit() external view returns (uint128) {
+        return _getMemeverseLauncherStorage().yieldDispatcherGasLimit;
+    }
+
+    function fundMetaDatas(address uAsset) external view override returns (uint256, uint256) {
+        FundMetaData storage meta = _getMemeverseLauncherStorage().fundMetaDatas[uAsset];
+        return (meta.minTotalFund, meta.fundBasedAmount);
+    }
+
+    function memecoinToIds(address memecoin) external view returns (uint256) {
+        return _getMemeverseLauncherStorage().memecoinToIds[memecoin];
+    }
+
+    function polToIds(address pol) external view returns (uint256) {
+        return _getMemeverseLauncherStorage().polToIds[pol];
+    }
+
+    function totalNormalFunds(uint256 verseId) external view override returns (uint256) {
+        return _getMemeverseLauncherStorage().totalNormalFunds[verseId];
+    }
+
+    function auxiliaryLiquidities(uint256 verseId) external view returns (uint256, uint256, uint256) {
+        AuxiliaryLiquidity storage liq = _getMemeverseLauncherStorage().auxiliaryLiquidities[verseId];
+        return (liq.polUAssetLpAmount, liq.ptUAssetLpAmount, liq.ptPolLpAmount);
+    }
+
+    function bootstrapResidualClaims(uint256 verseId) external view returns (uint256, uint256, uint256, uint256) {
+        BootstrapResidualClaims storage claims = _getMemeverseLauncherStorage().bootstrapResidualClaims[verseId];
+        return
+            (claims.normalResidualPOL, claims.normalResidualPT, claims.leveragedResidualPOL, claims.leveragedResidualPT);
+    }
+
+    function totalNormalClaimableYT(uint256 verseId) external view returns (uint256) {
+        return _getMemeverseLauncherStorage().totalNormalClaimableYT[verseId];
+    }
+
+    function normalYTClaimed(uint256 verseId, address account) external view returns (bool) {
+        return _getMemeverseLauncherStorage().normalYTClaimed[verseId][account];
+    }
+
+    function userGenesisData(uint256 verseId, address account) external view returns (uint256, bool, bool) {
+        GenesisData storage data = _getMemeverseLauncherStorage().userGenesisData[verseId][account];
+        return (data.genesisFund, data.isRefunded, data.isRedeemed);
+    }
+
+    function userPreorderData(uint256 verseId, address account) external view returns (uint256, uint256, bool) {
+        PreorderData storage data = _getMemeverseLauncherStorage().userPreorderData[verseId][account];
+        return (data.funds, data.claimedMemecoin, data.isRefunded);
+    }
+
+    function communitiesMap(uint256 verseId, uint256 provider) external view returns (string memory) {
+        return _getMemeverseLauncherStorage().communitiesMap[verseId][provider];
+    }
+
+    function normalFeeStates(uint256 verseId) external view returns (uint256, uint256) {
+        NormalFeeState storage state = _getMemeverseLauncherStorage().normalFeeStates[verseId];
+        return (state.accUAssetFee, state.accPTFee);
+    }
+
+    function userNormalFeeClaims(uint256 verseId, address account) external view returns (uint256, uint256) {
+        UserNormalFeeClaim storage claim = _getMemeverseLauncherStorage().userNormalFeeClaims[verseId][account];
+        return (claim.claimedUAssetFee, claim.claimedPTFee);
+    }
+
+    function pendingAuxiliaryGovFeeStates(uint256 verseId) external view returns (uint256, uint256) {
+        PendingAuxiliaryGovFeeState storage state = _getMemeverseLauncherStorage().pendingAuxiliaryGovFeeStates[verseId];
+        return (state.pendingUAssetFee, state.pendingPTFee);
     }
 
     modifier versIdValidate(uint256 verseId) {
@@ -115,18 +316,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         _;
     }
 
-    modifier notDuringUnlockSettlement(uint256 verseId) {
-        _requireNoUnlockSettlement(verseId);
-        _;
-    }
-
     function _versIdValidate(uint256 verseId) internal view {
-        require(memeverses[verseId].memecoin != address(0), InvalidVerseId());
+        require(_getMemeverseLauncherStorage().memeverses[verseId].memecoin != address(0), InvalidVerseId());
     }
 
     function _verseIdOfRegisteredMemecoin(address memecoin) internal view returns (uint256 verseId) {
         require(memecoin != address(0), ZeroInput());
-        verseId = memecoinToIds[memecoin];
+        verseId = _getMemeverseLauncherStorage().memecoinToIds[memecoin];
         _versIdValidate(verseId);
     }
 
@@ -138,7 +334,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function getVerseIdByMemecoin(address memecoin) external view override returns (uint256 verseId) {
         require(memecoin != address(0), ZeroInput());
-        verseId = memecoinToIds[memecoin];
+        verseId = _getMemeverseLauncherStorage().memecoinToIds[memecoin];
     }
 
     /**
@@ -149,25 +345,26 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function getMemeverseByVerseId(uint256 verseId) external view override returns (Memeverse memory verse) {
         _versIdValidate(verseId);
-        verse = memeverses[verseId];
+        verse = _getMemeverseLauncherStorage().memeverses[verseId];
     }
 
     function getUAssetByVerseId(uint256 verseId) external view override returns (address uAsset) {
         _versIdValidate(verseId);
-        uAsset = memeverses[verseId].uAsset;
+        uAsset = _getMemeverseLauncherStorage().memeverses[verseId].uAsset;
     }
 
     function getDebtCapBaseByVerseId(uint256 verseId) external view override returns (uint256 debtCapBase) {
         _versIdValidate(verseId);
-        address uAsset = memeverses[verseId].uAsset;
-        uint256 normalFunds = totalNormalFunds[verseId];
-        uint256 minTotalFund = fundMetaDatas[uAsset].minTotalFund;
+        address uAsset = _getMemeverseLauncherStorage().memeverses[verseId].uAsset;
+        uint256 normalFunds = _getMemeverseLauncherStorage().totalNormalFunds[verseId];
+        uint256 minTotalFund = _getMemeverseLauncherStorage().fundMetaDatas[uAsset].minTotalFund;
         debtCapBase = normalFunds > minTotalFund ? normalFunds : minTotalFund;
     }
 
     function remainingGenesisCapacity(uint256 verseId) external view override returns (uint256 remaining) {
         _versIdValidate(verseId);
-        uint256 totalFunds = totalNormalFunds[verseId] + IPOLend(polend).getTotalLeveragedDebt(verseId);
+        uint256 totalFunds = _getMemeverseLauncherStorage().totalNormalFunds[verseId]
+            + IPOLend(_getMemeverseLauncherStorage().polend).getTotalLeveragedDebt(verseId);
         if (totalFunds >= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) return 0;
         return MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - totalFunds;
     }
@@ -179,7 +376,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return verse - The memeverse.
      */
     function getMemeverseByMemecoin(address memecoin) external view override returns (Memeverse memory verse) {
-        verse = memeverses[_verseIdOfRegisteredMemecoin(memecoin)];
+        verse = _getMemeverseLauncherStorage().memeverses[_verseIdOfRegisteredMemecoin(memecoin)];
     }
 
     /**
@@ -190,7 +387,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function getStageByVerseId(uint256 verseId) external view override returns (Stage stage) {
         _versIdValidate(verseId);
-        stage = memeverses[verseId].currentStage;
+        stage = _getMemeverseLauncherStorage().memeverses[verseId].currentStage;
     }
 
     /**
@@ -200,7 +397,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return stage - The memeverse current stage.
      */
     function getStageByMemecoin(address memecoin) external view override returns (Stage stage) {
-        stage = memeverses[_verseIdOfRegisteredMemecoin(memecoin)].currentStage;
+        stage = _getMemeverseLauncherStorage().memeverses[_verseIdOfRegisteredMemecoin(memecoin)].currentStage;
     }
 
     /**
@@ -211,7 +408,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function getYieldVaultByVerseId(uint256 verseId) external view override returns (address yieldVault) {
         _versIdValidate(verseId);
-        yieldVault = memeverses[verseId].yieldVault;
+        yieldVault = _getMemeverseLauncherStorage().memeverses[verseId].yieldVault;
     }
 
     /**
@@ -222,7 +419,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function getGovernorByVerseId(uint256 verseId) external view override returns (address governor) {
         _versIdValidate(verseId);
-        governor = memeverses[verseId].governor;
+        governor = _getMemeverseLauncherStorage().memeverses[verseId].governor;
     }
 
     /**
@@ -232,15 +429,24 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return amount The currently claimable preorder memecoin amount.
      */
     function claimablePreorderMemecoin(uint256 verseId) public view override returns (uint256 amount) {
+        return _claimablePreorderMemecoinForAccount(verseId, msg.sender);
+    }
+
+    function _claimablePreorderMemecoinForAccount(uint256 verseId, address account)
+        internal
+        view
+        returns (uint256 amount)
+    {
         _versIdValidate(verseId);
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        PreorderState storage preorderState = preorderStates[verseId];
+        PreorderState storage preorderState = $.preorderStates[verseId];
         uint40 settlementTimestamp = preorderState.settlementTimestamp;
         if (settlementTimestamp == 0) return 0;
 
-        PreorderData storage preorderData = userPreorderData[verseId][msg.sender];
+        PreorderData storage preorderData = $.userPreorderData[verseId][account];
         uint256 userFunds = preorderData.funds;
         uint256 totalFunds = preorderState.totalFunds;
         if (userFunds == 0 || totalFunds == 0) return 0;
@@ -249,12 +455,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 purchasedMemecoin = FullMath.mulDiv(preorderState.settledMemecoin, userFunds, totalFunds);
         if (purchasedMemecoin <= preorderData.claimedMemecoin) return 0;
 
+        uint256 vestingDuration = $.preorderVestingDuration;
         uint256 elapsed = block.timestamp > settlementTimestamp ? block.timestamp - settlementTimestamp : 0;
-        if (elapsed >= preorderVestingDuration) {
+        if (elapsed >= vestingDuration) {
             return purchasedMemecoin - preorderData.claimedMemecoin;
         }
 
-        uint256 vested = FullMath.mulDiv(purchasedMemecoin, elapsed, preorderVestingDuration);
+        uint256 vested = FullMath.mulDiv(purchasedMemecoin, elapsed, vestingDuration);
         if (vested <= preorderData.claimedMemecoin) return 0;
         return vested - preorderData.claimedMemecoin;
     }
@@ -267,11 +474,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function previewPreorderCapacity(uint256 verseId) public view override returns (uint256 remaining) {
         _versIdValidate(verseId);
-        uint256 totalLeveragedDebt = IPOLend(polend).getTotalLeveragedDebt(verseId);
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        uint256 totalBaseFunds = _checkedTotalGenesisFunds(_normalFunds, totalLeveragedDebt);
+        uint256 totalLeveragedDebt = IPOLend(_getMemeverseLauncherStorage().polend).getTotalLeveragedDebt(verseId);
+        uint256 normalFunds = _getMemeverseLauncherStorage().totalNormalFunds[verseId];
+        uint256 totalBaseFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         uint256 maxCapacity = _preorderMaxCapacity(totalBaseFunds);
-        uint256 usedCapacity = preorderStates[verseId].totalFunds;
+        uint256 usedCapacity = _getMemeverseLauncherStorage().preorderStates[verseId].totalFunds;
         if (usedCapacity >= maxCapacity) return 0;
         return maxCapacity - usedCapacity;
     }
@@ -290,20 +497,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         returns (uint256 uAssetFee, uint256 memecoinFee)
     {
         _versIdValidate(verseId);
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        address uAsset = verse.uAsset;
-        (memecoinFee, uAssetFee) = _previewPairFees(verse.memecoin, uAsset);
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
-        (uint256 auxiliaryGovUAssetFee, uint256 auxiliaryGovPTFee) = _previewAuxiliaryGovFees(verseId, verse, pt);
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState = pendingAuxiliaryGovFeeStates[verseId];
-        auxiliaryGovUAssetFee += pendingGovFeeState.pendingUAssetFee;
-        auxiliaryGovPTFee += pendingGovFeeState.pendingPTFee;
-        if (auxiliaryGovPTFee != 0) {
-            auxiliaryGovPTFee = IPOLSplitter(polSplitter).previewPTToUAsset(verseId, auxiliaryGovPTFee);
-        }
-        uAssetFee += auxiliaryGovUAssetFee + auxiliaryGovPTFee;
+        address _hook = $.memeverseUniswapHook;
+        (memecoinFee, uAssetFee) = _previewPairFees(verse.memecoin, verse.uAsset, _hook);
+        address _polSplitter = $.polSplitter;
+        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
+        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt, _hook);
+        uAssetFee += govUAssetFee + govPTFee;
     }
 
     /**
@@ -316,30 +519,27 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      */
     function quoteDistributionLzFee(uint256 verseId) external view override returns (uint256 lzFee) {
         _versIdValidate(verseId);
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
         uint32 govChainId = verse.omnichainIds[0];
         if (govChainId == block.chainid) return 0;
 
         address uAsset = verse.uAsset;
-        (uint256 memecoinFee, uint256 mainUAssetFee) = _previewPairFees(verse.memecoin, uAsset);
+        address _hook = $.memeverseUniswapHook;
+        (uint256 memecoinFee, uint256 mainUAssetFee) = _previewPairFees(verse.memecoin, uAsset, _hook);
         (uint256 govFee,) = _splitExecutorReward(mainUAssetFee);
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState = pendingAuxiliaryGovFeeStates[verseId];
-        govFee += pendingGovFeeState.pendingUAssetFee;
-        uint256 auxiliaryGovPTFee = pendingGovFeeState.pendingPTFee;
 
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
-        (uint256 previewAuxiliaryGovUAssetFee, uint256 previewAuxiliaryGovPTFee) =
-            _previewAuxiliaryGovFees(verseId, verse, pt);
-        auxiliaryGovPTFee += previewAuxiliaryGovPTFee;
-        if (auxiliaryGovPTFee != 0) {
-            auxiliaryGovPTFee = IPOLSplitter(polSplitter).previewPTToUAsset(verseId, auxiliaryGovPTFee);
-        }
-        govFee += previewAuxiliaryGovUAssetFee + auxiliaryGovPTFee;
+        address _polSplitter = $.polSplitter;
+        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
+        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt, _hook);
+        govFee += govUAssetFee + govPTFee;
 
-        uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
+        uint32 govEndpointId =
+            ILzEndpointRegistry($.lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
         bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
-            .addExecutorLzReceiveOption(oftReceiveGasLimit, 0).addExecutorLzComposeOption(0, yieldDispatcherGasLimit, 0);
+            .addExecutorLzReceiveOption($.oftReceiveGasLimit, 0)
+            .addExecutorLzComposeOption(0, $.yieldDispatcherGasLimit, 0);
 
         if (govFee != 0) {
             (, MessagingFee memory govMessagingFee) = _buildSendParamAndMessagingFee(
@@ -370,16 +570,18 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         whenNotPaused
     {
         require(verseId != 0 && amountInUAsset != 0 && user != address(0), ZeroInput());
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage == Stage.Genesis, NotGenesisStage());
-        uint256 currentTotalGenesisFunds = totalNormalFunds[verseId] + IPOLend(polend).getTotalLeveragedDebt(verseId);
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        uint256 currentTotalGenesisFunds = normalFunds + IPOLend($.polend).getTotalLeveragedDebt(verseId);
         uint256 projectedTotalGenesisFunds = currentTotalGenesisFunds + amountInUAsset;
         if (projectedTotalGenesisFunds > MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) {
             revert TotalGenesisFundsTooHigh(projectedTotalGenesisFunds, MAX_SUPPORTED_TOTAL_GENESIS_FUNDS);
         }
 
-        totalNormalFunds[verseId] += amountInUAsset;
-        userGenesisData[verseId][user].genesisFund += amountInUAsset;
+        $.totalNormalFunds[verseId] = normalFunds + amountInUAsset;
+        $.userGenesisData[verseId][user].genesisFund += amountInUAsset;
 
         _transferIn(verse.uAsset, msg.sender, amountInUAsset);
 
@@ -400,37 +602,45 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         whenNotPaused
     {
         require(verseId != 0 && amountInUAsset != 0 && user != address(0), ZeroInput());
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage == Stage.Genesis, NotGenesisStage());
 
-        PreorderState storage preorderState = preorderStates[verseId];
+        PreorderState storage preorderState = $.preorderStates[verseId];
         uint256 nextTotalPreorderFunds = preorderState.totalFunds + amountInUAsset;
-        uint256 totalLeveragedDebt = IPOLend(polend).getTotalLeveragedDebt(verseId);
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        uint256 totalBaseFunds = _checkedTotalGenesisFunds(_normalFunds, totalLeveragedDebt);
+        uint256 totalLeveragedDebt = IPOLend($.polend).getTotalLeveragedDebt(verseId);
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        uint256 totalBaseFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         uint256 maxCapacity = _preorderMaxCapacity(totalBaseFunds);
         require(nextTotalPreorderFunds <= maxCapacity, InvalidLength());
 
-        _transferIn(verse.uAsset, msg.sender, amountInUAsset);
         preorderState.totalFunds = nextTotalPreorderFunds;
-        userPreorderData[verseId][user].funds += amountInUAsset;
+        $.userPreorderData[verseId][user].funds += amountInUAsset;
+
+        _transferIn(verse.uAsset, msg.sender, amountInUAsset);
+
         emit Preorder(verseId, msg.sender, user, amountInUAsset);
     }
 
     function _preorderMaxCapacity(uint256 totalBaseFunds) internal view returns (uint256) {
-        return FullMath.mulDiv(totalBaseFunds, 7 * preorderCapRatio, 10 * RATIO);
+        return FullMath.mulDiv(totalBaseFunds, 7 * _getMemeverseLauncherStorage().preorderCapRatio, 10 * RATIO);
     }
 
     /**
      * @notice Adaptively change the Memeverse stage.
      * @dev Advances from `Genesis` to `Locked` or `Refund`, and from `Locked` to `Unlocked` when eligible.
+     *      Intentionally omits `whenNotPaused`: refund and settlement flows must remain executable during a pause
+     *      so users can recover funds and protocol settlement (polSplitter / polend) can proceed to completion.
+     *      Intentionally omits `nonReentrant`: the Locked→Unlocked transition calls `IPOLSplitter.settle()`
+     *      and `IPOLend.executeGlobalSettlement()`, which rely on cross-contract callbacks into the launcher.
+     *      Adding `nonReentrant` would break this callback chain.
      * @param verseId - Memeverse id
      * @return currentStage - The current stage.
      */
     function changeStage(uint256 verseId) external override versIdValidate(verseId) returns (Stage currentStage) {
         require(verseId != 0, ZeroInput());
         uint256 currentTime = block.timestamp;
-        Memeverse storage verse = memeverses[verseId];
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[verseId];
         currentStage = verse.currentStage;
         require(currentStage != Stage.Refund && currentStage != Stage.Unlocked, ReachedFinalStage());
 
@@ -438,15 +648,17 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             // Genesis is the only stage that can resolve into either a successful launch or a refund outcome.
             currentStage = _handleGenesisStage(verseId, currentTime, verse);
         } else if (currentStage == Stage.Locked && currentTime > verse.unlockTime) {
-            _captureLockedAuxiliaryFees(verseId, verse);
+            MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+            address _polSplitter = $.polSplitter;
+            address _polend = $.polend;
+            address _hook = $.memeverseUniswapHook;
+            _captureLockedAuxiliaryFees(verseId, verse, _polSplitter, _hook);
             verse.currentStage = Stage.Unlocked;
-            unlockSettlementActive[verseId] = true;
-            IPOLSplitter(polSplitter).settle(verseId);
-            if (IPOLend(polend).getTotalLeveragedDebt(verseId) != 0) {
-                IPOLend(polend).executeGlobalSettlement(verseId);
+            IPOLSplitter(_polSplitter).settle(verseId);
+            if (IPOLend(_polend).getTotalLeveragedDebt(verseId) != 0) {
+                IPOLend(_polend).executeGlobalSettlement(verseId);
             }
-            _activatePostUnlockPublicSwapProtection(verseId, verse);
-            unlockSettlementActive[verseId] = false;
+            _activatePostUnlockPublicSwapProtection(verseId, verse, _polSplitter, _hook);
             currentStage = Stage.Unlocked;
         }
 
@@ -464,24 +676,27 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         internal
         returns (Stage currentStage)
     {
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        address _polend = $.polend;
+        address _polSplitter = $.polSplitter;
         address uAsset = verse.uAsset;
-        uint256 minTotalFund = fundMetaDatas[uAsset].minTotalFund;
-        uint256 totalLeveragedInterest = IPOLend(polend).getTotalLeveragedInterest(verseId);
-        uint256 totalLeveragedDebt = IPOLend(polend).getTotalLeveragedDebt(verseId);
+        uint256 minTotalFund = $.fundMetaDatas[uAsset].minTotalFund;
+        uint256 totalLeveragedInterest = IPOLend(_polend).getTotalLeveragedInterest(verseId);
+        uint256 totalLeveragedDebt = IPOLend(_polend).getTotalLeveragedDebt(verseId);
         bool leveragedLaunchReady = totalLeveragedInterest >= minTotalFund;
-        bool meetMinTotalFund = totalNormalFunds[verseId] >= minTotalFund || leveragedLaunchReady;
+        bool meetMinTotalFund = $.totalNormalFunds[verseId] >= minTotalFund || leveragedLaunchReady;
         uint256 endTime = verse.endTime;
 
         if ((verse.flashGenesis && meetMinTotalFund) || (currentTime > endTime && meetMinTotalFund)) {
             verse.currentStage = Stage.Locked;
-            _deployAndSetupMemeverse(verseId, verse, uAsset);
+            _deployAndSetupMemeverse(verseId, verse, uAsset, totalLeveragedDebt, _polend, _polSplitter);
             return Stage.Locked;
         }
 
         // Missing the minimum at `endTime` permanently sends the verse into the refund branch; there is no partial launch path.
         require(currentTime > endTime, StillInGenesisStage(endTime));
         verse.currentStage = Stage.Refund;
-        if (totalLeveragedDebt != 0) IPOLend(polend).markRefundable(verseId);
+        if (totalLeveragedDebt != 0) IPOLend(_polend).markRefundable(verseId);
         return Stage.Refund;
     }
 
@@ -491,18 +706,24 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @param verse - Memeverse storage reference
      * @param uAsset - verse uAsset address
      */
-    function _deployAndSetupMemeverse(uint256 verseId, Memeverse storage verse, address uAsset) internal {
+    function _deployAndSetupMemeverse(
+        uint256 verseId,
+        Memeverse storage verse,
+        address uAsset,
+        uint256 totalLeveragedDebt,
+        address _polend,
+        address _polSplitter
+    ) internal {
         string memory name = verse.name;
         string memory symbol = verse.symbol;
         address memecoin = verse.memecoin;
         address pol = verse.pol;
         uint32 govChainId = verse.omnichainIds[0];
-        uint256 totalLeveragedDebt = IPOLend(polend).getTotalLeveragedDebt(verseId);
 
-        if (totalLeveragedDebt != 0) IPOLend(polend).finalizeLeveragedGenesis(verseId);
-        IPOLSplitter(polSplitter).initializeVerse(verseId, pol, memecoin, uAsset, name, symbol);
+        if (totalLeveragedDebt != 0) IPOLend(_polend).finalizeLeveragedGenesis(verseId);
+        IPOLSplitter(_polSplitter).initializeVerse(verseId, pol, memecoin, uAsset, name, symbol);
 
-        _deployLiquidity(verseId, uAsset, memecoin, pol, totalLeveragedDebt);
+        _deployLiquidity(verseId, uAsset, memecoin, pol, totalLeveragedDebt, _polend, _polSplitter);
 
         (address yieldVault, address governor, address incentivizer) =
             _deployGovernanceComponents(verseId, govChainId, name, symbol, uAsset, memecoin, pol);
@@ -531,25 +752,27 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address pol
     ) internal returns (address yieldVault, address governor, address incentivizer) {
         uint256 proposalThreshold = IMemecoin(memecoin).totalSupply() / 50;
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        address _proxyDeployer = $.memeverseProxyDeployer;
 
         if (govChainId == block.chainid) {
             // On the governance chain we deploy concrete contracts immediately because fee distribution will target them locally.
-            yieldVault = IMemeverseProxyDeployer(memeverseProxyDeployer).deployYieldVault(verseId);
+            yieldVault = IMemeverseProxyDeployer(_proxyDeployer).deployYieldVault(verseId);
             IMemecoinYieldVault(yieldVault)
                 .initialize(
                     string(abi.encodePacked("Staked ", name)),
                     string(abi.encodePacked("s", symbol)),
-                    yieldDispatcher,
+                    $.yieldDispatcher,
                     memecoin,
                     verseId
                 );
-            (governor, incentivizer) = IMemeverseProxyDeployer(memeverseProxyDeployer)
+            (governor, incentivizer) = IMemeverseProxyDeployer(_proxyDeployer)
                 .deployGovernorAndIncentivizer(name, uAsset, memecoin, pol, yieldVault, verseId, proposalThreshold);
         } else {
             // Remote governance chains receive bridged assets later, so launcher only records the deterministic target addresses here.
-            yieldVault = IMemeverseProxyDeployer(memeverseProxyDeployer).predictYieldVaultAddress(verseId);
+            yieldVault = IMemeverseProxyDeployer(_proxyDeployer).predictYieldVaultAddress(verseId);
             (governor, incentivizer) =
-                IMemeverseProxyDeployer(memeverseProxyDeployer).computeGovernorAndIncentivizerAddress(verseId);
+                IMemeverseProxyDeployer(_proxyDeployer).computeGovernorAndIncentivizerAddress(verseId);
         }
     }
 
@@ -565,34 +788,97 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address uAsset,
         address memecoin,
         address pol,
-        uint256 totalLeveragedDebt
+        uint256 totalLeveragedDebt,
+        address _polend,
+        address _polSplitter
     ) internal {
-        require(polend != address(0) && polSplitter != address(0), PermissionDenied());
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        uint256 totalGenesisFunds = _checkedTotalGenesisFunds(_normalFunds, totalLeveragedDebt);
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        require(_polend != address(0) && _polSplitter != address(0), PermissionDenied());
+
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        uint256 totalGenesisFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         uint256 mainPoolUAssetBudget = FullMath.mulDiv(totalGenesisFunds, 7, 10);
-        address swapRouter = memeverseSwapRouter;
-        address hookAddress = memeverseUniswapHook;
+        address swapRouter = $.memeverseSwapRouter;
+        address hookAddress = $.memeverseUniswapHook;
 
         _validateLaunchSettlementConfig(swapRouter, hookAddress);
-        _safeApproveInf(uAsset, swapRouter);
-        _safeApproveInf(memecoin, swapRouter);
-        _safeApproveInf(pol, swapRouter);
+        _safeApprove(uAsset, swapRouter, totalGenesisFunds);
+        _safeApprove(memecoin, swapRouter, mainPoolUAssetBudget * $.fundMetaDatas[uAsset].fundBasedAmount);
         _safeApproveInf(uAsset, hookAddress);
 
-        // The memecoin pool must exist first because preorder settlement spends uAsset into that freshly launched pool.
-        uint256 mainPoolMemecoinBudget = mainPoolUAssetBudget * fundMetaDatas[uAsset].fundBasedAmount;
+        BootstrapPoolResult memory poolResult = _createBootstrapPools(
+            verseId,
+            uAsset,
+            memecoin,
+            pol,
+            normalFunds,
+            totalLeveragedDebt,
+            mainPoolUAssetBudget,
+            swapRouter,
+            _polSplitter,
+            _polend
+        );
+
+        uint256 totalSpent = poolResult.mainPoolUAssetUsed + poolResult.polUAssetUsed + poolResult.ptUAssetUsed;
+        uint256 unusedBootstrapUAsset = totalSpent < totalGenesisFunds ? totalGenesisFunds - totalSpent : 0;
+        _handleBootstrapResiduals(verseId, uAsset, memecoin, unusedBootstrapUAsset, poolResult.burnedMemecoin, _polend);
+    }
+
+    function _createBootstrapPools(
+        uint256 verseId,
+        address uAsset,
+        address memecoin,
+        address pol,
+        uint256 normalFunds,
+        uint256 totalLeveragedDebt,
+        uint256 mainPoolUAssetBudget,
+        address swapRouter,
+        address _polSplitter,
+        address _polend
+    ) internal returns (BootstrapPoolResult memory result) {
+        (uint128 mainPoolPOLRawAmount, PoolKey memory poolKey, uint256 mainPoolUAssetUsed) =
+            _createMainBootstrapPool(memecoin, uAsset, mainPoolUAssetBudget, swapRouter, result);
+
+        _settleLaunchPreorder(verseId, poolKey, uAsset, memecoin);
+        BootstrapPolPlan memory plan = _buildBootstrapPolPlan(normalFunds, mainPoolPOLRawAmount, totalLeveragedDebt);
+
+        (uint256 polUAssetUsed, uint256 ptUAssetUsed, address yt) = _bootstrapPOLAndAuxiliaryPools(
+            verseId,
+            uAsset,
+            pol,
+            swapRouter,
+            _polSplitter,
+            plan,
+            mainPoolPOLRawAmount,
+            mainPoolUAssetUsed,
+            poolKey.toId(),
+            totalLeveragedDebt
+        );
+        result.polUAssetUsed = polUAssetUsed;
+        result.ptUAssetUsed = ptUAssetUsed;
+
+        if (plan.leveragedPolToSplit != 0) {
+            _transferOut(yt, _polend, plan.leveragedPolToSplit);
+            IPOLend(_polend).recordLeveragedYT(verseId, yt, plan.leveragedPolToSplit);
+        }
+    }
+
+    function _createMainBootstrapPool(
+        address memecoin,
+        address uAsset,
+        uint256 mainPoolUAssetBudget,
+        address swapRouter,
+        BootstrapPoolResult memory result
+    ) internal returns (uint128 mainPoolPOLRawAmount, PoolKey memory poolKey, uint256 mainPoolUAssetUsed) {
+        uint256 mainPoolMemecoinBudget =
+            mainPoolUAssetBudget * _getMemeverseLauncherStorage().fundMetaDatas[uAsset].fundBasedAmount;
         uint160 mainPoolStartPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
             memecoin, uAsset, mainPoolMemecoinBudget, mainPoolUAssetBudget
         );
         IMemecoin(memecoin).mint(address(this), mainPoolMemecoinBudget);
 
-        (
-            uint128 mainPoolPOLRawAmount,
-            PoolKey memory poolKey,
-            uint256 mainPoolMemecoinUsed,
-            uint256 mainPoolUAssetUsed
-        ) = IMemeverseSwapRouter(swapRouter)
+        uint256 mainPoolMemecoinUsed;
+        (mainPoolPOLRawAmount, poolKey, mainPoolMemecoinUsed, mainPoolUAssetUsed) = IMemeverseSwapRouter(swapRouter)
             .createPoolAndAddLiquidity(
                 memecoin,
                 uAsset,
@@ -603,63 +889,137 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 block.timestamp
             );
 
-        uint256 burnedMemecoin = mainPoolMemecoinBudget - mainPoolMemecoinUsed;
-        if (burnedMemecoin != 0) IMemecoin(memecoin).burn(burnedMemecoin);
+        result.burnedMemecoin = mainPoolMemecoinBudget - mainPoolMemecoinUsed;
+        if (result.burnedMemecoin != 0) IMemecoin(memecoin).burn(result.burnedMemecoin);
+        result.mainPoolUAssetUsed = mainPoolUAssetUsed;
+    }
 
-        _settleLaunchPreorder(verseId, poolKey, uAsset, memecoin);
-        BootstrapPolPlan memory plan = _buildBootstrapPolPlan(_normalFunds, mainPoolPOLRawAmount, totalLeveragedDebt);
+    function _bootstrapPOLAndAuxiliaryPools(
+        uint256 verseId,
+        address uAsset,
+        address pol,
+        address swapRouter,
+        address _polSplitter,
+        BootstrapPolPlan memory plan,
+        uint256 mainPoolPOLRawAmount,
+        uint256 mainPoolUAssetUsed,
+        PoolId poolId,
+        uint256 totalLeveragedDebt
+    ) internal returns (uint256 polUAssetUsed, uint256 ptUAssetUsed, address yt) {
+        _safeApprove(pol, swapRouter, plan.polForPolUAsset + plan.polForPtPol);
 
+        uint256 polUsedForPolUAsset;
+        address pt;
+        (polUAssetUsed, polUsedForPolUAsset, pt, yt) = _bootstrapPOLPool(
+            verseId, uAsset, pol, swapRouter, _polSplitter, plan, mainPoolPOLRawAmount, mainPoolUAssetUsed, poolId
+        );
+
+        ptUAssetUsed = _bootstrapPTPools(
+            verseId,
+            uAsset,
+            pol,
+            pt,
+            swapRouter,
+            _polSplitter,
+            plan,
+            mainPoolUAssetUsed,
+            mainPoolPOLRawAmount,
+            polUsedForPolUAsset,
+            totalLeveragedDebt
+        );
+    }
+
+    function _bootstrapPOLPool(
+        uint256 verseId,
+        address uAsset,
+        address pol,
+        address swapRouter,
+        address _polSplitter,
+        BootstrapPolPlan memory plan,
+        uint256 mainPoolPOLRawAmount,
+        uint256 mainPoolUAssetUsed,
+        PoolId poolId
+    ) internal returns (uint256 polUAssetUsed, uint256 polUsedForPolUAsset, address pt, address yt) {
         IPol(pol).mint(address(this), mainPoolPOLRawAmount);
-        IPol(pol).setPoolId(poolKey.toId());
+        IPol(pol).setPoolId(poolId);
 
-        (address pt, address yt) = IPOLSplitter(polSplitter).getPTAndYT(verseId);
-        _safeApproveInf(pt, swapRouter);
+        (pt, yt) = IPOLSplitter(_polSplitter).getPTAndYT(verseId);
 
-        IPOLSplitter(polSplitter).recordPTBackingRatio(verseId, mainPoolUAssetUsed, mainPoolPOLRawAmount);
+        IPOLSplitter(_polSplitter).recordPTBackingRatio(verseId, mainPoolUAssetUsed, mainPoolPOLRawAmount);
         uint256 polUAssetRequired = FullMath.mulDiv(plan.polForPolUAsset, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        (uint128 polUAssetLpAmount,, uint256 polUsedForPolUAsset, uint256 polUAssetUsed) =
+        uint128 polUAssetLpAmount;
+        (polUAssetLpAmount,, polUsedForPolUAsset, polUAssetUsed) =
             _createPoolAndAddLiquidity(swapRouter, pol, uAsset, plan.polForPolUAsset, polUAssetRequired, address(this));
-        auxiliaryLiquidities[verseId].polUAssetLpAmount = polUAssetLpAmount;
+        _getMemeverseLauncherStorage().auxiliaryLiquidities[verseId].polUAssetLpAmount = polUAssetLpAmount;
+    }
 
-        _safeApproveInf(pol, polSplitter);
-        (uint256 totalPT,) = IPOLSplitter(polSplitter).split(verseId, plan.normalPolToSplit + plan.leveragedPolToSplit);
+    function _bootstrapPTPools(
+        uint256 verseId,
+        address uAsset,
+        address pol,
+        address pt,
+        address swapRouter,
+        address _polSplitter,
+        BootstrapPolPlan memory plan,
+        uint256 mainPoolUAssetUsed,
+        uint256 mainPoolPOLRawAmount,
+        uint256 polUsedForPolUAsset,
+        uint256 totalLeveragedDebt
+    ) internal returns (uint256 ptUAssetUsed) {
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+
+        _safeApproveInf(pol, _polSplitter);
+        (uint256 totalPT,) = IPOLSplitter(_polSplitter).split(verseId, plan.normalPolToSplit + plan.leveragedPolToSplit);
+        _safeApprove(pt, swapRouter, totalPT);
         uint256 ptForPtUAsset = totalPT / 3;
         uint256 ptForPtPol = totalPT - ptForPtUAsset;
 
         uint256 ptUAssetRequired = FullMath.mulDiv(ptForPtUAsset, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        (uint128 ptUAssetLpAmount,, uint256 ptUsedForPtUAsset, uint256 ptUAssetUsed) =
-            _createPoolAndAddLiquidity(swapRouter, pt, uAsset, ptForPtUAsset, ptUAssetRequired, address(this));
-        auxiliaryLiquidities[verseId].ptUAssetLpAmount = ptUAssetLpAmount;
+        uint256 ptUsedForPtUAsset;
+        {
+            uint128 ptUAssetLpAmount;
+            (ptUAssetLpAmount,, ptUsedForPtUAsset, ptUAssetUsed) =
+                _createPoolAndAddLiquidity(swapRouter, pt, uAsset, ptForPtUAsset, ptUAssetRequired, address(this));
+            $.auxiliaryLiquidities[verseId].ptUAssetLpAmount = ptUAssetLpAmount;
+        }
 
-        (uint128 ptPolLpAmount,, uint256 ptUsedForPtPol, uint256 polUsedForPtPol) =
-            _createPoolAndAddLiquidity(swapRouter, pt, pol, ptForPtPol, plan.polForPtPol, address(this));
-        auxiliaryLiquidities[verseId].ptPolLpAmount = ptPolLpAmount;
+        uint256 ptUsedForPtPol;
+        uint256 polUsedForPtPol;
+        {
+            uint128 ptPolLpAmount;
+            (ptPolLpAmount,, ptUsedForPtPol, polUsedForPtPol) =
+                _createPoolAndAddLiquidity(swapRouter, pt, pol, ptForPtPol, plan.polForPtPol, address(this));
+            $.auxiliaryLiquidities[verseId].ptPolLpAmount = ptPolLpAmount;
+        }
 
-        totalNormalClaimableYT[verseId] = plan.normalPolToSplit;
+        $.totalNormalClaimableYT[verseId] = plan.normalPolToSplit;
         uint256 residualPOL = plan.polForPolUAsset - polUsedForPolUAsset + plan.polForPtPol - polUsedForPtPol;
         uint256 residualPT = ptForPtUAsset - ptUsedForPtUAsset + ptForPtPol - ptUsedForPtPol;
-        _recordBootstrapResidualClaims(verseId, residualPOL, residualPT, totalLeveragedDebt, totalGenesisFunds);
+        uint256 _totalGenesisFunds = _checkedTotalGenesisFunds($.totalNormalFunds[verseId], totalLeveragedDebt);
+        _recordBootstrapResidualClaims(verseId, residualPOL, residualPT, totalLeveragedDebt, _totalGenesisFunds);
+    }
 
-        uint256 totalSpent = mainPoolUAssetUsed + polUAssetUsed + ptUAssetUsed;
-        uint256 unusedBootstrapUAsset = totalSpent < totalGenesisFunds ? totalGenesisFunds - totalSpent : 0;
+    function _handleBootstrapResiduals(
+        uint256 verseId,
+        address uAsset,
+        address memecoin,
+        uint256 unusedBootstrapUAsset,
+        uint256 burnedMemecoin,
+        address _polend
+    ) internal {
         if (unusedBootstrapUAsset != 0) {
-            (uint128 reserveBefore, uint128 maxReserve) = IPOLend(polend).settlementDustStates(uAsset);
+            (uint128 reserveBefore, uint128 maxReserve) = IPOLend(_polend).settlementDustStates(uAsset);
             uint256 capacity = maxReserve > reserveBefore ? uint256(maxReserve - reserveBefore) : 0;
             uint256 credited = unusedBootstrapUAsset < capacity ? unusedBootstrapUAsset : capacity;
             uint256 treasuryExcess = unusedBootstrapUAsset - credited;
-            _safeApprove(uAsset, polend, 0);
-            _safeApprove(uAsset, polend, unusedBootstrapUAsset);
-            IPOLend(polend).fundSettlementDustReserve(uAsset, unusedBootstrapUAsset);
+            _safeApprove(uAsset, _polend, 0);
+            _safeApprove(uAsset, _polend, unusedBootstrapUAsset);
+            IPOLend(_polend).fundSettlementDustReserve(uAsset, unusedBootstrapUAsset);
             emit BootstrapUnusedAssetsHandled(
                 verseId, uAsset, memecoin, unusedBootstrapUAsset, credited, treasuryExcess, burnedMemecoin
             );
         } else if (burnedMemecoin != 0) {
             emit BootstrapUnusedAssetsHandled(verseId, uAsset, memecoin, 0, 0, 0, burnedMemecoin);
-        }
-
-        if (plan.leveragedPolToSplit != 0) {
-            _transferOut(yt, polend, plan.leveragedPolToSplit);
-            IPOLend(polend).recordLeveragedYT(verseId, yt, plan.leveragedPolToSplit);
         }
     }
 
@@ -679,17 +1039,17 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             );
     }
 
-    function _buildBootstrapPolPlan(uint256 _normalFunds, uint256 totalPOL, uint256 totalLeveragedDebt)
+    function _buildBootstrapPolPlan(uint256 normalFunds, uint256 totalPOL, uint256 totalLeveragedDebt)
         internal
         pure
         returns (BootstrapPolPlan memory plan)
     {
-        uint256 totalGenesisFunds = _checkedTotalGenesisFunds(_normalFunds, totalLeveragedDebt);
+        uint256 totalGenesisFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         if (totalGenesisFunds == 0) return plan;
 
         plan.polForPolUAsset = FullMath.mulDiv(totalPOL, 2, 7);
         uint256 polToSplit = FullMath.mulDiv(totalPOL, 3, 7);
-        plan.normalPolToSplit = FullMath.mulDiv(polToSplit, _normalFunds, totalGenesisFunds);
+        plan.normalPolToSplit = FullMath.mulDiv(polToSplit, normalFunds, totalGenesisFunds);
         plan.leveragedPolToSplit = polToSplit - plan.normalPolToSplit;
         plan.polForPtPol = totalPOL - plan.polForPolUAsset - polToSplit;
     }
@@ -701,7 +1061,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 totalLeveragedDebt,
         uint256 totalGenesisFunds
     ) internal {
-        BootstrapResidualClaims storage claims = bootstrapResidualClaims[verseId];
+        BootstrapResidualClaims storage claims = _getMemeverseLauncherStorage().bootstrapResidualClaims[verseId];
         // Residual tokens follow the same normal/leveraged funding split as auxiliary LP ownership.
         uint256 leveragedResidualPOL = FullMath.mulDiv(residualPOL, totalLeveragedDebt, totalGenesisFunds);
         uint256 leveragedResidualPT = FullMath.mulDiv(residualPT, totalLeveragedDebt, totalGenesisFunds);
@@ -712,14 +1072,14 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     function _settleLaunchPreorder(uint256 verseId, PoolKey memory poolKey, address uAsset, address memecoin) internal {
-        PreorderState storage preorderState = preorderStates[verseId];
+        PreorderState storage preorderState = _getMemeverseLauncherStorage().preorderStates[verseId];
         uint256 totalFunds = preorderState.totalFunds;
         if (totalFunds == 0) return;
 
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == uAsset;
         uint160 sqrtPriceLimitX96 = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
         // Settlement goes through the hook's dedicated launch path so preorder accounting stays isolated from public swap flow.
-        BalanceDelta delta = IMemeverseUniswapHook(memeverseUniswapHook)
+        BalanceDelta delta = IMemeverseUniswapHook(_getMemeverseLauncherStorage().memeverseUniswapHook)
             .executeLaunchSettlement(
                 IMemeverseUniswapHook.LaunchSettlementParams({
                     key: poolKey,
@@ -763,11 +1123,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return genesisFund - The refunded genesis contribution amount.
      */
     function refund(uint256 verseId) external override versIdValidate(verseId) returns (uint256 genesisFund) {
-        Memeverse storage verse = memeverses[verseId];
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[verseId];
         require(verse.currentStage == Stage.Refund, NotRefundStage());
 
         address msgSender = msg.sender;
-        GenesisData storage genesisData = userGenesisData[verseId][msgSender];
+        GenesisData storage genesisData = _getMemeverseLauncherStorage().userGenesisData[verseId][msgSender];
         genesisFund = genesisData.genesisFund;
         require(genesisFund > 0 && !genesisData.isRefunded, InvalidClaim());
 
@@ -784,11 +1144,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return preorderFund The refunded preorder contribution amount.
      */
     function refundPreorder(uint256 verseId) external override versIdValidate(verseId) returns (uint256 preorderFund) {
-        Memeverse storage verse = memeverses[verseId];
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[verseId];
         require(verse.currentStage == Stage.Refund, NotRefundStage());
 
         address msgSender = msg.sender;
-        PreorderData storage preorderData = userPreorderData[verseId][msgSender];
+        PreorderData storage preorderData = _getMemeverseLauncherStorage().userPreorderData[verseId][msgSender];
         preorderFund = preorderData.funds;
         require(preorderFund > 0 && !preorderData.isRefunded, InvalidClaim());
 
@@ -798,6 +1158,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         emit RefundPreorder(verseId, msgSender, preorderFund);
     }
 
+    /**
+     * @notice Claim the caller's share of normal YT (Yield Token) after Genesis stage resolves to Locked.
+     * @dev Reads only pre-committed `totalNormalClaimableYT` and the one-shot `normalYTClaimed` flag.
+     * @param verseId Memeverse id.
+     * @return amount The claimed YT amount.
+     */
     function claimNormalYT(uint256 verseId)
         external
         override
@@ -805,27 +1171,40 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         whenNotPaused
         returns (uint256 amount)
     {
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
         address msgSender = msg.sender;
-        require(!normalYTClaimed[verseId][msgSender], InvalidClaim());
+        require(!$.normalYTClaimed[verseId][msgSender], InvalidClaim());
 
-        uint256 userGenesisFund = userGenesisData[verseId][msgSender].genesisFund;
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        require(userGenesisFund != 0 && _normalFunds != 0, InvalidClaim());
+        uint256 userGenesisFund = $.userGenesisData[verseId][msgSender].genesisFund;
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        require(userGenesisFund != 0 && normalFunds != 0, InvalidClaim());
 
-        amount = FullMath.mulDiv(totalNormalClaimableYT[verseId], userGenesisFund, _normalFunds);
+        amount = FullMath.mulDiv(
+            $.totalNormalClaimableYT[verseId], userGenesisFund, normalFunds
+        );
 
-        normalYTClaimed[verseId][msgSender] = true;
+        $.normalYTClaimed[verseId][msgSender] = true;
         if (amount != 0) {
-            address yt = IPOLSplitter(polSplitter).getYT(verseId);
+            address _polSplitter = $.polSplitter;
+            address yt = IPOLSplitter(_polSplitter).getYT(verseId);
             _transferOut(yt, msgSender, amount);
         }
 
         emit ClaimNormalYT(verseId, msgSender, amount);
     }
 
+    /**
+     * @notice Claim the caller's accumulated uAsset and PT fee entitlements.
+     * @dev Reads pre-committed `feeState.accUAssetFee` and `feeState.accPTFee` accumulators.
+     *      Uses CEI pattern (commit `claimedXxx` before external calls)
+     *      to prevent double-claim; the trust boundary is the configured POLSplitter.
+     * @param verseId Memeverse id.
+     * @return uAssetAmount The claimed uAsset fee amount.
+     * @return ptAmount The claimed PT fee amount.
+     */
     function claimNormalFees(uint256 verseId)
         external
         override
@@ -833,26 +1212,26 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         whenNotPaused
         returns (uint256 uAssetAmount, uint256 ptAmount)
     {
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        (address pt, bool settled) = IPOLSplitter(polSplitter).getPTSettlementState(verseId);
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        uint256 userFund = userGenesisData[verseId][msg.sender].genesisFund;
-        require(userFund != 0 && _normalFunds != 0, InvalidClaim());
-        UserNormalFeeClaim storage userClaim = userNormalFeeClaims[verseId][msg.sender];
-        NormalFeeState storage feeState = normalFeeStates[verseId];
+        address _polSplitter = $.polSplitter;
+        (address pt, bool settled) = IPOLSplitter(_polSplitter).getPTSettlementState(verseId);
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        uint256 userFund = $.userGenesisData[verseId][msg.sender].genesisFund;
+        require(userFund != 0 && normalFunds != 0, InvalidClaim());
+        UserNormalFeeClaim storage userClaim = $.userNormalFeeClaims[verseId][msg.sender];
+        NormalFeeState storage feeState = $.normalFeeStates[verseId];
 
-        uint256 entitledUAsset = FullMath.mulDiv(feeState.accUAssetFee, userFund, _normalFunds);
-        uint256 entitledPT = FullMath.mulDiv(feeState.accPTFee, userFund, _normalFunds);
+        uint256 entitledUAsset = FullMath.mulDiv(feeState.accUAssetFee, userFund, normalFunds);
+        uint256 entitledPT = FullMath.mulDiv(feeState.accPTFee, userFund, normalFunds);
         uAssetAmount = entitledUAsset - userClaim.claimedUAssetFee;
         uint256 pendingPTAmount = entitledPT - userClaim.claimedPTFee;
         uint256 claimableUAssetAmount = uAssetAmount;
 
         // Commit the launcher-held fee state before any external PT settlement call so a callback cannot
         // reenter and pull the same fee twice.
-        // This path relies on CEI here rather than a contract-wide nonReentrant entry guard, so the
-        // expected trust boundary remains the configured POLSplitter and standard settlement token behavior.
         if (claimableUAssetAmount != 0) {
             userClaim.claimedUAssetFee = entitledUAsset;
         }
@@ -861,10 +1240,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             // Report the pending PT entitlement unless this claim either transfers it or redeems it into uAsset.
             ptAmount = pendingPTAmount;
             if (settled) {
-                uint256 ptBacking = IPOLSplitter(polSplitter).previewPTToUAsset(verseId, pendingPTAmount);
+                uint256 ptBacking = IPOLSplitter(_polSplitter).previewPTToUAsset(verseId, pendingPTAmount);
                 if (ptBacking != 0) {
                     userClaim.claimedPTFee = entitledPT;
-                    uAssetAmount += IPOLSplitter(polSplitter).redeemPT(verseId, pendingPTAmount, msg.sender);
+                    uAssetAmount += IPOLSplitter(_polSplitter).redeemPT(verseId, pendingPTAmount, msg.sender);
+                    ptAmount = 0;
+                } else {
+                    // Dust rounding makes the PT redeemable for zero uAsset.
+                    // Reset ptAmount so the event reflects no actual transfer.
+                    // claimedPTFee is intentionally left untouched so the entitlement
+                    // stays pending and self-heals as future fee accrual grows accPTFee.
                     ptAmount = 0;
                 }
             } else {
@@ -883,57 +1268,59 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         override
         versIdValidate(verseId)
         whenNotPaused
-        notDuringUnlockSettlement(verseId)
         returns (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount)
     {
-        Memeverse storage verse = memeverses[verseId];
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
 
         uint256 userFund = _redeemableGenesisFund(verseId, msg.sender);
-        uint256 _normalFunds = totalNormalFunds[verseId];
+        uint256 normalFunds = $.totalNormalFunds[verseId];
 
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
+        address _polSplitter = $.polSplitter;
+        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
         (polUAssetLpAmount, ptUAssetLpAmount, ptPolLpAmount) =
-            _auxiliaryLiquidityRedemptionAmounts(verseId, userFund, _normalFunds);
+            _auxiliaryLiquidityRedemptionAmounts(verseId, userFund, normalFunds);
 
-        userGenesisData[verseId][msg.sender].isRedeemed = true;
+        $.userGenesisData[verseId][msg.sender].isRedeemed = true;
+        address swapRouter = $.memeverseSwapRouter;
         _transferRedeemedAuxiliaryLiquidity(
-            verse.pol, verse.uAsset, pt, msg.sender, polUAssetLpAmount, ptUAssetLpAmount, ptPolLpAmount
+            verse.pol, verse.uAsset, pt, msg.sender, polUAssetLpAmount, ptUAssetLpAmount, ptPolLpAmount, swapRouter
         );
-        _transferNormalResidualClaims(verseId, _normalFunds, verse.pol, pt, msg.sender, userFund);
+        _transferNormalResidualClaims(verseId, normalFunds, verse.pol, pt, msg.sender, userFund);
         emit RedeemAuxiliaryLiquidity(verseId, msg.sender, polUAssetLpAmount, ptUAssetLpAmount, ptPolLpAmount);
     }
 
     function _transferNormalResidualClaims(
         uint256 verseId,
-        uint256 _normalFunds,
+        uint256 normalFunds,
         address pol,
         address pt,
         address recipient,
         uint256 userFund
     ) internal {
-        BootstrapResidualClaims storage claims = bootstrapResidualClaims[verseId];
-        uint256 polAmount = FullMath.mulDiv(claims.normalResidualPOL, userFund, _normalFunds);
-        uint256 ptAmount = FullMath.mulDiv(claims.normalResidualPT, userFund, _normalFunds);
+        BootstrapResidualClaims storage claims = _getMemeverseLauncherStorage().bootstrapResidualClaims[verseId];
+        uint256 polAmount = FullMath.mulDiv(claims.normalResidualPOL, userFund, normalFunds);
+        uint256 ptAmount = FullMath.mulDiv(claims.normalResidualPT, userFund, normalFunds);
         if (polAmount != 0) _transferOut(pol, recipient, polAmount);
         if (ptAmount != 0) _transferOut(pt, recipient, ptAmount);
     }
 
     function _redeemableGenesisFund(uint256 verseId, address account) internal view returns (uint256 userFund) {
-        GenesisData storage genesisData = userGenesisData[verseId][account];
+        GenesisData storage genesisData = _getMemeverseLauncherStorage().userGenesisData[verseId][account];
         userFund = genesisData.genesisFund;
         require(userFund > 0 && !genesisData.isRedeemed, InvalidClaim());
     }
 
-    function _auxiliaryLiquidityRedemptionAmounts(uint256 verseId, uint256 userFund, uint256 _normalFunds)
+    function _auxiliaryLiquidityRedemptionAmounts(uint256 verseId, uint256 userFund, uint256 normalFunds)
         internal
         view
         returns (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount)
     {
-        AuxiliaryLiquidity storage liq = auxiliaryLiquidities[verseId];
-        polUAssetLpAmount = liq.polUAssetLpAmount * userFund / _normalFunds;
-        ptUAssetLpAmount = liq.ptUAssetLpAmount * userFund / _normalFunds;
-        ptPolLpAmount = liq.ptPolLpAmount * userFund / _normalFunds;
+        AuxiliaryLiquidity storage liq = _getMemeverseLauncherStorage().auxiliaryLiquidities[verseId];
+        polUAssetLpAmount = liq.polUAssetLpAmount * userFund / normalFunds;
+        ptUAssetLpAmount = liq.ptUAssetLpAmount * userFund / normalFunds;
+        ptPolLpAmount = liq.ptPolLpAmount * userFund / normalFunds;
     }
 
     function _transferRedeemedAuxiliaryLiquidity(
@@ -943,13 +1330,14 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address recipient,
         uint256 polUAssetLpAmount,
         uint256 ptUAssetLpAmount,
-        uint256 ptPolLpAmount
+        uint256 ptPolLpAmount,
+        address swapRouter
     ) internal {
         if (polUAssetLpAmount != 0) {
-            _transferOut(_pairLpToken(pol, uAsset), recipient, polUAssetLpAmount);
+            _transferOut(_pairLpToken(pol, uAsset, swapRouter), recipient, polUAssetLpAmount);
         }
-        if (ptUAssetLpAmount != 0) _transferOut(_pairLpToken(pt, uAsset), recipient, ptUAssetLpAmount);
-        if (ptPolLpAmount != 0) _transferOut(_pairLpToken(pt, pol), recipient, ptPolLpAmount);
+        if (ptUAssetLpAmount != 0) _transferOut(_pairLpToken(pt, uAsset, swapRouter), recipient, ptUAssetLpAmount);
+        if (ptPolLpAmount != 0) _transferOut(_pairLpToken(pt, pol, swapRouter), recipient, ptPolLpAmount);
     }
 
     function settleLeveragedAuxiliaryLiquidity(uint256 verseId)
@@ -958,29 +1346,31 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         versIdValidate(verseId)
         returns (uint256 polAmount, uint256 ptAmount, uint256 uAssetAmount)
     {
-        require(msg.sender == polend, PermissionDenied());
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        address _polend = $.polend;
+        require(msg.sender == _polend, PermissionDenied());
 
-        Memeverse storage verse = memeverses[verseId];
+        Memeverse storage verse = $.memeverses[verseId];
         require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
 
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        uint256 totalLeveragedDebt = IPOLend(polend).getTotalLeveragedDebt(verseId);
-        uint256 totalFunds = _checkedTotalGenesisFunds(_normalFunds, totalLeveragedDebt);
-        AuxiliaryLiquidity storage liq = auxiliaryLiquidities[verseId];
+        address pt = IPOLSplitter($.polSplitter).getPT(verseId);
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        uint256 totalLeveragedDebt = IPOLend(_polend).getTotalLeveragedDebt(verseId);
+        uint256 totalFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
+        AuxiliaryLiquidity storage liq = $.auxiliaryLiquidities[verseId];
         uint128 polUAssetLp = uint128(FullMath.mulDiv(liq.polUAssetLpAmount, totalLeveragedDebt, totalFunds));
         uint128 ptUAssetLp = uint128(FullMath.mulDiv(liq.ptUAssetLpAmount, totalLeveragedDebt, totalFunds));
         uint128 ptPolLp = uint128(FullMath.mulDiv(liq.ptPolLpAmount, totalLeveragedDebt, totalFunds));
 
-        address swapRouter = memeverseSwapRouter;
-        if (polUAssetLp != 0) _safeApprove(_pairLpToken(verse.pol, verse.uAsset), swapRouter, polUAssetLp);
-        if (ptUAssetLp != 0) _safeApprove(_pairLpToken(pt, verse.uAsset), swapRouter, ptUAssetLp);
-        if (ptPolLp != 0) _safeApprove(_pairLpToken(pt, verse.pol), swapRouter, ptPolLp);
+        address swapRouter = $.memeverseSwapRouter;
+        if (polUAssetLp != 0) _safeApprove(_pairLpToken(verse.pol, verse.uAsset, swapRouter), swapRouter, polUAssetLp);
+        if (ptUAssetLp != 0) _safeApprove(_pairLpToken(pt, verse.uAsset, swapRouter), swapRouter, ptUAssetLp);
+        if (ptPolLp != 0) _safeApprove(_pairLpToken(pt, verse.pol, swapRouter), swapRouter, ptPolLp);
 
         liq.polUAssetLpAmount -= polUAssetLp;
         liq.ptUAssetLpAmount -= ptUAssetLp;
         liq.ptPolLpAmount -= ptPolLp;
-        BootstrapResidualClaims storage claims = bootstrapResidualClaims[verseId];
+        BootstrapResidualClaims storage claims = $.bootstrapResidualClaims[verseId];
         uint256 residualPOL = claims.leveragedResidualPOL;
         uint256 residualPT = claims.leveragedResidualPT;
         claims.leveragedResidualPOL = 0;
@@ -993,18 +1383,18 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         if (polUAssetLp != 0) {
             polUAssetDelta = IMemeverseSwapRouter(swapRouter)
                 .removeLiquidity(
-                    Currency.wrap(verse.pol), Currency.wrap(verse.uAsset), polUAssetLp, 0, 0, polend, block.timestamp
+                    Currency.wrap(verse.pol), Currency.wrap(verse.uAsset), polUAssetLp, 0, 0, _polend, block.timestamp
                 );
         }
         if (ptUAssetLp != 0) {
             ptUAssetDelta = IMemeverseSwapRouter(swapRouter)
                 .removeLiquidity(
-                    Currency.wrap(pt), Currency.wrap(verse.uAsset), ptUAssetLp, 0, 0, polend, block.timestamp
+                    Currency.wrap(pt), Currency.wrap(verse.uAsset), ptUAssetLp, 0, 0, _polend, block.timestamp
                 );
         }
         if (ptPolLp != 0) {
             ptPolDelta = IMemeverseSwapRouter(swapRouter)
-                .removeLiquidity(Currency.wrap(pt), Currency.wrap(verse.pol), ptPolLp, 0, 0, polend, block.timestamp);
+                .removeLiquidity(Currency.wrap(pt), Currency.wrap(verse.pol), ptPolLp, 0, 0, _polend, block.timestamp);
         }
 
         polAmount = _positiveDeltaAmountForToken(polUAssetDelta, verse.pol, verse.pol, verse.uAsset)
@@ -1015,17 +1405,18 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             + _positiveDeltaAmountForToken(ptUAssetDelta, verse.uAsset, pt, verse.uAsset);
         if (residualPOL != 0) {
             polAmount += residualPOL;
-            _transferOut(verse.pol, polend, residualPOL);
+            _transferOut(verse.pol, _polend, residualPOL);
         }
         if (residualPT != 0) {
             ptAmount += residualPT;
-            _transferOut(pt, polend, residualPT);
+            _transferOut(pt, _polend, residualPT);
         }
     }
 
     /**
      * @notice Claim unlocked preorder memecoin after preorder settlement.
      * @dev Transfers the caller's currently vested preorder memecoin balance.
+     *      Reads only pre-committed `claimablePreorderMemecoin` and the cumulative `claimedMemecoin` counter.
      * @param verseId Memeverse id.
      * @return amount The claimed preorder memecoin amount.
      */
@@ -1040,8 +1431,8 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         require(amount != 0, NoPOLAvailable());
 
         address msgSender = msg.sender;
-        userPreorderData[verseId][msgSender].claimedMemecoin += amount;
-        _transferOut(memeverses[verseId].memecoin, msgSender, amount);
+        _getMemeverseLauncherStorage().userPreorderData[verseId][msgSender].claimedMemecoin += amount;
+        _transferOut(_getMemeverseLauncherStorage().memeverses[verseId].memecoin, msgSender, amount);
         emit ClaimPreorderMemecoin(verseId, msgSender, amount);
     }
 
@@ -1054,6 +1445,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
      * @return polFee - The pol fee.
      * @return executorReward  - The executor reward.
      * @notice Anyone who calls this method will be rewarded with executorReward. Provide exactly the required native fee.
+     * @dev Reads only pre-committed `RedeemedFeeState` accumulators.
      */
     function redeemAndDistributeFees(uint256 verseId, address rewardReceiver)
         external
@@ -1064,10 +1456,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         returns (uint256 govFee, uint256 memecoinFee, uint256 polFee, uint256 executorReward)
     {
         require(rewardReceiver != address(0), ZeroInput());
-        Memeverse storage verse = memeverses[verseId];
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        RedeemedFeeState memory fees = _collectRedeemedFees(verseId, verse);
+        address _polSplitter = _getMemeverseLauncherStorage().polSplitter;
+        RedeemedFeeState memory fees = _collectRedeemedFees(verseId, verse, _polSplitter);
         if (_hasNoRedeemedFees(fees)) {
             if (msg.value != 0) revert InvalidLzFee(0, msg.value);
             return (0, 0, 0, 0);
@@ -1080,22 +1473,21 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
         memecoinFee = fees.memecoinFee;
         polFee = fees.polFee;
-        govFee = _distributeRedeemedFees(verseId, verse, govFee, fees);
+        govFee = _distributeRedeemedFees(verseId, verse, govFee, fees, _polSplitter);
 
         emit RedeemAndDistributeFees(verseId, govFee, memecoinFee, polFee, executorReward);
     }
 
+    /// @dev Intentionally omits `whenNotPaused`: users can always burn their own POL to exit the pool.
+    ///      POL is the caller's own asset — pausing this path would trap liquidity holders in an emergency.
+    ///      Protocol pathways (polSplitter / polend) also rely on this remaining unpaused for settlement.
     function redeemMemecoinLiquidity(uint256 verseId, uint256 amountInPOL, bool unwrap)
         external
         override
         versIdValidate(verseId)
         returns (uint256 amountInLP)
     {
-        Memeverse storage verse = memeverses[verseId];
-        // Public callers are blocked during launcher-driven unlock settlement; protocol settlement callers must remain allowed.
-        if (msg.sender != polSplitter && msg.sender != polend) {
-            _requireNoUnlockSettlement(verseId);
-        }
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[verseId];
         require(amountInPOL != 0, ZeroInput());
 
         require(verse.currentStage == Stage.Unlocked, NotUnlockedStage());
@@ -1103,13 +1495,13 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         IPol(verse.pol).burn(msg.sender, amountInPOL);
 
         amountInLP = amountInPOL;
-        address lpToken = _pairLpToken(verse.memecoin, verse.uAsset);
+        address swapRouter = _getMemeverseLauncherStorage().memeverseSwapRouter;
+        address lpToken = _pairLpToken(verse.memecoin, verse.uAsset, swapRouter);
         require(IERC20(lpToken).balanceOf(address(this)) >= amountInLP, InsufficientLPBalance());
         if (!unwrap) {
             _transferOut(lpToken, msg.sender, amountInLP);
         } else {
-            address swapRouter = memeverseSwapRouter;
-            _safeApproveInf(lpToken, swapRouter);
+            _safeApprove(lpToken, swapRouter, amountInLP);
             IMemeverseSwapRouter(swapRouter)
                 .removeLiquidity(
                     Currency.wrap(verse.memecoin),
@@ -1122,10 +1514,6 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
                 );
         }
         emit RedeemMemecoinLiquidity(verseId, msg.sender, amountInLP);
-    }
-
-    function _requireNoUnlockSettlement(uint256 verseId) internal view {
-        if (unlockSettlementActive[verseId]) revert UnlockSettlementActive();
     }
 
     /**
@@ -1157,19 +1545,20 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         external
         override
         versIdValidate(verseId)
+        whenNotPaused
         returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut)
     {
         require(amountInUAssetDesired != 0 && amountInMemecoinDesired != 0, ZeroInput());
-        Memeverse storage verse = memeverses[verseId];
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
         address uAsset = verse.uAsset;
         address memecoin = verse.memecoin;
-        address swapRouter = memeverseSwapRouter;
+        address swapRouter = _getMemeverseLauncherStorage().memeverseSwapRouter;
         _transferIn(uAsset, msg.sender, amountInUAssetDesired);
         _transferIn(memecoin, msg.sender, amountInMemecoinDesired);
-        _safeApproveInf(uAsset, swapRouter);
-        _safeApproveInf(memecoin, swapRouter);
+        _safeApprove(uAsset, swapRouter, amountInUAssetDesired);
+        _safeApprove(memecoin, swapRouter, amountInMemecoinDesired);
         (amountInUAsset, amountInMemecoin, amountOut) = _executeMintPOLTokenLiquidity(
             uAsset,
             memecoin,
@@ -1212,11 +1601,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         address uAsset,
         bool flashGenesis
     ) external override whenNotPaused {
-        require(msg.sender == memeverseRegistrar, PermissionDenied());
-        require(polend != address(0) && polSplitter != address(0), PermissionDenied());
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        require(msg.sender == $.memeverseRegistrar, PermissionDenied());
+        require($.polend != address(0) && $.polSplitter != address(0), PermissionDenied());
         require(uAsset != address(0), ZeroInput());
         require(omnichainIds.length != 0, InvalidLength());
-        FundMetaData memory fundMetaData = fundMetaDatas[uAsset];
+        FundMetaData memory fundMetaData = $.fundMetaDatas[uAsset];
         require(fundMetaData.minTotalFund != 0 && fundMetaData.fundBasedAmount != 0, ZeroInput());
 
         (address memecoin, address pol) = _deployAndInitializeVerseTokens(uniqueId, name, symbol);
@@ -1225,11 +1615,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             uniqueId, name, symbol, uAsset, memecoin, pol, endTime, unlockTime, omnichainIds, flashGenesis
         );
 
-        memecoinToIds[memecoin] = uniqueId;
-        polToIds[pol] = uniqueId;
-        IPOLend(polend).registerLendMarket(uniqueId);
+        $.memecoinToIds[memecoin] = uniqueId;
+        $.polToIds[pol] = uniqueId;
+        IPOLend($.polend).registerLendMarket(uniqueId);
 
-        emit RegisterMemeverse(uniqueId, memeverses[uniqueId]);
+        emit RegisterMemeverse(uniqueId, $.memeverses[uniqueId]);
     }
 
     function _storeRegisteredMemeverse(
@@ -1244,7 +1634,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint32[] calldata omnichainIds,
         bool flashGenesis
     ) internal {
-        Memeverse storage verse = memeverses[uniqueId];
+        Memeverse storage verse = _getMemeverseLauncherStorage().memeverses[uniqueId];
         verse.name = name;
         verse.symbol = symbol;
         verse.uAsset = uAsset;
@@ -1292,7 +1682,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 amountInMemecoinMin,
         uint256 deadline
     ) internal returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut) {
-        (amountOut, amountInUAsset, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
+        (amountOut, amountInUAsset, amountInMemecoin) = IMemeverseSwapRouter(
+                _getMemeverseLauncherStorage().memeverseSwapRouter
+            )
             .addLiquidityDetailed(
                 Currency.wrap(uAsset),
                 Currency.wrap(memecoin),
@@ -1315,8 +1707,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     ) internal returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut) {
         require(amountOutDesired <= type(uint128).max, InvalidLength());
         // Quote the smallest router-side budgets that should mint the requested LP amount at the current pool price.
-        (uint256 quotedUAsset, uint256 quotedMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
-            .quoteExactAmountsForLiquidity(uAsset, memecoin, uint128(amountOutDesired));
+        (uint256 quotedUAsset, uint256 quotedMemecoin) = IMemeverseSwapRouter(
+                _getMemeverseLauncherStorage().memeverseSwapRouter
+            ).quoteExactAmountsForLiquidity(uAsset, memecoin, uint128(amountOutDesired));
         if (quotedUAsset > amountInUAssetDesired) {
             revert IMemeverseSwapRouter.InputAmountExceedsMaximum(quotedUAsset, amountInUAssetDesired);
         }
@@ -1325,7 +1718,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         }
         // Reuse the exact quote as the desired budget so any price move that under-mints reverts instead of silently
         // minting less POL than requested.
-        (amountOut, amountInUAsset, amountInMemecoin) = IMemeverseSwapRouter(memeverseSwapRouter)
+        (amountOut, amountInUAsset, amountInMemecoin) = IMemeverseSwapRouter(
+                _getMemeverseLauncherStorage().memeverseSwapRouter
+            )
             .addLiquidityDetailed(
                 Currency.wrap(uAsset),
                 Currency.wrap(memecoin),
@@ -1357,8 +1752,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         internal
         returns (address memecoin, address pol)
     {
-        memecoin = IMemeverseProxyDeployer(memeverseProxyDeployer).deployMemecoin(uniqueId);
-        pol = IMemeverseProxyDeployer(memeverseProxyDeployer).deployPOL(uniqueId);
+        IMemeverseProxyDeployer deployer =
+            IMemeverseProxyDeployer(_getMemeverseLauncherStorage().memeverseProxyDeployer);
+        memecoin = deployer.deployMemecoin(uniqueId);
+        pol = deployer.deployPOL(uniqueId);
         IMemecoin(memecoin).initialize(name, symbol, address(this), address(this));
         IPol(pol)
             .initialize(
@@ -1378,6 +1775,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 omnichainIdsLength = omnichainIds.length;
 
         // Use default config
+        address _lzEndpointRegistry = _getMemeverseLauncherStorage().lzEndpointRegistry;
         for (uint256 i = 0; i < omnichainIdsLength;) {
             uint32 omnichainId = omnichainIds[i];
             unchecked {
@@ -1385,7 +1783,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             }
             if (omnichainId == currentChainId) continue;
 
-            uint32 remoteEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(omnichainId);
+            uint32 remoteEndpointId = ILzEndpointRegistry(_lzEndpointRegistry).lzEndpointIdOfChain(omnichainId);
             require(remoteEndpointId != 0, InvalidOmnichainId(omnichainId));
 
             IOAppCore(memecoin).setPeer(remoteEndpointId, bytes32(uint256(uint160(memecoin))));
@@ -1424,16 +1822,16 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     /**
      * @notice Set the memeverse swap router contract.
      * @dev Only callable by the owner.
-     * @param _memeverseSwapRouter - Address of memeverseSwapRouter
+     * @param _memeverseSwapRouter - Address of the Memeverse swap router contract.
      */
     function setMemeverseSwapRouter(address _memeverseSwapRouter) external override onlyOwner {
         require(_memeverseSwapRouter != address(0), ZeroInput());
-        address hookAddress = memeverseUniswapHook;
+        address hookAddress = _getMemeverseLauncherStorage().memeverseUniswapHook;
         if (hookAddress != address(0)) {
             _validateLaunchSettlementConfig(_memeverseSwapRouter, hookAddress);
         }
 
-        memeverseSwapRouter = _memeverseSwapRouter;
+        _getMemeverseLauncherStorage().memeverseSwapRouter = _memeverseSwapRouter;
 
         emit SetMemeverseSwapRouter(_memeverseSwapRouter);
     }
@@ -1443,8 +1841,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     /// @param _memeverseUniswapHook Address of the Memeverse hook.
     function setMemeverseUniswapHook(address _memeverseUniswapHook) external override onlyOwner {
         require(_memeverseUniswapHook != address(0), ZeroInput());
-        if (memeverseUniswapHook != address(0)) revert HookAlreadyConfigured();
-        address routerAddress = memeverseSwapRouter;
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        if ($.memeverseUniswapHook != address(0)) revert HookAlreadyConfigured();
+        address routerAddress = $.memeverseSwapRouter;
         if (routerAddress != address(0)) {
             _validateLaunchSettlementConfig(routerAddress, _memeverseUniswapHook);
         } else {
@@ -1452,7 +1851,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             require(boundLauncher == address(this), InvalidLaunchSettlementConfig());
         }
 
-        memeverseUniswapHook = _memeverseUniswapHook;
+        $.memeverseUniswapHook = _memeverseUniswapHook;
 
         emit SetMemeverseUniswapHook(_memeverseUniswapHook);
     }
@@ -1470,17 +1869,22 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         );
     }
 
-    function _activatePostUnlockPublicSwapProtection(uint256 verseId, Memeverse storage verse) internal {
+    function _activatePostUnlockPublicSwapProtection(
+        uint256 verseId,
+        Memeverse storage verse,
+        address polSplitterAddress,
+        address hook
+    ) internal {
         uint40 resumeTime = uint40(block.timestamp + UNLOCK_PROTECTION_WINDOW);
-        IMemeverseUniswapHook hook = IMemeverseUniswapHook(memeverseUniswapHook);
+        IMemeverseUniswapHook _hook = IMemeverseUniswapHook(hook);
         address uAsset = verse.uAsset;
         address pol = verse.pol;
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
+        address pt = IPOLSplitter(polSplitterAddress).getPT(verseId);
 
-        _setPublicSwapResumeTimeIfPairExists(hook, verse.memecoin, uAsset, resumeTime);
-        _setPublicSwapResumeTimeIfPairExists(hook, pol, uAsset, resumeTime);
-        _setPublicSwapResumeTimeIfPairExists(hook, pt, uAsset, resumeTime);
-        _setPublicSwapResumeTimeIfPairExists(hook, pt, pol, resumeTime);
+        _setPublicSwapResumeTimeIfPairExists(_hook, verse.memecoin, uAsset, resumeTime);
+        _setPublicSwapResumeTimeIfPairExists(_hook, pol, uAsset, resumeTime);
+        _setPublicSwapResumeTimeIfPairExists(_hook, pt, uAsset, resumeTime);
+        _setPublicSwapResumeTimeIfPairExists(_hook, pt, pol, resumeTime);
     }
 
     function _setPublicSwapResumeTimeIfPairExists(
@@ -1501,7 +1905,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     function setLzEndpointRegistry(address _lzEndpointRegistry) external override onlyOwner {
         require(_lzEndpointRegistry != address(0), ZeroInput());
 
-        lzEndpointRegistry = _lzEndpointRegistry;
+        _getMemeverseLauncherStorage().lzEndpointRegistry = _lzEndpointRegistry;
 
         emit SetLzEndpointRegistry(_lzEndpointRegistry);
     }
@@ -1509,12 +1913,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     /**
      * @notice Set the memeverse registrar contract.
      * @dev Only callable by the owner.
-     * @param _memeverseRegistrar - Address of memeverseRegistrar
+     * @param _memeverseRegistrar - Address of the Memeverse registrar contract.
      */
     function setMemeverseRegistrar(address _memeverseRegistrar) external override onlyOwner {
         require(_memeverseRegistrar != address(0), ZeroInput());
 
-        memeverseRegistrar = _memeverseRegistrar;
+        _getMemeverseLauncherStorage().memeverseRegistrar = _memeverseRegistrar;
 
         emit SetMemeverseRegistrar(_memeverseRegistrar);
     }
@@ -1522,12 +1926,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     /**
      * @notice Set the memeverse proxy deployer contract.
      * @dev Only callable by the owner.
-     * @param _memeverseProxyDeployer - Address of memeverseProxyDeployer
+     * @param _memeverseProxyDeployer - Address of the Memeverse proxy deployer contract.
      */
     function setMemeverseProxyDeployer(address _memeverseProxyDeployer) external override onlyOwner {
         require(_memeverseProxyDeployer != address(0), ZeroInput());
 
-        memeverseProxyDeployer = _memeverseProxyDeployer;
+        _getMemeverseLauncherStorage().memeverseProxyDeployer = _memeverseProxyDeployer;
 
         emit SetMemeverseProxyDeployer(_memeverseProxyDeployer);
     }
@@ -1535,12 +1939,12 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     /**
      * @notice Set the yield dispatcher contract.
      * @dev Only callable by the owner.
-     * @param _yieldDispatcher - Address of yieldDispatcher
+     * @param _yieldDispatcher - Address of the yield dispatcher contract.
      */
     function setYieldDispatcher(address _yieldDispatcher) external override onlyOwner {
         require(_yieldDispatcher != address(0), ZeroInput());
 
-        yieldDispatcher = _yieldDispatcher;
+        _getMemeverseLauncherStorage().yieldDispatcher = _yieldDispatcher;
 
         emit SetYieldDispatcher(_yieldDispatcher);
     }
@@ -1562,7 +1966,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
             _fundBasedAmount <= MAX_FUND_BASED_AMOUNT, FundBasedAmountTooHigh(_fundBasedAmount, MAX_FUND_BASED_AMOUNT)
         );
 
-        fundMetaDatas[_uAsset] = FundMetaData(_minTotalFund, _fundBasedAmount);
+        _getMemeverseLauncherStorage().fundMetaDatas[_uAsset] = FundMetaData(_minTotalFund, _fundBasedAmount);
 
         emit SetFundMetaData(_uAsset, _minTotalFund, _fundBasedAmount);
     }
@@ -1575,7 +1979,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     function setExecutorRewardRate(uint256 _executorRewardRate) external override onlyOwner {
         require(_executorRewardRate < RATIO, FeeRateOverFlow());
 
-        executorRewardRate = _executorRewardRate;
+        _getMemeverseLauncherStorage().executorRewardRate = _executorRewardRate;
 
         emit SetExecutorRewardRate(_executorRewardRate);
     }
@@ -1594,8 +1998,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         require(_preorderCapRatio != 0 && _preorderVestingDuration != 0, ZeroInput());
         require(_preorderCapRatio <= RATIO, FeeRateOverFlow());
 
-        preorderCapRatio = _preorderCapRatio;
-        preorderVestingDuration = _preorderVestingDuration;
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        $.preorderCapRatio = _preorderCapRatio;
+        $.preorderVestingDuration = _preorderVestingDuration;
 
         emit SetPreorderConfig(_preorderCapRatio, _preorderVestingDuration);
     }
@@ -1609,8 +2014,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     function setGasLimits(uint128 _oftReceiveGasLimit, uint128 _yieldDispatcherGasLimit) external override onlyOwner {
         require(_oftReceiveGasLimit > 0 && _yieldDispatcherGasLimit > 0, ZeroInput());
 
-        oftReceiveGasLimit = _oftReceiveGasLimit;
-        yieldDispatcherGasLimit = _yieldDispatcherGasLimit;
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        $.oftReceiveGasLimit = _oftReceiveGasLimit;
+        $.yieldDispatcherGasLimit = _yieldDispatcherGasLimit;
 
         emit SetGasLimits(_oftReceiveGasLimit, _yieldDispatcherGasLimit);
     }
@@ -1629,15 +2035,25 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         string calldata description,
         string[] calldata communities
     ) external override {
-        require(msg.sender == memeverses[verseId].governor || msg.sender == memeverseRegistrar, PermissionDenied());
+        _versIdValidate(verseId);
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        require(
+            msg.sender == $.memeverses[verseId].governor || msg.sender == $.memeverseRegistrar,
+            PermissionDenied()
+        );
         require(bytes(description).length < 256, InvalidLength());
 
-        if (bytes(uri).length != 0) memeverses[verseId].uri = uri;
-        if (bytes(description).length != 0) memeverses[verseId].desc = description;
+        if (bytes(uri).length != 0) $.memeverses[verseId].uri = uri;
+        if (bytes(description).length != 0) $.memeverses[verseId].desc = description;
         if (communities.length != 0) {
             uint256 communitiesLength = communities.length;
             for (uint256 i = 0; i < communitiesLength;) {
-                communitiesMap[verseId][i] = communities[i];
+                // Empty string deletes the entry; non-empty updates it.
+                if (bytes(communities[i]).length == 0) {
+                    delete $.communitiesMap[verseId][i];
+                } else {
+                    $.communitiesMap[verseId][i] = communities[i];
+                }
                 unchecked {
                     ++i;
                 }
@@ -1647,31 +2063,33 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         emit SetExternalInfo(verseId, uri, description, communities);
     }
 
-    function _collectRedeemedFees(uint256 verseId, Memeverse storage verse)
+    function _collectRedeemedFees(uint256 verseId, Memeverse storage verse, address _polSplitter)
         internal
         returns (RedeemedFeeState memory fees)
     {
-        (fees.memecoinFee, fees.uAssetFee) = _claimPairFees(verse.memecoin, verse.uAsset);
+        address _hook = _getMemeverseLauncherStorage().memeverseUniswapHook;
+        (fees.memecoinFee, fees.uAssetFee) = _claimPairFees(verse.memecoin, verse.uAsset, _hook);
 
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
+        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
         (fees.auxiliaryGovUAssetFee, fees.auxiliaryGovPTFee, fees.polFee) =
-            _claimAndAccrueAuxiliaryFees(verseId, verse, pt, verse.currentStage == Stage.Locked);
+            _claimAndAccrueAuxiliaryFees(verseId, verse, pt, verse.currentStage == Stage.Locked, _hook);
 
-        fees = _mergePendingAuxiliaryGovFees(verseId, fees);
+        fees = _mergePendingAuxiliaryGovFees(verseId, fees, _polSplitter);
     }
 
-    function _mergePendingAuxiliaryGovFees(uint256 verseId, RedeemedFeeState memory fees)
+    function _mergePendingAuxiliaryGovFees(uint256 verseId, RedeemedFeeState memory fees, address _polSplitter)
         internal
         returns (RedeemedFeeState memory)
     {
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState = pendingAuxiliaryGovFeeStates[verseId];
+        PendingAuxiliaryGovFeeState storage pendingGovFeeState =
+            _getMemeverseLauncherStorage().pendingAuxiliaryGovFeeStates[verseId];
         uint256 pendingUAssetFee = pendingGovFeeState.pendingUAssetFee;
         uint256 pendingPTFee = pendingGovFeeState.pendingPTFee;
         uint256 auxiliaryGovPTFee = fees.auxiliaryGovPTFee + pendingPTFee;
 
         fees.auxiliaryGovUAssetFee += pendingUAssetFee;
         if (auxiliaryGovPTFee != 0) {
-            if (IPOLSplitter(polSplitter).previewPTToUAsset(verseId, auxiliaryGovPTFee) == 0) {
+            if (IPOLSplitter(_polSplitter).previewPTToUAsset(verseId, auxiliaryGovPTFee) == 0) {
                 pendingGovFeeState.pendingPTFee = auxiliaryGovPTFee;
                 fees.auxiliaryGovPTFee = 0;
             } else {
@@ -1693,29 +2111,35 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 verseId,
         Memeverse storage verse,
         uint256 govFee,
-        RedeemedFeeState memory fees
+        RedeemedFeeState memory fees,
+        address _polSplitter
     ) internal returns (uint256) {
         if (verse.omnichainIds[0] == block.chainid) {
-            return _distributeRedeemedFeesSameChain(verseId, verse, govFee, fees);
+            return _distributeRedeemedFeesSameChain(verseId, verse, govFee, fees, _polSplitter);
         }
-        return _distributeRedeemedFeesCrossChain(verseId, verse, govFee, fees);
+        return _distributeRedeemedFeesCrossChain(verseId, verse, govFee, fees, _polSplitter);
     }
 
     function _distributeRedeemedFeesSameChain(
         uint256 verseId,
         Memeverse storage verse,
         uint256 govFee,
-        RedeemedFeeState memory fees
+        RedeemedFeeState memory fees,
+        address _polSplitter
     ) internal returns (uint256) {
         if (msg.value != 0) revert InvalidLzFee(0, msg.value);
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        address _yieldDispatcher = $.yieldDispatcher;
+        address _polend = $.polend;
+
         uint256 auxiliaryGovUAssetHeldByLauncher = fees.auxiliaryGovUAssetFee;
         if (fees.auxiliaryGovPTFee != 0) {
             if (verse.currentStage == Stage.Locked) {
-                fees.auxiliaryGovUAssetFee += IPOLend(polend)
-                    .preRedeemPTFee(verseId, fees.auxiliaryGovPTFee, yieldDispatcher);
+                fees.auxiliaryGovUAssetFee += IPOLend(_polend)
+                    .preRedeemPTFee(verseId, fees.auxiliaryGovPTFee, _yieldDispatcher);
             } else {
-                fees.auxiliaryGovUAssetFee += IPOLSplitter(polSplitter)
-                    .redeemPT(verseId, fees.auxiliaryGovPTFee, yieldDispatcher);
+                fees.auxiliaryGovUAssetFee += IPOLSplitter(_polSplitter)
+                    .redeemPT(verseId, fees.auxiliaryGovPTFee, _yieldDispatcher);
             }
             fees.auxiliaryGovPTFee = 0;
         }
@@ -1724,15 +2148,17 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         govFee += fees.auxiliaryGovUAssetFee;
         // Same-chain governance routes through YieldDispatcher's compose entry so local and remote fee flows share one sink.
         if (govFee != 0) {
-            if (transferToDispatcher != 0) _transferOut(verse.uAsset, yieldDispatcher, transferToDispatcher);
-            IYieldDispatcher(yieldDispatcher)
+            if (transferToDispatcher != 0) {
+                _transferOut(verse.uAsset, _yieldDispatcher, transferToDispatcher);
+            }
+            IYieldDispatcher(_yieldDispatcher)
                 .lzCompose(
                     verse.uAsset, bytes32(0), abi.encode(verse.governor, TokenType.UASSET, govFee), address(0), ""
                 );
         }
         if (fees.memecoinFee != 0) {
-            _transferOut(verse.memecoin, yieldDispatcher, fees.memecoinFee);
-            IYieldDispatcher(yieldDispatcher)
+            _transferOut(verse.memecoin, _yieldDispatcher, fees.memecoinFee);
+            IYieldDispatcher(_yieldDispatcher)
                 .lzCompose(
                     verse.memecoin,
                     bytes32(0),
@@ -1749,15 +2175,17 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         uint256 verseId,
         Memeverse storage verse,
         uint256 govFee,
-        RedeemedFeeState memory fees
+        RedeemedFeeState memory fees,
+        address _polSplitter
     ) internal returns (uint256) {
         if (fees.auxiliaryGovPTFee != 0) {
             uint256 convertedUAssetAmount;
             if (verse.currentStage == Stage.Locked) {
-                convertedUAssetAmount = IPOLend(polend).preRedeemPTFee(verseId, fees.auxiliaryGovPTFee, address(this));
+                convertedUAssetAmount = IPOLend(_getMemeverseLauncherStorage().polend)
+                    .preRedeemPTFee(verseId, fees.auxiliaryGovPTFee, address(this));
             } else {
                 convertedUAssetAmount =
-                    IPOLSplitter(polSplitter).redeemPT(verseId, fees.auxiliaryGovPTFee, address(this));
+                    IPOLSplitter(_polSplitter).redeemPT(verseId, fees.auxiliaryGovPTFee, address(this));
             }
             fees.auxiliaryGovUAssetFee += convertedUAssetAmount;
             fees.auxiliaryGovPTFee = 0;
@@ -1770,9 +2198,11 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
 
     function _sendRedeemedFeesCrossChain(Memeverse storage verse, uint256 govFee, uint256 memecoinFee) internal {
         // Cross-chain governance prebuilds both OFT sends, then requires the caller to fund exactly the combined native messaging fee.
-        uint32 govEndpointId = ILzEndpointRegistry(lzEndpointRegistry).lzEndpointIdOfChain(verse.omnichainIds[0]);
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        uint32 govEndpointId = ILzEndpointRegistry($.lzEndpointRegistry).lzEndpointIdOfChain(verse.omnichainIds[0]);
         bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
-            .addExecutorLzReceiveOption(oftReceiveGasLimit, 0).addExecutorLzComposeOption(0, yieldDispatcherGasLimit, 0);
+            .addExecutorLzReceiveOption($.oftReceiveGasLimit, 0)
+            .addExecutorLzComposeOption(0, $.yieldDispatcherGasLimit, 0);
 
         SendParam memory sendUAssetParam;
         MessagingFee memory govMessagingFee;
@@ -1805,7 +2235,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     }
 
     function _splitExecutorReward(uint256 uAssetFee) internal view returns (uint256 govFee, uint256 executorReward) {
-        executorReward = FullMath.mulDiv(uAssetFee, executorRewardRate, RATIO);
+        executorReward = FullMath.mulDiv(uAssetFee, _getMemeverseLauncherStorage().executorRewardRate, RATIO);
         govFee = uAssetFee - executorReward;
     }
 
@@ -1819,7 +2249,7 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     ) internal view returns (SendParam memory sendParam, MessagingFee memory messagingFee) {
         sendParam = SendParam({
             dstEid: govEndpointId,
-            to: bytes32(uint256(uint160(yieldDispatcher))),
+            to: bytes32(uint256(uint160(_getMemeverseLauncherStorage().yieldDispatcher))),
             amountLD: amount,
             minAmountLD: 0,
             extraOptions: yieldDispatcherOptions,
@@ -1829,29 +2259,35 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         messagingFee = IOFT(token).quoteSend(sendParam, false);
     }
 
-    function _captureLockedAuxiliaryFees(uint256 verseId, Memeverse storage verse) internal {
-        address pt = IPOLSplitter(polSplitter).getPT(verseId);
+    function _captureLockedAuxiliaryFees(
+        uint256 verseId,
+        Memeverse storage verse,
+        address polSplitterAddress,
+        address hook
+    ) internal {
+        address pt = IPOLSplitter(polSplitterAddress).getPT(verseId);
         (uint256 govUAssetFee, uint256 govPTFee, uint256 burnedPolFee) =
-            _claimAndAccrueAuxiliaryFees(verseId, verse, pt, true);
+            _claimAndAccrueAuxiliaryFees(verseId, verse, pt, true, hook);
         if (burnedPolFee != 0) IPol(verse.pol).burn(address(this), burnedPolFee);
 
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState = pendingAuxiliaryGovFeeStates[verseId];
+        PendingAuxiliaryGovFeeState storage pendingGovFeeState =
+            _getMemeverseLauncherStorage().pendingAuxiliaryGovFeeStates[verseId];
         pendingGovFeeState.pendingUAssetFee += govUAssetFee;
         pendingGovFeeState.pendingPTFee += govPTFee;
     }
 
-    function _previewAuxiliaryGovFees(uint256 verseId, Memeverse storage verse, address pt)
+    function _previewAuxiliaryGovFees(uint256 verseId, Memeverse storage verse, address pt, address _hook)
         internal
         view
         returns (uint256 govUAssetFee, uint256 govPTFee)
     {
-        (, uint256 polUAssetUAssetFee) = _previewPairFees(verse.pol, verse.uAsset);
+        (, uint256 polUAssetUAssetFee) = _previewPairFees(verse.pol, verse.uAsset, _hook);
         uint256 totalAuxiliaryUAssetFee = polUAssetUAssetFee;
         uint256 totalPTFee;
 
         if (pt != address(0)) {
-            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _previewPairFees(pt, verse.uAsset);
-            (uint256 ptPolPTFee,) = _previewPairFees(pt, verse.pol);
+            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _previewPairFees(pt, verse.uAsset, _hook);
+            (uint256 ptPolPTFee,) = _previewPairFees(pt, verse.pol, _hook);
             totalAuxiliaryUAssetFee += ptUAssetUAssetFee;
             totalPTFee = ptUAssetPTFee + ptPolPTFee;
         }
@@ -1859,20 +2295,48 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         return _splitAuxiliaryGovFees(verseId, totalAuxiliaryUAssetFee, totalPTFee, verse.currentStage == Stage.Locked);
     }
 
+    /// @dev Preview the total governance fee by combining pending accumulated fees with live auxiliary pool fees.
+    ///      Returns both components already converted to uAsset denomination so callers can sum directly.
+    ///      Used by previewGenesisMakerFees and quoteDistributionLzFee to avoid duplicating the
+    ///      pending-read → auxiliary-preview → PT-to-uAsset conversion → merge pattern.
+    function _previewGovFeeWithPending(
+        uint256 verseId,
+        Memeverse storage verse,
+        address pt,
+        address _hook
+    ) internal view returns (uint256 govUAssetFee, uint256 govPTFee) {
+        PendingAuxiliaryGovFeeState storage pendingGovFeeState =
+            _getMemeverseLauncherStorage().pendingAuxiliaryGovFeeStates[verseId];
+
+        // Preview live auxiliary fees from POL/uAsset and PT/uAsset pools
+        (uint256 auxUAssetFee, uint256 auxPTFee) = _previewAuxiliaryGovFees(verseId, verse, pt, _hook);
+
+        // Merge pending accumulated fees with live preview
+        govUAssetFee = pendingGovFeeState.pendingUAssetFee + auxUAssetFee;
+        govPTFee = pendingGovFeeState.pendingPTFee + auxPTFee;
+
+        // Convert PT-denominated fee to uAsset so the caller can add it directly
+        if (govPTFee != 0) {
+            govPTFee =
+                IPOLSplitter(_getMemeverseLauncherStorage().polSplitter).previewPTToUAsset(verseId, govPTFee);
+        }
+    }
+
     function _claimAndAccrueAuxiliaryFees(
         uint256 verseId,
         Memeverse storage verse,
         address pt,
-        bool preserveNormalShare
+        bool preserveNormalShare,
+        address _hook
     ) internal returns (uint256 govUAssetFee, uint256 govPTFee, uint256 burnedPolFee) {
-        (uint256 polUAssetPolFee, uint256 polUAssetUAssetFee) = _claimPairFees(verse.pol, verse.uAsset);
+        (uint256 polUAssetPolFee, uint256 polUAssetUAssetFee) = _claimPairFees(verse.pol, verse.uAsset, _hook);
         burnedPolFee = polUAssetPolFee;
 
         uint256 totalAuxiliaryUAssetFee = polUAssetUAssetFee;
         uint256 totalPTFee;
         if (pt != address(0)) {
-            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _claimPairFees(pt, verse.uAsset);
-            (uint256 ptPolPTFee, uint256 ptPolPolFee) = _claimPairFees(pt, verse.pol);
+            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _claimPairFees(pt, verse.uAsset, _hook);
+            (uint256 ptPolPTFee, uint256 ptPolPolFee) = _claimPairFees(pt, verse.pol, _hook);
             totalAuxiliaryUAssetFee += ptUAssetUAssetFee;
             totalPTFee = ptUAssetPTFee + ptPolPTFee;
             burnedPolFee += ptPolPolFee;
@@ -1891,8 +2355,9 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         (govUAssetFee, govPTFee) = _splitAuxiliaryGovFees(verseId, totalUAssetFee, totalPTFee, preserveNormalShare);
         if (!preserveNormalShare) return (govUAssetFee, govPTFee);
 
-        normalFeeStates[verseId].accUAssetFee += totalUAssetFee - govUAssetFee;
-        normalFeeStates[verseId].accPTFee += totalPTFee - govPTFee;
+        NormalFeeState storage feeState = _getMemeverseLauncherStorage().normalFeeStates[verseId];
+        feeState.accUAssetFee += totalUAssetFee - govUAssetFee;
+        feeState.accPTFee += totalPTFee - govPTFee;
     }
 
     function _splitAuxiliaryGovFees(
@@ -1903,9 +2368,10 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
     ) internal view returns (uint256 govUAssetFee, uint256 govPTFee) {
         if (!preserveNormalShare) return (totalUAssetFee, totalPTFee);
 
-        uint256 _normalFunds = totalNormalFunds[verseId];
-        uint256 totalLeveragedDebt = IPOLend(polend).getTotalLeveragedDebt(verseId);
-        uint256 totalFunds = _checkedTotalGenesisFunds(_normalFunds, totalLeveragedDebt);
+        MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
+        uint256 normalFunds = $.totalNormalFunds[verseId];
+        uint256 totalLeveragedDebt = IPOLend($.polend).getTotalLeveragedDebt(verseId);
+        uint256 totalFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         if (totalFunds == 0) return (totalUAssetFee, totalPTFee);
 
         govUAssetFee = FullMath.mulDiv(totalUAssetFee, totalLeveragedDebt, totalFunds);
@@ -1923,25 +2389,28 @@ contract MemeverseLauncher is IMemeverseLauncher, TokenHelper, Pausable, Ownable
         }
     }
 
-    function _previewPairFees(address tokenA, address tokenB)
+    function _previewPairFees(address tokenA, address tokenB, address _hook)
         internal
         view
         returns (uint256 tokenAFee, uint256 tokenBFee)
     {
-        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, memeverseUniswapHook);
-        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(memeverseUniswapHook).claimableFees(key, address(this));
+        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, _hook);
+        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(_hook).claimableFees(key, address(this));
         return _mapPairFees(tokenA, tokenB, fee0, fee1);
     }
 
-    function _claimPairFees(address tokenA, address tokenB) internal returns (uint256 tokenAFee, uint256 tokenBFee) {
-        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, memeverseUniswapHook);
-        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(memeverseUniswapHook)
+    function _claimPairFees(address tokenA, address tokenB, address _hook)
+        internal
+        returns (uint256 tokenAFee, uint256 tokenBFee)
+    {
+        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, _hook);
+        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(_hook)
             .claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: key, recipient: address(this)}));
         return _mapPairFees(tokenA, tokenB, fee0, fee1);
     }
 
-    function _pairLpToken(address tokenA, address tokenB) internal view returns (address lpToken) {
-        return IMemeverseSwapRouter(memeverseSwapRouter).lpToken(tokenA, tokenB);
+    function _pairLpToken(address tokenA, address tokenB, address swapRouter) internal view returns (address lpToken) {
+        return IMemeverseSwapRouter(swapRouter).lpToken(tokenA, tokenB);
     }
 
     function _mapPairFees(address tokenA, address tokenB, uint256 fee0, uint256 fee1)

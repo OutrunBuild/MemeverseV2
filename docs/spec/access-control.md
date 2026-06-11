@@ -18,16 +18,16 @@
 
 - `owner`
   - 主要是 OpenZeppelin `Ownable` 或 Outrun `OutrunOwnableInit` 的 `onlyOwner`。
-  - 证据：`src/verse/MemeverseLauncher.sol:1138`, `src/swap/MemeverseUniswapHook.sol:836`, `src/interoperation/MemeverseOmnichainInteroperation.sol:135`
+  - 证据：`src/verse/MemeverseLauncher.sol::setMemeverseSwapRouter`, `src/swap/MemeverseUniswapHook.sol:836`, `src/interoperation/MemeverseOmnichainInteroperation.sol:135`
 - `registrar`
   - launcher 侧为 `memeverseRegistrar` 地址；注册中心与 local/omnichain registrar 构成上游链路。
-  - 证据：`src/verse/MemeverseLauncher.sol:946`, `src/verse/registration/MemeverseRegistrarAtLocal.sol:58`
+  - 证据：`src/verse/MemeverseLauncher.sol::registerMemeverse`, `src/verse/registration/MemeverseRegistrarAtLocal.sol:58`
 - `governor`
   - launcher 元数据更新与治理 treasury/upgrade 授权主体，同时也是 DAO treasury 与 reward payout 的唯一资产托管者。
-  - 证据：`src/verse/MemeverseLauncher.sol:1313`, `src/governance/MemecoinDaoGovernorUpgradeable.sol:221`, `src/governance/MemecoinDaoGovernorUpgradeable.sol:252`
+  - 证据：`src/verse/MemeverseLauncher.sol::setExternalInfo`, `src/governance/MemecoinDaoGovernorUpgradeable.sol:221`, `src/governance/MemecoinDaoGovernorUpgradeable.sol:252`
 - `permissionless caller`
   - 未加 owner/role 白名单，仅靠阶段/参数约束。
-  - 证据：`src/verse/MemeverseLauncher.sol:318`, `src/verse/MemeverseLauncher.sol:382`, `src/yield/MemecoinYieldVault.sol:86`
+  - 证据：`src/verse/MemeverseLauncher.sol::genesis`, `src/verse/MemeverseLauncher.sol::preorder`, `src/yield/MemecoinYieldVault.sol:86`
 - `external dispatcher / endpoint caller`
   - 仅允许 LayerZero endpoint、launcher 或合约自身的调度入口。
   - 证据：`src/verse/YieldDispatcher.sol:46`, `src/interoperation/OmnichainMemecoinStaker.sol:39`, `src/verse/registration/MemeverseRegistrationCenter.sol:180`
@@ -36,10 +36,10 @@
 
 | Surface | 权限边界 | 证据 |
 | --- | --- | --- |
-| `MemeverseLauncher` 配置面 | `set*`、`pause/unpause`、`removeGasDust` 为 `onlyOwner` | `src/verse/MemeverseLauncher.sol:1127`, `:1138`, `:1155`, `:1181`, `:1194`, `:1207`, `:1220`, `:1235`, `:1256`, `:1270`, `:1290` |
-| `MemeverseLauncher.registerMemeverse` | 仅 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol:936-947` |
-| `MemeverseLauncher.setExternalInfo` | `governor` 或 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol:1307-1314` |
-| Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimNormalYT`/POLend `claimLeveragedYT`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol:318`, `:382`, `:619`, `:671`, `:719`, `:813`, `:841`, `:884` |
+| `MemeverseLauncher` 配置面 | `set*`、`pause/unpause`、`removeGasDust` 为 `onlyOwner` | `src/verse/MemeverseLauncher.sol::setMemeverseSwapRouter`, `::setMemeverseUniswapHook`, `::setLzEndpointRegistry`, `::setMemeverseRegistrar`, `::setMemeverseProxyDeployer`, `::setYieldDispatcher`, `::setFundMetaData`, `::setExecutorRewardRate`, `::setPreorderConfig`, `::setGasLimits`, `::pause`, `::unpause`, `::removeGasDust` |
+| `MemeverseLauncher.registerMemeverse` | 仅 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol::registerMemeverse` |
+| `MemeverseLauncher.setExternalInfo` | `governor` 或 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol::setExternalInfo` |
+| Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimNormalYT`/POLend `claimLeveragedYT`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol::genesis`, `::changeStage`, `::refund`, `::claimNormalYT`, `::redeemAndDistributeFees` |
 | `POLend` 杠杆创世与配置 | `leveragedGenesis` 为用户入口，靠 Launcher Genesis 阶段、累计 debt cap 与 aggregate genesis funds 上限约束；`setLeveragedDebtFactor` 为 owner-only，并受 `uint128.max * 1e18` 技术上限约束 | `src/polend/POLend.sol:106`, `:146-173`, `:491-501` |
 | `MemeverseRegistrationCenter` | `registration` 对外开放；参数配置和 gas dust 清理是 `onlyOwner` | `src/verse/registration/MemeverseRegistrationCenter.sol:115`, `:158`, `:308`, `:319`, `:332`, `:344` |
 | `MemeverseRegistrarAtLocal` | `localRegistration` 仅 center；`setRegistrationCenter` 仅 owner | `src/verse/registration/MemeverseRegistrarAtLocal.sol:57-60`, `:80` |

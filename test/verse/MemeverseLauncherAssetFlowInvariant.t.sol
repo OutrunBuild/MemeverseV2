@@ -14,7 +14,8 @@ import {
     MockOFTToken,
     MockPredictOnlyProxyDeployer,
     MockSwapRouter,
-    TestableMemeverseLauncher
+    TestableMemeverseLauncher,
+    TestableMemeverseLauncherFactory
 } from "./MemeverseLauncherLifecycle.t.sol";
 
 contract AssetFlowHandler is Test {
@@ -282,7 +283,8 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         actors.push(BOB);
         actors.push(CHARLIE);
 
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -407,7 +409,8 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for setUp.
     function setUp() external {
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -499,7 +502,8 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         actors.push(BOB);
         actors.push(CHARLIE);
 
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -608,7 +612,8 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for setUp.
     function setUp() external {
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),
@@ -888,7 +893,8 @@ contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test {
         splitter = new MockPOLSplitterForFeeSplit(address(pt), address(yt));
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
-        launcher = new TestableMemeverseLauncher(
+        launcher = (new TestableMemeverseLauncherFactory())
+        .deploy(
             address(this),
             address(0x1),
             address(0x2),

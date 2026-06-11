@@ -11,7 +11,7 @@
 
 | Surface | 核心职责 | Authority / Roles | Upgradeability | 证据来源 | 实现状态 |
 | --- | --- | --- | --- | --- | --- |
-| `src/verse/MemeverseLauncher.sol` | verse 生命周期主控、资金分配、外部模块编排 | owner 配置；registrar 注册；governor/registrar 元数据更新；业务入口大多 permissionless + stage guard；解锁迁移时为受保护池写入公开 swap 恢复时间 | 构造部署，不走 proxy | [docs/spec/protocol.md](spec/protocol.md); [docs/spec/verse/state-machines.md](spec/verse/state-machines.md); `src/verse/MemeverseLauncher.sol:51`, `:385-432`, `:582-608`, `:936-947`, `:1175-1217`, `:1307-1314` | 已实现 |
+| `src/verse/MemeverseLauncher.sol` | verse 生命周期主控、资金分配、外部模块编排 | owner 配置、UUPS 升级授权；registrar 注册；governor/registrar 元数据更新；业务入口大多 permissionless + stage guard；解锁迁移时为受保护池写入公开 swap 恢复时间 | ERC1967Proxy + UUPS；implementation constructor 锁定 initializers；proxy 通过 `initialize(...)` 写入 registrar、proxy deployer、yield dispatcher、endpoint registry、`POLend`、`POLSplitter` 与初始 gas/reward/preorder 配置 | [docs/spec/protocol.md](spec/protocol.md); [docs/spec/verse/state-machines.md](spec/verse/state-machines.md); [docs/spec/upgradeability.md](spec/upgradeability.md); `src/verse/MemeverseLauncher.sol:38-181`, `:385-432`, `:582-608`, `:936-947`, `:1175-1217`, `:1307-1314`; `script/MemeverseScript.s.sol:431-533` | 已实现 |
 | `src/polend/POLend.sol` | 杠杆创世、债务 cap、PT/YT 结算接线、settlement dust reserve | owner 配置全局利率/杠杆系数/treasury；Launcher 注册、finalize 与 settlement；用户参与杠杆创世和领取 | UUPS proxy | [docs/spec/polend/polend.md](spec/polend/polend.md); [docs/spec/verse/accounting.md](spec/verse/accounting.md); `src/polend/POLend.sol:54`, `:146-173`, `:491-501` | 已实现 |
 | `src/verse/registration/*` + `MemeverseRegistrationCenter` | 注册参数校验、symbol 生命周期、多链 fan-out | center 配置项 onlyOwner；local registrar 仅接受 center 调用；omnichain registrar gas 配置 onlyOwner | 构造部署，不走 proxy | [docs/spec/verse/state-machines.md](spec/verse/state-machines.md); `src/verse/registration/MemeverseRegistrationCenter.sol:115`, `:308-350`; `src/verse/registration/MemeverseRegistrarAtLocal.sol:58`, `:80`; `src/verse/registration/MemeverseRegistrarOmnichain.sol:122` | 已实现 |
 | `src/verse/deployment/MemeverseProxyDeployer.sol` | clone/proxy 部署与初始化编排入口 | deploy 函数仅 launcher；`setQuorumNumerator` onlyOwner | 自身不可升级；负责部署可升级与可初始化模块 | [docs/spec/protocol.md](spec/protocol.md); `src/verse/deployment/MemeverseProxyDeployer.sol:29-36`, `:93-117`, `:131-170`, `:176` | 已实现 |
@@ -26,6 +26,11 @@
 | `src/interoperation/MemeverseOmnichainInteroperation.sol` + `OmnichainMemecoinStaker.sol` | 跨链 staking 入口与治理链落地 | staking permissionless；gas 配置 onlyOwner；staker compose 仅 endpoint | 构造部署，不走 proxy | [docs/spec/protocol.md](spec/protocol.md); [docs/spec/access-control.md](spec/access-control.md); `src/interoperation/MemeverseOmnichainInteroperation.sol:93`, `:135`; `src/interoperation/OmnichainMemecoinStaker.sol:39` | 已实现 |
 | `src/common/omnichain/LzEndpointRegistry.sol` | chainId -> endpointId 注册表 | `setLzEndpointIds` onlyOwner | 构造部署，不走 proxy | [docs/spec/verse/state-machines.md](spec/verse/state-machines.md); `src/common/omnichain/LzEndpointRegistry.sol:11-31` | 已实现 |
 | `src/common/access/*` + `src/common/omnichain/*`（与本任务相关子集） | 最小代理初始化、owner、peer/delegate 与 OFT/OApp 基础边界 | `initializer` 一次性、`onlyOwner` peer/delegate/msgInspector | 基础能力层 | [docs/spec/access-control.md](spec/access-control.md); `src/common/access/Initializable.sol:27-41`; `src/common/omnichain/oapp/OutrunOAppCoreInit.sol:68-92`; `src/common/omnichain/oft/OutrunOFTCoreInit.sol:143` | 已实现 |
+
+## 2.1 Launcher UUPS 部署事实
+
+- Launcher 已迁移为 `ERC1967Proxy + UUPS`；canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy 地址，implementation 只承载逻辑。
+- Launcher proxy owner 负责 UUPS 升级授权；脚本使用独立 implementation salt 与 canonical proxy salt，部署后 readiness 校验依赖 back-reference 与 fund metadata。
 
 ## 3. 测试与 Harness 映射状态
 
