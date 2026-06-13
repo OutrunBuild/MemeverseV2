@@ -14,6 +14,8 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
@@ -21,7 +23,6 @@ import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {
-    TestableMemeverseLauncher,
     MockSwapRouter,
     MockOFTDispatcher,
     MockPredictOnlyProxyDeployer,
@@ -30,17 +31,17 @@ import {
     MockLzEndpointRegistry,
     MockLiquidProof,
     MockLaunchSettlementHookForLauncherTest,
-    TestableMemeverseLauncherFactory,
     RedeemMemecoinLiquidityReenterer
 } from "./MemeverseLauncherLifecycle.t.sol";
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "../swap/MemeverseSwapRouter.t.sol";
 
-contract MemeverseLauncherUnlockProtectionTest is Test {
+contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHelper {
     using PoolIdLibrary for PoolKey;
 
     bytes4 internal constant PUBLIC_SWAP_DISABLED_SELECTOR = bytes4(keccak256("PublicSwapDisabled()"));
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -91,22 +92,16 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         polend = new MockPOLendForLifecycle();
         splitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         registry = new MockLzEndpointRegistry();
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(polend),
-            address(splitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), address(polend), address(splitter),
+                25, 115_000, 135_000, 2_500, 7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
 
         launcher.setMemeverseUniswapHook(address(router.hook()));
@@ -142,22 +137,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         uint256 verseId = 2;
         MockPOLendForLifecycle localPolend = new MockPOLendForLifecycle();
         MockPOLSplitterForLifecycle localSplitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
-        TestableMemeverseLauncher localLauncher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(localPolend),
-            address(localSplitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        address localProxy = _deployLauncherProxy(address(localPolend), address(localSplitter));
+        IMemeverseLauncher localLauncher = IMemeverseLauncher(localProxy);
         _setLockedVerseReadyToUnlock(localLauncher, verseId);
         MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
         TestableMemeverseUniswapHookForRouter guardedHook =
@@ -276,7 +257,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         SplitterMemecoinRedeemDuringSettle localSplitter =
             new SplitterMemecoinRedeemDuringSettle(address(pt), address(yt), 2 ether);
         MockPOLendForLifecycle localPolend = new MockPOLendForLifecycle();
-        TestableMemeverseLauncher localLauncher = _newLauncher(localPolend, localSplitter);
+        IMemeverseLauncher localLauncher = _newLauncher(localPolend, localSplitter);
         MockSwapRouter localRouter = _wireLauncher(localLauncher, localPolend);
         MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
         localRouter.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
@@ -296,22 +277,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         uint256 verseId = 6;
         MockPOLSplitterForLifecycle localSplitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         POLendMemecoinRedeemDuringSettlement localPolend = new POLendMemecoinRedeemDuringSettlement(2 ether);
-        TestableMemeverseLauncher localLauncher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(localPolend),
-            address(localSplitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        address localProxy = _deployLauncherProxy(address(localPolend), address(localSplitter));
+        IMemeverseLauncher localLauncher = IMemeverseLauncher(localProxy);
         MockSwapRouter localRouter = _wireLauncher(localLauncher, localPolend);
         MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
         localRouter.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
@@ -331,24 +298,22 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         _setLockedVerseReadyToUnlock(launcher, verseId);
     }
 
-    function _setLockedVerseReadyToUnlock(TestableMemeverseLauncher targetLauncher, uint256 verseId) internal {
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = address(uAsset);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(liquidProof);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Locked;
-        verse.unlockTime = uint128(block.timestamp - 1);
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid);
-        targetLauncher.setMemeverseForTest(verseId, verse);
+    function _setLockedVerseReadyToUnlock(IMemeverseLauncher targetLauncher, uint256 verseId) internal {
+        address proxy = address(targetLauncher);
+        setMemeverseForTest(
+            proxy, verseId,
+            address(uAsset), address(memecoin), address(liquidProof),
+            address(0xD00D), address(0xCAFE), address(0),
+            0, uint128(block.timestamp - 1),
+            IMemeverseLauncher.Stage.Locked, false
+        );
+        setOmnichainIdsForTest(proxy, verseId, _array(uint32(block.chainid)));
     }
 
     function _seedAuxiliaryLiquidity(uint256 verseId) internal {
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, address(splitter), 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, address(splitter), 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
@@ -390,29 +355,32 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         targetManager.initialize(targetKey, 79_228_162_514_264_337_593_543_950_336);
     }
 
-    function _newLauncher(MockPOLendForLifecycle targetPolend, SplitterMemecoinRedeemDuringSettle targetSplitter)
-        internal
-        returns (TestableMemeverseLauncher targetLauncher)
-    {
-        targetLauncher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(targetPolend),
-            address(targetSplitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+    function _array(uint32 value) internal pure returns (uint32[] memory arr) {
+        arr = new uint32[](1);
+        arr[0] = value;
     }
 
-    function _wireLauncher(TestableMemeverseLauncher targetLauncher, MockPOLendForLifecycle targetPolend)
+    function _deployLauncherProxy(address polendAddr, address splitterAddr) internal returns (address proxy) {
+        MemeverseLauncher impl = new MemeverseLauncher();
+        proxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), polendAddr, splitterAddr,
+                25, 115_000, 135_000, 2_500, 7 days
+            ))
+        ));
+    }
+
+    function _newLauncher(MockPOLendForLifecycle targetPolend, SplitterMemecoinRedeemDuringSettle targetSplitter)
+        internal
+        returns (IMemeverseLauncher targetLauncher)
+    {
+        address proxy = _deployLauncherProxy(address(targetPolend), address(targetSplitter));
+        targetLauncher = IMemeverseLauncher(proxy);
+    }
+
+    function _wireLauncher(IMemeverseLauncher targetLauncher, MockPOLendForLifecycle targetPolend)
         internal
         returns (MockSwapRouter targetRouter)
     {
@@ -425,7 +393,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test {
         targetPolend.setLendMarket(address(pt), address(yt));
     }
 
-    function _wireLauncher(TestableMemeverseLauncher targetLauncher, POLendMemecoinRedeemDuringSettlement targetPolend)
+    function _wireLauncher(IMemeverseLauncher targetLauncher, POLendMemecoinRedeemDuringSettlement targetPolend)
         internal
         returns (MockSwapRouter targetRouter)
     {

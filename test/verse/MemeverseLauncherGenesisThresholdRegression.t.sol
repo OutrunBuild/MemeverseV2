@@ -7,7 +7,7 @@ import {MemeverseLauncherPOLendIntegrationTest, MockPOLendForTask5} from "./Meme
 contract MemeverseLauncherGenesisThresholdRegressionTest is MemeverseLauncherPOLendIntegrationTest {
     function testChangeStage_RefundsWhenOnlyCombinedDebtAndNormalFundsMeetThreshold() external {
         _setGenesisVerse(uint128(block.timestamp + 1 days), false);
-        launcher.setGenesisFundForTest(VERSE_ID, 6 ether);
+        setGenesisFundForTest(launcherProxy, VERSE_ID, 6 ether);
         polend.setTotalLeveragedInterest(VERSE_ID, 4 ether);
         polend.setTotalLeveragedDebt(VERSE_ID, 40 ether);
 

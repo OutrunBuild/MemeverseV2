@@ -3,8 +3,10 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 
-import {MemeverseLauncherTestBase} from "./helpers/MemeverseLauncherTestBase.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract MockLauncherRegistrationToken {
     string public name;
@@ -58,57 +60,6 @@ contract MockLauncherRegistrationToken {
 }
 
 contract MockGovernorForExternalInfo {}
-
-contract TestableMemeverseLauncherRegistration is MemeverseLauncherTestBase {
-    function createProxy(
-        address _owner,
-        address _localLzEndpoint,
-        address _memeverseRegistrar,
-        address _memeverseProxyDeployer,
-        address _yieldDispatcher,
-        address _lzEndpointRegistry,
-        address _polend,
-        address _polSplitter,
-        uint256 _executorRewardRate,
-        uint128 _oftReceiveGasLimit,
-        uint128 _yieldDispatcherGasLimit,
-        uint256 _preorderCapRatio,
-        uint256 _preorderVestingDuration
-    ) external returns (TestableMemeverseLauncherRegistration) {
-        return TestableMemeverseLauncherRegistration(
-            address(
-                _createProxy(
-                    _owner,
-                    _localLzEndpoint,
-                    _memeverseRegistrar,
-                    _memeverseProxyDeployer,
-                    _yieldDispatcher,
-                    _lzEndpointRegistry,
-                    _polend,
-                    _polSplitter,
-                    _executorRewardRate,
-                    _oftReceiveGasLimit,
-                    _yieldDispatcherGasLimit,
-                    _preorderCapRatio,
-                    _preorderVestingDuration
-                )
-            )
-        );
-    }
-
-    /// @notice Set memeverse for test.
-    /// @dev Writes directly to `memeverses` so tests can simulate registrar outputs.
-    /// @param verseId See implementation.
-    /// @param verse See implementation.
-    function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
-        _testStorage().memeverses[verseId] = verse;
-    }
-
-    function setFundMetaDataForTest(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external {
-        _testStorage().fundMetaDatas[uAsset] =
-            FundMetaData({minTotalFund: minTotalFund, fundBasedAmount: fundBasedAmount});
-    }
-}
 
 contract MockLauncherRegistrationProxyDeployer {
     address public nextMemecoin;
@@ -168,13 +119,14 @@ contract MockLauncherRegistrationPOLend {
     }
 }
 
-contract MemeverseLauncherRegistrationTest is Test {
+contract MemeverseLauncherRegistrationTest is Test, MemeverseLauncherTestHelper {
     address internal constant OWNER = address(0xABCD);
     address internal constant REGISTRAR = address(0xBEEF);
     uint32 internal constant REMOTE_CHAIN_ID = 202;
     uint32 internal constant REMOTE_EID = 302;
 
-    TestableMemeverseLauncherRegistration internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockLauncherRegistrationProxyDeployer internal proxyDeployer;
     MockLauncherRegistrationRegistry internal registry;
     MockLauncherRegistrationPOLend internal polend;
@@ -189,22 +141,26 @@ contract MemeverseLauncherRegistrationTest is Test {
         polend = new MockLauncherRegistrationPOLend();
         memecoin = new MockLauncherRegistrationToken();
         pol = new MockLauncherRegistrationToken();
-        launcher = (new TestableMemeverseLauncherRegistration())
-        .createProxy(
-            OWNER,
-            address(0x1),
-            REGISTRAR,
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(polend),
-            address(0x1234),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                OWNER,
+                address(0x1),
+                REGISTRAR,
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(polend),
+                address(0x1234),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
 
         proxyDeployer.setNextDeployments(address(memecoin), address(pol));
 
@@ -272,7 +228,7 @@ contract MemeverseLauncherRegistrationTest is Test {
         );
         vm.stopPrank();
 
-        launcher.setFundMetaDataForTest(address(0x9999), 0, 1);
+        setFundMetaDataForTest(launcherProxy, address(0x9999), 0, 1);
         vm.prank(REGISTRAR);
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.registerMemeverse(
@@ -286,7 +242,7 @@ contract MemeverseLauncherRegistrationTest is Test {
             true
         );
 
-        launcher.setFundMetaDataForTest(address(0xAAAA), 10 ether, 0);
+        setFundMetaDataForTest(launcherProxy, address(0xAAAA), 10 ether, 0);
         vm.prank(REGISTRAR);
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.registerMemeverse(
@@ -435,19 +391,25 @@ contract MemeverseLauncherRegistrationTest is Test {
         );
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(uniqueId);
-        verse.governor = address(new MockGovernorForExternalInfo());
-        launcher.setMemeverseForTest(uniqueId, verse);
+        address newGovernor = address(new MockGovernorForExternalInfo());
+        setMemeverseForTest(
+            launcherProxy, uniqueId,
+            verse.uAsset, verse.memecoin, verse.pol, verse.yieldVault,
+            newGovernor, verse.incentivizer,
+            verse.endTime, verse.unlockTime,
+            verse.currentStage, verse.flashGenesis
+        );
 
-        vm.prank(verse.governor);
+        vm.prank(newGovernor);
         launcher.setExternalInfo(uniqueId, "ipfs://first", "first", _communities("https://site-1"));
 
-        vm.prank(verse.governor);
+        vm.prank(newGovernor);
         launcher.setExternalInfo(uniqueId, "", "", new string[](0));
 
         IMemeverseLauncher.Memeverse memory stored = launcher.getMemeverseByVerseId(uniqueId);
         assertEq(stored.uri, "ipfs://first");
         assertEq(stored.desc, "first");
-        assertEq(launcher.communitiesMap(uniqueId, 0), "https://site-1");
+        assertEq(MemeverseLauncher(launcherProxy).communitiesMap(uniqueId, 0), "https://site-1");
     }
 
     /// @notice Returns the standard omnichain id array used by tests.
