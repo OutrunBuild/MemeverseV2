@@ -5,30 +5,31 @@ import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {
     MockLiquidProof,
     MockLzEndpointRegistry,
     MockOFTDispatcher,
     MockOFTToken,
     MockPredictOnlyProxyDeployer,
-    MockSwapRouter,
-    TestableMemeverseLauncher,
-    TestableMemeverseLauncherFactory
+    MockSwapRouter
 } from "./MemeverseLauncherLifecycle.t.sol";
 
 contract AssetFlowHandler is Test {
     uint256 internal constant VERSE_ID = 1;
 
-    TestableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
     MockLiquidProof internal immutable liquidProof;
     MockERC20 internal immutable memecoinLp;
     MockERC20 internal immutable polLp;
     address[] internal actors;
 
     constructor(
-        TestableMemeverseLauncher _launcher,
+        IMemeverseLauncher _launcher,
         MockLiquidProof _liquidProof,
         MockERC20 _memecoinLp,
         MockERC20 _polLp,
@@ -75,10 +76,10 @@ contract AssetFlowHandler is Test {
 contract FeeDistributionHandler is Test {
     uint256 internal constant VERSE_ID = 1;
 
-    TestableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
     uint256 public redeemCount;
 
-    constructor(TestableMemeverseLauncher _launcher) {
+    constructor(IMemeverseLauncher _launcher) {
         launcher = _launcher;
     }
 
@@ -102,14 +103,14 @@ contract FeeDistributionHandler is Test {
 contract MintPOLHandler is Test {
     uint256 internal constant VERSE_ID = 1;
 
-    TestableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
     MockSwapRouter internal immutable router;
     MockERC20 internal immutable uAsset;
     MockERC20 internal immutable memecoin;
     address[] internal actors;
 
     constructor(
-        TestableMemeverseLauncher _launcher,
+        IMemeverseLauncher _launcher,
         MockSwapRouter _router,
         MockERC20 _uAsset,
         MockERC20 _memecoin,
@@ -202,7 +203,7 @@ contract MintPOLHandler is Test {
 contract RemoteFeeDistributionHandler is Test {
     uint256 internal constant VERSE_ID = 1;
 
-    TestableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
     MockSwapRouter internal immutable router;
     MockOFTToken internal immutable remoteUAsset;
     MockOFTToken internal immutable remoteMemecoin;
@@ -212,7 +213,7 @@ contract RemoteFeeDistributionHandler is Test {
     uint256 public expectedMemecoinSendCount;
 
     constructor(
-        TestableMemeverseLauncher _launcher,
+        IMemeverseLauncher _launcher,
         MockSwapRouter _router,
         MockOFTToken _remoteUAsset,
         MockOFTToken _remoteMemecoin,
@@ -252,7 +253,7 @@ contract RemoteFeeDistributionHandler is Test {
     }
 }
 
-contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
+contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
     uint256 internal constant TOTAL_GENESIS = 120 ether;
     uint256 internal constant INITIAL_CLAIMABLE_POL = 60 ether;
@@ -263,7 +264,8 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     address internal constant BOB = address(0xB0B);
     address internal constant CHARLIE = address(0xCA11E);
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -277,28 +279,32 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     address[] internal actors;
     AssetFlowHandler internal handler;
 
+    function _deployLauncher(
+        address polendAddr, address splitterAddr,
+        uint256 executorRewardRate, uint128 oftReceiveGasLimit,
+        uint128 yieldDispatcherGasLimit, uint256 preorderCapRatio,
+        uint256 preorderVestingDuration
+    ) internal returns (IMemeverseLauncher) {
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), polendAddr, splitterAddr,
+                executorRewardRate, oftReceiveGasLimit, yieldDispatcherGasLimit,
+                preorderCapRatio, preorderVestingDuration
+            ))
+        ));
+        return IMemeverseLauncher(launcherProxy);
+    }
+
     /// @notice Test helper for setUp.
     function setUp() external {
         actors.push(ALICE);
         actors.push(BOB);
         actors.push(CHARLIE);
 
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        launcher = _deployLauncher(address(0x10), address(0x11), 25, 115_000, 135_000, 2_500, 7 days);
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         uAsset = new MockERC20("UASSET", "UASSET", 18);
@@ -321,15 +327,18 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
         verse.pol = address(liquidProof);
         verse.governor = address(0xCAFE);
         verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid);
-        launcher.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            address(uAsset), address(memecoin), address(liquidProof),
+            address(0xD00D), address(0xCAFE), address(0),
+            0, 0,
+            IMemeverseLauncher.Stage.Unlocked, false
+        );
 
-        launcher.setGenesisFundForTest(VERSE_ID, 120 ether);
-        launcher.setUserGenesisDataForTest(VERSE_ID, ALICE, 24 ether, false, false);
-        launcher.setUserGenesisDataForTest(VERSE_ID, BOB, 36 ether, false, false);
-        launcher.setUserGenesisDataForTest(VERSE_ID, CHARLIE, 60 ether, false, false);
+        setGenesisFundForTest(launcherProxy, VERSE_ID, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, VERSE_ID, ALICE, 24 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, VERSE_ID, BOB, 36 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, VERSE_ID, CHARLIE, 60 ether, false, false);
 
         router.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
         router.setLpToken(address(liquidProof), address(uAsset), address(polLp));
@@ -374,7 +383,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     /// @notice Test helper for invariant_usersNeverExceedGenesisEntitlements.
     function invariant_usersNeverExceedGenesisEntitlements() external view {
         for (uint256 i; i < actors.length; ++i) {
-            (uint256 genesisFund,, bool isRedeemed) = launcher.userGenesisData(VERSE_ID, actors[i]);
+            (uint256 genesisFund,, bool isRedeemed) = MemeverseLauncher(launcherProxy).userGenesisData(VERSE_ID, actors[i]);
             uint256 polShare = INITIAL_CLAIMABLE_POL * genesisFund / TOTAL_GENESIS;
             uint256 polLpShare = INITIAL_POL_LP * genesisFund / TOTAL_GENESIS;
             uint256 userPolBalance = liquidProof.balanceOf(actors[i]);
@@ -389,7 +398,7 @@ contract MemeverseLauncherClaimRedeemInvariantTest is StdInvariant, Test {
     }
 }
 
-contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
+contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
     address internal constant REWARD_RECEIVER = address(0xBEEF);
     uint256 internal constant PER_CALL_MEMECOIN_FEE = 7 ether;
@@ -397,7 +406,8 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     uint256 internal constant PER_CALL_EXECUTOR_REWARD = 0.08 ether;
     uint256 internal constant PER_CALL_GOV_FEE = 31.92 ether;
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -409,22 +419,16 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for setUp.
     function setUp() external {
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), address(0x10), address(0x11),
+                25, 115_000, 135_000, 2_500, 7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         uAsset = new MockERC20("UASSET", "UASSET", 18);
@@ -439,16 +443,13 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = address(uAsset);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(liquidProof);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Locked;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid);
-        launcher.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            address(uAsset), address(memecoin), address(liquidProof),
+            address(0xD00D), address(0xCAFE), address(0),
+            0, 0,
+            IMemeverseLauncher.Stage.Locked, false
+        );
 
         router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), 20 ether, 7 ether);
         router.setClaimQuote(address(liquidProof), address(uAsset), address(launcher), 12 ether, 5 ether);
@@ -476,14 +477,15 @@ contract MemeverseLauncherFeeDistributionInvariantTest is StdInvariant, Test {
     }
 }
 
-contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
+contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
     address internal constant CHARLIE = address(0xCA11E);
     uint256 internal constant INITIAL_USER_BALANCE = 1_000 ether;
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -502,22 +504,16 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         actors.push(BOB);
         actors.push(CHARLIE);
 
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), address(0x10), address(0x11),
+                25, 115_000, 135_000, 2_500, 7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         uAsset = new MockERC20("UASSET", "UASSET", 18);
@@ -533,12 +529,13 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = address(uAsset);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(liquidProof);
-        verse.currentStage = IMemeverseLauncher.Stage.Locked;
-        launcher.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            address(uAsset), address(memecoin), address(liquidProof),
+            address(0), address(0), address(0),
+            0, 0,
+            IMemeverseLauncher.Stage.Locked, false
+        );
 
         router.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
 
@@ -597,10 +594,11 @@ contract MemeverseLauncherMintPOLInvariantTest is StdInvariant, Test {
     }
 }
 
-contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
+contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -612,22 +610,16 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
 
     /// @notice Test helper for setUp.
     function setUp() external {
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), address(0x10), address(0x11),
+                25, 115_000, 135_000, 2_500, 7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
         dispatcher = new MockOFTDispatcher();
         remoteUAsset = new MockOFTToken("UASSET", "UASSET");
@@ -642,16 +634,16 @@ contract MemeverseLauncherRemoteFeeInvariantTest is StdInvariant, Test {
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = address(remoteUAsset);
-        verse.memecoin = address(remoteMemecoin);
-        verse.pol = address(liquidProof);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Locked;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            address(remoteUAsset), address(remoteMemecoin), address(liquidProof),
+            address(0xD00D), address(0xCAFE), address(0),
+            0, 0,
+            IMemeverseLauncher.Stage.Locked, false
+        );
+        uint32[] memory chainIds = new uint32[](1);
+        chainIds[0] = 202;
+        setOmnichainIdsForTest(launcherProxy, VERSE_ID, chainIds);
 
         registry.setEndpoint(202, 302);
         remoteUAsset.setQuoteFee(0.15 ether);
@@ -806,7 +798,7 @@ contract MockPOLSplitterForFeeSplit {
 contract LockedFeeDistributionHandler is Test {
     uint256 internal constant VERSE_ID = 1;
 
-    TestableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
     MockSwapRouter internal immutable router;
     MockERC20 internal immutable uAsset;
     MockERC20 internal immutable memecoin;
@@ -821,7 +813,7 @@ contract LockedFeeDistributionHandler is Test {
     uint256 public totalPolBurned;
 
     constructor(
-        TestableMemeverseLauncher _launcher,
+        IMemeverseLauncher _launcher,
         MockSwapRouter _router,
         MockERC20 _uAsset,
         MockERC20 _memecoin,
@@ -852,7 +844,7 @@ contract LockedFeeDistributionHandler is Test {
     }
 }
 
-contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test {
+contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
     uint256 internal constant EXECUTOR_REWARD_RATE = 25;
     uint256 internal constant RATIO = 10_000;
@@ -863,7 +855,8 @@ contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test {
     address internal constant BOB = address(0xB0B);
     address internal constant REWARD_RECEIVER = address(0xBEEF);
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -893,22 +886,16 @@ contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test {
         splitter = new MockPOLSplitterForFeeSplit(address(pt), address(yt));
         proxyDeployer = new MockPredictOnlyProxyDeployer(address(0xD00D), address(0xCAFE), address(0xF00D));
         registry = new MockLzEndpointRegistry();
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(polend),
-            address(splitter),
-            EXECUTOR_REWARD_RATE,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this), address(0x1), address(0x2), address(0x3),
+                address(0x4), address(0x5), address(polend), address(splitter),
+                EXECUTOR_REWARD_RATE, 115_000, 135_000, 2_500, 7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
 
         launcher.setMemeverseUniswapHook(address(router.hook()));
@@ -917,18 +904,15 @@ contract MemeverseLauncherLockedFeeIdentityInvariantTest is StdInvariant, Test {
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
 
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = address(uAsset);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(liquidProof);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Locked;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid);
-        launcher.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            address(uAsset), address(memecoin), address(liquidProof),
+            address(0xD00D), address(0xCAFE), address(0),
+            0, 0,
+            IMemeverseLauncher.Stage.Locked, false
+        );
 
-        launcher.setGenesisFundForTest(VERSE_ID, NORMAL_FUNDS);
+        setGenesisFundForTest(launcherProxy, VERSE_ID, NORMAL_FUNDS);
         polend.setTotalLeveragedDebt(VERSE_ID, LEVERAGED_DEBT);
         polend.setLendMarket(address(pt), address(yt));
 

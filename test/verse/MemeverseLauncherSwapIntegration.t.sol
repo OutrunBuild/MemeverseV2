@@ -22,11 +22,9 @@ import {
     RealisticSwapManagerHarness,
     TestableMemeverseUniswapHookForIntegration
 } from "../swap/helpers/RealisticSwapManagerHarness.sol";
-import {
-    MockOFTDispatcher,
-    TestableMemeverseLauncher,
-    TestableMemeverseLauncherFactory
-} from "./MemeverseLauncherLifecycle.t.sol";
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
+import {MockOFTDispatcher} from "./MemeverseLauncherLifecycle.t.sol";
 import {
     MockIntegrationLiquidProof,
     MockIntegrationMemecoin,
@@ -146,7 +144,7 @@ contract DirectPoolManagerSwapHelper is IUnlockCallback {
     }
 }
 
-contract MemeverseLauncherSwapIntegrationTest is Test {
+contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelper {
     using PoolIdLibrary for PoolKey;
 
     uint256 internal constant VERSE_ID = 1;
@@ -160,7 +158,8 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
     DirectPoolManagerSwapHelper internal directSwapHelper;
     TestableMemeverseUniswapHookForIntegration internal hook;
     MemeverseSwapRouter internal router;
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockLauncherSwapIntegrationProxyDeployer internal proxyDeployer;
     MockLauncherIntegrationLzEndpointRegistry internal registry;
     MockOFTDispatcher internal dispatcher;
@@ -180,22 +179,26 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForSwapIntegration();
         splitter = new MockPOLSplitterForPreorderIntegration(address(pt), address(yt));
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1111),
-            REGISTRAR,
-            address(0x3333),
-            address(0x4444),
-            address(0x5555),
-            address(polend),
-            address(splitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this),
+                address(0x1111),
+                REGISTRAR,
+                address(0x3333),
+                address(0x4444),
+                address(0x5555),
+                address(polend),
+                address(splitter),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
         address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
@@ -262,7 +265,7 @@ contract MemeverseLauncherSwapIntegrationTest is Test {
         IMemeverseLauncher.Memeverse memory verse = _lockVerseWithLiquidity();
 
         (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp) =
-            launcher.getPreorderStateForTest(VERSE_ID);
+            getPreorderStateForTest(launcherProxy, VERSE_ID);
 
         assertEq(uint256(launcher.getStageByVerseId(VERSE_ID)), uint256(IMemeverseLauncher.Stage.Locked), "stage");
         assertEq(totalFunds, 30 ether, "preorder total funds");

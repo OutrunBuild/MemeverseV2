@@ -22,8 +22,11 @@ import {
     MockPolForPOLendIntegration,
     MockProxyDeployerForPOLendIntegration,
     MockYieldDispatcherForPOLendIntegration,
-    TestableMemeverseLauncherPOLend
+    MintableTokenForPOLendIntegration
 } from "./MemeverseLauncherPOLendIntegration.t.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract UniversalAssetForPOLendSettlementInvariant is MockERC20 {
     uint256 public repaidAmount;
@@ -350,7 +353,7 @@ contract RouterForPOLendSettlementInvariant {
     }
 }
 
-contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
+contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
     uint256 internal constant NORMAL_FUNDS = 10 ether;
     uint256 internal constant LEVERAGED_INTEREST = 1 ether;
@@ -363,7 +366,8 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
     address internal constant LEVERAGED_USER = address(0x1E4);
     address internal constant TREASURY = address(0x7E45);
 
-    TestableMemeverseLauncherPOLend internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     UniversalAssetForPOLendSettlementInvariant internal uAsset;
     MockMemecoinForPOLendIntegration internal memecoin;
     MockPolForPOLendIntegration internal pol;
@@ -376,33 +380,37 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
     LPTokenForPOLendSettlementInvariant internal polUAssetLp;
 
     function setUp() external {
-        launcher = (new TestableMemeverseLauncherPOLend())
-        .createProxy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(0x10),
+                address(0x11),
+                25,
+                uint128(115_000),
+                uint128(135_000),
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
 
         uAsset = new UniversalAssetForPOLendSettlementInvariant();
-        memecoin = new MockMemecoinForPOLendIntegration(address(launcher));
-        pol = new MockPolForPOLendIntegration(address(launcher), address(memecoin));
-        hook = new HookForPOLendSettlementInvariant(address(launcher));
+        memecoin = new MockMemecoinForPOLendIntegration(launcherProxy);
+        pol = new MockPolForPOLendIntegration(launcherProxy, address(memecoin));
+        hook = new HookForPOLendSettlementInvariant(launcherProxy);
         router = new RouterForPOLendSettlementInvariant(address(hook));
         dispatcher = new MockYieldDispatcherForPOLendIntegration();
 
         address predictedSplitter = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         polend = _deployPOLend(predictedSplitter);
-        launcher.setPolendForTest(address(polend));
+        setPolendForTest(launcherProxy, address(polend));
         splitter = _deploySplitter();
 
         launcher.setMemeverseUniswapHook(address(hook));
@@ -410,7 +418,7 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
-        launcher.setPolSplitterForTest(address(splitter));
+        setPolSplitterForTest(launcherProxy, address(splitter));
         launcher.setFundMetaData(address(uAsset), LEVERAGED_INTEREST, 1);
 
         polend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
@@ -466,9 +474,9 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
 
         IPOLend.LendMarket memory market = polend.getLendMarket(VERSE_ID);
         (uint256 residualUAsset,) = polend.residualStates(VERSE_ID);
-        (uint256 accUAssetFee, uint256 accPTFee) = launcher.normalFeeStates(VERSE_ID);
+        (uint256 accUAssetFee, uint256 accPTFee) = MemeverseLauncher(launcherProxy).normalFeeStates(VERSE_ID);
         (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) =
-            launcher.auxiliaryLiquidities(VERSE_ID);
+            MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
 
         assertEq(uint256(market.state), uint256(IPOLend.MarketState.Settled), "market settled");
         assertEq(globalDebtBeforeSettlement, LEVERAGED_DEBT, "pre settlement global debt");
@@ -519,7 +527,7 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
         IPOLend.LendMarket memory market = polend.getLendMarket(VERSE_ID);
         (uint256 residualUAsset,) = polend.residualStates(VERSE_ID);
         (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) =
-            launcher.auxiliaryLiquidities(VERSE_ID);
+            MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
 
         assertEq(uint256(market.state), uint256(IPOLend.MarketState.Settled), "market settled");
         assertEq(globalDebtBeforeSettlement, LEVERAGED_DEBT, "pre settlement global debt");
@@ -535,7 +543,7 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
         assertEq(polUAssetLpAmount, 0, "pol/uAsset lp consumed");
         assertEq(ptUAssetLpAmount, 0, "pt/uAsset lp consumed");
         assertEq(ptPolLpAmount, 0, "pt/pol lp consumed");
-        assertEq(launcher.totalNormalClaimableYT(VERSE_ID), 0, "no normal yt");
+        assertEq(MemeverseLauncher(launcherProxy).totalNormalClaimableYT(VERSE_ID), 0, "no normal yt");
         assertEq(uAsset.repaidAmount(), LEVERAGED_DEBT, "debt repaid");
     }
 
@@ -650,7 +658,14 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
         assertEq(uint256(launcher.changeStage(VERSE_ID)), uint256(IMemeverseLauncher.Stage.Locked), "genesis locked");
         IMemeverseLauncher.Memeverse memory sameChainVerse = launcher.getMemeverseByVerseId(VERSE_ID);
         sameChainVerse.omnichainIds[0] = uint32(block.chainid);
-        launcher.setMemeverseForTest(VERSE_ID, sameChainVerse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            sameChainVerse.uAsset, sameChainVerse.memecoin, sameChainVerse.pol,
+            sameChainVerse.yieldVault, sameChainVerse.governor, sameChainVerse.incentivizer,
+            sameChainVerse.endTime, sameChainVerse.unlockTime,
+            sameChainVerse.currentStage, sameChainVerse.flashGenesis
+        );
+        setOmnichainIdsForTest(launcherProxy, VERSE_ID, sameChainVerse.omnichainIds);
 
         (address pt,,,,,,,,,,) = splitter.splitInfos(VERSE_ID);
         uint256 polAmount = 10 ether;
@@ -698,44 +713,42 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
 
     function _deploySplitter() internal returns (POLSplitter deployedSplitter) {
         POLSplitter implementation = new POLSplitter();
-        bytes memory data = abi.encodeCall(POLSplitter.initialize, (address(this), address(launcher)));
+        bytes memory data = abi.encodeCall(POLSplitter.initialize, (address(this), launcherProxy));
         return POLSplitter(address(new ERC1967Proxy(address(implementation), data)));
     }
 
     function _deployPOLend(address splitter_) internal returns (POLend deployedPOLend) {
         POLend implementation = new POLend();
         bytes memory data = abi.encodeCall(
-            POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, address(launcher), splitter_)
+            POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, launcherProxy, splitter_)
         );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
     }
 
     function _setGenesisVerse(uint128 endTime) internal {
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.name = "Verse";
-        verse.symbol = "VRS";
-        verse.uAsset = address(uAsset);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(pol);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
-        verse.endTime = endTime;
-        verse.unlockTime = endTime + 7 days;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid + 1);
-        launcher.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcherProxy, VERSE_ID,
+            address(uAsset), address(memecoin), address(pol),
+            address(0xD00D), // yieldVault
+            address(0xCAFE), // governor
+            address(0), // incentivizer
+            endTime, endTime + 7 days,
+            IMemeverseLauncher.Stage.Genesis, false
+        );
+        uint32[] memory chainIds = new uint32[](1);
+        chainIds[0] = uint32(block.chainid + 1);
+        setOmnichainIdsForTest(launcherProxy, VERSE_ID, chainIds);
     }
 
     function _registerLendMarket() internal {
-        vm.prank(address(launcher));
+        vm.prank(launcherProxy);
         polend.registerLendMarket(VERSE_ID);
     }
 
     function _normalGenesis(uint256 amount) internal {
         uAsset.mint(ALICE, amount);
         vm.startPrank(ALICE);
-        uAsset.approve(address(launcher), amount);
+        uAsset.approve(launcherProxy, amount);
         launcher.genesis(VERSE_ID, amount, ALICE);
         vm.stopPrank();
     }
@@ -749,12 +762,12 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test {
     }
 
     function _allowLauncherToSplitPOL() internal {
-        vm.prank(address(launcher));
+        vm.prank(launcherProxy);
         pol.approve(address(splitter), type(uint256).max);
     }
 }
 
-contract SettlementDustInvariantHandler is Test {
+contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
     uint256 internal constant OTHER_VERSE_ID = 2;
     uint256 internal constant MAIN_LIQUIDITY = 70 ether;
@@ -811,7 +824,8 @@ contract SettlementDustInvariantHandler is Test {
     uint256 public expectedRemainingPtUAssetLp;
     uint256 public expectedRemainingPtPolLp;
 
-    TestableMemeverseLauncherPOLend internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     UniversalAssetForPOLendSettlementInvariant internal uAsset;
     MockMemecoinForPOLendIntegration internal memecoin;
     MockPolForPOLendIntegration internal pol;
@@ -822,17 +836,17 @@ contract SettlementDustInvariantHandler is Test {
     POLend internal polend;
 
     constructor() {
-        launcher = _deployLauncher();
+        _deployLauncher();
         uAsset = new UniversalAssetForPOLendSettlementInvariant();
-        memecoin = new MockMemecoinForPOLendIntegration(address(launcher));
-        pol = new MockPolForPOLendIntegration(address(launcher), address(memecoin));
-        hook = new HookForPOLendSettlementInvariant(address(launcher));
+        memecoin = new MockMemecoinForPOLendIntegration(launcherProxy);
+        pol = new MockPolForPOLendIntegration(launcherProxy, address(memecoin));
+        hook = new HookForPOLendSettlementInvariant(launcherProxy);
         router = new RouterForPOLendSettlementInvariant(address(hook));
         dispatcher = new MockYieldDispatcherForPOLendIntegration();
-        splitter = _deploySplitter(launcher);
-        polend = _deployPOLend(launcher, splitter);
+        splitter = _deploySplitter(launcherProxy);
+        polend = _deployPOLend(launcherProxy, splitter);
 
-        _wireLauncher(launcher, router, hook, dispatcher, splitter, polend);
+        _wireLauncher(launcherProxy, router, hook, dispatcher, splitter, polend);
 
         LPTokenForPOLendSettlementInvariant mainLp =
             new LPTokenForPOLendSettlementInvariant("MEME-UASSET-LP", "MEME-UASSET-LP");
@@ -880,10 +894,10 @@ contract SettlementDustInvariantHandler is Test {
 
         router.setPairOutputPerLp(address(memecoin), address(uAsset), mainMemecoinRate, MAIN_UASSET_RATE);
 
-        _setGenesisVerse(launcher, uAsset, memecoin, pol, uint128(block.timestamp + 1 days));
-        vm.prank(address(launcher));
+        _setGenesisVerse(launcherProxy, uAsset, memecoin, pol, uint128(block.timestamp + 1 days));
+        vm.prank(launcherProxy);
         polend.registerLendMarket(VERSE_ID);
-        if (normalFunds != 0) _normalGenesis(launcher, uAsset, normalFunds);
+        if (normalFunds != 0) _normalGenesis(launcherProxy, uAsset, normalFunds);
         _leveragedGenesis(polend, uAsset, leveragedInterest);
         uint256 otherLeveragedInterest = leveragedInterest + 1;
         _createOtherOutstandingMarket(otherLeveragedInterest);
@@ -918,7 +932,7 @@ contract SettlementDustInvariantHandler is Test {
         hook.setClaimQuote(address(pol), address(uAsset), 0, auxiliaryUAssetFee);
 
         uint256 treasuryBefore = uAsset.balanceOf(TREASURY);
-        (initialPolUAssetLp, initialPtUAssetLp, initialPtPolLp) = launcher.auxiliaryLiquidities(VERSE_ID);
+        (initialPolUAssetLp, initialPtUAssetLp, initialPtPolLp) = MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
 
         uint256 totalFunds = normalFunds + debt;
         uint256 leveragedPolUAssetLp = initialPolUAssetLp * debt / totalFunds;
@@ -974,7 +988,7 @@ contract SettlementDustInvariantHandler is Test {
         settlementUAssetAfter = splitterSettlementUAsset;
         ptTotalSupplyAfter = MockERC20(ptAfter).totalSupply();
         ptBackingAfter = splitter.previewPTToUAsset(VERSE_ID, ptTotalSupplyAfter);
-        (remainingPolUAssetLp, remainingPtUAssetLp, remainingPtPolLp) = launcher.auxiliaryLiquidities(VERSE_ID);
+        (remainingPolUAssetLp, remainingPtUAssetLp, remainingPtPolLp) = MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
     }
 
     function expectedDeficit() external view returns (uint256) {
@@ -1022,41 +1036,45 @@ contract SettlementDustInvariantHandler is Test {
         }
     }
 
-    function _deployLauncher() internal returns (TestableMemeverseLauncherPOLend) {
-        return (new TestableMemeverseLauncherPOLend())
-        .createProxy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(0x10),
-            address(0x11),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+    function _deployLauncher() internal {
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(0x10),
+                address(0x11),
+                25,
+                uint128(115_000),
+                uint128(135_000),
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
     }
 
-    function _deploySplitter(TestableMemeverseLauncherPOLend launcher_) internal returns (POLSplitter) {
+    function _deploySplitter(address launcher_) internal returns (POLSplitter) {
         POLSplitter implementation = new POLSplitter();
-        bytes memory data = abi.encodeCall(POLSplitter.initialize, (address(this), address(launcher_)));
+        bytes memory data = abi.encodeCall(POLSplitter.initialize, (address(this), launcher_));
         return POLSplitter(address(new ERC1967Proxy(address(implementation), data)));
     }
 
-    function _deployPOLend(TestableMemeverseLauncherPOLend launcher_, POLSplitter splitter_) internal returns (POLend) {
+    function _deployPOLend(address launcher_, POLSplitter splitter_) internal returns (POLend) {
         POLend implementation = new POLend();
         bytes memory data = abi.encodeCall(
-            POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, address(launcher_), address(splitter_))
+            POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, launcher_, address(splitter_))
         );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
     }
 
     function _createOtherOutstandingMarket(uint256 interestAmount) internal {
-        _setOtherGenesisVerse(launcher, uAsset, memecoin, pol, uint128(block.timestamp + 1 days));
+        _setOtherGenesisVerse(launcherProxy, uAsset, memecoin, pol, uint128(block.timestamp + 1 days));
         polend.setDefaultInterestRate(0.25 ether);
         vm.prank(address(launcher));
         polend.registerLendMarket(OTHER_VERSE_ID);
@@ -1066,77 +1084,73 @@ contract SettlementDustInvariantHandler is Test {
     }
 
     function _wireLauncher(
-        TestableMemeverseLauncherPOLend launcher_,
+        address launcher_,
         RouterForPOLendSettlementInvariant router_,
         HookForPOLendSettlementInvariant hook_,
         MockYieldDispatcherForPOLendIntegration dispatcher_,
         POLSplitter splitter_,
         POLend polend_
     ) internal {
-        launcher_.setMemeverseUniswapHook(address(hook_));
+        IMemeverseLauncher(launcher_).setMemeverseUniswapHook(address(hook_));
         hook_.setPoolInitializer(address(router_));
-        launcher_.setMemeverseSwapRouter(address(router_));
-        launcher_.setYieldDispatcher(address(dispatcher_));
-        launcher_.setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
-        launcher_.setPolSplitterForTest(address(splitter_));
-        launcher_.setPolendForTest(address(polend_));
+        IMemeverseLauncher(launcher_).setMemeverseSwapRouter(address(router_));
+        IMemeverseLauncher(launcher_).setYieldDispatcher(address(dispatcher_));
+        IMemeverseLauncher(launcher_).setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
+        setPolSplitterForTest(launcher_, address(splitter_));
+        setPolendForTest(launcher_, address(polend_));
     }
 
     function _setGenesisVerse(
-        TestableMemeverseLauncherPOLend launcher_,
+        address launcher_,
         UniversalAssetForPOLendSettlementInvariant uAsset_,
         MockMemecoinForPOLendIntegration memecoin_,
         MockPolForPOLendIntegration pol_,
         uint128 endTime
     ) internal {
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.name = "Verse";
-        verse.symbol = "VRS";
-        verse.uAsset = address(uAsset_);
-        verse.memecoin = address(memecoin_);
-        verse.pol = address(pol_);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
-        verse.endTime = endTime;
-        verse.unlockTime = endTime + 7 days;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid + 1);
-        launcher_.setMemeverseForTest(VERSE_ID, verse);
+        setMemeverseForTest(
+            launcher_, VERSE_ID,
+            address(uAsset_), address(memecoin_), address(pol_),
+            address(0xD00D), // yieldVault
+            address(0xCAFE), // governor
+            address(0), // incentivizer
+            endTime, endTime + 7 days,
+            IMemeverseLauncher.Stage.Genesis, false
+        );
+        uint32[] memory chainIds = new uint32[](1);
+        chainIds[0] = uint32(block.chainid + 1);
+        setOmnichainIdsForTest(launcher_, VERSE_ID, chainIds);
     }
 
     function _setOtherGenesisVerse(
-        TestableMemeverseLauncherPOLend launcher_,
+        address launcher_,
         UniversalAssetForPOLendSettlementInvariant uAsset_,
         MockMemecoinForPOLendIntegration memecoin_,
         MockPolForPOLendIntegration pol_,
         uint128 endTime
     ) internal {
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.name = "Other Verse";
-        verse.symbol = "OVRS";
-        verse.uAsset = address(uAsset_);
-        verse.memecoin = address(memecoin_);
-        verse.pol = address(pol_);
-        verse.governor = address(0xBEEF);
-        verse.yieldVault = address(0xD0D0);
-        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
-        verse.endTime = endTime;
-        verse.unlockTime = endTime + 7 days;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid + 2);
-        launcher_.setMemeverseForTest(OTHER_VERSE_ID, verse);
+        setMemeverseForTest(
+            launcher_, OTHER_VERSE_ID,
+            address(uAsset_), address(memecoin_), address(pol_),
+            address(0xD0D0), // yieldVault
+            address(0xBEEF), // governor
+            address(0), // incentivizer
+            endTime, endTime + 7 days,
+            IMemeverseLauncher.Stage.Genesis, false
+        );
+        uint32[] memory chainIds = new uint32[](1);
+        chainIds[0] = uint32(block.chainid + 2);
+        setOmnichainIdsForTest(launcher_, OTHER_VERSE_ID, chainIds);
     }
 
     function _normalGenesis(
-        TestableMemeverseLauncherPOLend launcher_,
+        address launcher_,
         UniversalAssetForPOLendSettlementInvariant uAsset_,
         uint256 amount
     ) internal {
         uAsset_.mint(ALICE, amount);
         vm.startPrank(ALICE);
-        uAsset_.approve(address(launcher_), amount);
-        launcher_.genesis(VERSE_ID, amount, ALICE);
+        uAsset_.approve(launcher_, amount);
+        IMemeverseLauncher(launcher_).genesis(VERSE_ID, amount, ALICE);
         vm.stopPrank();
     }
 

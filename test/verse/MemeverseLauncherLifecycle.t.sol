@@ -26,7 +26,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
-import {MemeverseLauncherTestBase} from "./helpers/MemeverseLauncherTestBase.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseOFTEnum} from "../../src/common/types/IMemeverseOFTEnum.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
@@ -767,14 +767,14 @@ contract RefundCallbackToken is MockERC20 {
 }
 
 contract MintPolRefundObserver is IRefundCallbackObserver {
-    MemeverseLauncher public immutable launcher;
+    IMemeverseLauncher public immutable launcher;
     IERC20 public immutable uAsset;
     IERC20 public immutable memecoin;
     IERC20 public immutable liquidProof;
     uint256 public immutable verseId;
     bool public sawPolDuringRefund;
 
-    constructor(MemeverseLauncher launcher_, IERC20 uAsset_, IERC20 memecoin_, IERC20 liquidProof_, uint256 verseId_) {
+    constructor(IMemeverseLauncher launcher_, IERC20 uAsset_, IERC20 memecoin_, IERC20 liquidProof_, uint256 verseId_) {
         launcher = launcher_;
         uAsset = uAsset_;
         memecoin = memecoin_;
@@ -1012,7 +1012,7 @@ contract RedeemMemecoinLiquidityReenterer {
 }
 
 contract ClaimNormalFeesReenterer is IClaimNormalFeesReentryObserver {
-    MemeverseLauncher public immutable launcher;
+    IMemeverseLauncher public immutable launcher;
     IERC20 public immutable uAsset;
     IERC20 public immutable pt;
     uint256 public immutable verseId;
@@ -1020,7 +1020,7 @@ contract ClaimNormalFeesReenterer is IClaimNormalFeesReentryObserver {
     bool public reentrySucceeded;
     bytes public lastRevertData;
 
-    constructor(MemeverseLauncher launcher_, IERC20 uAsset_, IERC20 pt_, uint256 verseId_) {
+    constructor(IMemeverseLauncher launcher_, IERC20 uAsset_, IERC20 pt_, uint256 verseId_) {
         launcher = launcher_;
         uAsset = uAsset_;
         pt = pt_;
@@ -1443,154 +1443,14 @@ contract MockOFTToken is MockERC20, IOFT {
     }
 }
 
-contract TestableMemeverseLauncher is MemeverseLauncherTestBase {
-    /// @notice Stores mock memeverse state for a verse id.
-    /// @dev Exposes direct storage writes needed by unit tests.
-    /// @param verseId Verse id whose state should be set.
-    /// @param verse Mock memeverse state to store.
-    function setMemeverseForTest(uint256 verseId, Memeverse memory verse) external {
-        _testStorage().memeverses[verseId] = verse;
-    }
-
-    /// @notice Stores mock genesis fund totals for a verse id.
-    /// @dev Lets tests control redemption share math directly.
-    function setGenesisFundForTest(uint256 verseId, uint256 _totalNormalFunds) external {
-        _testStorage().totalNormalFunds[verseId] = _totalNormalFunds;
-    }
-
-    /// @notice Stores mock user genesis data for a verse id.
-    /// @dev Lets tests control redemption eligibility flags directly.
-    /// @param verseId Verse id whose user state should be set.
-    /// @param account Account whose genesis data should be set.
-    /// @param genesisFund Mock contributed genesis amount.
-    /// @param isRefunded Mock refunded flag.
-    /// @param isRedeemed Mock redeemed flag.
-    function setUserGenesisDataForTest(
-        uint256 verseId,
-        address account,
-        uint256 genesisFund,
-        bool isRefunded,
-        bool isRedeemed
-    ) external {
-        _testStorage().userGenesisData[verseId][account] =
-            GenesisData({genesisFund: genesisFund, isRefunded: isRefunded, isRedeemed: isRedeemed});
-    }
-
-    /// @notice Stores mock user preorder data for a verse id.
-    /// @dev Lets tests control preorder eligibility flags directly.
-    /// @param verseId Verse id whose user state should be set.
-    /// @param account Account whose preorder data should be set.
-    /// @param funds Mock contributed preorder amount.
-    /// @param claimedMemecoin Mock claimed preorder memecoin amount.
-    /// @param isRefunded Mock refunded flag.
-    function setUserPreorderDataForTest(
-        uint256 verseId,
-        address account,
-        uint256 funds,
-        uint256 claimedMemecoin,
-        bool isRefunded
-    ) external {
-        _testStorage().userPreorderData[verseId][account] = PreorderData({
-            funds: funds, claimedMemecoin: claimedMemecoin, isRefunded: isRefunded
-        });
-    }
-
-    function setTotalNormalClaimableYTForTest(uint256 verseId, uint256 amount) external {
-        _testStorage().totalNormalClaimableYT[verseId] = amount;
-    }
-
-    function setAuxiliaryLiquiditiesForTest(
-        uint256 verseId,
-        uint256 polUAssetLpAmount,
-        uint256 ptUAssetLpAmount,
-        uint256 ptPolLpAmount
-    ) external {
-        _testStorage().auxiliaryLiquidities[verseId] = AuxiliaryLiquidity({
-            polUAssetLpAmount: polUAssetLpAmount, ptUAssetLpAmount: ptUAssetLpAmount, ptPolLpAmount: ptPolLpAmount
-        });
-    }
-
-    function setBootstrapResidualClaimsForTest(
-        uint256 verseId,
-        uint256 normalResidualPOL,
-        uint256 normalResidualPT,
-        uint256 leveragedResidualPOL,
-        uint256 leveragedResidualPT
-    ) external {
-        _testStorage().bootstrapResidualClaims[verseId] = BootstrapResidualClaims({
-            normalResidualPOL: normalResidualPOL,
-            normalResidualPT: normalResidualPT,
-            leveragedResidualPOL: leveragedResidualPOL,
-            leveragedResidualPT: leveragedResidualPT
-        });
-    }
-
-    function setPendingAuxiliaryGovFeeForTest(uint256 verseId, uint256 pendingUAssetFee, uint256 pendingPTFee)
-        external
-    {
-        _testStorage().pendingAuxiliaryGovFeeStates[verseId] =
-            PendingAuxiliaryGovFeeState({pendingUAssetFee: pendingUAssetFee, pendingPTFee: pendingPTFee});
-    }
-
-    function setNormalFeeStateForTest(uint256 verseId, uint256 accUAssetFee, uint256 accPTFee) external {
-        _testStorage().normalFeeStates[verseId] = NormalFeeState({accUAssetFee: accUAssetFee, accPTFee: accPTFee});
-    }
-
-    /// @notice Stores mock pol to verse-id state for a verse.
-    /// @dev Exposes the symmetric swap-gate index to unit tests without going through full registration.
-    /// @param liquidProofAddress Pol token address whose verse id should be set.
-    /// @param verseId Verse id to associate with the pol token.
-    function setVerseIdByPolForTest(address liquidProofAddress, uint256 verseId) external {
-        _testStorage().polToIds[liquidProofAddress] = verseId;
-    }
-}
-
-contract TestableMemeverseLauncherFactory {
-    function deploy(
-        address _owner,
-        address _localLzEndpoint,
-        address _memeverseRegistrar,
-        address _memeverseProxyDeployer,
-        address _yieldDispatcher,
-        address _lzEndpointRegistry,
-        address _polend,
-        address _polSplitter,
-        uint256 _executorRewardRate,
-        uint128 _oftReceiveGasLimit,
-        uint128 _yieldDispatcherGasLimit,
-        uint256 _preorderCapRatio,
-        uint256 _preorderVestingDuration
-    ) external returns (TestableMemeverseLauncher) {
-        TestableMemeverseLauncher implementation = new TestableMemeverseLauncher();
-        bytes memory data = abi.encodeCall(
-            MemeverseLauncher.initialize,
-            (
-                _owner,
-                _localLzEndpoint,
-                _memeverseRegistrar,
-                _memeverseProxyDeployer,
-                _yieldDispatcher,
-                _lzEndpointRegistry,
-                _polend,
-                _polSplitter,
-                _executorRewardRate,
-                _oftReceiveGasLimit,
-                _yieldDispatcherGasLimit,
-                _preorderCapRatio,
-                _preorderVestingDuration
-            )
-        );
-        return TestableMemeverseLauncher(address(new ERC1967Proxy(address(implementation), data)));
-    }
-}
-
-contract MemeverseLauncherLifecycleTest is Test {
+contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
     using PoolIdLibrary for PoolKey;
 
     event RefundPreorder(uint256 indexed verseId, address indexed receiver, uint256 refundAmount);
     event ClaimNormalFees(uint256 indexed verseId, address indexed receiver, uint256 uAssetAmount, uint256 ptAmount);
 
-    TestableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -1639,22 +1499,26 @@ contract MemeverseLauncherLifecycleTest is Test {
         polend = new MockPOLendForLifecycle();
         splitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         registry = new MockLzEndpointRegistry();
-        launcher = (new TestableMemeverseLauncherFactory())
-        .deploy(
-            address(this),
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            address(0x5),
-            address(polend),
-            address(splitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(polend),
+                address(splitter),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
 
         launcher.setMemeverseUniswapHook(address(router.hook()));
@@ -1671,16 +1535,14 @@ contract MemeverseLauncherLifecycleTest is Test {
     /// @notice Seeds the launcher state with a verse locked for staking.
     /// @dev Populates the necessary uAsset/memecoin/liquid-proof pointers for locking tests.
     function _setLockedVerse(uint256 verseId) internal {
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = address(uAsset);
-        verse.memecoin = address(memecoin);
-        verse.pol = address(liquidProof);
-        verse.governor = address(0xCAFE);
-        verse.yieldVault = address(0xD00D);
-        verse.currentStage = IMemeverseLauncher.Stage.Locked;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid);
-        launcher.setMemeverseForTest(verseId, verse);
+        setMemeverseForTest(
+            launcherProxy, verseId,
+            address(uAsset), address(memecoin), address(liquidProof),
+            address(0xD00D), address(0xCAFE), address(0),
+            0, 0,
+            IMemeverseLauncher.Stage.Locked, false
+        );
+        setOmnichainIdsForTest(launcherProxy, verseId, _array(uint32(block.chainid)));
     }
 
     /// @notice Transitions a seeded verse from Locked to Unlocked.
@@ -1688,8 +1550,13 @@ contract MemeverseLauncherLifecycleTest is Test {
     function _setUnlockedVerse(uint256 verseId) internal {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
-        verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
-        launcher.setMemeverseForTest(verseId, verse);
+        setMemeverseForTest(
+            launcherProxy, verseId,
+            verse.uAsset, verse.memecoin, verse.pol,
+            verse.yieldVault, verse.governor, verse.incentivizer,
+            verse.endTime, verse.unlockTime,
+            IMemeverseLauncher.Stage.Unlocked, verse.flashGenesis
+        );
     }
 
     /// @notice Seeds a verse that is currently in the Genesis stage.
@@ -1708,16 +1575,14 @@ contract MemeverseLauncherLifecycleTest is Test {
         bool flashGenesis,
         uint128 endTime
     ) internal {
-        IMemeverseLauncher.Memeverse memory verse;
-        verse.uAsset = uAssetAddress;
-        verse.memecoin = memecoinAddress;
-        verse.pol = polAddress;
-        verse.currentStage = IMemeverseLauncher.Stage.Genesis;
-        verse.endTime = endTime;
-        verse.flashGenesis = flashGenesis;
-        verse.omnichainIds = new uint32[](1);
-        verse.omnichainIds[0] = uint32(block.chainid + 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        setMemeverseForTest(
+            launcherProxy, verseId,
+            uAssetAddress, memecoinAddress, polAddress,
+            address(0), address(0), address(0),
+            endTime, 0,
+            IMemeverseLauncher.Stage.Genesis, flashGenesis
+        );
+        setOmnichainIdsForTest(launcherProxy, verseId, _array(uint32(block.chainid + 1)));
     }
 
     /// @notice Approves the launcher to pull mint inputs for a user.
@@ -1727,6 +1592,32 @@ contract MemeverseLauncherLifecycleTest is Test {
         uAsset.approve(address(launcher), type(uint256).max);
         memecoin.approve(address(launcher), type(uint256).max);
         vm.stopPrank();
+    }
+
+    /// @notice Writes a full Memeverse struct into proxy storage via the helper.
+    /// @dev Bridges the struct-based test pattern to the individual-field helper.
+    /// @notice Returns the launcher cast to the concrete MemeverseLauncher type.
+    /// @dev Used for view functions not on IMemeverseLauncher (e.g. auxiliaryLiquidities, RATIO).
+    function _concrete() internal view returns (MemeverseLauncher) {
+        return MemeverseLauncher(launcherProxy);
+    }
+
+    function _writeMemeverse(uint256 verseId, IMemeverseLauncher.Memeverse memory verse) internal {
+        setMemeverseForTest(
+            launcherProxy, verseId,
+            verse.uAsset, verse.memecoin, verse.pol,
+            verse.yieldVault, verse.governor, verse.incentivizer,
+            verse.endTime, verse.unlockTime,
+            verse.currentStage, verse.flashGenesis
+        );
+        if (verse.omnichainIds.length > 0) {
+            setOmnichainIdsForTest(launcherProxy, verseId, verse.omnichainIds);
+        }
+    }
+
+    function _array(uint32 value) internal pure returns (uint32[] memory arr) {
+        arr = new uint32[](1);
+        arr[0] = value;
     }
 
     function _setSemanticPreviewQuote(address tokenA, address tokenB, uint256 tokenAFee, uint256 tokenBFee) internal {
@@ -1753,7 +1644,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testPreviewGenesisMakerFees_IncludesAuxiliaryGovFeesFromPTPools() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
 
         _setSemanticPreviewQuote(address(memecoin), address(uAsset), 3 ether, 7 ether);
@@ -1770,7 +1661,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testPreviewGenesisMakerFees_PostUnlockConvertsAuxiliaryGovPTFee() external {
         uint256 verseId = 32;
         _setUnlockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
         splitter.setPreviewPTToUAssetResult(2 ether);
 
@@ -1788,7 +1679,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testPreviewGenesisMakerFees_PostUnlockIncludesPendingAuxiliaryGovFees() external {
         uint256 verseId = 35;
         _setUnlockedVerse(verseId);
-        launcher.setPendingAuxiliaryGovFeeForTest(verseId, 3 ether, 14 ether);
+        setPendingAuxiliaryGovFeeForTest(launcherProxy, verseId, 3 ether, 14 ether);
         splitter.setPreviewPTToUAssetResult(2 ether);
 
         _setSemanticPreviewQuote(address(memecoin), address(uAsset), 0, 0);
@@ -1812,7 +1703,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.memecoin = address(memecoin);
         verse.pol = address(liquidProof);
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
         launcher.previewGenesisMakerFees(verseId);
@@ -1823,9 +1714,9 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testClaimNormalYT_SucceedsOnceAtLocked() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setTotalNormalClaimableYTForTest(verseId, 60 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setTotalNormalClaimableYTForTest(launcherProxy, verseId, 60 ether);
         yt.mint(address(launcher), 60 ether);
 
         vm.prank(ALICE);
@@ -1842,9 +1733,9 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testClaimNormalYT_AllowsZeroFloorDustClaimOnce() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 1, false, false);
-        launcher.setTotalNormalClaimableYTForTest(verseId, 1);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 1, false, false);
+        setTotalNormalClaimableYTForTest(launcherProxy, verseId, 1);
         yt.mint(address(launcher), 1);
 
         vm.prank(ALICE);
@@ -1884,7 +1775,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         router.setPreviewQuote(address(remoteMemecoin), address(remoteUAsset), address(launcher), 9 ether, 4 ether);
@@ -1912,7 +1803,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         if (address(remoteMemecoin) < address(remoteUAsset)) {
@@ -1943,7 +1834,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         if (address(remoteMemecoin) < address(remoteUAsset)) {
@@ -1976,7 +1867,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
         launcher.setExecutorRewardRate(rewardRate);
 
@@ -2011,8 +1902,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        _writeMemeverse(verseId, verse);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
         polend.setPreRedeemPTFeeBacking(2 ether);
         registry.setEndpoint(202, 302);
@@ -2048,8 +1939,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.unlockTime = uint128(block.timestamp - 1);
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        _writeMemeverse(verseId, verse);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
         polend.setPreRedeemPTFeeBacking(2 ether);
         registry.setEndpoint(202, 302);
@@ -2070,7 +1961,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         remoteUAsset.setQuoteFee(0.15 ether);
 
         launcher.changeStage(verseId);
-        (uint256 pendingUAssetFee, uint256 pendingPTFee) = launcher.pendingAuxiliaryGovFeeStates(verseId);
+        (uint256 pendingUAssetFee, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertGt(pendingUAssetFee + pendingPTFee, 0, "pending auxiliary gov fee captured");
 
         uint256 fee = launcher.quoteDistributionLzFee(verseId);
@@ -2090,8 +1981,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setPendingAuxiliaryGovFeeForTest(verseId, 0, 14 ether);
+        _writeMemeverse(verseId, verse);
+        setPendingAuxiliaryGovFeeForTest(launcherProxy, verseId, 0, 14 ether);
         splitter.setPreviewPTToUAssetResult(2 ether);
         registry.setEndpoint(202, 302);
 
@@ -2119,8 +2010,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        _writeMemeverse(verseId, verse);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
         splitter.setPreviewPTToUAssetResult(2 ether);
         registry.setEndpoint(202, 302);
@@ -2153,8 +2044,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Unlocked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setPendingAuxiliaryGovFeeForTest(verseId, 0, 1);
+        _writeMemeverse(verseId, verse);
+        setPendingAuxiliaryGovFeeForTest(launcherProxy, verseId, 0, 1);
         splitter.setPreviewPTToUAssetRatio(1, 2);
         registry.setEndpoint(202, 302);
 
@@ -2187,7 +2078,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint128 endTime = uint128(block.timestamp + 1);
         _setGenesisVerse(verseId, false, endTime);
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 4 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 4 ether);
         vm.warp(endTime + 1);
 
         IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
@@ -2201,9 +2092,9 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint128 endTime = uint128(block.timestamp + 1);
         _setGenesisVerse(verseId, false, endTime);
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 4 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 4 ether);
         vm.warp(endTime + 1);
-        launcher.pause();
+        _concrete().pause();
 
         IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
 
@@ -2217,7 +2108,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 8;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
 
@@ -2231,7 +2122,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 30;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
         splitter.setInitializeVerseReentry(address(launcher), verseId);
@@ -2249,7 +2140,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 33;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedInterest(verseId, 10 ether);
         polend.setTotalLeveragedDebt(verseId, 100 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 140 ether, 560 ether, 140 ether);
@@ -2264,7 +2155,7 @@ contract MemeverseLauncherLifecycleTest is Test {
             uint256 normalResidualPT,
             uint256 leveragedResidualPOL,
             uint256 leveragedResidualPT
-        ) = launcher.bootstrapResidualClaims(verseId);
+        ) = _concrete().bootstrapResidualClaims(verseId);
         assertEq(normalResidualPOL, 5 ether, "normal pol residual");
         assertEq(leveragedResidualPOL, 5 ether, "leveraged pol residual");
         assertEq(normalResidualPT, 15 ether / 2, "normal pt residual");
@@ -2272,7 +2163,7 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         router.setRemoveLiquidityResult(address(liquidProof), address(uAsset), 1 ether, 2 ether);
         router.setRemoveLiquidityResult(address(pt), address(uAsset), 3 ether, 4 ether);
         router.setRemoveLiquidityResult(address(pt), address(liquidProof), 5 ether, 6 ether);
@@ -2287,7 +2178,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(
             pt.balanceOf(address(polend)) - polendPTBefore, 4 ether + 6 ether + 15 ether / 2, "settled pt plus residual"
         );
-        (,, leveragedResidualPOL, leveragedResidualPT) = launcher.bootstrapResidualClaims(verseId);
+        (,, leveragedResidualPOL, leveragedResidualPT) = _concrete().bootstrapResidualClaims(verseId);
         assertEq(leveragedResidualPOL, 0, "leveraged pol cleared");
         assertEq(leveragedResidualPT, 0, "leveraged pt cleared");
     }
@@ -2296,7 +2187,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 34;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 140 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 40 ether, 20 ether, 10 ether);
         router.setAddLiquidityResult(address(pt), address(uAsset), 20 ether, 10 ether, 5 ether);
@@ -2326,13 +2217,13 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked), "returned stage");
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Locked), "stored stage");
         assertEq(launcher.totalNormalFunds(verseId), 0, "normal funds");
-        assertEq(launcher.totalNormalClaimableYT(verseId), 0, "normal yt");
+        assertEq(_concrete().totalNormalClaimableYT(verseId), 0, "normal yt");
         IPOLend.LendMarket memory market = polend.getLendMarket(verseId);
         assertGt(market.totalLeveragedYT, 0, "leveraged yt");
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         router.setRemoveLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 15 ether);
         router.setRemoveLiquidityResult(address(pt), address(uAsset), 12 ether, 6 ether);
         router.setRemoveLiquidityResult(address(pt), address(liquidProof), 20 ether, 10 ether);
@@ -2345,7 +2236,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(launcher.changeStage(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked), "unlocked");
 
         (uint256 remainingPolUAssetLp, uint256 remainingPtUAssetLp, uint256 remainingPtPolLp) =
-            launcher.auxiliaryLiquidities(verseId);
+            _concrete().auxiliaryLiquidities(verseId);
         assertEq(remainingPolUAssetLp, 0, "remaining pol/uAsset");
         assertEq(remainingPtUAssetLp, 0, "remaining pt/uAsset");
         assertEq(remainingPtPolLp, 0, "remaining pt/pol");
@@ -2382,7 +2273,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Refund), "returned stage");
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Refund), "stored stage");
         assertEq(launcher.totalNormalFunds(verseId), 0, "normal funds");
-        assertEq(launcher.totalNormalClaimableYT(verseId), 0, "normal yt");
+        assertEq(_concrete().totalNormalClaimableYT(verseId), 0, "normal yt");
         IPOLend.LendMarket memory market = polend.getLendMarket(verseId);
         assertEq(market.totalLeveragedYT, 0, "leveraged yt");
     }
@@ -2394,10 +2285,10 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = unlockTime;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
 
@@ -2415,7 +2306,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 34;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
 
@@ -2436,7 +2327,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 22;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
         router.setLaunchSwapResult(address(uAsset), address(memecoin), 10 ether, 60 ether);
@@ -2467,7 +2358,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 23;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
         router.setLaunchSwapResult(address(uAsset), address(memecoin), 10 ether, 60 ether);
@@ -2495,7 +2386,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 25;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
 
@@ -2508,7 +2399,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         launcher.preorder(verseId, 10 ether, ALICE);
 
         (uint256 totalFundsBefore, uint256 settledMemecoinBefore, uint40 settlementTimestampBefore) =
-            launcher.getPreorderStateForTest(verseId);
+            getPreorderStateForTest(launcherProxy, verseId);
         assertEq(totalFundsBefore, 10 ether, "preorder total funds before");
         assertEq(settledMemecoinBefore, 0, "settled memecoin before");
         assertEq(settlementTimestampBefore, 0, "settlement timestamp before");
@@ -2519,7 +2410,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Genesis), "stage");
 
         (uint256 totalFundsAfter, uint256 settledMemecoinAfter, uint40 settlementTimestampAfter) =
-            launcher.getPreorderStateForTest(verseId);
+            getPreorderStateForTest(launcherProxy, verseId);
         assertEq(totalFundsAfter, 10 ether, "preorder total funds after");
         assertEq(settledMemecoinAfter, 0, "settled memecoin after");
         assertEq(settlementTimestampAfter, 0, "settlement timestamp after");
@@ -2532,7 +2423,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint128 endTime = uint128(block.timestamp + 1 days);
         _setGenesisVerse(verseId, false, endTime);
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
 
         vm.expectRevert(abi.encodeWithSelector(IMemeverseLauncher.StillInGenesisStage.selector, uint256(endTime)));
         launcher.changeStage(verseId);
@@ -2545,7 +2436,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         IMemeverseLauncher.Memeverse memory verse;
         verse.memecoin = address(memecoin);
         verse.currentStage = IMemeverseLauncher.Stage.Refund;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         vm.expectRevert(IMemeverseLauncher.ReachedFinalStage.selector);
         launcher.changeStage(verseId);
@@ -2558,7 +2449,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp + 1 days);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
 
@@ -2573,7 +2464,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         IMemeverseLauncher.Stage stage = launcher.changeStage(verseId);
 
@@ -2586,10 +2477,10 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, address(splitter), 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
+        _writeMemeverse(verseId, verse);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, address(splitter), 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
@@ -2608,7 +2499,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
         RedeemMemecoinLiquidityReenterer reenterer = new RedeemMemecoinLiquidityReenterer();
@@ -2630,12 +2521,12 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testPreviewPreorderCapacityAndClaimNormalYT_SingleFieldAboveOldSplitMax() external {
         uint256 verseId = 30;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, type(uint128).max);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, type(uint128).max, false, false);
-        launcher.setTotalNormalClaimableYTForTest(verseId, 2 ether);
+        setGenesisFundForTest(launcherProxy, verseId, type(uint128).max);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, type(uint128).max, false, false);
+        setTotalNormalClaimableYTForTest(launcherProxy, verseId, 2 ether);
         yt.mint(address(launcher), 2 ether);
 
-        uint256 expectedCapacity = uint256(type(uint128).max) * 7 * 2_500 / (10 * launcher.RATIO());
+        uint256 expectedCapacity = uint256(type(uint128).max) * 7 * 2_500 / (10 * _concrete().RATIO());
 
         assertEq(launcher.previewPreorderCapacity(verseId), expectedCapacity, "preview capacity");
 
@@ -2652,7 +2543,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         PoolKey memory memecoinKey = router.getHookPoolKey(address(memecoin), address(uAsset));
         PoolKey memory polKey = router.getHookPoolKey(address(liquidProof), address(uAsset));
@@ -2675,7 +2566,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         PoolKey memory memecoinKey = router.getHookPoolKey(address(memecoin), address(uAsset));
         address sharedHook = address(router.hook());
@@ -2701,7 +2592,7 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.currentStage = IMemeverseLauncher.Stage.Refund;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseLauncher.InvalidClaim.selector);
@@ -2713,15 +2604,15 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.currentStage = IMemeverseLauncher.Stage.Refund;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 5 ether, false, false);
+        _writeMemeverse(verseId, verse);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 5 ether, false, false);
         uAsset.mint(address(launcher), 5 ether);
-        launcher.pause();
+        _concrete().pause();
 
         vm.prank(ALICE);
         uint256 refunded = launcher.refund(verseId);
 
-        (, bool isRefunded,) = launcher.userGenesisData(verseId, ALICE);
+        (, bool isRefunded,) = _concrete().userGenesisData(verseId, ALICE);
         assertEq(refunded, 5 ether, "refunded");
         assertTrue(isRefunded, "isRefunded");
         assertEq(uAsset.balanceOf(ALICE), 5 ether, "alice uAsset");
@@ -2738,7 +2629,7 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.currentStage = IMemeverseLauncher.Stage.Refund;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseLauncher.InvalidClaim.selector);
@@ -2752,10 +2643,10 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setLockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.currentStage = IMemeverseLauncher.Stage.Refund;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setUserPreorderDataForTest(verseId, ALICE, 5 ether, 0, false);
+        _writeMemeverse(verseId, verse);
+        setUserPreorderDataForTest(launcherProxy, verseId, ALICE, 5 ether, 0, false);
         uAsset.mint(address(launcher), 5 ether);
-        launcher.pause();
+        _concrete().pause();
 
         vm.expectEmit(true, true, false, true, address(launcher));
         emit RefundPreorder(verseId, ALICE, 5 ether);
@@ -2763,7 +2654,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         vm.prank(ALICE);
         uint256 refunded = launcher.refundPreorder(verseId);
 
-        (uint256 funds, uint256 claimedMemecoin, bool isRefunded) = launcher.userPreorderData(verseId, ALICE);
+        (uint256 funds, uint256 claimedMemecoin, bool isRefunded) = _concrete().userPreorderData(verseId, ALICE);
         assertEq(refunded, 5 ether, "refunded");
         assertEq(funds, 5 ether, "funds");
         assertEq(claimedMemecoin, 0, "claimed");
@@ -2787,13 +2678,13 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testChangeStage_PreservesLockedAuxiliaryFeesForNormalClaimsAfterUnlock() external {
         uint256 verseId = 28;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), 0, 0);
         if (address(liquidProof) < address(uAsset)) {
@@ -2810,7 +2701,7 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         assertEq(uint256(launcher.changeStage(verseId)), uint256(IMemeverseLauncher.Stage.Unlocked), "unlocked");
 
-        (uint256 accUAssetFee, uint256 accPTFee) = launcher.normalFeeStates(verseId);
+        (uint256 accUAssetFee, uint256 accPTFee) = _concrete().normalFeeStates(verseId);
         assertEq(accUAssetFee, 6 ether, "locked normal uAsset fee kept");
         assertEq(accPTFee, 9 ether, "locked normal pt fee kept");
 
@@ -2824,8 +2715,8 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testChangeStage_CapturesLargeAuxiliaryFeesWithoutOverflow() external {
         uint256 verseId = 41;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 1);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 1, false, false);
+        setGenesisFundForTest(launcherProxy, verseId, 1);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 1, false, false);
 
         uint256 leveragedDebt = uint256(1) << 120;
         uint256 feeAmount = uint256(1) << 70;
@@ -2833,7 +2724,7 @@ contract MemeverseLauncherLifecycleTest is Test {
 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp - 1);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), 0, 0);
         if (address(liquidProof) < address(uAsset)) {
@@ -2856,11 +2747,11 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 expectedNormalUAssetFee = feeAmount - expectedGovUAssetFee;
         uint256 expectedNormalPTFee = feeAmount - expectedGovPTFee;
 
-        (uint256 accUAssetFee, uint256 accPTFee) = launcher.normalFeeStates(verseId);
+        (uint256 accUAssetFee, uint256 accPTFee) = _concrete().normalFeeStates(verseId);
         assertEq(accUAssetFee, expectedNormalUAssetFee, "normal uAsset fee");
         assertEq(accPTFee, expectedNormalPTFee, "normal pt fee");
 
-        (uint256 pendingUAssetFee, uint256 pendingPTFee) = launcher.pendingAuxiliaryGovFeeStates(verseId);
+        (uint256 pendingUAssetFee, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertEq(pendingUAssetFee, expectedGovUAssetFee, "pending gov uAsset fee");
         assertEq(pendingPTFee, expectedGovPTFee, "pending gov pt fee");
     }
@@ -2869,9 +2760,9 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 32;
         _setUnlockedVerse(verseId);
         splitter.setSettled(true);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setNormalFeeStateForTest(verseId, 10 ether, 20 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, 10 ether, 20 ether);
         uAsset.mint(address(launcher), 10 ether);
         pt.mint(address(launcher), 20 ether);
 
@@ -2892,9 +2783,9 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 verseId = 46;
         _setUnlockedVerse(verseId);
         splitter.setSettled(false);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setNormalFeeStateForTest(verseId, 10 ether, 20 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, 10 ether, 20 ether);
         uAsset.mint(address(launcher), 10 ether);
         pt.mint(address(launcher), 20 ether);
 
@@ -2915,16 +2806,16 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setUnlockedVerse(verseId);
         splitter.setSettled(true);
         splitter.setPreviewPTToUAssetResult(4 ether);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setNormalFeeStateForTest(verseId, 10 ether, 20 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, 10 ether, 20 ether);
         uAsset.mint(address(launcher), 10 ether);
         pt.mint(address(launcher), 20 ether);
 
         ClaimNormalFeesReenterer reenterer =
             new ClaimNormalFeesReenterer(launcher, IERC20(address(uAsset)), IERC20(address(pt)), verseId);
         splitter.setClaimNormalFeesReentry(address(reenterer));
-        launcher.setUserGenesisDataForTest(verseId, address(reenterer), 24 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, verseId, address(reenterer), 24 ether, false, false);
 
         (uint256 claimedUAssetFee, uint256 claimedPTFee) = reenterer.claimNormalFees();
 
@@ -2939,10 +2830,10 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setUnlockedVerse(verseId);
         splitter.setSettled(true);
         splitter.setPreviewPTToUAssetResult(4 ether);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setNormalFeeStateForTest(verseId, 10 ether, 20 ether);
-        launcher.setTotalNormalClaimableYTForTest(verseId, 60 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, 10 ether, 20 ether);
+        setTotalNormalClaimableYTForTest(launcherProxy, verseId, 60 ether);
         uAsset.mint(address(launcher), 10 ether);
         pt.mint(address(launcher), 20 ether);
         yt.mint(address(launcher), 60 ether);
@@ -2950,7 +2841,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         ClaimNormalFeesReenterer reenterer =
             new ClaimNormalFeesReenterer(launcher, IERC20(address(uAsset)), IERC20(address(pt)), verseId);
         splitter.setClaimNormalFeesReentryMode(address(reenterer), 2);
-        launcher.setUserGenesisDataForTest(verseId, address(reenterer), 24 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, verseId, address(reenterer), 24 ether, false, false);
 
         (uint256 claimedUAssetFee, uint256 claimedPTFee) = reenterer.claimNormalFees();
 
@@ -2960,7 +2851,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(claimedPTFee, 0, "pt redeemed");
         assertEq(uAsset.balanceOf(address(reenterer)), 6 ether, "uAsset claimed");
         assertEq(yt.balanceOf(address(reenterer)), 12 ether, "yt claimed");
-        assertTrue(launcher.normalYTClaimed(verseId, address(reenterer)), "yt marked claimed");
+        assertTrue(_concrete().normalYTClaimed(verseId, address(reenterer)), "yt marked claimed");
     }
 
     function testClaimNormalFees_RedeemPTCallbackCanRedeemAuxiliaryLiquidityOnce() external {
@@ -2968,11 +2859,11 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setUnlockedVerse(verseId);
         splitter.setSettled(true);
         splitter.setPreviewPTToUAssetResult(4 ether);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setNormalFeeStateForTest(verseId, 10 ether, 20 ether);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
-        launcher.setBootstrapResidualClaimsForTest(verseId, 25 ether, 10 ether, 0, 0);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, 10 ether, 20 ether);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
+        setBootstrapResidualClaimsForTest(launcherProxy, verseId, 25 ether, 10 ether, 0, 0);
         uAsset.mint(address(launcher), 10 ether);
         pt.mint(address(launcher), 30 ether);
         liquidProof.mint(address(launcher), 25 ether);
@@ -2983,7 +2874,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         ClaimNormalFeesReenterer reenterer =
             new ClaimNormalFeesReenterer(launcher, IERC20(address(uAsset)), IERC20(address(pt)), verseId);
         splitter.setClaimNormalFeesReentryMode(address(reenterer), 3);
-        launcher.setUserGenesisDataForTest(verseId, address(reenterer), 24 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, verseId, address(reenterer), 24 ether, false, false);
 
         (uint256 claimedUAssetFee, uint256 claimedPTFee) = reenterer.claimNormalFees();
 
@@ -2997,7 +2888,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(ptPolLp.balanceOf(address(reenterer)), 18 ether, "pt/pol lp claimed");
         assertEq(liquidProof.balanceOf(address(reenterer)), 5 ether, "pol residual claimed");
         assertEq(pt.balanceOf(address(reenterer)), 2 ether, "pt residual claimed");
-        (,, bool isRedeemed) = launcher.userGenesisData(verseId, address(reenterer));
+        (,, bool isRedeemed) = _concrete().userGenesisData(verseId, address(reenterer));
         assertTrue(isRedeemed, "user marked redeemed");
     }
 
@@ -3006,9 +2897,9 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setUnlockedVerse(verseId);
         splitter.setSettled(true);
         splitter.setPreviewPTToUAssetResult(0);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setNormalFeeStateForTest(verseId, 10 ether, 5);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, 10 ether, 5);
         uAsset.mint(address(launcher), 10 ether);
         pt.mint(address(launcher), 5);
 
@@ -3022,7 +2913,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uAssetAmount, 2 ether, "uAsset still claimable");
         assertEq(ptAmount, 0, "pt dust not reported in return");
         assertEq(uAsset.balanceOf(ALICE), 2 ether, "alice uAsset");
-        (, uint256 claimedPTFee) = launcher.userNormalFeeClaims(verseId, ALICE);
+        (, uint256 claimedPTFee) = _concrete().userNormalFeeClaims(verseId, ALICE);
         assertEq(claimedPTFee, 0, "pt entitlement stays pending for self-heal");
     }
 
@@ -3031,9 +2922,9 @@ contract MemeverseLauncherLifecycleTest is Test {
         uint256 largeFee = uint256(type(uint128).max) + 3;
         _setUnlockedVerse(verseId);
         splitter.setSettled(false);
-        launcher.setGenesisFundForTest(verseId, type(uint128).max);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, type(uint128).max, false, false);
-        launcher.setNormalFeeStateForTest(verseId, largeFee, largeFee);
+        setGenesisFundForTest(launcherProxy, verseId, type(uint128).max);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, type(uint128).max, false, false);
+        setNormalFeeStateForTest(launcherProxy, verseId, largeFee, largeFee);
         uAsset.mint(address(launcher), largeFee);
         pt.mint(address(launcher), largeFee);
 
@@ -3086,7 +2977,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         router.setClaimQuote(address(remoteMemecoin), address(remoteUAsset), address(launcher), 9 ether, 4 ether);
@@ -3125,7 +3016,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         router.setClaimQuote(address(remoteMemecoin), address(remoteUAsset), address(launcher), 9 ether, 4 ether);
@@ -3154,7 +3045,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         if (address(remoteMemecoin) < address(remoteUAsset)) {
@@ -3187,7 +3078,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
         registry.setEndpoint(202, 302);
 
         if (address(remoteMemecoin) < address(remoteUAsset)) {
@@ -3250,8 +3141,8 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        _writeMemeverse(verseId, verse);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
         polend.setPreRedeemPTFeeBacking(2 ether);
         registry.setEndpoint(202, 302);
@@ -3291,14 +3182,14 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Locked;
         verse.omnichainIds = new uint32[](1);
         verse.omnichainIds[0] = 202;
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setPendingAuxiliaryGovFeeForTest(verseId, 3 ether, 1);
+        _writeMemeverse(verseId, verse);
+        setPendingAuxiliaryGovFeeForTest(launcherProxy, verseId, 3 ether, 1);
         registry.setEndpoint(202, 302);
         remoteUAsset.setQuoteFee(0.15 ether);
 
         launcher.redeemAndDistributeFees{value: 0.15 ether}(verseId, REWARD_RECEIVER);
 
-        (uint256 pendingUAssetFee, uint256 pendingPTFee) = launcher.pendingAuxiliaryGovFeeStates(verseId);
+        (uint256 pendingUAssetFee, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertEq(pendingUAssetFee, 0, "uAsset pending cleared");
         assertEq(pendingPTFee, 0, "pt pending consumed from current redemption path");
         assertEq(remoteUAsset.sendCallCount(), 1, "uAsset sent");
@@ -3308,7 +3199,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAndDistributeFees_LocalPathPreRedeemsLockedPTFeeAsUAsset() external {
         uint256 verseId = 31;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
         polend.setTotalLeveragedDebt(verseId, 40 ether);
         polend.setPreRedeemPTFeeBacking(2 ether);
 
@@ -3335,15 +3226,15 @@ contract MemeverseLauncherLifecycleTest is Test {
         (, uint8 tokenType, uint256 composedAmount) = abi.decode(dispatcher.lastMessage(), (address, uint8, uint256));
         assertEq(tokenType, uint8(IMemeverseOFTEnum.TokenType.UASSET), "compose token type");
         assertEq(composedAmount, 2 ether, "composed uAsset backing");
-        (, uint256 pendingPTFee) = launcher.pendingAuxiliaryGovFeeStates(verseId);
+        (, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertEq(pendingPTFee, 0, "pending pt cleared after preRedeem");
     }
 
     function testRedeemAndDistributeFees_LocalPathLeavesZeroBackingPTDustPending() external {
         uint256 verseId = 36;
         _setLockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 100 ether);
-        launcher.setPendingAuxiliaryGovFeeForTest(verseId, 3 ether, 1);
+        setGenesisFundForTest(launcherProxy, verseId, 100 ether);
+        setPendingAuxiliaryGovFeeForTest(launcherProxy, verseId, 3 ether, 1);
         splitter.setPreviewPTToUAssetResult(0);
         uAsset.mint(address(launcher), 3 ether);
 
@@ -3357,7 +3248,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(executorReward, 0, "executorReward");
         assertEq(uAsset.balanceOf(address(dispatcher)), 3 ether, "uAsset to dispatcher");
         assertEq(dispatcher.composeCallCount(), 1, "compose called");
-        (uint256 pendingUAssetFee, uint256 pendingPTFee) = launcher.pendingAuxiliaryGovFeeStates(verseId);
+        (uint256 pendingUAssetFee, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertEq(pendingUAssetFee, 0, "uAsset pending cleared");
         assertEq(pendingPTFee, 1, "pt pending unchanged");
     }
@@ -3365,7 +3256,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAndDistributeFees_AfterUnlockRedeemsPendingPTFeeThroughSplitter() external {
         uint256 verseId = 30;
         _setUnlockedVerse(verseId);
-        launcher.setPendingAuxiliaryGovFeeForTest(verseId, 0, 7 ether);
+        setPendingAuxiliaryGovFeeForTest(launcherProxy, verseId, 0, 7 ether);
         pt.mint(address(launcher), 7 ether);
 
         launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
@@ -3379,7 +3270,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uAsset.balanceOf(address(0xCAFE)), 0, "no direct uAsset to governor");
         assertEq(uAsset.balanceOf(address(dispatcher)), 7 ether, "uAsset to dispatcher");
         assertEq(dispatcher.composeCallCount(), 1, "compose called");
-        (, uint256 pendingPTFee) = launcher.pendingAuxiliaryGovFeeStates(verseId);
+        (, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertEq(pendingPTFee, 0, "pending pt cleared after redeem");
     }
 
@@ -3583,7 +3474,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         router.setRemoveLiquidityResult(address(memecoin), address(uAsset), 3 ether, 5 ether);
         memecoinLp.mint(address(launcher), 10 ether);
         liquidProof.mint(address(splitter), 10 ether);
-        launcher.pause();
+        _concrete().pause();
 
         vm.prank(address(splitter));
         uint256 amountInLP = launcher.redeemMemecoinLiquidity(verseId, 4 ether, true);
@@ -3599,7 +3490,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         router.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
         memecoinLp.mint(address(launcher), 10 ether);
         liquidProof.mint(ALICE, 10 ether);
-        launcher.pause();
+        _concrete().pause();
 
         vm.prank(ALICE);
         uint256 amountInLP = launcher.redeemMemecoinLiquidity(verseId, 4 ether, false);
@@ -3616,7 +3507,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setUnlockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         MockERC20 memecoinLp = new MockERC20("MEME-LP", "MEME-LP", 18);
         router.setLpToken(address(memecoin), address(uAsset), address(memecoinLp));
@@ -3650,7 +3541,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAuxiliaryLiquidity_RevertsWhenNotUnlocked() external {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 1 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 1 ether, false, false);
 
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseLauncher.NotUnlockedStage.selector);
@@ -3662,7 +3553,7 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAuxiliaryLiquidity_RevertsWhenAlreadyRedeemed() external {
         uint256 verseId = 1;
         _setUnlockedVerse(verseId);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 1 ether, false, true);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 1 ether, false, true);
 
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseLauncher.InvalidClaim.selector);
@@ -3674,9 +3565,9 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAuxiliaryLiquidity_TransfersShareAcrossAuxiliaryPools() external {
         uint256 verseId = 1;
         _setUnlockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
@@ -3685,7 +3576,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) =
             launcher.redeemAuxiliaryLiquidity(verseId);
 
-        (, bool isRefunded, bool isRedeemed) = launcher.userGenesisData(verseId, ALICE);
+        (, bool isRefunded, bool isRedeemed) = _concrete().userGenesisData(verseId, ALICE);
         assertEq(polUAssetLpAmount, 12 ether, "pol/uAsset lp amount");
         assertEq(ptUAssetLpAmount, 6 ether, "pt/uAsset lp amount");
         assertEq(ptPolLpAmount, 18 ether, "pt/pol lp amount");
@@ -3698,7 +3589,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         assertEq(uint256(router.lastRemoveLiquidityAmount(address(pt), address(uAsset))), 0, "no pt/uAsset unwrap");
         assertEq(uint256(router.lastRemoveLiquidityAmount(address(pt), address(liquidProof))), 0, "no pt/pol unwrap");
         (uint256 remainingPolUAssetLp, uint256 remainingPtUAssetLp, uint256 remainingPtPolLp) =
-            launcher.auxiliaryLiquidities(verseId);
+            _concrete().auxiliaryLiquidities(verseId);
         assertEq(remainingPolUAssetLp, 60 ether, "recorded pol/uAsset lp unchanged");
         assertEq(remainingPtUAssetLp, 30 ether, "recorded pt/uAsset lp unchanged");
         assertEq(remainingPtPolLp, 90 ether, "recorded pt/pol lp unchanged");
@@ -3709,16 +3600,16 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAuxiliaryLiquidity_UserCanRedeemLpWhenCalledThroughRouterAddress() external {
         uint256 verseId = 23;
         _setUnlockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, address(router), 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, address(router), 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
 
         (uint256 polUAssetLpAmount,,) = router.redeemAuxiliary(address(launcher), verseId);
 
-        (,, bool isRedeemed) = launcher.userGenesisData(verseId, address(router));
+        (,, bool isRedeemed) = _concrete().userGenesisData(verseId, address(router));
         assertEq(polUAssetLpAmount, 12 ether, "lp amount");
         assertEq(polUAssetLp.balanceOf(address(router)), 12 ether, "router lp");
         assertTrue(isRedeemed, "redeemed");
@@ -3727,9 +3618,9 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAuxiliaryLiquidity_DoesNotCallRouterRemoveLiquidity() external {
         uint256 verseId = 24;
         _setUnlockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
@@ -3750,10 +3641,10 @@ contract MemeverseLauncherLifecycleTest is Test {
         _setUnlockedVerse(verseId);
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(verseId);
         verse.unlockTime = uint128(block.timestamp);
-        launcher.setMemeverseForTest(verseId, verse);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
+        _writeMemeverse(verseId, verse);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
@@ -3767,10 +3658,10 @@ contract MemeverseLauncherLifecycleTest is Test {
     function testRedeemAuxiliaryLiquidity_DistributesNormalBootstrapResiduals() external {
         uint256 verseId = 23;
         _setUnlockedVerse(verseId);
-        launcher.setGenesisFundForTest(verseId, 120 ether);
-        launcher.setUserGenesisDataForTest(verseId, ALICE, 24 ether, false, false);
-        launcher.setAuxiliaryLiquiditiesForTest(verseId, 60 ether, 30 ether, 90 ether);
-        launcher.setBootstrapResidualClaimsForTest(verseId, 25 ether, 10 ether, 0, 0);
+        setGenesisFundForTest(launcherProxy, verseId, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, verseId, ALICE, 24 ether, false, false);
+        setAuxiliaryLiquiditiesForTest(launcherProxy, verseId, 60 ether, 30 ether, 90 ether);
+        setBootstrapResidualClaimsForTest(launcherProxy, verseId, 25 ether, 10 ether, 0, 0);
         polUAssetLp.mint(address(launcher), 60 ether);
         ptUAssetLp.mint(address(launcher), 30 ether);
         ptPolLp.mint(address(launcher), 90 ether);
@@ -3818,7 +3709,7 @@ contract MemeverseLauncherLifecycleTest is Test {
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         verse.uAsset = address(uAsset);
         verse.memecoin = address(memecoin);
-        launcher.setMemeverseForTest(verseId, verse);
+        _writeMemeverse(verseId, verse);
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
         launcher.mintPOLToken(verseId, 1 ether, 1 ether, 0, 0, 0, block.timestamp);

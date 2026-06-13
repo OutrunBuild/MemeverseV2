@@ -11,7 +11,8 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
-import {MemeverseLauncherTestBase} from "./helpers/MemeverseLauncherTestBase.sol";
+import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
+import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
@@ -135,45 +136,8 @@ contract MockPOLSplitterForPreorderInvariant {
     }
 }
 
-contract InspectableMemeverseLauncher is MemeverseLauncherTestBase {
-    function createProxy(
-        address _owner,
-        address _localLzEndpoint,
-        address _memeverseRegistrar,
-        address _memeverseProxyDeployer,
-        address _yieldDispatcher,
-        address _lzEndpointRegistry,
-        address _polend,
-        address _polSplitter,
-        uint256 _executorRewardRate,
-        uint128 _oftReceiveGasLimit,
-        uint128 _yieldDispatcherGasLimit,
-        uint256 _preorderCapRatio,
-        uint256 _preorderVestingDuration
-    ) external returns (InspectableMemeverseLauncher) {
-        return InspectableMemeverseLauncher(
-            address(
-                _createProxy(
-                    _owner,
-                    _localLzEndpoint,
-                    _memeverseRegistrar,
-                    _memeverseProxyDeployer,
-                    _yieldDispatcher,
-                    _lzEndpointRegistry,
-                    _polend,
-                    _polSplitter,
-                    _executorRewardRate,
-                    _oftReceiveGasLimit,
-                    _yieldDispatcherGasLimit,
-                    _preorderCapRatio,
-                    _preorderVestingDuration
-                )
-            )
-        );
-    }
-}
 
-abstract contract MemeverseLauncherPreorderInvariantBase is Test {
+abstract contract MemeverseLauncherPreorderInvariantBase is Test, MemeverseLauncherTestHelper {
     address internal constant REGISTRAR = address(0xBEEF);
     uint32 internal constant REMOTE_GOV_CHAIN_ID = 202;
     uint32 internal constant REMOTE_EID = 302;
@@ -187,7 +151,7 @@ abstract contract MemeverseLauncherPreorderInvariantBase is Test {
         actors.push(charlie);
     }
 
-    function _registerVerse(InspectableMemeverseLauncher launcher, address uAsset) internal {
+    function _registerVerse(IMemeverseLauncher launcher, address uAsset) internal {
         uint32[] memory omnichainIds = new uint32[](1);
         omnichainIds[0] = REMOTE_GOV_CHAIN_ID;
 
@@ -205,17 +169,19 @@ abstract contract MemeverseLauncherPreorderInvariantBase is Test {
     }
 }
 
-contract PreorderSuccessHandler is Test {
+contract PreorderSuccessHandler is Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
 
-    InspectableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
+    address internal immutable launcherProxy;
     MockERC20 internal immutable uAsset;
     address[] internal actors;
     uint256 public recordedMemecoinDust;
     bool public memecoinDustRecorded;
 
-    constructor(InspectableMemeverseLauncher _launcher, MockERC20 _uAsset, address[] memory _actors) {
+    constructor(IMemeverseLauncher _launcher, address _launcherProxy, MockERC20 _uAsset, address[] memory _actors) {
         launcher = _launcher;
+        launcherProxy = _launcherProxy;
         uAsset = _uAsset;
         actors = _actors;
     }
@@ -265,7 +231,7 @@ contract PreorderSuccessHandler is Test {
         try launcher.changeStage(VERSE_ID) {
             if (!memecoinDustRecorded) {
                 (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp) =
-                    launcher.getPreorderStateForTest(VERSE_ID);
+                    getPreorderStateForTest(launcherProxy, VERSE_ID);
                 if (settlementTimestamp != 0 && totalFunds != 0) {
                     IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(VERSE_ID);
                     uint256 launcherMemecoinBalance =
@@ -290,15 +256,17 @@ contract PreorderSuccessHandler is Test {
     }
 }
 
-contract PreorderRefundHandler is Test {
+contract PreorderRefundHandler is Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
 
-    InspectableMemeverseLauncher internal immutable launcher;
+    IMemeverseLauncher internal immutable launcher;
+    address internal immutable launcherProxy;
     MockERC20 internal immutable uAsset;
     address[] internal actors;
 
-    constructor(InspectableMemeverseLauncher _launcher, MockERC20 _uAsset, address[] memory _actors) {
+    constructor(IMemeverseLauncher _launcher, address _launcherProxy, MockERC20 _uAsset, address[] memory _actors) {
         launcher = _launcher;
+        launcherProxy = _launcherProxy;
         uAsset = _uAsset;
         actors = _actors;
     }
@@ -377,7 +345,8 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
     MockPoolManagerForRouterTest internal manager;
     TestableMemeverseUniswapHookForLauncherIntegration internal hook;
     MemeverseSwapRouter internal router;
-    InspectableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockLauncherIntegrationProxyDeployer internal proxyDeployer;
     MockLauncherIntegrationLzEndpointRegistry internal registry;
     MockPOLendForPreorderInvariant internal polend;
@@ -399,22 +368,26 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForPreorderInvariant();
         splitter = new MockPOLSplitterForPreorderInvariant(address(pt), address(yt));
-        launcher = (new InspectableMemeverseLauncher())
-        .createProxy(
-            address(this),
-            address(0x1111),
-            REGISTRAR,
-            address(0x3333),
-            address(0x4444),
-            address(0x5555),
-            address(polend),
-            address(splitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this),
+                address(0x1111),
+                REGISTRAR,
+                address(0x3333),
+                address(0x4444),
+                address(0x5555),
+                address(polend),
+                address(splitter),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
         MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
         address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
@@ -468,16 +441,17 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
         vm.prank(ALICE);
         launcher.genesis(VERSE_ID, 10 ether, ALICE);
 
-        handler = new PreorderSuccessHandler(launcher, uAsset, actors);
+        handler = new PreorderSuccessHandler(launcher, launcherProxy, uAsset, actors);
         targetContract(address(handler));
     }
 
     /// @notice Test helper for invariant_genesisAccountingMatchesUserBalances.
     function invariant_genesisAccountingMatchesUserBalances() external view {
         uint256 totalNormalFunds = launcher.totalNormalFunds(VERSE_ID);
+        MemeverseLauncher launcherImpl = MemeverseLauncher(launcherProxy);
         uint256 totalUserGenesisFunds;
         for (uint256 i; i < actors.length; ++i) {
-            (uint256 genesisFund,,) = launcher.userGenesisData(VERSE_ID, actors[i]);
+            (uint256 genesisFund,,) = launcherImpl.userGenesisData(VERSE_ID, actors[i]);
             totalUserGenesisFunds += genesisFund;
         }
         assertEq(totalUserGenesisFunds, uint256(totalNormalFunds), "genesis sum");
@@ -485,11 +459,12 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
 
     /// @notice Test helper for invariant_preorderCapacityNeverExceeded.
     function invariant_preorderCapacityNeverExceeded() external view {
+        MemeverseLauncher launcherImpl = MemeverseLauncher(launcherProxy);
         uint256 totalNormalFunds_ = launcher.totalNormalFunds(VERSE_ID);
         uint256 leveragedDebt = polend.getTotalLeveragedDebt(VERSE_ID);
-        (uint256 totalFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);
+        (uint256 totalFunds,,) = getPreorderStateForTest(launcherProxy, VERSE_ID);
         uint256 preorderBase = (totalNormalFunds_ + leveragedDebt) * 7 / 10;
-        uint256 maxCapacity = preorderBase * launcher.preorderCapRatio() / launcher.RATIO();
+        uint256 maxCapacity = preorderBase * launcherImpl.preorderCapRatio() / launcherImpl.RATIO();
 
         assertLe(totalFunds, maxCapacity, "preorder cap");
         assertEq(totalFunds + launcher.previewPreorderCapacity(VERSE_ID), maxCapacity, "preorder capacity accounting");
@@ -497,19 +472,21 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
 
     /// @notice Test helper for invariant_claimsNeverExceedEntitlement.
     function invariant_claimsNeverExceedEntitlement() external view {
+        MemeverseLauncher launcherImpl = MemeverseLauncher(launcherProxy);
         (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp) =
-            launcher.getPreorderStateForTest(VERSE_ID);
+            getPreorderStateForTest(launcherProxy, VERSE_ID);
         IMemeverseLauncher.Stage stage = launcher.getStageByVerseId(VERSE_ID);
         bool preorderClaimPreviewAvailable = stage >= IMemeverseLauncher.Stage.Locked;
         uint256 totalClaimed;
 
         for (uint256 i; i < actors.length; ++i) {
-            (uint256 funds, uint256 claimedMemecoin,) = launcher.userPreorderData(VERSE_ID, actors[i]);
+            (uint256 funds, uint256 claimedMemecoin,) = launcherImpl.userPreorderData(VERSE_ID, actors[i]);
             uint256 purchasedMemecoin = totalFunds == 0 ? 0 : FullMath.mulDiv(settledMemecoin, funds, totalFunds);
             assertLe(claimedMemecoin, purchasedMemecoin, "claimed exceeds entitlement");
 
-            uint256 claimable =
-                preorderClaimPreviewAvailable ? launcher.claimablePreorderMemecoinForTest(VERSE_ID, actors[i]) : 0;
+            uint256 claimable = preorderClaimPreviewAvailable
+                ? claimablePreorderMemecoinForTest(launcherProxy, VERSE_ID, actors[i])
+                : 0;
             assertLe(claimable + claimedMemecoin, purchasedMemecoin, "unlocked exceeds entitlement");
 
             totalClaimed += claimedMemecoin;
@@ -535,7 +512,8 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
     address internal constant BOB = address(0xB0B);
     address internal constant CHARLIE = address(0xCA11E);
 
-    InspectableMemeverseLauncher internal launcher;
+    IMemeverseLauncher internal launcher;
+    address internal launcherProxy;
     MockLauncherIntegrationProxyDeployer internal proxyDeployer;
     MockLauncherIntegrationLzEndpointRegistry internal registry;
     MockPOLendForPreorderInvariant internal polend;
@@ -556,22 +534,26 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
         yt = new MockERC20("YT", "YT", 18);
         polend = new MockPOLendForPreorderInvariant();
         splitter = new MockPOLSplitterForPreorderInvariant(address(pt), address(yt));
-        launcher = (new InspectableMemeverseLauncher())
-        .createProxy(
-            address(this),
-            address(0x1111),
-            REGISTRAR,
-            address(0x3333),
-            address(0x4444),
-            address(0x5555),
-            address(polend),
-            address(splitter),
-            25,
-            115_000,
-            135_000,
-            2_500,
-            7 days
-        );
+        MemeverseLauncher impl = new MemeverseLauncher();
+        launcherProxy = address(new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(MemeverseLauncher.initialize, (
+                address(this),
+                address(0x1111),
+                REGISTRAR,
+                address(0x3333),
+                address(0x4444),
+                address(0x5555),
+                address(polend),
+                address(splitter),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                7 days
+            ))
+        ));
+        launcher = IMemeverseLauncher(launcherProxy);
 
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
@@ -592,12 +574,13 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
         vm.prank(CHARLIE);
         uAsset.approve(address(launcher), type(uint256).max);
 
-        handler = new PreorderRefundHandler(launcher, uAsset, actors);
+        handler = new PreorderRefundHandler(launcher, launcherProxy, uAsset, actors);
         targetContract(address(handler));
     }
 
     /// @notice Test helper for invariant_refundPathKeepsGenesisAccountingExact.
     function invariant_refundPathKeepsGenesisAccountingExact() external view {
+        MemeverseLauncher launcherImpl = MemeverseLauncher(launcherProxy);
         uint256 totalNormalFunds = launcher.totalNormalFunds(VERSE_ID);
         uint256 outstandingGenesis;
         uint256 outstandingPreorder;
@@ -605,8 +588,8 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
         uint256 historicalPreorder;
 
         for (uint256 i; i < actors.length; ++i) {
-            (uint256 genesisFund, bool isGenesisRefunded,) = launcher.userGenesisData(VERSE_ID, actors[i]);
-            (uint256 preorderFund,, bool isPreorderRefunded) = launcher.userPreorderData(VERSE_ID, actors[i]);
+            (uint256 genesisFund, bool isGenesisRefunded,) = launcherImpl.userGenesisData(VERSE_ID, actors[i]);
+            (uint256 preorderFund,, bool isPreorderRefunded) = launcherImpl.userPreorderData(VERSE_ID, actors[i]);
 
             historicalGenesis += genesisFund;
             historicalPreorder += preorderFund;
@@ -615,7 +598,7 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
         }
 
         assertEq(historicalGenesis, uint256(totalNormalFunds), "genesis history");
-        (uint256 totalFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);
+        (uint256 totalFunds,,) = getPreorderStateForTest(launcherProxy, VERSE_ID);
         assertEq(historicalPreorder, totalFunds, "preorder history");
         assertEq(uAsset.balanceOf(address(launcher)), outstandingGenesis + outstandingPreorder, "refund conservation");
     }
@@ -627,18 +610,19 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
             stage == IMemeverseLauncher.Stage.Genesis || stage == IMemeverseLauncher.Stage.Refund, "unexpected stage"
         );
 
-        (, uint256 settledMemecoin, uint40 settlementTimestamp) = launcher.getPreorderStateForTest(VERSE_ID);
+        (, uint256 settledMemecoin, uint40 settlementTimestamp) = getPreorderStateForTest(launcherProxy, VERSE_ID);
         assertEq(settledMemecoin, 0, "refund path settled memecoin");
         assertEq(settlementTimestamp, 0, "refund path settlement timestamp");
     }
 
     /// @notice Test helper for invariant_refundPathStillRespectsPreorderCap.
     function invariant_refundPathStillRespectsPreorderCap() external view {
+        MemeverseLauncher launcherImpl = MemeverseLauncher(launcherProxy);
         uint256 totalNormalFunds_ = launcher.totalNormalFunds(VERSE_ID);
         uint256 leveragedDebt = polend.getTotalLeveragedDebt(VERSE_ID);
-        (uint256 totalFunds,,) = launcher.getPreorderStateForTest(VERSE_ID);
+        (uint256 totalFunds,,) = getPreorderStateForTest(launcherProxy, VERSE_ID);
         uint256 preorderBase = (totalNormalFunds_ + leveragedDebt) * 7 / 10;
-        uint256 maxCapacity = preorderBase * launcher.preorderCapRatio() / launcher.RATIO();
+        uint256 maxCapacity = preorderBase * launcherImpl.preorderCapRatio() / launcherImpl.RATIO();
 
         assertLe(totalFunds, maxCapacity, "refund preorder cap");
         assertEq(totalFunds + launcher.previewPreorderCapacity(VERSE_ID), maxCapacity, "refund preorder capacity");
