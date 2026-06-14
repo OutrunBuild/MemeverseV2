@@ -2,7 +2,7 @@
 
 - **Verse**：一次 memecoin 启动实例，包含注册信息、生命周期状态和资金账本。
 - **uniqueId / verseId**：verse 的唯一标识；注册中心生成，launcher 作为主键使用。
-- **UPT**：Genesis 与部分结算路径使用的资金 token。
+- **uAsset**：Genesis、preorder 与结算路径使用的资金 token；每个 verse 注册时确定，须在 RegistrationCenter.supportedUAssets 白名单内。
 - **Memecoin**：每个 verse 的主代币，可由 launcher 按规则 mint。
 - **POL (MemePol)**：流动性权益代币，代表与 memecoin 启动相关的权益与退出凭证。
 - **Genesis**：募资阶段，允许 `genesis` 与 `preorder` 入金。
@@ -11,7 +11,7 @@
 - **Locked**：募资成功后、流动性锁定阶段；允许领取初始 YT、加池 mint POL、分发 fee。
 - **Unlocked**：当前实现中锁定结束后的退出阶段；需在 `unlockTime` 之后实际执行 `changeStage()` 才进入，赎回可用，但受保护公开 swap 要等该次迁移时间加上固定 `24 hours` 的 `UNLOCK_PROTECTION_WINDOW` 后才恢复。
 - **post-unlock liquidity protection period**：unlock 后的受保护退出窗口；其目标是保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供统一结算窗口。
-- **Preorder**：Genesis 内的额外 UPT 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
+- **Preorder**：Genesis 内的额外 uAsset 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
 - **aggregate genesis funds**：成功部署资金口径，等于 `totalNormalFunds + totalLeveragedDebt`，不包含 preorder，并受 `type(uint128).max` 上限约束。
 - **leveragedDebtFactor**：POLend 杠杆债务系数；上限为 `uint128.max * 1e18`，这是技术有效上限，不是经济最优值。
 - **launch settlement**：启动结算专用 swap 通道，走显式 `Launcher -> Hook.executeLaunchSettlement(...)` 路径，固定 1% 总费。
@@ -19,8 +19,8 @@
 - **LP token**：Hook 为每个池发行的流动性份额代币。
 - **main pool LP / POL**：`memecoin/uAsset` 主池 LP token，也是 POL。
 - **auxiliary LP**：三个辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` 的 LP token；普通创世参与者在 `Unlocked` 后按份额领取。
-- **executorRewardRate**：`UPTFee` 中给执行者的比例（基数 10000）。
-- **Governor**：DAO 治理与 treasury 合约，接收 UPT 国库收入。
+- **executorRewardRate**：主池 `uAsset` 费中给执行者的比例（基数 10000）。
+- **Governor**：DAO 治理与 treasury 合约，接收 uAsset 国库收入。
 - **Yield Vault**：memecoin 收益池，接收并累计 memecoin 收益。
 - **Governance Cycle Incentivizer**：治理周期奖励账本与分发模块。
 - **YieldDispatcher**：跨链/本链收益路由器，把 token 分发到 Governor 或 Yield Vault。
