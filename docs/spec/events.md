@@ -37,7 +37,7 @@
 
 ### 2.2 POLend / POLSplitter 目标事件面
 
-本节描述 [docs/spec/polend/polend.md](polend/polend.md) 要求的目标事件面。若当前代码未 emit，对索引器而言是 current vs target gap，不能标成 `[代码已证]`。
+本节描述 [docs/spec/polend/README.md](polend/README.md) 要求的目标事件面。若当前代码未 emit，对索引器而言是 current vs target gap，不能标成 `[代码已证]`。
 
 | 事件 | 触发模块 | 触发时机 | 用途 | 状态 |
 | --- | --- | --- | --- | --- |
@@ -104,7 +104,7 @@
 - POLend / POLSplitter 目标事件面大多已实现；`burnPreRedeemedBacking` 保持可调用 settle 行为，但不要求专用 emitted event。
 - Router 自身没有业务事件（swap/add/remove/permit2 路径）；链上索引主要依赖 Hook 事件与 token transfer。`[已知缺口]`
 - `changeStage` 在 `Locked` 且未到 `unlockTime` 时也会发 `ChangeStage(..., Locked)`；索引器不能仅凭事件判断“是否真的迁移”。`[已知缺口]`
-- 当前实现没有“保护窗口开始/结束”的专用阶段或专用事件，也没有 dedicated event 单独标记 `publicSwapResumeTime` 的激活或到期；索引器需要结合 stage、实际 `Locked -> Unlocked` 迁移交易时间、固定 `24 hours` 窗口与 swap 成败联合判断“unlock 后保护中”与“完全开放交易”的状态。`[已知缺口]`
+- 当前实现没有“保护窗口开始/结束”的专用阶段或专用事件，也没有 dedicated event 单独标记 `publicSwapResumeTime` 的激活或到期；索引器需要结合 stage、实际 `Locked -> Unlocked` 迁移交易时间、固定保护窗口（`UNLOCK_PROTECTION_WINDOW`，数值见 [docs/spec/verse/config-matrix.md §3](verse/config-matrix.md)）与 swap 成败联合判断“unlock 后保护中”与“完全开放交易”的状态。`[已知缺口]`
 - `SetExternalInfo` 事件携带的是本次传入数组；合约内 `communitiesMap` 为按索引覆盖，旧尾部数据可能保留，事件本身无法单独重建完整当前快照。`[已知缺口]`
 - LayerZero endpoint / PoolManager 等外部协议事件不在本仓库定义。`[未知]`
 

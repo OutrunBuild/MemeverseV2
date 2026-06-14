@@ -107,7 +107,7 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 - 若存在 preorder，则执行 launch settlement
 - 上述四池创建采用“Launcher 给出 desired budgets，Router 返回 actual execution”模型。创建是否成功以实际 spend / actual mint 为准，不以 preview/equality 为准。
 - `memecoin/uAsset` 主池只记录实际执行后真正进入主池的资金与实际 mint 出的 `POL`；该结果同时决定 PT backing ratio 的记录口径。
-- 辅助池 bootstrap 若出现 underspend，`Genesis -> Locked` 迁移按辅助池 actual spend 继续记账；协议不为这类 auxiliary underspend 额外定义 bootstrap backing / equality guard，也不依赖单独文档化的 rounding-envelope accept/reject 规则。
+- 辅助池 bootstrap 的 auxiliary underspend 处置（actual spend 记账、不施加独立 bootstrap backing / equality guard、不依赖独立 rounding-envelope 规则）见 [docs/spec/invariants.md](../invariants.md) INV-04。
 
 这一时刻是“资产、池子、治理与收益组件同时就位”的分水岭。
 
@@ -184,13 +184,9 @@ V2 当前已实现的启动保护是：
 - POLend leveraged residual claims
 - 按产品定义允许的兼容性补池行为
 
-当前实现的解锁迁移在同一笔 `changeStage()` 交易内先完成 settlement 调用，再写入 hook 保护时间：
+当前实现的解锁迁移同交易 settlement 顺序与公开 swap 恢复时间写入约束见 [docs/spec/invariants.md](../invariants.md) INV-07A（窗口存在性论证见 INV-12；数值见 [docs/spec/verse/config-matrix.md §3](config-matrix.md)）。迁移步骤为：`POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`、hook 的 `publicSwapResumeTime` 写入；hook-side public swap protection 在该写入后生效；不声明 settlement callback window 由 launcher-side transient gate 或已生效的公开 swap block 保护。
 
-- `POLSplitter.settle(...)`
-- 可选 `POLend.executeGlobalSettlement(...)`
-- hook 的 `publicSwapResumeTime` 写入；hook-side public swap protection 在该写入后生效
 - 进入 `Unlocked` 后，普通赎回可用性由阶段与各函数自身条件决定；公开 swap 仍由 hook 的保护时间单独阻断。
-- 不声明 settlement callback window 由 launcher-side transient gate 或已生效的公开 swap block 保护。
 - bootstrap residual 的 normal share 通过 `redeemAuxiliaryLiquidity` 发放；leveraged share 通过 POLend 的 leveraged auxiliary settlement 输出发放。协议不保留一个永久 launcher bucket 来长期托管这类 residual。
 
 ### 7.3 保护窗口内必须禁止什么
@@ -204,7 +200,7 @@ V2 当前已实现的启动保护是：
 当前实现已经落地该窗口语义，但方式不是新增阶段：
 
 - verse 需先到达 `unlockTime`，然后在实际 `changeStage()` 调用里进入 `Unlocked`
-- launcher 在 settlement 调用完成后，按 `block.timestamp + 24 hours` 为受保护池写入 `publicSwapResumeTime`
+- launcher 在 settlement 调用完成后，按 `block.timestamp + UNLOCK_PROTECTION_WINDOW` 为受保护池写入 `publicSwapResumeTime`（窗口数值与配置面见 [docs/spec/verse/config-matrix.md §3](config-matrix.md)；结算顺序与保护窗口的不变量见 [docs/spec/invariants.md](../invariants.md) INV-07A 与 INV-12）
 - hook 在 `beforeSwap` 中读取该 pool-level 时间；未到期时继续拒绝受保护 pair 的公开 swap
 
 因此当前实现采用的是“阶段直接进入 `Unlocked`，但公开 swap 恢复时间锚定实际迁移调用”的实现方式。

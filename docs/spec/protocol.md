@@ -5,7 +5,7 @@
 本文档描述 MemeverseV2 “产品真相层”规则，不做逐行代码注释。
 
 规则分层（从高到低）：
-- POLend / POLSplitter 当前规则真源：[docs/spec/polend/polend.md](polend/polend.md)。
+- POLend / POLSplitter 当前规则真源：[docs/spec/polend/README.md](polend/README.md)。
 - 其他当前规则真源：`docs/spec/*.md`（含本文档）。
 - 落地证据：`src/**` 与 `test/**` 可验证行为。
 
@@ -42,7 +42,7 @@
 - Genesis 入金 token 为 uAsset；普通创世与杠杆创世资金统一汇总后按 `70/30` 拆分到主池与辅助池路径（四池模型）。
 - 部署资金口径为 `totalNormalFunds + totalLeveragedDebt`，不包含 preorder，并且成功写入后必须保持 `<= type(uint128).max`；Launcher `genesis` 在外部 uAsset 拉取前先更新普通创世账本，使 callback-capable token 重入时 POLend 读取到累计普通资金。
 - Preorder 仅在 Genesis 可入金，容量受 `preorderCapRatio` 限制。
-- POLend/POLSplitter 的四池、杠杆、PT/YT、settlement 详细规则由 [docs/spec/polend/polend.md](polend/polend.md) 管辖。
+- POLend/POLSplitter 的四池、杠杆、PT/YT、settlement 详细规则由 [docs/spec/polend/README.md](polend/README.md) 管辖。
 
 ### 4.3 阶段推进
 - `changeStage` 把 `Genesis -> Locked/Refund`，以及解锁后推进到退出阶段。
@@ -61,8 +61,8 @@
   - POL 持有人通过主池 POL burn 退出 `memecoin/uAsset` 主池权益
   - 普通创世参与者按 POLend 规则领取辅助池 LP 权益
   - 依赖 POL 全局结算窗口的上层模块（如 POL Lend）按一致基准结算
-- 当前接受的产品规则是：有效的公开 swap 恢复时刻锚定在实际 `changeStage()` 完成 `Locked -> Unlocked` 的交易时间，再加上固定 `24 hours`。
-- 当前实现把这套语义落在 `Launcher` 于解锁迁移时向 `Hook` 写入每个受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 按该时间阻断公开 swap。
+- 当前接受的产品规则是：有效的公开 swap 恢复时刻锚定在实际 `changeStage()` 完成 `Locked -> Unlocked` 的交易时间，再加上固定保护窗口（数值与配置面见 [docs/spec/verse/config-matrix.md §3](verse/config-matrix.md) `UNLOCK_PROTECTION_WINDOW`；结算顺序与保护窗口的不变量见 [docs/spec/invariants.md](invariants.md) INV-07A 与 INV-12）。
+- 当前实现把这套语义落在 `Locked -> Unlocked` 同交易 settlement 顺序 + pool-level `publicSwapResumeTime` 写入 + `hook.beforeSwap` 阻断公开 swap；机械口径见 [docs/spec/invariants.md](invariants.md) INV-07A / INV-12。
 - 保护窗口现为固定产品常量；已写入的 pool-level 恢复时间不再依赖 owner 配置。
 
 ## 5. 模块矩阵（按生命周期）
@@ -86,7 +86,7 @@
 
 ### 7.1 Swap 的启动期语义
 - `swap` 路径采用 execute-or-revert。
-- 启动期保护语义体现为 `launch fee` 衰减窗口与显式 `launch settlement` 路径（固定 `1%`）。
+- 启动期保护语义体现为 `launch fee` 衰减窗口与显式 `launch settlement` 路径（固定费率，见 [accounting.md §7.4](verse/accounting.md)）。
 - unlock 后的流动性保护则由解锁迁移时写入的 pool-level `publicSwapResumeTime` 与 `hook.beforeSwap` 实现。
 
 ### 7.2 Preorder 能力
@@ -94,7 +94,5 @@
 - 这部分属于当前用户可见行为。
 
 ### 7.3 注册时间单位
-- `MemeverseRegistrationCenter` 把 `DAY` 定义为 `180` 秒（测试常量），`durationDays` 在中心链按此单位换算。
-- `unlockTime` 由中心链按 `endTime + 365 days` 固定派生。
-- `MemeverseRegistrarAtLocal.quoteRegister` 读取 `registrationCenter.DAY()` 换算 end 时间，并使用固定 `365 days` 派生 unlock 时间。
+- 注册链路的时间权威不变量与数值见 [docs/spec/invariants.md](invariants.md) INV-11（注册时间权威）与 [docs/spec/verse/config-matrix.md §3](verse/config-matrix.md)（`DAY` / `FIXED_LOCKUP_DURATION` 等配置事实）。
 - 因此“天数”在当前实现里由 registration center 的 `DAY` 语义决定。

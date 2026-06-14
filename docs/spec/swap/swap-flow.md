@@ -29,9 +29,8 @@ flowchart TD
 
 说明：
 
-- 普通 swap 采用单路径结算。
-- 交易要么成功结算，要么整笔回退。
-- swap 栈只支持 ERC20/ERC20 pair；任一侧为 `address(0)` 立即失败。
+- 普通 swap 采用单路径结算，execute-or-revert（V10 定义见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §4）。
+- swap 栈只支持 ERC20/ERC20 pair；native 拒绝规则（V5）与收费/币种边界见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3。
 - 启动期保护通过 Hook 内的 `launch fee window` 费率逻辑体现。
 
 ---
@@ -76,7 +75,7 @@ sequenceDiagram
 
 - 这条路径不是普通用户路径。
 - 启动结算不再经过 Router，也不再依赖特殊 `hookData` marker。
-- 该路径固定总费 `1%`，不复用普通动态费结果。
+- 该路径使用固定总费（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）；caller 约束见 [docs/spec/invariants.md](../invariants.md) INV-04。不复用普通动态费结果。
 
 ---
 
@@ -92,9 +91,9 @@ flowchart TD
 
 说明：
 
-- Permit2 只改变 ERC20 资金准备方式。
+- Permit2 只改变 ERC20 资金准备方式；Permit2 入口语义（V6）见 [docs/spec/swap/permit2.md](permit2.md)。
 - 一旦资金到达 Router，后续业务语义与普通入口完全一致。
-- Permit2 不处理 native；swap 栈也不接受 `msg.value`。
+- native 拒绝（V5）见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3。
 
 ---
 
@@ -125,11 +124,8 @@ sequenceDiagram
 
 ### 5.1 Bootstrap Execution
 
-- 四池 bootstrap 的 canonical 语义是“按 desired budgets 发起，按 actual spend 结算”。
-- `memecoin/uAsset` 主池 PT backing ratio 只看主池实际 `uAsset` spend 和主池实际产出的 `POL raw amount`。
-- Launcher 的 post-bootstrap accounting 以 Router 返回的 actual spend 为准。
-- auxiliary bootstrap execution 不依赖 preview/equality、quote-padding 或 search 语义；文档不再定义 auxiliary underspend 的独立 rounding-envelope accept/reject 规则。
-- unused bootstrap `uAsset` 走 settlement dust reserve / treasury overflow path，unused bootstrap `memecoin` burn。
+- 集成契约：Router 从 Launcher 提交的 desired budgets 执行 `createPoolAndAddLiquidity(...)`，并把 actual spend / actual liquidity 返回给 Launcher 做后续 accounting（bootstrap 不返回 preview-equality 结果）。
+- 四池 bootstrap 的记账语义、`memecoin/uAsset` 主池 PT backing ratio 口径、auxiliary underspend 处置、unused bootstrap `uAsset` / `memecoin` 处置见 [docs/spec/verse/accounting.md](../verse/accounting.md) §3.2 与 [docs/spec/invariants.md](../invariants.md) INV-04；PT backing ratio 的记录与 split 操作语义 home 在 [docs/spec/polend/pt-yt-splitter.md §13](../polend/pt-yt-splitter.md)，不变量锚点见 [docs/spec/invariants.md](../invariants.md) INV-14 / INV-19；unused bootstrap `uAsset` 进入的 settlement dust reserve 结构与处置 home 在 [docs/spec/polend/core.md §6.7](../polend/core.md)，该 reserve 与杠杆侧 PT fee 预兑付的关联见 [docs/spec/polend/settlement-and-fees.md §20](../polend/settlement-and-fees.md)。
 
 ---
 
@@ -147,6 +143,10 @@ flowchart TD
     H --> I[Hook 结算 pending fees]
     I --> J[校验 recipient 非零后把 fee 发给 recipient]
 ```
+
+说明：
+
+- 上图中两条路径的 `recipient` 非零 fail-close 规则（V7）见 [docs/spec/invariants.md](../invariants.md) INV-07，不在本文档重述。
 
 ---
 
@@ -169,4 +169,4 @@ flowchart TD
 一句话概括：
 
 - 普通 swap：execute-or-revert，启动期靠费率衰减保护
-- 特殊启动结算：显式 `Launcher -> Hook`，固定 `1%` 费率
+- 特殊启动结算：显式 `Launcher -> Hook`，固定费率（数值见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）

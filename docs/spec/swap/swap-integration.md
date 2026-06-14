@@ -49,13 +49,13 @@ fee claim 需要单独区分两类能力：
 原因：
 
 1. Router 统一处理 `deadline`、`amountOutMinimum`、`amountInMaximum`
-2. Router 对 swap 栈执行 fail-close 输入约束：任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
+2. Router 对 swap 栈执行 fail-close 输入约束（native 拒绝 V5、收费/币种边界 V4）见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3
 3. Router 提供 pair 级 helper，如 `lpToken(...)`、`quoteAmountsForLiquidity(...)`
 4. Router 对普通用户路由保持公开 surface；`createPoolAndAddLiquidity(...)` 明确划为仅 `Launcher` 可调用的启动期建池/首笔流动性入口，普通集成方无需感知专用 bootstrap / settlement 接线
 
 当前普通 swap 语义是：
 
-- 所有 swap 都是 execute-or-revert
+- 所有 swap 都是 execute-or-revert（V10 定义见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §4）
 - 公开交易入口集中在 Router
 
 如果需要直接接入 Hook，应把它理解为：
@@ -74,12 +74,8 @@ fee claim 需要单独区分两类能力：
 
 ### 2.2 Protocol fee
 
-- swap 栈的 protocol fee settlement currency 只允许 ERC20
-- 每一笔 swap 会优先检查输入币是否属于支持列表
-- 如果输入币不在支持列表，再检查输出币是否属于支持列表
-- 如果输入/输出都不在支持列表，swap 会视为配置错误并失败
-- 如果输入/输出都在支持列表，则优先按输入币收 protocol fee
-- `treasury` 必须只是收款方，不应在收款回调里继续发起交易
+- Protocol fee 币种选择规则（V4：输入侧优先、支持列表、`CurrencyNotSupported` 回退）见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3。
+- `treasury` 必须只是收款方，不应在收款回调里继续发起交易。
 
 ### 2.3 两者是分开结算的
 
@@ -93,7 +89,7 @@ fee claim 需要单独区分两类能力：
 当前启动期保护语义是：
 
 - 普通路径：`launch fee window` 费率衰减
-- 特殊路径：`MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)` 固定 `1%`
+- 特殊路径：`MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)` 固定费率（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）
 
 ---
 
@@ -115,8 +111,7 @@ function swap(
 
 参数含义：
 
-- `key`：池子 key
-- `key.currency0` / `key.currency1` 必须都是 ERC20；任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
+- `key`：池子 key（`currency0` / `currency1` 的 ERC20-only 与 native 拒绝 V5 见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3）
 - `params`：Uniswap v4 swap 参数
 - `recipient`：最终接收输出币的地址
 - `deadline`：过期时间
@@ -179,10 +174,8 @@ function quoteSwap(PoolKey calldata key, SwapParams calldata params, address tra
 - `lpToken(tokenA, tokenB)`：返回该 pair 对应的 Hook LP token 地址
 - `quoteAmountsForLiquidity(tokenA, tokenB, liquidityDesired)`：按当前池价返回目标 LP liquidity 需要的两侧 token 数量
 - `quoteExactAmountsForLiquidity(...)`：面向已初始化池，使用当前 `slot0` 为目标 liquidity 报价。
-- bootstrap 集成真源不是 preview/equality，而是 launcher 提交的 desired budgets 与 Router 返回的 actual execution。
-- Router bootstrap 从 desired budgets 执行，并把 actual spend 返回给 Launcher 做 post-bootstrap accounting。
-- auxiliary bootstrap execution 不依赖 preview/equality、quote-padding 或 search 语义；集成方不应假定存在 auxiliary underspend 的独立 rounding-envelope accept/reject 规则。
-- unused bootstrap `uAsset` 走 settlement dust reserve / treasury overflow path，unused bootstrap `memecoin` burn。
+- bootstrap 集成契约：Router 从 Launcher 提交的 desired budgets 执行，并把 actual execution / actual spend 返回给 Launcher 做 post-bootstrap accounting（集成真源不是 preview/equality）。
+- bootstrap 记账语义、auxiliary underspend 处置、unused bootstrap `uAsset` / `memecoin` 处置见 [docs/spec/verse/accounting.md](../verse/accounting.md) §3.2 与 [docs/spec/invariants.md](../invariants.md) INV-04；unused bootstrap `uAsset` 进入的 settlement dust reserve 结构与处置 home 在 [docs/spec/polend/core.md §6.7](../polend/core.md)。
 
 ---
 
@@ -194,8 +187,8 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 - `swapWithPermit2(...)` / `addLiquidityWithPermit2(...)` / `removeLiquidityWithPermit2(...)` 只负责签名拉资
 - 池创建仅走 `Launcher -> Router.createPoolAndAddLiquidity(...)`，Router 侧受 `onlyLauncher` 限制，不是 Permit2 路径
 - Permit2 拉资后，deadline、slippage、Hook 语义与普通入口一致
-- `removeLiquidity(...)` / `removeLiquidityWithPermit2(...)` 的最终 `recipient` 不能为 `address(0)`；共享 Router payout helper 会 fail-close
-- Permit2 只处理 ERC20；swap 栈不接受 native 资产，也不接受 `msg.value`
+- `removeLiquidity(...)` / `removeLiquidityWithPermit2(...)` 的最终 `recipient` 不能为 `address(0)`；共享 Router payout helper 会 fail-close（recipient 非零 V7 见 [docs/spec/invariants.md](../invariants.md) INV-07）
+- Permit2 只处理 ERC20；swap 栈不接受 native 资产，也不接受 `msg.value`（V5 见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3；Permit2 入口语义 V6 见 [docs/spec/swap/permit2.md](permit2.md)）
 - 签名里的 `spender` 必须是 Router 地址，`transferDetails.to` 必须是 Router
 
 ---
@@ -238,9 +231,9 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 
 - 这是启动结算专用通道，不是普通用户交易接口。
 - 当前路径是 `MemeverseLauncher` 直接调用 `MemeverseUniswapHook.executeLaunchSettlement(...)`。
-- Hook 侧要求 `msg.sender == launcher`。
-- 该路径固定总费 `1%`。
-- `MemeverseLauncher` 在接入 Router 时会校验 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；`Genesis -> Locked` 建池前会做 launch-time preflight 复核。
+- Hook 侧 caller 约束（`msg.sender == launcher`）见 [docs/spec/invariants.md](../invariants.md) INV-04（权限视角见 [docs/spec/access-control.md §5](../access-control.md)）。
+- 该路径使用固定总费率（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）。
+- `MemeverseLauncher` 接入 Router 时的 set-time 三重校验与 `Genesis -> Locked` launch-time preflight 见 [docs/spec/invariants.md](../invariants.md) INV-04（权限视角见 [docs/spec/access-control.md](../access-control.md) §5）。
 
 普通集成方不应自行构造这条路径。
 

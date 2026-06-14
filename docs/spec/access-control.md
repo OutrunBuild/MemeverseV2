@@ -72,7 +72,7 @@
 
 - Launcher 的 owner / registrar / governor / permissionless 边界与 [docs/spec/protocol.md](protocol.md)、[docs/spec/verse/state-machines.md](verse/state-machines.md) 一致。
 - Swap 的“Router 公开入口 + Hook 核心引擎 + 显式 `Launcher -> Hook` launch settlement 路径”与 [docs/spec/protocol.md](protocol.md)、[docs/spec/verse/state-machines.md](verse/state-machines.md) 一致。
-- Router / Hook 绑定在 launcher 配置时必须做三重校验：`router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；launcher 侧 `memeverseUniswapHook` 为 write-once，不允许后续改绑到新 hook；`Genesis -> Locked` 建池前会做 launch-time preflight 复核；hook owner 后续 retarget `launcher` 仍属于同一 trust boundary 内的接受配置权。
+- Router / Hook / Launcher 绑定的三重校验与 write-once 语义见 [docs/spec/invariants.md](invariants.md) INV-04（启动结算显式路径与三重校验不变量）；hook owner 后续 retarget `launcher` 仍属于同一 trust boundary 内的接受配置权。
 - 注册中心和 registrar 的边界与 [docs/spec/verse/state-machines.md](verse/state-machines.md) 一致。
 
 ## 6. 确定性边界
