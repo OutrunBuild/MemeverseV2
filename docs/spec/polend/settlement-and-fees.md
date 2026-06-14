@@ -1,5 +1,7 @@
 # POLend Settlement & Fees
 
+本文件覆盖 POLend 的辅助池/普通 fee 归集与领取、Locked→Unlocked 结算编排、杠杆残值领取、YieldDispatcher 分发、uAsset mint/repay 权限、权限配置与 Target ABI。POLend 子系统整体导航见 [polend/README.md](README.md)。
+
 ## Fee
 
 ### 1. 辅助池 fee

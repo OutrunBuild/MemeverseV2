@@ -1,5 +1,7 @@
 # POLend PT/YT Splitter
 
+本文件覆盖 POLSplitter 的 PT/YT 生命周期（`recordPTBackingRatio` / `split` / `merge` / `preview`）、settle 编排与 PT/YT 兑付。POLend 子系统整体导航见 [polend/README.md](README.md)。
+
 ## 1. PT / YT 生命周期
 
 `POLSplitter.initializeVerse`：

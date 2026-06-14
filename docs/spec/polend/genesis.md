@@ -1,5 +1,7 @@
 # POLend Genesis
 
+本文件覆盖 POLend 创世流程：普通创世、Preorder、门槛与杠杆上限、杠杆创世、Genesis→Locked 迁移与初始 YT claim。POLend 子系统整体导航见 [polend/README.md](README.md)。
+
 ## 1. 普通创世状态
 
 `Launcher` 不再使用 `GenesisFund`。
