@@ -40,7 +40,7 @@
 - `TokenType.MEMECOIN`
   - receiver 为合约时 -> `YieldVault.accumulateYields`
   - receiver 不是合约时 -> burn
-- `TokenType.UPT`
+- `TokenType.UASSET`
   - receiver 为合约时 -> `Governor.receiveTreasuryIncome`
   - receiver 不是合约时 -> burn
 
