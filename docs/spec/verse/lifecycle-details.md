@@ -121,7 +121,7 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 
 - 通过 `claimNormalYT` 领取普通创世初始 YT
 - 通过 POLend `claimLeveragedYT` 领取杠杆创世初始 YT
-- 用 `uAsset + memecoin` 加池 mint 新 POL；`UPT` 仅作为历史命名 / legacy alias
+- 用 `uAsset + memecoin` 加池 mint 新 POL
 - 领取线性解锁的 preorder memecoin
 
 ### 6.2 协议动作
@@ -131,7 +131,6 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 - 从 `memecoin/uAsset` 主池与三个辅助池捕获 fee
 - 主池 `memecoin/uAsset` fee 沿用 Memeverse 分流：`memecoin` fee 进入 yield 路径，`uAsset` fee 拆成 `executorReward + govFee` 后进入执行者奖励与 governor treasury 路径
 - 辅助池 `POL/uAsset`、`PT/uAsset`、`PT/POL` fee 按 POLend 四池规则拆分：POL fee burn，普通侧 fee 进入普通领取账本，杠杆侧 `uAsset` fee 分发到 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前走 `preRedeemPTFee`，settle 后走 `redeemPT`
-- `liquidProofFee` / `UPTFee` 仅作为 legacy 名称，不再定义目标四池费用语义
 - 普通用户领取历史辅助池 normal fee 时，`claimNormalFees` 使用 full-precision `mulDiv` 计算 entitlement，避免 `accUAssetFee` 或 `accPTFee` 较大时因中间乘法溢出导致可表示账本无法领取。
 - 普通 PT fee 在 `settled=false` 时直接按份额转出 `PT`；在 `settled=true` 时改为按 `previewPTToUAsset` 确认 backing 后走 `redeemPT -> uAsset`。若该 backing 为零，则本次不标记为已领，留待后续重试。
 
