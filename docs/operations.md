@@ -34,7 +34,7 @@
 
 - `SetExternalInfo` 中 `uri` 和 `description` 采用增量覆盖语义（空字符串不覆盖旧值）。`communities` 数组中，空数组不触发任何操作，但数组内的空字符串会删除对应索引的条目——调用时需确保非目标位置传入现有值而非空字符串。
 
-失败要点：symbol 未解锁、uAsset 未支持（历史文档中也可能写作 UPT）、`msg.value` 不足、目标链 endpointId 未配置。`[代码已证]`
+失败要点：symbol 未解锁、uAsset 未支持、`msg.value` 不足、目标链 endpointId 未配置。`[代码已证]`
 
 ### 3.2 阶段推进（keeper 高频）
 
