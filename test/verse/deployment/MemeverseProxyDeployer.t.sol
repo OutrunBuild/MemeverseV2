@@ -247,6 +247,14 @@ contract MockReadinessRouter {
 contract MockReadinessHook {
     address public launcher;
     address public poolInitializer;
+    address public dynamicFeeEngine;
+    address public poolManager;
+}
+
+contract MockReadinessEngine {
+    address public authorizedHook;
+    address public owner;
+    address public poolManager;
 }
 
 contract TestableMemeverseScript is MemeverseScript {
@@ -568,8 +576,12 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         address deployCaller = address(scriptHarness);
         address initialOwner = address(scriptHarness);
         bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        bytes32 polendSalt = keccak256(abi.encodePacked("POLend", nonce));
+        bytes32 polSplitterSalt = keccak256(abi.encodePacked("POLSplitter", nonce));
 
         address predictedProxy = outrunDeployer.getDeployed(deployCaller, launcherSalt);
+        address predictedPolend = outrunDeployer.getDeployed(deployCaller, polendSalt);
+        address predictedPolSplitter = outrunDeployer.getDeployed(deployCaller, polSplitterSalt);
         scriptHarness.deployMemeverseLauncherHarness(nonce);
 
         address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
@@ -585,8 +597,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         assertEq(deployedLauncher.memeverseProxyDeployer(), PROXY_DEPLOYER);
         assertEq(deployedLauncher.yieldDispatcher(), YIELD_DISPATCHER);
         assertEq(deployedLauncher.lzEndpointRegistry(), LZ_ENDPOINT_REGISTRY);
-        assertEq(deployedLauncher.polend(), POLEND);
-        assertEq(deployedLauncher.polSplitter(), POLSPLITTER);
+        assertEq(deployedLauncher.polend(), predictedPolend);
+        assertEq(deployedLauncher.polSplitter(), predictedPolSplitter);
         assertEq(deployedLauncher.executorRewardRate(), 25);
         assertEq(deployedLauncher.oftReceiveGasLimit(), 115000);
         assertEq(deployedLauncher.yieldDispatcherGasLimit(), 135000);
@@ -614,6 +626,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         address deployCaller = address(scriptHarness);
         address initialOwner = address(0x4567);
         bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        bytes32 polendSalt = keccak256(abi.encodePacked("POLend", nonce));
+        bytes32 polSplitterSalt = keccak256(abi.encodePacked("POLSplitter", nonce));
         scriptHarness.configureLauncherDeploymentWithOwner(
             initialOwner,
             LOCAL_ENDPOINT,
@@ -629,6 +643,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         );
 
         address predictedProxy = outrunDeployer.getDeployed(deployCaller, launcherSalt);
+        address predictedPolend = outrunDeployer.getDeployed(deployCaller, polendSalt);
+        address predictedPolSplitter = outrunDeployer.getDeployed(deployCaller, polSplitterSalt);
         scriptHarness.deployMemeverseLauncherHarness(nonce);
 
         address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
@@ -638,8 +654,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
 
         assertEq(proxy, predictedProxy);
         assertEq(deployedLauncher.owner(), initialOwner);
-        assertEq(deployedLauncher.polend(), POLEND);
-        assertEq(deployedLauncher.polSplitter(), POLSPLITTER);
+        assertEq(deployedLauncher.polend(), predictedPolend);
+        assertEq(deployedLauncher.polSplitter(), predictedPolSplitter);
         // fund metadata remains zero: _setMemeverseLauncherFundMetaData is skipped when deployCaller != initialOwner
         assertEq(uethMinTotalFund, 0);
         assertEq(uethFundBasedAmount, 0);
@@ -758,7 +774,13 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         scriptHarness.deployMemeverseLauncherHarness(2);
     }
 
-    function testDeployMemeverseLauncherRevertsWhenPolendUnset() external {
+    function testDeployMemeverseLauncherComputesPolendAddressFromDeployer() external {
+        uint256 nonce = 2;
+        address deployCaller = address(scriptHarness);
+        bytes32 polendSalt = keccak256(abi.encodePacked("POLend", nonce));
+        address expectedPolend = outrunDeployer.getDeployed(deployCaller, polendSalt);
+
+        // Config POLEND is zero — deployer ignores it and computes from CREATE3.
         scriptHarness.configureLauncherDeployment(
             LOCAL_ENDPOINT,
             REGISTRAR,
@@ -771,12 +793,20 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
             UETH,
             UUSD
         );
+        scriptHarness.deployMemeverseLauncherHarness(nonce);
 
-        vm.expectRevert("ZERO_POLEND_PROXY");
-        scriptHarness.deployMemeverseLauncherHarness(2);
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
+        assertEq(MemeverseLauncher(proxy).polend(), expectedPolend);
     }
 
-    function testDeployMemeverseLauncherRevertsWhenPolSplitterUnset() external {
+    function testDeployMemeverseLauncherComputesPolSplitterAddressFromDeployer() external {
+        uint256 nonce = 2;
+        address deployCaller = address(scriptHarness);
+        bytes32 polSplitterSalt = keccak256(abi.encodePacked("POLSplitter", nonce));
+        address expectedPolSplitter = outrunDeployer.getDeployed(deployCaller, polSplitterSalt);
+
+        // Config POLSPLITTER is zero — deployer ignores it and computes from CREATE3.
         scriptHarness.configureLauncherDeployment(
             LOCAL_ENDPOINT,
             REGISTRAR,
@@ -789,9 +819,11 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
             UETH,
             UUSD
         );
+        scriptHarness.deployMemeverseLauncherHarness(nonce);
 
-        vm.expectRevert("ZERO_POLSPLITTER_PROXY");
-        scriptHarness.deployMemeverseLauncherHarness(2);
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+        address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
+        assertEq(MemeverseLauncher(proxy).polSplitter(), expectedPolSplitter);
     }
 
     function testRequireDeploymentReadyChecksLauncherBoundDependencies() external {
@@ -886,6 +918,14 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         vm.etch(readySwapHook, address(hookImpl).code);
         vm.mockCall(readySwapHook, abi.encodeWithSignature("launcher()"), abi.encode(launcherAddress));
         vm.mockCall(readySwapHook, abi.encodeWithSignature("poolInitializer()"), abi.encode(address(router)));
+
+        MockReadinessEngine engine = new MockReadinessEngine();
+        address poolManager = address(uint160(0x4631));
+        vm.mockCall(readySwapHook, abi.encodeWithSignature("dynamicFeeEngine()"), abi.encode(address(engine)));
+        vm.mockCall(readySwapHook, abi.encodeWithSignature("poolManager()"), abi.encode(poolManager));
+        vm.mockCall(address(engine), abi.encodeWithSignature("authorizedHook()"), abi.encode(readySwapHook));
+        vm.mockCall(address(engine), abi.encodeWithSignature("owner()"), abi.encode(readySwapHook));
+        vm.mockCall(address(engine), abi.encodeWithSignature("poolManager()"), abi.encode(poolManager));
 
         router.setHook(readySwapHook);
         readySwapRouter = address(router);

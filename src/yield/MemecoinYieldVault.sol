@@ -99,16 +99,18 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     }
 
     function _accumulateYield(address yieldSource, uint256 yield) internal {
+        // Zero-yield call carries no value; return early so totalAssets and checkpoints stay unchanged
+        // (historical queries keep returning the prior value via upperLookupRecent).
+        if (yield == 0) return;
         // Empty-vault yield would otherwise create unowned value for the next depositor, so the asset is burned instead.
         if (totalSupply() == 0) {
             IMemecoin(asset).burn(yield);
         } else {
-            uint256 _totalAssets = totalAssets + yield;
-            unchecked {
-                totalAssets = _totalAssets;
-            }
+            totalAssets += yield;
 
-            emit AccumulateYields(yieldSource, yield, _convertToAssets(1e18, _totalAssets));
+            _writeTotalAssetCheckpoint(totalAssets);
+
+            emit AccumulateYields(yieldSource, yield, _convertToAssets(1e18, totalAssets));
         }
     }
 
@@ -118,8 +120,12 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     /// @param receiver Recipient of the minted shares.
     /// @return shares Shares minted for the deposit.
     function deposit(uint256 assets, address receiver) external override returns (uint256) {
+        // Zero-asset deposit carries no value; returning early avoids redundant transfers, mint, and
+        // checkpoint writes. Preserves the ERC-4626 round-trip: previewDeposit(0) == deposit(0) == 0.
+        if (assets == 0) return 0;
         uint256 shares = _convertToShares(assets, totalAssets);
         _deposit(msg.sender, receiver, assets, shares);
+        _writeTotalAssetCheckpoint(totalAssets);
 
         return shares;
     }
@@ -177,6 +183,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         _burn(sender, shares);
         // The queued asset amount stops participating in future yield immediately, so share price only reflects still-staked assets.
         totalAssets -= assets;
+        _writeTotalAssetCheckpoint(totalAssets);
         redeemRequestQueues[receiver].push(
             RedeemRequest({amount: uint192(assets), requestTime: uint64(block.timestamp)})
         );
@@ -200,6 +207,34 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         _mint(receiver, shares);
 
         emit Deposit(sender, receiver, assets, shares);
+    }
+
+    /// @dev Converts raw votes to memecoin asset-denominated votes using the current exchange rate.
+    function _convertVotes(uint256 rawVotes, uint256 rawTotalSupply) internal view override returns (uint256) {
+        if (rawTotalSupply == 0) return 0;
+        return Math.mulDiv(rawVotes, totalAssets + 1, rawTotalSupply + 1);
+    }
+
+    /// @dev Converts raw past votes to asset-denominated using historical totalAssets checkpoint.
+    function _convertPastVotes(uint256 rawPastVotes, uint256 rawPastTotalSupply, uint256 pastTotalAssets)
+        internal
+        view
+        override
+        returns (uint256)
+    {
+        if (rawPastTotalSupply == 0) return 0;
+        return Math.mulDiv(rawPastVotes, pastTotalAssets + 1, rawPastTotalSupply + 1);
+    }
+
+    /// @dev Converts raw past total supply to asset-denominated using historical totalAssets checkpoint.
+    function _convertPastTotalSupply(uint256 rawPastTotalSupply, uint256 pastTotalAssets)
+        internal
+        view
+        override
+        returns (uint256)
+    {
+        if (rawPastTotalSupply == 0) return 0;
+        return Math.mulDiv(rawPastTotalSupply, pastTotalAssets + 1, rawPastTotalSupply + 1);
     }
 
     function _update(address from, address to, uint256 value) internal override(OutrunERC20Init, OutrunERC20VotesInit) {

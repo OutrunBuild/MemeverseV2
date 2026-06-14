@@ -10,6 +10,8 @@ import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 import {MemecoinDaoGovernorUpgradeable} from "../../src/governance/MemecoinDaoGovernorUpgradeable.sol";
 import {IMemecoinDaoGovernor} from "../../src/governance/interfaces/IMemecoinDaoGovernor.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {MemecoinYieldVault} from "../../src/yield/MemecoinYieldVault.sol";
 
 contract MockGovernorVotesToken is IVotes {
     mapping(address => uint256) internal votes;
@@ -605,5 +607,120 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
             )
         );
         governor.execute(targets, values, calldatas, keccak256("multi-token"));
+    }
+}
+
+/// @notice End-to-end integration: the real MemecoinYieldVault drives the real Governor.
+/// @dev The standalone governor tests above use a mock votes token, so they never exercise the vault's
+///      asset-denomination conversion through propose/quorum. This contract wires the production
+///      governance token (a yield vault clone) into the production governor and proves that, after
+///      yield, a staker whose raw shares are below the threshold can still propose and reach quorum.
+contract VaultGovernorIntegrationTest is Test {
+    address internal constant ATTACKER = address(0xA11CE);
+
+    MemecoinDaoGovernorUpgradeable internal governor;
+    MemecoinYieldVault internal vault;
+    MockERC20 internal asset;
+    MockGovernorIncentivizer internal incentivizer;
+
+    function setUp() external {
+        // Real governance token: a clone of MemecoinYieldVault (timestamp-based ERC-6372 clock).
+        asset = new MockERC20("Memecoin", "MEME", 18);
+        MemecoinYieldVault vaultImpl = new MemecoinYieldVault();
+        vault = MemecoinYieldVault(Clones.clone(address(vaultImpl)));
+        vault.initialize("Staked MEME", "sMEME", ATTACKER, address(asset), 1);
+
+        asset.mint(ATTACKER, 1_000 ether);
+        vm.prank(ATTACKER);
+        asset.approve(address(vault), type(uint256).max);
+
+        // Real governor wired with the vault as its IVotes token.
+        MemecoinDaoGovernorUpgradeable govImpl = new MemecoinDaoGovernorUpgradeable();
+        incentivizer = new MockGovernorIncentivizer();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(govImpl),
+            abi.encodeCall(
+                MemecoinDaoGovernorUpgradeable.initialize,
+                (
+                    "MEME DAO",
+                    IVotes(address(vault)),
+                    uint48(100), // votingDelay in seconds — governor adopts the vault's timestamp clock
+                    uint32(100), // votingPeriod in seconds
+                    100 ether, // proposalThreshold
+                    10, // quorumNumerator (10 bp = 0.1%)
+                    address(incentivizer),
+                    uint256(0), // minQuorum
+                    uint256(0), // bootstrapPeriod
+                    uint256(1000), // maxTreasurySpendRatio
+                    uint256(6000) // upgradeSupermajorityRatio
+                )
+            )
+        );
+        governor = MemecoinDaoGovernorUpgradeable(payable(address(proxy)));
+    }
+
+    /// @notice A sub-threshold staker can propose and reach quorum after yield lifts votes over the threshold.
+    /// @dev 60 raw shares are below the 100-ether threshold; yielding 60 lifts asset-denominated votes to
+    ///      ≈119 via the vault's IVotes views, which the governor reads at clock()-1. Pre-fix, votes stayed
+    ///      at raw 60 and propose reverted GovernorInsufficientProposerVotes.
+    function testProposeAndQuorumSucceedAfterYieldLiftsVotes() external {
+        vm.warp(1000);
+        vm.prank(ATTACKER);
+        vault.deposit(60 ether, ATTACKER);
+        vm.prank(ATTACKER);
+        vault.delegate(ATTACKER);
+
+        vm.warp(2000);
+        vm.prank(ATTACKER);
+        vault.accumulateYields(60 ether);
+
+        // Propose at t=3000: governor checks getVotes(ATTACKER, clock()-1 = 2999), which reads the
+        // post-yield totalAssets checkpoint and prices 60 shares to ≈119 asset-votes (over 100).
+        vm.warp(3000);
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _payload();
+        vm.prank(ATTACKER);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "post-yield");
+        assertTrue(proposalId != 0, "propose succeeded once yield crossed threshold");
+
+        // Full lifecycle: vote reaches quorum and the proposal Succeeds.
+        vm.warp(3101); // past proposalSnapshot (clock@propose + votingDelay = 3000 + 100)
+        vm.prank(ATTACKER);
+        governor.castVote(proposalId, 1); // For
+
+        vm.warp(3201); // past proposalDeadline (3100 + votingPeriod 100)
+        assertEq(
+            uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Succeeded), "quorum reached after yield"
+        );
+    }
+
+    /// @notice Without yield, votes stay below threshold and propose reverts.
+    /// @dev Negative control: 60 shares price to 60 asset-votes at the 1:1 rate, below the 100 threshold.
+    function testProposeRevertsWhenVotesBelowThreshold() external {
+        vm.warp(1000);
+        vm.prank(ATTACKER);
+        vault.deposit(60 ether, ATTACKER);
+        vm.prank(ATTACKER);
+        vault.delegate(ATTACKER);
+
+        vm.warp(1001); // clock()-1 = 1000 reads the deposit checkpoint (60 asset-votes)
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _payload();
+        vm.prank(ATTACKER);
+        vm.expectRevert(
+            abi.encodeWithSelector(IGovernor.GovernorInsufficientProposerVotes.selector, ATTACKER, 60 ether, 100 ether)
+        );
+        governor.propose(targets, values, calldatas, "below-threshold");
+    }
+
+    function _payload()
+        internal
+        pure
+        returns (address[] memory targets, uint256[] memory values, bytes[] memory calldatas)
+    {
+        targets = new address[](1);
+        values = new uint256[](1);
+        calldatas = new bytes[](1);
+        targets[0] = address(0x1234);
+        values[0] = 0;
+        calldatas[0] = bytes("");
     }
 }

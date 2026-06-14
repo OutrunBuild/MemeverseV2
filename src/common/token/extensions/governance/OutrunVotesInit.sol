@@ -6,6 +6,7 @@ import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 import {IERC5805} from "@openzeppelin/contracts/interfaces/IERC5805.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 
@@ -43,6 +44,11 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         mapping(address delegatee => Checkpoints.Trace208) _delegateCheckpoints;
 
         Checkpoints.Trace208 _totalCheckpoints;
+
+        /// @notice Historical total-assets checkpoints for asset-denominated governance votes.
+        /// @dev Subcontracts call `_writeTotalAssetCheckpoint` to record managed assets at each mutation.
+        ///      When empty, IVotes views return raw voting units (backward compatible).
+        Checkpoints.Trace208 _totalAssetsCheckpoint;
     }
 
     // keccak256(abi.encode(uint256(keccak256("outrun.storage.Votes")) - 1)) & ~bytes32(uint256(0xff))
@@ -101,12 +107,12 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
     }
 
     /// @notice Reads the voting power currently delegated to `account`.
-    /// @dev Reads latest value from delegate checkpoints.
+    /// @dev Reads latest value from delegate checkpoints, then applies `_convertVotes`.
     /// @param account Account whose current votes are requested.
     /// @return votes Current voting power of `account`.
     function getVotes(address account) public view virtual returns (uint256) {
         VotesStorage storage $ = _getVotesStorage();
-        return $._delegateCheckpoints[account].latest();
+        return _convertVotes($._delegateCheckpoints[account].latest(), $._totalCheckpoints.latest());
     }
 
     /// @notice Reads the voting power delegated to `account` at a past timepoint.
@@ -116,7 +122,12 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
     /// @return votes Voting power recorded at `timepoint`.
     function getPastVotes(address account, uint256 timepoint) public view virtual returns (uint256) {
         VotesStorage storage $ = _getVotesStorage();
-        return $._delegateCheckpoints[account].upperLookupRecent(_validateTimepoint(timepoint));
+        uint48 validatedTimepoint = _validateTimepoint(timepoint);
+        return _convertPastVotes(
+            $._delegateCheckpoints[account].upperLookupRecent(validatedTimepoint),
+            $._totalCheckpoints.upperLookupRecent(validatedTimepoint),
+            $._totalAssetsCheckpoint.upperLookupRecent(validatedTimepoint)
+        );
     }
 
     /// @notice Reads total tracked voting units at a past timepoint.
@@ -125,7 +136,11 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
     /// @return totalSupply Voting-unit supply recorded at `timepoint`.
     function getPastTotalSupply(uint256 timepoint) public view virtual returns (uint256) {
         VotesStorage storage $ = _getVotesStorage();
-        return $._totalCheckpoints.upperLookupRecent(_validateTimepoint(timepoint));
+        uint48 validatedTimepoint = _validateTimepoint(timepoint);
+        return _convertPastTotalSupply(
+            $._totalCheckpoints.upperLookupRecent(validatedTimepoint),
+            $._totalAssetsCheckpoint.upperLookupRecent(validatedTimepoint)
+        );
     }
 
     /**
@@ -258,6 +273,63 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
 
     function _subtract(uint208 a, uint208 b) private pure returns (uint208) {
         return a - b;
+    }
+
+    /// @notice Returns the number of stored total-assets checkpoints.
+    /// @return len Number of checkpoints recorded.
+    function getTotalAssetsCheckpointLen() external view virtual returns (uint256 len) {
+        VotesStorage storage $ = _getVotesStorage();
+        return $._totalAssetsCheckpoint.length();
+    }
+
+    /// @dev Converts raw voting power for `getVotes`. Default returns raw value unchanged.
+    ///      Override in subcontracts to apply asset-denomination.
+    /// @param rawVotes Raw delegated shares.
+    /// @param rawTotalSupply Raw total share supply.
+    /// @return votes Converted voting power.
+    function _convertVotes(uint256 rawVotes, uint256 rawTotalSupply) internal view virtual returns (uint256) {
+        rawTotalSupply; // suppress unused parameter warning
+        return rawVotes;
+    }
+
+    /// @dev Converts raw voting power for `getPastVotes`. Default returns raw value unchanged.
+    ///      Override in subcontracts to apply asset-denomination.
+    /// @param rawPastVotes Raw delegated shares at past timepoint.
+    /// @param rawPastTotalSupply Raw total share supply at past timepoint.
+    /// @param pastTotalAssets Total assets checkpoint at past timepoint (0 if no checkpoint).
+    /// @return votes Converted voting power.
+    function _convertPastVotes(uint256 rawPastVotes, uint256 rawPastTotalSupply, uint256 pastTotalAssets)
+        internal
+        view
+        virtual
+        returns (uint256)
+    {
+        pastTotalAssets; // suppress unused parameter warning
+        rawPastTotalSupply; // suppress unused parameter warning
+        return rawPastVotes;
+    }
+
+    /// @dev Converts raw total supply for `getPastTotalSupply`. Default returns raw value unchanged.
+    ///      Override in subcontracts to apply asset-denomination.
+    /// @param rawPastTotalSupply Raw total share supply at past timepoint.
+    /// @param pastTotalAssets Total assets checkpoint at past timepoint (0 if no checkpoint).
+    /// @return totalSupply Converted total supply.
+    function _convertPastTotalSupply(uint256 rawPastTotalSupply, uint256 pastTotalAssets)
+        internal
+        view
+        virtual
+        returns (uint256)
+    {
+        pastTotalAssets; // suppress unused parameter warning
+        return rawPastTotalSupply;
+    }
+
+    /// @notice Records the current managed assets into the governance checkpoint.
+    /// @dev Call this from subcontracts whenever managed totalAssets changes (deposit, yield, redeem).
+    /// @param totalAssets Current managed total assets.
+    function _writeTotalAssetCheckpoint(uint256 totalAssets) internal {
+        VotesStorage storage $ = _getVotesStorage();
+        $._totalAssetsCheckpoint.push(clock(), SafeCast.toUint208(totalAssets));
     }
 
     /**
