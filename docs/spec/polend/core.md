@@ -1,6 +1,4 @@
-# POLend Core（§1-7 + §28-29）
-
-> 本文件由 polend.md 拆分而来，承载 §1-7 + §28-29（模块边界 / 状态 / 债务推导 / 错误语义 / 互斥关系）。
+# POLend Core
 
 ## 1. 文档定位
 
@@ -68,7 +66,7 @@
 - 普通辅助池 LP 领取
 - 普通辅助池 fee 记账与领取
 - 辅助池 fee 捕获与 DAO governor 分发编排
-- `Locked -> Unlocked` 编排以 [settlement-and-fees.md §18](settlement-and-fees.md) 为唯一权威顺序
+- `Locked -> Unlocked` 编排以 [settlement-and-fees.md §4](settlement-and-fees.md) 为唯一权威顺序
 - 本链与异链 `YieldDispatcher / OFT` 分发路径
 
 ### 4.2 POLend
@@ -391,7 +389,7 @@ else:
 
 该公式与 `totalLeveragedInterest * 1e18 / market.interestRate` 的向下取整语义严格匹配。实现应使用全精度乘除，避免中间乘法溢出。
 
-## 28. 错误语义
+## 8. 错误语义
 
 `InvalidState`：状态前置条件不满足。
 
@@ -452,7 +450,7 @@ else:
 
 settled 后不应再走 `preRedeemPTFee`，而应由 `Launcher` 路由到 `redeemPT`。`preRedeemPTFee` 的 settled 检查不作为正常业务分支设计。`POLSplitter` 侧的 `AlreadySettled` 检查是防御性安全防线：正常流程中该检查不会触发（Launcher 在 `Locked` 时走 `preRedeemPTFee`，`Unlocked` 后走 `redeemPT`）；其作用是在 Launcher 路由逻辑异常时阻止 post-settle PT burn，防止不可逆资金损失。
 
-## 29. 互斥关系
+## 9. 互斥关系
 
 普通侧：
 

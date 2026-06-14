@@ -163,7 +163,7 @@ settlementUAsset >= previewPTToUAsset(PT.totalSupply())
 - 约束：`POLSplitter.recordPTBackingRatio(verseId, numerator, denominator)` 记录的 `numerator = mainPoolUAssetUsed` 必须是主池实际执行 spend，`denominator = mainPoolPOLAmount` 必须是 launch 实际 mint 出来的 main pool LP/POL raw amount，不能使用预估值或 bootstrap budget。`[代码已证]`
 - 约束：auxiliary pool actual spend 低于 desired budget 形成的未使用 bootstrap `uAsset` 必须按 §6.7 注入 POLend settlement dust reserve / treasury excess 路径，未使用 bootstrap `memecoin` 必须 burn。`[目标规范]`
 - 价值：把"PT backing 只能认实际执行额"作为独立 invariant 收口，避免 backing ratio 被预算/quote 数字污染导致 PT 经济失真。
-- 去重关系：本条与 INV-14（POLend PT raw 与 uAsset backing 必须分离）共享"实际执行口径"语义——INV-14 约束 3 已规定记录口径为"主池实际执行 spend / 主池实际产出的 POL raw amount"。本条进一步聚合原 §12.2 部署时序中 PT backing 实际额规则的完整约束集（含未使用资金处置）。未使用 `uAsset` 处置见 INV-13 约束 3，未使用 `memecoin` burn 见 INV-04 约束 5。本条作为聚合锚点，不替代上述 INV。
+- 去重关系：本条与 INV-14（POLend PT raw 与 uAsset backing 必须分离）共享"实际执行口径"语义——INV-14 约束 3 已规定记录口径为"主池实际执行 spend / 主池实际产出的 POL raw amount"。本条进一步聚合 genesis 部署时序（[genesis.md §5.2](polend/genesis.md)）中 PT backing 实际额规则的完整约束集（含未使用资金处置）。未使用 `uAsset` 处置见 INV-13 约束 3，未使用 `memecoin` burn 见 INV-04 约束 5。本条作为聚合锚点，不替代上述 INV。
 - 主要真源：[docs/spec/polend/core.md](polend/core.md)
 
 ## 3. 确定性边界

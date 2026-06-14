@@ -61,11 +61,11 @@
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| [polend/README.md](polend/README.md) | 30 | POLend 规格（四池模型 + PT/YT + settlement + 杠杆创世）聚合入口，拆分为 core/genesis/pt-yt-splitter/settlement-and-fees |
-| [polend/core.md](polend/core.md) | 474 | POLend 模块边界 / 状态 / 债务推导 / 错误语义 / 互斥关系（§1-7, §28-29） |
-| [polend/genesis.md](polend/genesis.md) | 421 | POLend 创世流程（§8-14） |
-| [polend/pt-yt-splitter.md](polend/pt-yt-splitter.md) | 234 | POLend PT/YT 生命周期 / POLSplitter settle / PT-YT 兑付（§13, §19, §21） |
-| [polend/settlement-and-fees.md](polend/settlement-and-fees.md) | 855 | POLend fee 归集 / 结算编排 / 收益分发 / 权限配置 / Target ABI（§15-18, §20, §22-27） |
+| [polend/README.md](polend/README.md) | 30 | POLend 规格（四池模型 + PT/YT + settlement + 杠杆创世）聚合入口，下含 core/genesis/pt-yt-splitter/settlement-and-fees |
+| [polend/core.md](polend/core.md) | 474 | POLend 模块边界 / 状态 / 债务推导 / 错误语义 / 互斥关系（§1-9） |
+| [polend/genesis.md](polend/genesis.md) | 421 | POLend 创世流程（§1-7） |
+| [polend/pt-yt-splitter.md](polend/pt-yt-splitter.md) | 234 | POLend PT/YT 生命周期 / POLSplitter settle / PT-YT 兑付（§1-3） |
+| [polend/settlement-and-fees.md](polend/settlement-and-fees.md) | 855 | POLend fee 归集 / 结算编排 / 收益分发 / 权限配置 / Target ABI（§1-11） |
 
 ## 2. OCLPAR canonical-home 表
 
@@ -150,10 +150,10 @@
 | 规则/概念 | canonical home | 说明 |
 | --- | --- | --- |
 | POLend 四池/PT/YT/settlement/杠杆创世 | [polend/README.md](polend/README.md) | POLend 聚合入口（四池模型 + PT/YT + settlement + 杠杆创世） |
-| POLend 模块边界 / 状态 / 债务推导 / 错误语义 / 互斥 | [polend/core.md](polend/core.md) | §1-7, §28-29 |
-| 创世流程（普通 / Preorder / 杠杆 / Genesis→Locked） | [polend/genesis.md](polend/genesis.md) | §8-14 |
-| PT/YT 生命周期 / POLSplitter settle / PT-YT 兑付 | [polend/pt-yt-splitter.md](polend/pt-yt-splitter.md) | §13, §19, §21 |
-| fee 归集 / 结算编排 / 收益分发 / 权限配置 / Target ABI | [polend/settlement-and-fees.md](polend/settlement-and-fees.md) | §15-18, §20, §22-27 |
+| POLend 模块边界 / 状态 / 债务推导 / 错误语义 / 互斥 | [polend/core.md](polend/core.md) | §1-9 |
+| 创世流程（普通 / Preorder / 杠杆 / Genesis→Locked） | [polend/genesis.md](polend/genesis.md) | §1-7 |
+| PT/YT 生命周期 / POLSplitter settle / PT-YT 兑付 | [polend/pt-yt-splitter.md](polend/pt-yt-splitter.md) | §1-3 |
+| fee 归集 / 结算编排 / 收益分发 / 权限配置 / Target ABI | [polend/settlement-and-fees.md](polend/settlement-and-fees.md) | §1-11 |
 
 ### 2.9 注册/状态机权威
 

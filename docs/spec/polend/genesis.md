@@ -1,8 +1,6 @@
-# POLend Genesis（§8-14）
+# POLend Genesis
 
-> 本文件由 polend.md 拆分而来，承载 §8-14（普通创世 / Preorder / 杠杆创世 / Genesis→Locked / 初始 YT claim）。
-
-## 8. 普通创世状态
+## 1. 普通创世状态
 
 `Launcher` 不再使用 `GenesisFund`。
 
@@ -39,7 +37,7 @@ userGenesisFund
 - 不清零 `userGenesisFund`，用 `isRefunded` 标记
 - `userGenesisFund = 0` 或重复领取 revert `InvalidClaim`
 
-## 9. Preorder
+## 2. Preorder
 
 `preorder` 是独立于普通创世与杠杆创世的资金池。
 
@@ -90,7 +88,7 @@ totalPreorderFunds + amount <= preorderCap
 
 `Refund` 状态下，preorder 用户按 `userPreorderFunds` 一次性退回 `uAsset`。`userPreorderFunds = 0` 或重复 refund revert `InvalidClaim`。
 
-## 10. 成功门槛与杠杆上限
+## 3. 成功门槛与杠杆上限
 
 `Genesis -> Locked` 成功门槛是 OR：
 
@@ -171,7 +169,7 @@ totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS
 
 成功门槛比较 `totalLeveragedInterest`（用户实际支付的 uAsset 利息总额），四池部署资金口径使用 `totalLeveragedDebt`（利息推导出的债务本金，`debt = interest × 1e18 / interestRate`）。二者数值不同但方向一致。
 
-## 11. 杠杆创世
+## 4. 杠杆创世
 
 `leveragedGenesis(verseId, interestAmount)`：
 
@@ -230,7 +228,7 @@ POLend.markRefundable(verseId)
 
 普通 refund、preorder refund、杠杆 `claimRefund` 三套账本独立，同一用户可分别领取自己参与过的部分。
 
-## 12. Genesis -> Locked
+## 5. Genesis -> Locked
 
 `Launcher.changeStage` 从 `Genesis` 进入 `Locked` 时：
 
@@ -253,7 +251,7 @@ POLend.markRefundable(verseId)
 - POLend 不托管 `YT`
 - market 保持 `None`
 
-### 12.1 finalizeLeveragedGenesis
+### 5.1 finalizeLeveragedGenesis
 
 `finalizeLeveragedGenesis`：
 
@@ -279,7 +277,7 @@ mintedUAsset = totalLeveragedInterest * 1e18 / market.interestRate
 
 `finalizeLeveragedGenesis` 完成成功路径的利息 reserve / treasury 拆分后，`claimRefund` 不可用。
 
-### 12.2 四池部署
+### 5.2 四池部署
 
 四池部署先汇总普通创世资金与杠杆债务：
 
@@ -353,7 +351,7 @@ PT 切分的整数取整差额归 PT/POL 侧（`ptForPtUAsset = totalPT / 3`，`
 
 不在部署时分别存普通 LP / 杠杆 LP。后续按资金占比切分。
 
-### 12.3 初始 YT
+### 5.3 初始 YT
 
 四池部署时统一 split 得到的 `YT`，再按资金占比切初始 claim 池：
 
@@ -382,11 +380,11 @@ POLend.recordLeveragedYT(verseId, yt, totalLeveragedYT)
 - 不转 token
 - 不改变 market 主状态
 
-## 13. PT / YT 生命周期
+## 6. PT / YT 生命周期
 
-PT/YT 生命周期（`initializeVerse` / `recordPTBackingRatio` / `split`-`merge` / `redeem` / `preview`）的 canonical home 在 [pt-yt-splitter.md §13](pt-yt-splitter.md)。
+PT/YT 生命周期（`initializeVerse` / `recordPTBackingRatio` / `split`-`merge` / `redeem` / `preview`）的 canonical home 在 [pt-yt-splitter.md §1](pt-yt-splitter.md)。
 
-## 14. 初始 YT claim
+## 7. 初始 YT claim
 
 普通和杠杆初始 `YT` 都是一人一次性领取全部应得初始 `YT`，重复领取 revert `InvalidClaim`，领取后拿到的是同一个 verse 的同一个 `YT token`。
 
