@@ -1,8 +1,6 @@
-# POLend PT/YT Splitter（§13 + §19 + §21）
+# POLend PT/YT Splitter
 
-> 本文件由 polend.md 拆分而来，承载 §13 + §19 + §21（PT/YT 生命周期 canonical home / POLSplitter settle / PT-YT 兑付）。
-
-## 13. PT / YT 生命周期
+## 1. PT / YT 生命周期
 
 `POLSplitter.initializeVerse`：
 
@@ -67,7 +65,7 @@ previewPTToUAsset(verseId, ptAmount) = FullMath.mulDiv(ptAmount, ptBackingNumera
 - 若报价后的实际执行无法 mint 出请求的 LP/POL 数量，则整笔 mint fail closed
 - 不存在一个单独的“bootstrap 式 underbacking”运行时豁免路径，也不存在一个允许额外 backing 改写 PT/YT 经济的路径
 
-## 19. POLSplitter settle
+## 2. POLSplitter settle
 
 `settle` 语义：
 
@@ -121,7 +119,7 @@ settlementUAsset >= previewPTToUAsset(PT.totalSupply())
 - settle 中扣 `preRedeemedPT.uAssetBacking` 不是重复扣 backing，而是把已经提前 mint / distributed 给 governor 路径的 backing 从 `totalRedeemedUAsset` 中结清 / repay。
 - 结清后必须满足 `settlementUAsset >= previewPTToUAsset(PT.totalSupply())`。
 
-### 19.1 INV-18 验证结果
+### 2.1 INV-18 验证结果
 
 [INV-18](../invariants.md#inv-18-pt-settlement-backing-偿还不变量) 已按真实产品路径验证，不接受任意 mocked settlement 数字作为结论依据。
 
@@ -168,9 +166,9 @@ settle 后：
 - `AlreadyDeployed`：`initializeVerse` 重复调用
 - 不保留 `InsufficientSettlementUAsset`
 
-## 21. PT / YT 兑付
+## 3. PT / YT 兑付
 
-### 21.1 redeemPT
+### 3.1 redeemPT
 
 `redeemPT`：
 
@@ -193,7 +191,7 @@ settle 后：
 uAssetAmount = FullMath.mulDiv(ptAmount, actualMainUAssetUsed, ptBackingDenominator)
 ```
 
-### 21.2 redeemYT
+### 3.2 redeemYT
 
 `redeemYT`：
 
