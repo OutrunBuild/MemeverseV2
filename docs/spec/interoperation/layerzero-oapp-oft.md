@@ -68,6 +68,6 @@
 - DVN、消息库、endpoint 级配置由链外部署与 LayerZero 基础设施决定。`[未知]`
 - 各链实际 endpoint 地址、EID 与 peer 配置最终值不在仓库内固定。`[未知]`
 
-## 6. 已知实现差异提醒
+## 6. 注册时间单位语义
 
 - 注册“天数”换算：`RegistrarAtLocal.quoteRegister` 读取 `RegistrationCenter.DAY`；最终写入以中心链为准，中心写入固定 `unlockTime = endTime + 365 days`。`[代码已证]`
