@@ -35,15 +35,7 @@ center 当前负责检查：
 
 ## 4. Symbol 生命周期
 
-一个 symbol 在中心链上有三种语义状态：
-
-- `Available`
-- `Active`
-- `Historical`
-
-当前注册记录保存在 `symbolRegistry`，旧记录在新注册开始前归档到 `symbolHistory`。
-
-同一个 symbol 只有在当前注册窗口结束后，才会重新变为可注册。
+一个 symbol 在中心链上的语义状态（`Available` / `Active` / `Historical`）、迁移条件与归档规则以 [docs/spec/verse/state-machines.md §3.1](state-machines.md) 迁移表为 canonical 真源；registration 流程下如何触发这些迁移见本文档 §7 / §8。
 
 ## 5. uniqueId 与 nonce
 
@@ -58,25 +50,9 @@ center 当前负责检查：
 
 注册链路最容易误解的部分是时间语义。
 
-当前 V2 的权威时间来源是注册中心写入值：
+当前 V2 的权威时间来源是注册中心写入值（`endTime` / `unlockTime`）：
 
-- `endTime`
-- `unlockTime`
-
-并且 center 当前使用：
-
-- `DAY = 180` 秒（测试值）
-- 固定锁定期 `365 days`
-
-而本地 registrar 的报价辅助仍按：
-
-- `registrationCenter.DAY()`
-
-这意味着：
-
-- 本地 quote 与 center 写入使用同一个 `DAY` 来源
-- 真正写入 launcher 的 `endTime/unlockTime` 以 center 为准，且 `unlockTime = endTime + 365 days`
-- 当前实现中的 `durationDays` 由 center 的 `DAY` 定义；锁定期固定为自然时间 `365 days`
+- center 不重算，以 registrar 传入值为准；本地报价读取中心 `DAY`，中心写入为最终来源，并写入固定 `unlockTime = endTime + FIXED_LOCKUP_DURATION`。权威语义完整约束见 [docs/spec/invariants.md](../invariants.md) INV-11；`DAY` / `FIXED_LOCKUP_DURATION` 数值与配置面见 [docs/spec/verse/config-matrix.md §3](config-matrix.md)。
 
 ## 7. 本链注册路径
 
@@ -156,23 +132,16 @@ center gas dust 不可由用户认领，只能由 owner 通过 `removeGasDust(re
 
 ## 11. POLend 注册 ABI 与初始化边界
 
-POLend 目标产品规范以 [docs/spec/polend/polend.md](../polend/polend.md) 为准：
+POLend 目标产品规范以 [docs/spec/polend/README.md](../polend/README.md) 为准：
 
 - `Launcher.registerMemeverse(...)` 同交易内只调用 `POLend.registerLendMarket(verseId)`
 - `registerLendMarket` 从 launcher 读取 verse 的 `uAsset` 并复制当前 `defaultInterestRate`
 - 注册阶段不初始化 `PT / YT`
 - `POLSplitter.initializeVerse(...)` 只在 `Genesis -> Locked` 的四池部署流程中执行
 
-当前实现差异 / 待迁移：
-
-- 若当前代码仍为 `registerLendMarket(verseId, pol, name, symbol)`，这是实现差异，不是目标 ABI
-- 若当前注册阶段同时部署或初始化 `PT / YT`，这是实现差异，不是目标 timing
-- 其他文档不得把上述差异标成 POLend 产品真源或目标规则的 `[代码已证]`
-
 ## 12. 当前实现提醒
 
-- 当前时间语义由 registration center 的 `DAY` 定义
-- 本地 quote 读取同一个 `DAY` 来源，不存在独立自然日换算分支
+- 时间权威语义见 §6（已收口到 INV-11）
 - Agent 在分析注册和解锁行为时，必须优先相信 center 写入值
 
 ## 13. 相关真源与证据

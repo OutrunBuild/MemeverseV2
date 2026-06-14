@@ -40,7 +40,7 @@
 - `TokenType.MEMECOIN`
   - receiver 为合约时 -> `YieldVault.accumulateYields`
   - receiver 不是合约时 -> burn
-- `TokenType.UPT`
+- `TokenType.UASSET`
   - receiver 为合约时 -> `Governor.receiveTreasuryIncome`
   - receiver 不是合约时 -> burn
 
@@ -66,7 +66,7 @@
 
 ## 5. 为什么要求 exact fee
 
-V2 当前不是“至少足额”语义，而是“严格等于报价”。
+规则本体（`msg.value` 严格等于 quote，远端分发与远端 staking 都不是”至少足额”）见 [docs/spec/invariants.md INV-06](../invariants.md)。
 
 这条规则的作用是：
 
@@ -78,10 +78,7 @@ V2 当前不是“至少足额”语义，而是“严格等于报价”。
 
 `YieldDispatcher` 和 `OmnichainMemecoinStaker` 都依赖 compose 回调处理跨链到账。
 
-关键约束：
-
-- endpoint 路径必须检查 `guid` 未执行
-- 成功后必须标记已执行
+replay 防护规则本体（endpoint 路径检查 `guid` 未执行、成功后标记已执行）见 [docs/spec/invariants.md INV-10](../invariants.md) 与 [docs/spec/interoperation/layerzero-oapp-oft.md §4](layerzero-oapp-oft.md)。
 
 这样做的目的，是避免重复到账、重复记账或重复 staking。
 

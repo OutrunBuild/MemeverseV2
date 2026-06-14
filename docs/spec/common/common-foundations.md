@@ -23,8 +23,7 @@
 swap 栈是显式例外：
 
 - swap / router / hook 只支持 ERC20/ERC20 pair
-- 任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`
-- Permit2 只处理 ERC20
+- native 拒绝规则（`NativeCurrencyUnsupported`）与收费/币种边界的完整定义见 [docs/spec/swap/uniswap-v4.md](../swap/uniswap-v4.md) §3；Permit2 入口语义见 [docs/spec/swap/permit2.md](../swap/permit2.md)
 - protocol fee settlement currency 在 swap 栈内仅允许 ERC20
 
 因此阅读 swap 相关文档或实现时，不能把 common 层的 native 能力外推成 swap 也支持 native。

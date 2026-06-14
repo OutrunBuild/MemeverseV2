@@ -36,13 +36,7 @@
 
 ### 3.1 注册阶段
 
-1. registrar 调 `launcher.registerMemeverse(...)`
-2. launcher 通过 deployer 部署 memecoin/POL clone
-3. launcher 立即调用两者 `initialize(...)`
-4. launcher 依据 `omnichainIds` 对 memecoin/POL 调 `setPeer(...)`
-5. launcher 写入 verse 基础信息与反向索引
-6. launcher 同交易调用 `POLend.registerLendMarket(verseId)`
-7. registrar 后续调 `launcher.setExternalInfo(...)`
+注册阶段的 launcher 侧 7 步执行序列（权限校验、deployer 部署并初始化 memecoin/POL、`setPeer`、verse 基础信息与反向索引、`POLend.registerLendMarket`、`RegisterMemeverse`、后续 `setExternalInfo`）见 [docs/spec/verse/registration-details.md](registration-details.md) §10。
 
 `POLend.registerLendMarket` 使用当前默认 `interestRate / leveragedDebtFactor`，其中 `leveragedDebtFactor` 已在初始化与 setter 侧受 `uint128.max * 1e18` 技术上限约束。`[代码已证]`
 
@@ -68,7 +62,7 @@
 
 ## 4. 关键部署依赖事实
 
-- Launcher 在配置 router / hook 时有 set-time 三重校验：`router.hook() == hook`、`hook.launcher() == launcher`、`hook.poolInitializer() == router`；其中 `memeverseUniswapHook` 仅允许首次设置，后续不可改绑到新 hook。`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
+- Launcher 配置 router / hook 时的 set-time 三重校验与 write-once 语义见 [docs/spec/invariants.md](../invariants.md) INV-04；`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
 - `polend` 与 `polSplitter` 都是 Launcher proxy 初始化写入的必需接线，当前代码不存在 unset 或运行中换地址路径。注册、创世部署、fee preview/claim、unlock settlement 都直接依赖这两个固定地址。`[代码已证]`
 - 具体接线语义：
   - `polend`：注册时 `registerLendMarket`，部署时 `finalizeLeveragedGenesis`，Locked governor PT fee 预兑付时 `preRedeemPTFee`，unlock settlement 时按需 `executeGlobalSettlement`

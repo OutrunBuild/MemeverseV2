@@ -41,9 +41,9 @@
 
 ### INV-05 Locked 费用分发恒等式
 
-- 约束：主池 `memecoin/uAsset` 的 `uAssetFee = executorReward + govFee`，其中 `executorReward` 必须按 full-precision `mulDiv` 或等价 overflow-safe 语义计算：`fullPrecisionMulDiv(uAssetFee, executorRewardRate, 10000)`，`govFee = uAssetFee - executorReward` 且减法保持 checked arithmetic 语义；quote/redeem 路径必须共享同一分账算术语义。主池 `memecoin` fee 进入 yield 路径。辅助池 fee 按 POLend 四池目标规则分流：POL fee burn，普通侧 `uAsset/PT` fee 进入普通领取账本，杠杆侧 `uAsset` fee 进入 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前按固定 PT backing ratio 预兑付或 settle 后 redeem 后分发。`liquidProofFee` / `UPTFee` 仅作为 legacy alias。`[目标规范]`
+- 约束：主池 `memecoin/uAsset` 的 `uAssetFee = executorReward + govFee`，其中 `executorReward` 必须按 full-precision `mulDiv` 或等价 overflow-safe 语义计算：`fullPrecisionMulDiv(uAssetFee, executorRewardRate, 10000)`，`govFee = uAssetFee - executorReward` 且减法保持 checked arithmetic 语义；quote/redeem 路径必须共享同一分账算术语义。主池 `memecoin` fee 进入 yield 路径。辅助池 fee 按 POLend 四池目标规则分流：POL fee burn，普通侧 `uAsset/PT` fee 进入普通领取账本，杠杆侧 `uAsset` fee 进入 governor treasury 路径，杠杆侧 `PT` fee 在 settle 前按固定 PT backing ratio 预兑付或 settle 后 redeem 后分发。`[目标规范]`
 - 价值：保证主池与辅助池 fee 分账守恒、burn 顺序和 PT fee pending/settle 语义可审计。
-- 主要真源：[docs/spec/polend/polend.md](polend/polend.md)，[docs/spec/verse/accounting.md](verse/accounting.md)
+- 主要真源：[docs/spec/polend/settlement-and-fees.md](polend/settlement-and-fees.md)，[docs/spec/verse/accounting.md](verse/accounting.md)
 
 ### INV-06 远端分发与远端 staking 要求 `msg.value` 精确匹配报价
 
@@ -60,7 +60,7 @@
 
 ### INV-07A Locked -> Unlocked 结算与公开 swap 保护必须同交易落地
 
-- 约束：`changeStage()` 执行 `Locked -> Unlocked` 时，先在同一笔交易内完成 `POLSplitter.settle(...)` 与可选 `POLend.executeGlobalSettlement(...)`，再写入 hook 的公开 swap 恢复时间；hook-side public swap protection 在该恢复时间写入后生效。该 settlement callback window 不由 launcher-side transient gate 或已生效的公开 swap block 保护。进入 `Unlocked` 后，赎回可用性由阶段与各函数自身条件决定。
+- 约束：`changeStage()` 执行 `Locked -> Unlocked` 时，先在同一笔交易内完成 `POLSplitter.settle(...)` 与可选 `POLend.executeGlobalSettlement(...)`，再按当时区块时间为受保护池写入 `publicSwapResumeTime = block.timestamp + UNLOCK_PROTECTION_WINDOW`（窗口数值与配置面见 [docs/spec/verse/config-matrix.md §3](verse/config-matrix.md)）；hook-side public swap protection 自该写入后生效，由 `hook.beforeSwap` 按 pool-level `publicSwapResumeTime` 阻断公开 swap。该 settlement callback window 不由 launcher-side transient gate 或已生效的公开 swap block 保护。进入 `Unlocked` 后，赎回可用性由阶段与各函数自身条件决定。`[代码已证]`
 - 价值：保证全局结算状态与受保护池公开 swap 恢复时间锚定同一次解锁迁移，避免 settlement 与保护窗口出现时间分叉。
 - 主要锚点：`src/verse/MemeverseLauncher.sol` 的 `Locked -> Unlocked` 分支、POLSplitter/POLend settlement 调用、hook 公开 swap 恢复时间写入路径
 
@@ -84,16 +84,16 @@
 
 ### INV-11 注册时间权威值来自注册中心写入
 
-- 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价读取注册中心 `DAY`，中心写入为最终来源，并写入固定 `unlockTime = endTime + 365 days`。`[代码已证]`
+- 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价读取注册中心 `DAY`，中心写入为最终来源，并写入固定 `unlockTime = endTime + FIXED_LOCKUP_DURATION`。`[代码已证]`
 - 价值：链上最终时间语义由中心写入决定，报价仅供参考。
 - 主要锚点：`src/verse/MemeverseLauncher.sol::_storeRegisteredMemeverse`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:38-43`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:130`，`:135`
 
 ### INV-12 解锁后必须先经过保护窗口，再恢复公开 swap
 
-- 约束：verse 在实际执行 `Locked -> Unlocked` 的 `changeStage()` 交易中，会先完成 settlement 调用，再按当时区块时间为受保护池写入 `publicSwapResumeTime = block.timestamp + 24 hours`。hook-side public swap protection 自该写入后生效；不声明 settlement callback window 已被公开 swap block 覆盖。`[代码已证]`
+- 约束：`Locked -> Unlocked` 同交易 settlement 顺序与公开 swap 恢复时间写入的机械口径已并入 INV-07A；本条仅保留该窗口的存在性论证与产品安全理由。窗口数值与配置面见 [docs/spec/verse/config-matrix.md §3](verse/config-matrix.md) `UNLOCK_PROTECTION_WINDOW`。
 - 价值：保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供一致的全局结算窗口。
 - 违反后果：先行动者可通过先赎回并抛售底层资产，把损失外部化给后续赎回者，造成用户重大亏损。`[产品安全要求]`
-- 当前实现状态：保护窗口没有单独阶段，而是通过 `Stage.Unlocked + hook 按 pool-level resume time 阻断公开 swap` 落地；赎回路径与公开 swap 可用性由不同模块分离控制。保护窗口为固定 `24 hours` 产品常量，不再存在 owner 配置面。`[代码已证]`
+- 当前实现状态：保护窗口没有单独阶段，而是通过 `Stage.Unlocked + hook 按 pool-level resume time 阻断公开 swap` 落地；赎回路径与公开 swap 可用性由不同模块分离控制。保护窗口为固定产品常量，不再存在 owner 配置面。`[代码已证]`
 - 主要锚点：`src/verse/MemeverseLauncher.sol::UNLOCK_PROTECTION_WINDOW`，`src/verse/MemeverseLauncher.sol::_activatePostUnlockPublicSwapProtection`，`src/swap/MemeverseUniswapHook.sol:309-377`
 
 ### INV-13 POLend 全局结算只能用 bounded reserve 覆盖 dust
@@ -104,7 +104,7 @@
 - 约束：settlement dust reserve 只覆盖正确执行 `previewPTToUAsset` 固定 backing ratio 转换后的整数舍入 dust；不得覆盖 PT backing ratio / 模型错误。`[目标规范]`
 - 约束：bootstrap pre-LP residual `POL/PT` 与普通 auxiliary LP split dust 是两个不同类别。前者必须先按 funding share 切分：`leveragedShare = floor(totalResidual * totalLeveragedDebt / totalGenesisFunds)`，`normalShare = totalResidual - leveragedShare`；不能把它们当成永久 launcher bucket 或未分类 dust。`[目标规范]`
 - 价值：C1 只允许 wei 级整数舍入缺口通过 reserve 解决，不把真实资不抵债、价格模型错误、PT backing ratio 错误或资金流错误伪装成 dust。
-- 主要真源：[docs/spec/polend/polend.md](polend/polend.md)
+- 主要真源：[docs/spec/polend/core.md](polend/core.md)
 
 ### INV-14 POLend PT raw 与 uAsset backing 必须分离
 
@@ -113,7 +113,7 @@
 - 约束：主池 PT backing ratio 的记录口径是“主池实际执行 spend / 主池实际产出的 POL raw amount”，不是 bootstrap 想要的 budget 或内部 quote budget。`[代码已证]`
 - 约束：`mintPOLToken` 不再执行运行时 `InvalidPOLBacking` 式严格等式校验。产品仍要求固定 PT backing ratio 不被改写，并要求 exact-liquidity minting 在报价后若无法 mint 出请求的 LP/POL 数量时 fail closed。`[目标规范]`
 - 价值：保证 `fundBasedAmount > 1` 等自然路径下 PT/YT 经济不被 raw 数量误当 uAsset 数量破坏。
-- 主要真源：[docs/spec/polend/polend.md](polend/polend.md)
+- 主要真源：[docs/spec/polend/core.md](polend/core.md)
 
 ### INV-15 预兑付 PT fee 必须由真实 PT supply 结清
 
@@ -123,7 +123,7 @@
 - 约束：`_captureLockedAuxiliaryFees` 在 unlock transaction 捕获的 pending `PT fee` 不进入 `preRedeemedPT`；该 `PT fee` 在 settled 后走 `redeemPT`，不得增加 settle 前扣减。`[目标规范]`
 - 价值：保证提前分发给 governor 路径的 PT backing 与 settlement 结清一一对应，防止把伪造 supply 或主池回收不足解释为合法预兑付缺口。
 - 测试证据：`testRealPathLockedPreRedeemPTFeeSettlementBacking` 覆盖 `genesis + leveragedGenesis -> Locked -> mintPOLToken -> split -> real PT transferred to hook -> redeemAndDistributeFees -> preRedeemPTFee -> unlock settlement`。
-- 主要真源：[docs/spec/polend/polend.md](polend/polend.md)
+- 主要真源：[docs/spec/polend/settlement-and-fees.md](polend/settlement-and-fees.md)
 
 ### INV-16 normal fee entitlement 与 zero-backing dust 必须保持可领取语义
 
@@ -139,7 +139,32 @@
 - 约束：`MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max`，并且必须始终满足 `totalGenesisFunds <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`。`[目标规范]`
 - 约束：成功 `genesis` / `leveragedGenesis` 写入后都必须保持上述 aggregate cap；其中 `leveragedGenesis` 写入前必须按累计 `nextTotalLeveragedInterest = totalLeveragedInterest + interestAmount` 推导 `previewDebt`，并同时满足 `previewDebt <= debtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，不能只检查当前调用 delta。`[目标规范]`
 - 价值：保证普通创世与杠杆创世共享同一聚合资金上限，避免成功写入把总创世资金推进到不支持的数值域。
-- 主要真源：[docs/spec/polend/polend.md](polend/polend.md)，[docs/spec/verse/accounting.md](verse/accounting.md)，[docs/spec/verse/lifecycle-details.md](verse/lifecycle-details.md)
+- 主要真源：[docs/spec/polend/core.md](polend/core.md)，[docs/spec/verse/accounting.md](verse/accounting.md)，[docs/spec/verse/lifecycle-details.md](verse/lifecycle-details.md)
+
+### INV-18 PT settlement backing 偿还不变量
+
+- 约束：POLend settlement 必须先偿还 `preRedeemedPT.uAssetBacking`，偿还后剩余 `settlementUAsset` 必须继续覆盖 `previewPTToUAsset(PT.totalSupply())`。完整 solvency 不变量为：`[目标规范]`
+
+```text
+totalRedeemedUAsset >= preRedeemedPT.uAssetBacking + previewPTToUAsset(PT.totalSupply())
+settlementUAsset = totalRedeemedUAsset - preRedeemedPT.uAssetBacking
+settlementUAsset >= previewPTToUAsset(PT.totalSupply())
+```
+
+- 约束：settlement 前扣 `preRedeemedPT.uAssetBacking` 不是重复扣 backing，而是把已经提前 mint / distributed 给 governor 路径的 backing 从 `totalRedeemedUAsset` 中结清 / repay；结清后才推出 `settlementUAsset >= previewPTToUAsset(PT.totalSupply())`。`[目标规范]`
+- 约束：自然产品路径下，`preRedeemedPT.uAssetBacking > totalRedeemedUAsset` 或主池 `POL -> uAsset` 回收低于固定 PT backing 总需求属于 solvency / backing boundary failure，必须 revert / 被测试捕获，不能归类为合法预兑付缺口。`[目标规范]`
+- 价值：把"settlement 偿还顺序与剩余 solvency"作为独立可审计不变量收口，避免被拆成多个分散陈述；保证预兑付 backing 与 settlement 结清一一对应。
+- 去重关系：本条与 INV-15（预兑付 PT fee 必须由真实 PT supply 结清）共享同一 solvency 公式与 `preRedeemedPT` 结清语义。INV-15 聚焦"PT fee 来源真实性"，本条聚焦"settlement 偿还顺序与剩余覆盖"。两者交叉引用，不互相替代。
+- 主要真源：[docs/spec/polend/settlement-and-fees.md](polend/settlement-and-fees.md)
+
+### INV-19 PT backing ratio 实际额约束
+
+- 约束：PT backing ratio 必须基于主池 Router / AMM 实际执行结果，而不是基于期望预算。若 Router 或 AMM 在主池创建过程中退回未使用的 bootstrap `uAsset` / `memecoin`，该未使用部分不计入 PT backing。`[目标规范]`
+- 约束：`POLSplitter.recordPTBackingRatio(verseId, numerator, denominator)` 记录的 `numerator = mainPoolUAssetUsed` 必须是主池实际执行 spend，`denominator = mainPoolPOLAmount` 必须是 launch 实际 mint 出来的 main pool LP/POL raw amount，不能使用预估值或 bootstrap budget。`[代码已证]`
+- 约束：auxiliary pool actual spend 低于 desired budget 形成的未使用 bootstrap `uAsset` 必须按 §6.7 注入 POLend settlement dust reserve / treasury excess 路径，未使用 bootstrap `memecoin` 必须 burn。`[目标规范]`
+- 价值：把"PT backing 只能认实际执行额"作为独立 invariant 收口，避免 backing ratio 被预算/quote 数字污染导致 PT 经济失真。
+- 去重关系：本条与 INV-14（POLend PT raw 与 uAsset backing 必须分离）共享"实际执行口径"语义——INV-14 约束 3 已规定记录口径为"主池实际执行 spend / 主池实际产出的 POL raw amount"。本条进一步聚合原 §12.2 部署时序中 PT backing 实际额规则的完整约束集（含未使用资金处置）。未使用 `uAsset` 处置见 INV-13 约束 3，未使用 `memecoin` burn 见 INV-04 约束 5。本条作为聚合锚点，不替代上述 INV。
+- 主要真源：[docs/spec/polend/core.md](polend/core.md)
 
 ## 3. 确定性边界
 

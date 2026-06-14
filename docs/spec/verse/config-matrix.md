@@ -11,13 +11,13 @@
 
 | 模块 | 参数 | 写入方式 | 主要约束 | 作用范围 | 来源 |
 | --- | --- | --- | --- | --- | --- |
-| `MemeverseLauncher` | `memeverseSwapRouter` | `setMemeverseSwapRouter` | 非零；且 set-time 必须同时满足 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`；`Genesis -> Locked` 前会做 launch-time preflight 复核 | 启动建池、公开 router、preorder 结算 hook 绑定 | `[代码已证]` |
-| `MemeverseLauncher` | `memeverseUniswapHook` | `setMemeverseUniswapHook` | 非零；`hook.launcher()==launcher`；且仅允许首次设置，后续再次设置会 `revert HookAlreadyConfigured()` | preorder 显式结算 + post-unlock 保护写入绑定 | `[代码已证]` |
+| `MemeverseLauncher` | `memeverseSwapRouter` | `setMemeverseSwapRouter` | 非零；set-time 三重校验与 `Genesis -> Locked` launch-time preflight 见 [docs/spec/invariants.md](../invariants.md) INV-04 | 启动建池、公开 router、preorder 结算 hook 绑定 | `[代码已证]` |
+| `MemeverseLauncher` | `memeverseUniswapHook` | `setMemeverseUniswapHook` | 非零；write-once（首次设置后 `revert HookAlreadyConfigured()`），完整绑定约束见 [docs/spec/invariants.md](../invariants.md) INV-04 | preorder 显式结算 + post-unlock 保护写入绑定 | `[代码已证]` |
 | `MemeverseLauncher` | `lzEndpointRegistry` | `setLzEndpointRegistry` | 非零 | 注册 peer 配置、跨链 endpoint 映射 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseRegistrar` | `setMemeverseRegistrar` | 非零 | 注册入口权限边界 | `[代码已证]` |
 | `MemeverseLauncher` | `memeverseProxyDeployer` | `setMemeverseProxyDeployer` | 非零 | per-verse token/vault/governor 部署 | `[代码已证]` |
-| `MemeverseLauncher` | `polend` | `initialize(...)` | 非零；当前代码没有 runtime setter | Launcher 保存 `POLend` 接线地址；注册同交易内调用 `POLend.registerLendMarket(verseId)`；`Genesis -> Locked` 时若有杠杆债务则调用 `finalizeLeveragedGenesis(verseId)`；`Locked -> Unlocked` 的 unlock settlement 中按需调用 `executeGlobalSettlement(verseId)`；同一地址还承担 `getTotalLeveragedDebt/Interest`、`preRedeemPTFee`、settlement dust reserve 等查询/执行依赖 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/polend.md](../polend/polend.md) |
-| `MemeverseLauncher` | `polSplitter` | `initialize(...)` | 非零；当前代码没有 runtime setter | Launcher 保存 `POLSplitter` 接线地址；`Genesis -> Locked` 时调用 `initializeVerse`、记录 PT backing ratio、执行 `split`；normal fee 与 governor PT fee 的 preview/redeem 都依赖该地址；`Locked -> Unlocked` 的 unlock settlement 中先调用 `settle(verseId)`，settled 后普通 PT fee 与 governor PT fee 都改走 `redeemPT -> uAsset` 口径 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/polend.md](../polend/polend.md) |
+| `MemeverseLauncher` | `polend` | `initialize(...)` | 非零；当前代码没有 runtime setter | Launcher 保存 `POLend` 接线地址；注册同交易内调用 `POLend.registerLendMarket(verseId)`；`Genesis -> Locked` 时若有杠杆债务则调用 `finalizeLeveragedGenesis(verseId)`；`Locked -> Unlocked` 的 unlock settlement 中按需调用 `executeGlobalSettlement(verseId)`；同一地址还承担 `getTotalLeveragedDebt/Interest`、`preRedeemPTFee`、settlement dust reserve 等查询/执行依赖 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/README.md](../polend/README.md) |
+| `MemeverseLauncher` | `polSplitter` | `initialize(...)` | 非零；当前代码没有 runtime setter | Launcher 保存 `POLSplitter` 接线地址；`Genesis -> Locked` 时调用 `initializeVerse`、记录 PT backing ratio、执行 `split`；normal fee 与 governor PT fee 的 preview/redeem 都依赖该地址；`Locked -> Unlocked` 的 unlock settlement 中先调用 `settle(verseId)`，settled 后普通 PT fee 与 governor PT fee 都改走 `redeemPT -> uAsset` 口径 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/README.md](../polend/README.md) |
 | `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
 | `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`fundBasedAmount <= MAX_FUND_BASED_AMOUNT`，其中 `MAX_FUND_BASED_AMOUNT = 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
@@ -87,8 +87,8 @@ canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy
 | 主题 | 说明 | 当前实现事实 | 结论 |
 | --- | --- | --- | --- |
 | swap 启动保护 | 启动期保护机制 | 当前主路径为 execute-or-revert + launch fee 衰减 + 显式 `Launcher -> Hook.executeLaunchSettlement(...)` | 以当前实现为准 |
-| unlock 后公开 swap 保护 | 公开交易恢复时机 | `changeStage()` 在 `Locked -> Unlocked` 时先完成 settlement 调用，再按 `block.timestamp + 24 hours` 调用 hook 的 pair-based `setPublicSwapResumeTime(address,address,uint40)`，由 hook 本地解析 poolId 并写入 `publicSwapResumeTime`；hook-side public swap protection 在该写入后生效 | 以当前实现为准 |
-| unlock settlement 执行顺序 | 解锁结算与公开 swap 保护 | `changeStage()` 在 `Locked -> Unlocked` 的同交易内执行 `POLSplitter.settle(...)`、可选 `POLend.executeGlobalSettlement(...)`，然后写入 hook 的 pair-based `setPublicSwapResumeTime(address,address,uint40)`；不声明 settlement callback window 由 launcher-side transient gate 或已生效的公开 swap block 保护 | 以当前实现为准 |
+| unlock 后公开 swap 保护 | 公开交易恢复时机 | 公开 swap 恢复时间由 `Locked -> Unlocked` 迁移同交易写入的 pool-level `publicSwapResumeTime` 控制；窗口为固定产品常量，不再有 owner 配置面 | 以当前实现为准 |
+| unlock settlement 执行顺序 | 解锁结算与公开 swap 保护 | 同交易 settlement 顺序与保护窗口写入的不变量口径见 [docs/spec/invariants.md](../invariants.md) INV-07A / INV-12 | 以当前实现为准 |
 | launch fee 时间单位 | launch fee 的时间语义 | 代码使用 `decayDurationSeconds`（秒） | 以秒语义解读 |
 | 注册天数语义 | 注册时长的时间语义 | 中心链写入与本地 quote 均使用 registration center 的 `DAY` | 当前链上语义由 center 配置决定 |
 | 注册 fee / dust 判定 | 注册链路 native fee 支付约束 | source registrar 要求 `msg.value >= source lzFee`；local registrar 要求 `msg.value == value`；center fan-out 要求 `msg.value >= totalFee`；hub fan-out 残余或 refund 是 center-owned gas dust，可由 owner sweep | 以代码为准 |

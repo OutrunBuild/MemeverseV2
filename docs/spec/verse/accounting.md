@@ -22,7 +22,7 @@
 - 成功 `genesis` / `leveragedGenesis` 写入后都必须保持 `totalNormalFunds + totalLeveragedDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，其中 `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max`；`leveragedGenesis` 写入前必须按累计 `nextTotalLeveragedInterest = totalLeveragedInterest + interestAmount` 推导 `previewDebt = nextTotalLeveragedInterest * 1e18 / market.interestRate`，并同时满足 `previewDebt <= debtCap` 与 `totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS`，不能只看当前调用 delta。
 - `Genesis` 阶段不 mint 杠杆 `uAsset`；只有成功进入 `Locked` 时才由 `POLend.finalizeLeveragedGenesis` mint 推导债务并计入按 `uAsset` 维度的系统债务。
 - `setLeveragedDebtFactor` 只改未来 `None / Genesis` market 的 debt cap / 容量预览口径，不追溯改变已注册 market 利率、已 mint 债务、退款、结算或 claim 账本。
-- 杠杆退款、初始 `YT`、残值、PT fee 预兑付与全局结算规则以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
+- 杠杆退款、初始 `YT`、残值、PT fee 预兑付与全局结算规则以 [docs/spec/polend/settlement-and-fees.md](../polend/settlement-and-fees.md) 为准。
 
 ### 2.3 Preorder 入账
 
@@ -72,10 +72,9 @@
   - `PT/uAsset`
   - `PT/POL`
 - 主池 PT backing ratio 记录口径是“主池实际执行 spend / 主池实际产出的 POL raw amount”，不是 desired budget，也不是 Router 内部临时报价预算。
-- 辅助池 bootstrap 若出现 underspend，accounting 直接以 actual spend 为准；`Launcher` 不对这类 auxiliary underspend 额外施加 bootstrap backing / equality guard。
-- 辅助池 bootstrap 的执行与记账不依赖单独文档化的 rounding-envelope accept/reject 规则；unused bootstrap `uAsset` 继续走 settlement dust reserve / treasury excess 路径，unused bootstrap `memecoin` 继续 burn。
+- 辅助池 bootstrap 的 auxiliary underspend 处置（actual spend 记账、不施加独立 bootstrap backing / equality guard、不依赖独立 rounding-envelope 规则、unused `uAsset` / `memecoin` 处置）见 [docs/spec/invariants.md](../invariants.md) INV-04。
 - bootstrap 后若还有未进入辅助池 LP 的 `POL/PT`，它们属于单独的 bootstrap residual 类别，不是普通用户 LP floor dust。该 residual 先按 funding share 切成 leveraged share 和 normal share，再分别走后续 claim 路径。
-- POL、PT、YT 的拆分比例、辅助池资产配比和 LP 记录以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
+- POL、PT、YT 的拆分比例、辅助池资产配比和 LP 记录以 [docs/spec/polend/pt-yt-splitter.md](../polend/pt-yt-splitter.md) 为准。
 
 ### 3.3 preorder 结算
 
@@ -138,7 +137,7 @@
   - `settled=false`：直接把按份额应得的 `PT` 转给用户，并把该部分 `claimedPTFee` 标记为已领。
   - `settled=true`：不再转 `PT`，而是先看 `previewPTToUAsset(verseId, ptAmount)`；只有 backing 非零时才调用 `redeemPT` 把对应 `uAsset` 发给用户并标记该部分 `claimedPTFee`。若 backing 为零，则该笔 PT entitlement 保持未领取状态，允许后续重试；同次 `uAsset` fee 领取不受影响。
 - governor 路径的 PT fee 也有同样的 zero-backing 保留语义：`pending auxiliary gov PT fee` 或本次 preview 出来的 gov PT fee 在 `previewPTToUAsset(...) == 0` 时不得视为已处理，而是留在 pending 状态等待后续可兑付时再转换。
-- PT fee 的预兑付、settle 后 redeem、pending auxiliary gov fee 规则以 [docs/spec/polend/polend.md](../polend/polend.md) 为准。
+- PT fee 的预兑付、settle 后 redeem、pending auxiliary gov fee 规则以 [docs/spec/polend/settlement-and-fees.md](../polend/settlement-and-fees.md) 为准。
 
 ### 5.3 执行者奖励与治理收入
 
@@ -160,30 +159,19 @@
   - 辅助池 gov `PT` fee 按当前阶段转换成的 `uAsset`
     - `Locked`：经 `POLend.preRedeemPTFee(...)`
     - `Unlocked/settled`：经 `POLSplitter.redeemPT(...)`
-- 若治理链为本链：
-  - `govFee(uAsset)` -> `yieldDispatcher` -> `Governor.receiveTreasuryIncome`
-  - `memecoinFee` -> `yieldDispatcher` -> `YieldVault.accumulateYields`
-- 若治理链为异链：
-  - 分别构建两笔 OFT send
+- 若治理链为本链或异链，token 的最终 receiver 映射（`UASSET` → `Governor.receiveTreasuryIncome`、`MEMECOIN` → `YieldVault.accumulateYields`，非合约 receiver → burn）以 [docs/spec/interoperation/interoperation-details.md](../interoperation/interoperation-details.md) §3.3 为跨链终点 canonical；本链/异链路径见 §3.1/§3.2。
 - 目标：`redeemAndDistributeFees` 的 native payment 必须精确等于 required fee；underpay 与 overpay 都会 revert（实现要求“等于”，不是“大于等于”）。
 - 目标：若本次没有任何 fee 被分发，required fee 为 `0`，因此非零 `msg.value` 应 revert。
 
 ## 6. Treasury / Yield / Governance 周期语义
 
-- Governor 作为 treasury 入口，收到收入时先把真实资产记入 `Governor` 托管余额，再同步通知 `GovernanceCycleIncentivizer` 做周期账本累计。
-- `Governor` 持有真实 treasury 资产与 reward payout 资产。
-- `Incentivizer` 只维护对应的周期账本，不承担奖励资产托管职责。
-- `treasuryBalances[token]` 表示某周期内记入 DAO treasury 的可支配账本余额，其真实资产由 `Governor` 托管。
-- `rewardBalances[token]` 表示某周期内已为用户奖励保留的可支付账本额度，其真实资产仍由 `Governor` 托管。
-- `Incentivizer` 的账本字段不应被解释为 `Incentivizer` 的 ERC20 实际余额。
-- treasury / reward accounting 默认按名义 `amount` 记账，只支持已审查的标准 ERC20。
-- fee-on-transfer、rebasing、或其他会使名义 `amount` 与实际余额变化不一致的 token 不在支持范围内。
-- Incentivizer 周期结算时按 `rewardRatio` 从 treasury ledger 划拨到 reward ledger。
-- 用户奖励按“上一周期 userVotes / totalVotes”分配。
-- `Incentivizer.claimReward()` 结算后，由 `Governor.disburseReward(...)` 完成真实付款。
-- claim 成功前，账本扣减与真实付款必须保持同一事务内原子完成。
-- 上一周期未领完的 `rewardBalances[token]` 不永久保留；它们会在后续 `finalizeCurrentCycle()` 时回卷到 treasury ledger，并重新参与后续周期结算。
-- YieldVault 在 `totalSupply == 0` 时收到 yield 会 burn（防首存者攫取历史收益）。
+Governor / Incentivizer 的 custody 与 ledger 分层、token 准入、周期结算、reward payout 调用链、YieldVault `totalSupply == 0` burn 语义见 [docs/spec/governance/governance-yield-details.md](../governance/governance-yield-details.md)：
+
+- Governor custody 与 ledger 分层、token 准入（V17/V19）：见 `governance-yield-details.md` §7。
+- YieldVault `totalSupply == 0` 时 yield burn（V20）：见 `governance-yield-details.md` §5。
+- 周期结算 `rewardRatio` 划拨、reward payout 调用链与账本回卷语义：见 `governance-yield-details.md` §6–§8。
+
+accounting.md 只保留对 Launcher 侧记账入口的引用：launcher 把 fee/yield 经 `YieldDispatcher` 推到 `Governor.receiveTreasuryIncome` / `YieldVault.accumulateYields`，跨链终点的 token-to-receiver 映射见 [docs/spec/interoperation/interoperation-details.md](../interoperation/interoperation-details.md) §3.3。
 
 ## 7. Launch Fee 记账
 
