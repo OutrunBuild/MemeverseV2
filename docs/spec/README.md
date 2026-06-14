@@ -30,8 +30,8 @@
 | --- | --- | --- |
 | [verse/accounting.md](verse/accounting.md) | 246 | 记账与资金语义 |
 | [verse/state-machines.md](verse/state-machines.md) | 111 | 状态机 |
-| [verse/lifecycle-details.md](verse/lifecycle-details.md) | 273 | 生命周期细化说明 |
-| [verse/registration-details.md](verse/registration-details.md) | 184 | 注册链路细化说明 |
+| [verse/lifecycle-details.md](verse/lifecycle-details.md) | 272 | 生命周期细化说明 |
+| [verse/registration-details.md](verse/registration-details.md) | 178 | 注册链路细化说明 |
 | [verse/deployment.md](verse/deployment.md) | 144 | 部署拓扑与初始化事实 |
 | [verse/config-matrix.md](verse/config-matrix.md) | 99 | 配置矩阵（可配置面 / 常量面） |
 
@@ -55,7 +55,7 @@
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| [governance/governance-yield-details.md](governance/governance-yield-details.md) | 178 | 治理与收益细化说明 |
+| [governance/governance-yield-details.md](governance/governance-yield-details.md) | 176 | 治理与收益细化说明 |
 
 ### POLend（`polend/`）
 
@@ -63,7 +63,7 @@
 | --- | --- | --- |
 | [polend/polend.md](polend/polend.md) | 1960 | POLend 规格（四池模型 + PT/YT + settlement + 杠杆创世） |
 
-`polend/polend.md` 单文件占 `docs/spec/` 总行数 4653 的 42%，是 Phase 3 拆分目标。
+`polend/polend.md` 单文件占 `docs/spec/` 总行数 4644 的 42%，是 Phase 3 拆分目标。
 
 ## 2. 相关真源
 
