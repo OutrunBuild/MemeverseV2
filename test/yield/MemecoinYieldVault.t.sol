@@ -41,12 +41,15 @@ contract MockComposeAsset is MockERC20 {
     }
 }
 
-
-
 contract MemecoinYieldVaultTest is Test {
     address internal constant ATTACKER = address(0xA11CE);
     address internal constant VICTIM = address(0xB0B);
     address internal constant RECEIVER = address(0xCAFE);
+    address internal constant YIELD_SOURCE = address(0xFEED);
+    /// @dev Virtual buffer V passed to every test vault. Chosen large enough to visibly dampen rate
+    ///      inflation while keeping assertions readable; production sizing is spec §4 (0.7% of the
+    ///      minimum main-pool memecoin provision) and is covered by dedicated tests below.
+    uint256 internal constant VIRTUAL_ASSETS = 100 ether;
 
     MockERC20 internal asset;
     MemecoinYieldVault internal vault;
@@ -57,7 +60,7 @@ contract MemecoinYieldVaultTest is Test {
         asset = new MockERC20("Memecoin", "MEME", 18);
         MemecoinYieldVault implementation = new MemecoinYieldVault();
         vault = MemecoinYieldVault(Clones.clone(address(implementation)));
-        vault.initialize("Staked Memecoin", "sMEME", address(0xD15A7), address(asset), 1);
+        vault.initialize("Staked Memecoin", "sMEME", address(0xD15A7), address(asset), 1, VIRTUAL_ASSETS);
 
         asset.mint(ATTACKER, 1_001 ether);
         asset.mint(VICTIM, 2_000 ether);
@@ -69,28 +72,38 @@ contract MemecoinYieldVaultTest is Test {
         asset.approve(address(vault), type(uint256).max);
     }
 
-    /// @notice Verifies public yield injection cannot make the first depositor profitable.
-    /// @dev Models the donation-style inflation path through `accumulateYields`.
-    function testInflationAttackIsNotProfitableAfterPublicYieldInjection() external {
-        uint256 attackerInitialBalance = asset.balanceOf(ATTACKER);
-
-        vm.startPrank(ATTACKER);
+    /// @notice A first depositor who front-runs public yield captures only a V-damped fraction.
+    /// @dev Yield is injected by a third party (modeling legitimate swap-fee arrival via the
+    ///      yieldDispatcher path), NOT by the attacker. This makes the assertion V-sensitive:
+    ///      with VIRTUAL_ASSETS=100 ether the attacker redeems ~11 ether; if V regressed to +1
+    ///      the attacker would redeem ~500 ether, failing the bound below.
+    function testVirtualBufferDampsFirstDepositorCaptureOfPublicYield() external {
+        // Attacker front-runs: deposits dust before public yield arrives.
+        vm.prank(ATTACKER);
         uint256 attackerShares = vault.deposit(1, ATTACKER);
+
+        // Legitimate public yield arrives from a third party, not the attacker.
+        asset.mint(YIELD_SOURCE, 1_000 ether);
+        vm.startPrank(YIELD_SOURCE);
+        asset.approve(address(vault), 1_000 ether);
         vault.accumulateYields(1_000 ether);
         vm.stopPrank();
 
+        // Victim deposits at the pushed-up rate.
         vm.prank(VICTIM);
         vault.deposit(2_000 ether, VICTIM);
 
+        // Attacker redeems after the delay.
         vm.prank(ATTACKER);
         vault.requestRedeem(attackerShares, ATTACKER);
-
         vm.warp(block.timestamp + 1 days);
-
         vm.prank(ATTACKER);
-        vault.executeRedeem();
+        uint256 attackerRedeemed = vault.executeRedeem();
 
-        assertLe(asset.balanceOf(ATTACKER), attackerInitialBalance, "attacker profit");
+        // The attacker captured some yield (sanity), but only a V-damped fraction: ~11 ether with
+        // V=100, versus ~500 ether if V regressed to +1. The 50 ether bound catches such a regression.
+        assertGt(attackerRedeemed, 0, "attacker should capture some public yield");
+        assertLt(attackerRedeemed, 50 ether, "attacker capture must be damped by V (V=100 ~11e, V=1 ~500e)");
     }
 
     /// @notice Verifies raw ERC20 transfers into the vault do not affect share pricing.
@@ -114,36 +127,39 @@ contract MemecoinYieldVaultTest is Test {
         assertEq(actualShares, previewBefore, "deposit changed by raw donation");
     }
 
-    /// @notice Verifies repeated victim deposits still do not make public yield injection profitable.
-    /// @dev Extends the inflation test to multiple downstream deposits.
-    function testPublicYieldInjectionRemainsUnprofitableAcrossMultipleDeposits() external {
-        uint256 attackerInitialBalance = asset.balanceOf(ATTACKER);
+    /// @notice V damping holds across multiple downstream victim deposits.
+    /// @dev Same third-party yield injection as the single-victim case; the attacker stakes 1 ether
+    ///      (small but not dust) and still captures only a damped fraction (~7.4 ether at V=100,
+    ///      ~667 ether if V regressed to +1).
+    function testVirtualBufferDampsFirstDepositorCaptureAcrossMultipleVictims() external {
         address victimTwo = address(0xB0B2);
-
         asset.mint(victimTwo, 2_000 ether);
         vm.prank(victimTwo);
         asset.approve(address(vault), type(uint256).max);
 
-        vm.startPrank(ATTACKER);
+        vm.prank(ATTACKER);
         uint256 attackerShares = vault.deposit(1 ether, ATTACKER);
+
+        // Legitimate public yield from a third party.
+        asset.mint(YIELD_SOURCE, 1_000 ether);
+        vm.startPrank(YIELD_SOURCE);
+        asset.approve(address(vault), 1_000 ether);
         vault.accumulateYields(1_000 ether);
         vm.stopPrank();
 
         vm.prank(VICTIM);
         vault.deposit(1_000 ether, VICTIM);
-
         vm.prank(victimTwo);
         vault.deposit(1_000 ether, victimTwo);
 
         vm.prank(ATTACKER);
         vault.requestRedeem(attackerShares, ATTACKER);
-
         vm.warp(block.timestamp + 1 days);
-
         vm.prank(ATTACKER);
-        vault.executeRedeem();
+        uint256 attackerRedeemed = vault.executeRedeem();
 
-        assertLe(asset.balanceOf(ATTACKER), attackerInitialBalance, "attacker profit across deposits");
+        assertGt(attackerRedeemed, 1 ether, "attacker should capture some public yield");
+        assertLt(attackerRedeemed, 50 ether, "attacker capture must be damped by V across multiple victims");
     }
 
     /// @notice Verifies the nominated redeem receiver can execute the delayed withdrawal.
@@ -220,7 +236,7 @@ contract MemecoinYieldVaultTest is Test {
         MemecoinYieldVault composeVault = MemecoinYieldVault(Clones.clone(address(implementation)));
         bytes32 guid = keccak256("compose-guid");
 
-        composeVault.initialize("Compose Vault", "cvMEME", address(0xD15A7), address(composeAsset), 2);
+        composeVault.initialize("Compose Vault", "cvMEME", address(0xD15A7), address(composeAsset), 2, VIRTUAL_ASSETS);
 
         composeAsset.mint(ATTACKER, 10 ether);
         vm.prank(ATTACKER);
@@ -320,7 +336,7 @@ contract MemecoinYieldVaultTest is Test {
         // Deploy a standard production vault (no test-harness subclass).
         MemecoinYieldVault implementation = new MemecoinYieldVault();
         MemecoinYieldVault overflowVault = MemecoinYieldVault(Clones.clone(address(implementation)));
-        overflowVault.initialize("Overflow Vault", "ovMEME", address(0xD15A7), address(asset), 99);
+        overflowVault.initialize("Overflow Vault", "ovMEME", address(0xD15A7), address(asset), 99, VIRTUAL_ASSETS);
 
         // Give the attacker 1 wei of shares via a real deposit so _burn has a valid balance to debit.
         vm.startPrank(ATTACKER);
@@ -328,22 +344,29 @@ contract MemecoinYieldVaultTest is Test {
         overflowVault.deposit(1, ATTACKER);
         vm.stopPrank();
 
-        // Inflate totalAssets to push _convertToAssets above type(uint192).max.
-        // With 1 share and totalAssets ≈ 2^200, _convertToAssets(1, totalAssets) ≈ totalAssets / 2 >> uint192.
-        uint256 oversizedAssets = uint256(type(uint192).max) + uint256(type(uint128).max) + 1;
+        // Inflate totalAssets to push _convertToAssets above type(uint192).max. With 1 share minted,
+        // _convertToAssets(uint128.max, totalAssets) = uint128.max * (totalAssets + V) / (1 + V). The V=100
+        // denominator divides by 101, so totalAssets must be large enough that even after that division the
+        // asset value of uint128.max shares exceeds uint192. Using ~2^210 guarantees the quotient is far
+        // above the uint192 ceiling with margin for the floor division.
+        uint256 oversizedAssets = uint256(1) << 210;
         // Slot 2 = totalAssets (regular storage, after yieldDispatcher and asset).
         vm.store(address(overflowVault), bytes32(uint256(2)), bytes32(oversizedAssets));
 
         // Also inflate ERC20 totalSupply so _burn doesn't underflow.
         // ERC20_STORAGE_LOCATION + 2 = totalSupply (after two mapping fields).
-        vm.store(address(overflowVault),
+        vm.store(
+            address(overflowVault),
             bytes32(0xae36c519e2a406a79e4c05a9c40dc957f3757904fff7f6a4d18b68c3b12f9302),
-            bytes32(uint256(type(uint128).max)));
+            bytes32(uint256(type(uint128).max))
+        );
         // Inflate the attacker's balance so requestRedeem can request a large share amount.
         // keccak256(abi.encode(ATTACKER, ERC20_STORAGE_LOCATION + 0)).
-        vm.store(address(overflowVault),
+        vm.store(
+            address(overflowVault),
             bytes32(0x819c7a1121989277ca5e22639b1d6fcf99589b7b3581ea632d4a29d6f73e87e4),
-            bytes32(uint256(type(uint128).max)));
+            bytes32(uint256(type(uint128).max))
+        );
 
         uint256 previewAssets = overflowVault.previewRedeem(type(uint128).max);
         assertGt(previewAssets, uint256(type(uint192).max), "preview must exceed uint192");
@@ -374,7 +397,7 @@ contract MemecoinYieldVaultTest is Test {
 
         uint256 votesAfter = vault.getVotes(ATTACKER);
         assertGt(votesAfter, votesBefore, "votes must increase after yield");
-        assertEq(votesAfter, Math.mulDiv(shares, 20 ether + 1, 10 ether + 1), "votes formula");
+        assertEq(votesAfter, Math.mulDiv(shares, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS), "votes formula");
     }
 
     /// @notice Quorum reads asset-denominated total supply, not raw share supply.
@@ -395,22 +418,29 @@ contract MemecoinYieldVaultTest is Test {
 
         uint256 pastTotalAfterYield = vault.getPastTotalSupply(200);
         assertGt(pastTotalAfterYield, 10 ether, "total supply grows with yield");
-        assertEq(pastTotalAfterYield, Math.mulDiv(10 ether, 20 ether + 1, 10 ether + 1), "formula");
+        assertEq(
+            pastTotalAfterYield, Math.mulDiv(10 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS), "formula"
+        );
     }
 
     /// @notice Asset denomination lets a sub-threshold staker cross proposalThreshold after yield.
     /// @dev Deposits 60 raw shares (below an abstract 100-ether threshold), then yields so the
-    ///      asset-denominated votes (≈119) clear it. Pre-fix `getVotes` returned raw shares (60),
+    ///      asset-denominated votes clear it. Pre-fix `getVotes` returned raw shares (60),
     ///      failing the threshold assertion — the denomination lift, not the share count, crosses it.
+    ///      Amounts are calibrated for V=100: votes = shares * (totalAssets + V) / (totalSupply + V).
     function testProposalThresholdAndAccountVotesUseSameUnit() external {
         vm.prank(ATTACKER);
         vault.deposit(60 ether, ATTACKER);
         vm.prank(ATTACKER);
         vault.delegate(ATTACKER);
 
-        // Yield moves totalAssets 60 -> 120, so 60 shares price to ≈119 asset-votes (over the 100 threshold).
+        // Raw shares 60 stay below the 100-ether threshold before yield.
+        assertLe(vault.getVotes(ATTACKER), 100 ether, "sub-threshold before yield");
+
+        // Yield 200 lifts totalAssets 60 -> 260; V=100 prices 60 shares to
+        // 60 * (260 + 100) / (60 + 100) = 135 asset-votes, clearing the 100 threshold.
         vm.prank(ATTACKER);
-        vault.accumulateYields(60 ether);
+        vault.accumulateYields(200 ether);
 
         uint256 accountVotes = vault.getVotes(ATTACKER);
         // Load-bearing: pre-fix getVotes == 60 (raw shares) would fail; only asset denomination clears 100.
@@ -471,7 +501,11 @@ contract MemecoinYieldVaultTest is Test {
 
         uint256 victimVotesAfterYield = vault.getVotes(VICTIM);
         assertGt(victimVotesAfterYield, 10 ether, "delegatee votes grow with yield");
-        assertEq(victimVotesAfterYield, Math.mulDiv(10 ether, 20 ether + 1, 10 ether + 1), "formula");
+        assertEq(
+            victimVotesAfterYield,
+            Math.mulDiv(10 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
+            "formula"
+        );
     }
 
     /// @notice After delegate rebalancing, the moved votes stay consistent with the total.
@@ -610,7 +644,7 @@ contract MemecoinYieldVaultTest is Test {
         assertEq(vault.getPastTotalSupply(100), 1 ether, "snapshot total = deposit amount");
 
         uint256 currentTotal = vault.getPastTotalSupply(200);
-        uint256 expected = Math.mulDiv(1 ether, 1001 ether + 1, 1 ether + 1);
+        uint256 expected = Math.mulDiv(1 ether, 1001 ether + VIRTUAL_ASSETS, 1 ether + VIRTUAL_ASSETS);
         assertEq(currentTotal, expected, "total supply = shares * rate");
         assertLt(currentTotal, 1001 ether, "total supply < totalAssets when virtual share captures value");
     }
@@ -637,18 +671,18 @@ contract MemecoinYieldVaultTest is Test {
         // Query from a later block so every snapshot is strictly in the past.
         vm.warp(400);
 
-        // Snapshot at t=100 (rate 1.0): 10 shares * (10+1)/(10+1) = 10 assets.
+        // Snapshot at t=100 (rate 1.0): 10 shares * (10+V)/(10+V) = 10 assets.
         assertEq(vault.getPastVotes(ATTACKER, 100), 10 ether, "votes@100 = raw shares");
         // Snapshot at t=200 (rate 2.0): past total assets = 20.
         assertEq(
             vault.getPastVotes(ATTACKER, 200),
-            Math.mulDiv(10 ether, 20 ether + 1, 10 ether + 1),
+            Math.mulDiv(10 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
             "votes@200 reflect round-1 rate"
         );
         // Snapshot at t=300 (rate 4.0): past total assets = 40.
         assertEq(
             vault.getPastVotes(ATTACKER, 300),
-            Math.mulDiv(10 ether, 40 ether + 1, 10 ether + 1),
+            Math.mulDiv(10 ether, 40 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
             "votes@300 reflect round-2 rate"
         );
     }
@@ -671,7 +705,9 @@ contract MemecoinYieldVaultTest is Test {
         vm.warp(200);
         uint256 pastTotal = vault.getPastTotalSupply(100);
         assertEq(
-            pastTotal, Math.mulDiv(20 ether, 25 ether + 1, 20 ether + 1), "same-block total = shares * post-yield rate"
+            pastTotal,
+            Math.mulDiv(20 ether, 25 ether + VIRTUAL_ASSETS, 20 ether + VIRTUAL_ASSETS),
+            "same-block total = shares * post-yield rate"
         );
     }
 
@@ -701,8 +737,10 @@ contract MemecoinYieldVaultTest is Test {
         assertEq(vault.getVotes(ATTACKER), 20 ether, "votes restored after redeposit");
     }
 
-    /// @notice A 1000x yield rate does not overflow and keeps sole-holder votes within convention slack.
-    /// @dev The +1 convention leaves slack = (totalAssets - totalSupply) / (totalSupply + 1), bounded here under 1001 wei.
+    /// @notice A 1000x yield rate does not overflow and the V buffer visibly dampens the sole-holder's vote gain.
+    /// @dev With virtual buffer V, sole-holder votes = shares * (totalAssets + V) / (totalSupply + V). The raw
+    ///      asset value grew 1000x but the buffer caps the sole holder's vote gain far below that multiple,
+    ///      documenting that extreme donation cannot inflate a staker's voting power toward totalAssets.
     function testExtremeYieldRateStaysWithinConventionSlack() external {
         vm.warp(100);
         vm.prank(ATTACKER);
@@ -710,16 +748,21 @@ contract MemecoinYieldVaultTest is Test {
         vm.prank(ATTACKER);
         vault.delegate(ATTACKER);
 
-        // Donate 999x the deposit to push the rate to 1000x.
+        // Donate 999x the deposit to push the raw rate to 1000x.
         vm.warp(200);
         vm.prank(ATTACKER);
         vault.accumulateYields(999 ether);
 
         vm.warp(300);
         uint256 votes = vault.getPastVotes(ATTACKER, 200);
-        assertEq(votes, Math.mulDiv(1 ether, 1000 ether + 1, 1 ether + 1), "votes match +1 formula");
-        // Sole holder owns all shares, so votes track total assets within the virtual-share slack.
-        assertLt(1000 ether - votes, 1001, "slack bounded under 1001 wei at 1000x rate");
+        assertEq(
+            votes, Math.mulDiv(1 ether, 1000 ether + VIRTUAL_ASSETS, 1 ether + VIRTUAL_ASSETS), "votes match +V formula"
+        );
+        // The buffer dampens the 1000x asset growth into a small vote multiple instead of tracking totalAssets.
+        // Un-buffered votes would be 1000 ether (sole holder owns all shares); V keeps votes far below that.
+        assertLt(votes, 1000 ether, "buffer caps sole-holder votes below raw totalAssets");
+        assertLt(votes, 12 ether, "buffer dampens 1000x donation into a near-1x vote multiple");
+        assertGt(votes, 1 ether, "yield is still reflected in votes");
     }
 
     /// @notice Verifies deposit(0) returns 0 without minting, transferring, or writing checkpoints.
@@ -788,8 +831,16 @@ contract MemecoinYieldVaultTest is Test {
         // The post-yield snapshot reflects the doubled rate.
         uint256 attackerAt200 = vault.getPastVotes(ATTACKER, 200);
         uint256 victimAt200 = vault.getPastVotes(VICTIM, 200);
-        assertEq(attackerAt200, Math.mulDiv(6 ether, 20 ether + 1, 10 ether + 1), "attacker votes reflect yield");
-        assertEq(victimAt200, Math.mulDiv(4 ether, 20 ether + 1, 10 ether + 1), "victim votes reflect yield");
+        assertEq(
+            attackerAt200,
+            Math.mulDiv(6 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
+            "attacker votes reflect yield"
+        );
+        assertEq(
+            victimAt200,
+            Math.mulDiv(4 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
+            "victim votes reflect yield"
+        );
 
         // Griefing neutrality: the donation scaled both voters by the same factor, so the
         // attacker:victim ratio (3:2) is preserved within rounding. A donation moves every vote
@@ -825,14 +876,111 @@ contract MemecoinYieldVaultTest is Test {
         // The snapshot at T=200 reflects the post-yield exchange rate.
         uint256 attackerVotes = vault.getPastVotes(ATTACKER, 200);
         uint256 victimVotes = vault.getPastVotes(VICTIM, 200);
-        assertEq(attackerVotes, Math.mulDiv(6 ether, 20 ether + 1, 10 ether + 1), "attacker votes at snapshot");
-        assertEq(victimVotes, Math.mulDiv(4 ether, 20 ether + 1, 10 ether + 1), "victim votes at snapshot");
+        assertEq(
+            attackerVotes,
+            Math.mulDiv(6 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
+            "attacker votes at snapshot"
+        );
+        assertEq(
+            victimVotes,
+            Math.mulDiv(4 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
+            "victim votes at snapshot"
+        );
 
         // Total supply at snapshot reflects post-yield rate.
         uint256 totalSupplyAtSnapshot = vault.getPastTotalSupply(200);
-        assertEq(totalSupplyAtSnapshot, Math.mulDiv(10 ether, 20 ether + 1, 10 ether + 1), "total supply at snapshot");
+        assertEq(
+            totalSupplyAtSnapshot,
+            Math.mulDiv(10 ether, 20 ether + VIRTUAL_ASSETS, 10 ether + VIRTUAL_ASSETS),
+            "total supply at snapshot"
+        );
 
         // Voter ratio preserved: 6:4 = 3:2 scaling is uniform.
         assertApproxEqAbs(attackerVotes * 2, victimVotes * 3, 4, "voter ratio preserved at snapshot");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────────
+    // Virtual buffer V tests (spec §4)
+    // ──────────────────────────────────────────────────────────────────────────────
+
+    /// @notice initialize stores the supplied virtual buffer verbatim and exposes it via the getter.
+    function testInitializeStoresVirtualAssets() external {
+        assertEq(vault.virtualAssets(), VIRTUAL_ASSETS, "virtualAssets stored from initialize");
+    }
+
+    /// @notice A zero virtual buffer must be rejected so the +V guards actually dampen the rate.
+    /// @dev V=0 would degenerate share/asset math to the un-buffered form and remove the donation dampener.
+    function testInitializeRevertsOnZeroVirtualAssets() external {
+        MemecoinYieldVault implementation = new MemecoinYieldVault();
+        MemecoinYieldVault zeroVault = MemecoinYieldVault(Clones.clone(address(implementation)));
+        vm.expectRevert(IMemecoinYieldVault.ZeroVirtualAssets.selector);
+        zeroVault.initialize("Zero V", "zMEME", address(0xD15A7), address(asset), 1, 0);
+    }
+
+    /// @notice A large yield injection moves the exchange rate by far less than the un-buffered case.
+    /// @dev With V, the post-donation price is (D + V) / (shares + V); without V it would be ~D / shares.
+    ///      Here a 1000x donation only moves the rate from 1.0 to ~1.099x instead of ~1000x.
+    function testVirtualBufferDampensDonationRateInflation() external {
+        vm.prank(ATTACKER);
+        vault.deposit(1 ether, ATTACKER);
+
+        // Without the buffer this donation would push the rate to 1000x; with V it stays near 1.1x.
+        vm.prank(ATTACKER);
+        vault.accumulateYields(1000 ether);
+
+        // Price per share = totalAssets / shares, buffered.
+        uint256 bufferedPrice = vault.previewRedeem(1 ether);
+        uint256 expectedBuffered = Math.mulDiv(1 ether, 1001 ether + VIRTUAL_ASSETS, 1 ether + VIRTUAL_ASSETS);
+        assertEq(bufferedPrice, expectedBuffered, "buffered price follows +V formula");
+        // The buffer caps inflation well below the un-buffered 1001x ceiling.
+        assertLt(bufferedPrice, 12 ether, "rate inflation dampened far below un-buffered 1000x");
+        assertGt(bufferedPrice, 1 ether, "yield still reflected in price");
+    }
+
+    /// @notice Yield is absorbed pro-rata: a late depositor receives shares at the post-yield rate, and
+    ///         earlier holders can redeem for more assets than they deposited.
+    function testYieldAbsorbedProRataAcrossHolders() external {
+        vm.prank(ATTACKER);
+        uint256 attackerShares = vault.deposit(10 ether, ATTACKER);
+
+        // Yield lands while only ATTACKER holds shares.
+        vm.prank(ATTACKER);
+        vault.accumulateYields(10 ether);
+
+        // VICTIM deposits after yield: receives fewer shares because each share is now worth more.
+        vm.prank(VICTIM);
+        uint256 victimShares = vault.deposit(10 ether, VICTIM);
+        assertLt(victimShares, attackerShares, "later depositor gets fewer shares post-yield");
+
+        // ATTACKER redeems and recovers more than the 10 ether deposited — yield is absorbed, not trapped.
+        vm.prank(ATTACKER);
+        uint256 lockedAssets = vault.requestRedeem(attackerShares, ATTACKER);
+        assertGt(lockedAssets, 10 ether, "attacker redeems principal + yield share");
+    }
+
+    /// @notice Empty-vault yield is still burned; the virtual buffer never participates before the first share.
+    /// @dev Guards the orthogonality between burn-on-empty (§5) and the V buffer (§4). Uses a compose-style
+    ///      asset mock because the burn path calls `IMemecoin.burn(uint256)` (single-arg, from msg.sender =
+    ///      the vault), which solmate's `MockERC20.burn(address,uint256)` does not satisfy.
+    function testEmptyVaultYieldIsBurnedRegardlessOfVirtualBuffer() external {
+        // Deploy a fresh vault bound to an asset that implements IMemecoin's single-arg `burn(uint256)`.
+        MockComposeAsset burnableAsset = new MockComposeAsset();
+        MemecoinYieldVault implementation = new MemecoinYieldVault();
+        MemecoinYieldVault emptyVault = MemecoinYieldVault(Clones.clone(address(implementation)));
+        emptyVault.initialize("Empty Vault", "eMEME", address(0xD15A7), address(burnableAsset), 3, VIRTUAL_ASSETS);
+
+        burnableAsset.mint(ATTACKER, 50 ether);
+        vm.prank(ATTACKER);
+        burnableAsset.approve(address(emptyVault), type(uint256).max);
+
+        assertEq(emptyVault.totalAssets(), 0, "vault starts empty");
+        assertEq(burnableAsset.balanceOf(address(emptyVault)), 0, "vault holds no asset before yield");
+
+        // Fund ATTACKER with yield to inject; the vault pulls it then burns it because totalSupply == 0.
+        vm.prank(ATTACKER);
+        emptyVault.accumulateYields(50 ether);
+
+        assertEq(emptyVault.totalAssets(), 0, "totalAssets unchanged after burn-on-empty");
+        assertEq(burnableAsset.balanceOf(address(emptyVault)), 0, "vault holds no burned yield");
     }
 }

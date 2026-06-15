@@ -32,18 +32,23 @@ interface IMemecoinYieldVault is IERC20 {
     function previewRedeem(uint256 shares) external view returns (uint256 assets);
 
     /// @notice Initializes the yield vault proxy.
-    /// @dev Wires ERC20 share metadata, the yield dispatcher, and the verse-specific underlying asset.
+    /// @dev Wires ERC20 share metadata, the yield dispatcher, the verse-specific underlying asset, and the
+    ///      permanent virtual buffer used to dampen exchange-rate inflation. See
+    ///      docs/spec/governance/governance-yield-details.md §4.
     /// @param name Share token name.
     /// @param symbol Share token symbol.
     /// @param yieldDispatcher Address allowed to re-accumulate remote yield.
     /// @param asset Underlying memecoin address.
     /// @param verseId Verse id associated with this vault.
+    /// @param virtualAssets Permanent virtual buffer V added symmetrically to the share/asset sides of every
+    ///        conversion; sized by the launcher at 0.7% of the minimum main-pool memecoin provision.
     function initialize(
         string calldata name,
         string calldata symbol,
         address yieldDispatcher,
         address asset,
-        uint256 verseId
+        uint256 verseId,
+        uint256 virtualAssets
     ) external;
 
     /// @notice Adds freshly supplied yield into the vault.
@@ -86,6 +91,8 @@ interface IMemecoinYieldVault is IERC20 {
     event RedeemExecuted(address indexed receiver, uint256 amount);
 
     error ZeroAddress();
+
+    error ZeroVirtualAssets();
 
     error ZeroRedeemRequest();
 

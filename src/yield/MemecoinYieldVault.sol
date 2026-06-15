@@ -24,29 +24,40 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     address public asset;
     uint256 public totalAssets;
     uint256 public verseId;
+    /// @dev Permanent virtual buffer V used by the share/asset conversion helpers. Set once at
+    ///      initialization; sized by the launcher at 0.7% of the minimum main-pool memecoin provision.
+    ///      See docs/spec/governance/governance-yield-details.md §4.
+    uint256 public virtualAssets;
 
     mapping(address account => RedeemRequest[]) public redeemRequestQueues;
 
     /// @notice Initializes the yield vault proxy.
-    /// @dev Sets ERC20 share metadata and binds the vault to one verse and one underlying memecoin.
+    /// @dev Sets ERC20 share metadata, binds the vault to one verse and one underlying memecoin, and locks
+    ///      the permanent virtual buffer used to dampen exchange-rate inflation.
     /// @param _name Share token name.
     /// @param _symbol Share token symbol.
     /// @param _yieldDispatcher Address treated as the canonical remote-yield source.
     /// @param _asset Underlying memecoin address.
     /// @param _verseId Verse id associated with this vault.
+    /// @param _virtualAssets Permanent virtual buffer V. Must be non-zero so the `+V` conversion guards can
+    ///        never divide by zero and actually dampen the rate; sized by the launcher (spec §4).
     function initialize(
         string calldata _name,
         string calldata _symbol,
         address _yieldDispatcher,
         address _asset,
-        uint256 _verseId
+        uint256 _verseId,
+        uint256 _virtualAssets
     ) external override initializer {
+        require(_virtualAssets > 0, ZeroVirtualAssets());
+
         __OutrunERC20_init(_name, _symbol);
         __OutrunERC20Permit_init(_name);
 
         yieldDispatcher = _yieldDispatcher;
         asset = _asset;
         verseId = _verseId;
+        virtualAssets = _virtualAssets;
     }
 
     /// @notice Exposes the timepoint source used by the votes extension.
@@ -192,13 +203,15 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     }
 
     function _convertToShares(uint256 assets, uint256 latestTotalAssets) internal view returns (uint256) {
-        // The +1 guards keep empty-vault and full-redemption edges well-defined without special-casing zero supply/assets.
-        return Math.mulDiv(assets, totalSupply() + 1, latestTotalAssets + 1);
+        // A permanent virtual buffer V (= virtualAssets = virtualSupply) is added symmetrically to the
+        // share and asset sides. It dampens exchange-rate inflation from donations/yield because an
+        // attacker must outlay ~V in unbacked assets to move the rate by 1 unit of share. See spec §4.
+        return Math.mulDiv(assets, totalSupply() + virtualAssets, latestTotalAssets + virtualAssets);
     }
 
     function _convertToAssets(uint256 shares, uint256 latestTotalAssets) internal view returns (uint256) {
-        // Mirror `_convertToShares` so previews and queued redemptions use the same seeded exchange-rate convention.
-        return Math.mulDiv(shares, latestTotalAssets + 1, totalSupply() + 1);
+        // Mirror `_convertToShares` so previews and queued redemptions use the same V-seeded rate.
+        return Math.mulDiv(shares, latestTotalAssets + virtualAssets, totalSupply() + virtualAssets);
     }
 
     function _deposit(address sender, address receiver, uint256 assets, uint256 shares) internal {
@@ -210,12 +223,14 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
     }
 
     /// @dev Converts raw votes to memecoin asset-denominated votes using the current exchange rate.
+    ///      Uses the same `+V` convention as `_convertToShares` so votes track the real asset value of shares.
     function _convertVotes(uint256 rawVotes, uint256 rawTotalSupply) internal view override returns (uint256) {
         if (rawTotalSupply == 0) return 0;
-        return Math.mulDiv(rawVotes, totalAssets + 1, rawTotalSupply + 1);
+        return Math.mulDiv(rawVotes, totalAssets + virtualAssets, rawTotalSupply + virtualAssets);
     }
 
-    /// @dev Converts raw past votes to asset-denominated using historical totalAssets checkpoint.
+    /// @dev Converts raw past votes to asset-denominated using historical totalAssets checkpoint and the
+    ///      permanent virtual buffer V (spec §4).
     function _convertPastVotes(uint256 rawPastVotes, uint256 rawPastTotalSupply, uint256 pastTotalAssets)
         internal
         view
@@ -223,10 +238,11 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         returns (uint256)
     {
         if (rawPastTotalSupply == 0) return 0;
-        return Math.mulDiv(rawPastVotes, pastTotalAssets + 1, rawPastTotalSupply + 1);
+        return Math.mulDiv(rawPastVotes, pastTotalAssets + virtualAssets, rawPastTotalSupply + virtualAssets);
     }
 
-    /// @dev Converts raw past total supply to asset-denominated using historical totalAssets checkpoint.
+    /// @dev Converts raw past total supply to asset-denominated using historical totalAssets checkpoint and
+    ///      the permanent virtual buffer V (spec §4).
     function _convertPastTotalSupply(uint256 rawPastTotalSupply, uint256 pastTotalAssets)
         internal
         view
@@ -234,7 +250,7 @@ contract MemecoinYieldVault is IMemecoinYieldVault, OutrunERC20PermitInit, Outru
         returns (uint256)
     {
         if (rawPastTotalSupply == 0) return 0;
-        return Math.mulDiv(rawPastTotalSupply, pastTotalAssets + 1, rawPastTotalSupply + 1);
+        return Math.mulDiv(rawPastTotalSupply, pastTotalAssets + virtualAssets, rawPastTotalSupply + virtualAssets);
     }
 
     function _update(address from, address to, uint256 value) internal override(OutrunERC20Init, OutrunERC20VotesInit) {

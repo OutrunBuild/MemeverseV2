@@ -617,6 +617,9 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
 ///      yield, a staker whose raw shares are below the threshold can still propose and reach quorum.
 contract VaultGovernorIntegrationTest is Test {
     address internal constant ATTACKER = address(0xA11CE);
+    // Matches VIRTUAL_ASSETS in test/yield/MemecoinYieldVault.t.sol so asset-denominated vote
+    // assertions stay comparable across the two suites.
+    uint256 internal constant VIRTUAL_ASSETS = 100 ether;
 
     MemecoinDaoGovernorUpgradeable internal governor;
     MemecoinYieldVault internal vault;
@@ -628,7 +631,7 @@ contract VaultGovernorIntegrationTest is Test {
         asset = new MockERC20("Memecoin", "MEME", 18);
         MemecoinYieldVault vaultImpl = new MemecoinYieldVault();
         vault = MemecoinYieldVault(Clones.clone(address(vaultImpl)));
-        vault.initialize("Staked MEME", "sMEME", ATTACKER, address(asset), 1);
+        vault.initialize("Staked MEME", "sMEME", ATTACKER, address(asset), 1, VIRTUAL_ASSETS);
 
         asset.mint(ATTACKER, 1_000 ether);
         vm.prank(ATTACKER);
@@ -660,9 +663,10 @@ contract VaultGovernorIntegrationTest is Test {
     }
 
     /// @notice A sub-threshold staker can propose and reach quorum after yield lifts votes over the threshold.
-    /// @dev 60 raw shares are below the 100-ether threshold; yielding 60 lifts asset-denominated votes to
-    ///      ≈119 via the vault's IVotes views, which the governor reads at clock()-1. Pre-fix, votes stayed
-    ///      at raw 60 and propose reverted GovernorInsufficientProposerVotes.
+    /// @dev 60 raw shares are below the 100-ether threshold; under V=100, yielding 60 only lifts
+    ///      asset-denominated votes to 82.5 (60 * (120+100)/(60+100)), still below 100. So yield 200 lifts
+    ///      votes to 60 * (260+100)/(60+100) = 135 via the vault's IVotes views, which the governor reads at
+    ///      clock()-1. Pre-fix, votes stayed at raw 60 and propose reverted GovernorInsufficientProposerVotes.
     function testProposeAndQuorumSucceedAfterYieldLiftsVotes() external {
         vm.warp(1000);
         vm.prank(ATTACKER);
@@ -672,10 +676,10 @@ contract VaultGovernorIntegrationTest is Test {
 
         vm.warp(2000);
         vm.prank(ATTACKER);
-        vault.accumulateYields(60 ether);
+        vault.accumulateYields(200 ether);
 
         // Propose at t=3000: governor checks getVotes(ATTACKER, clock()-1 = 2999), which reads the
-        // post-yield totalAssets checkpoint and prices 60 shares to ≈119 asset-votes (over 100).
+        // post-yield totalAssets checkpoint and prices 60 shares to 135 asset-votes (over 100).
         vm.warp(3000);
         (address[] memory targets, uint256[] memory values, bytes[] memory calldatas) = _payload();
         vm.prank(ATTACKER);

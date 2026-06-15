@@ -19,7 +19,7 @@
 | `MemeverseLauncher` | `polend` | `initialize(...)` | 非零；当前代码没有 runtime setter | Launcher 保存 `POLend` 接线地址；注册同交易内调用 `POLend.registerLendMarket(verseId)`；`Genesis -> Locked` 时若有杠杆债务则调用 `finalizeLeveragedGenesis(verseId)`；`Locked -> Unlocked` 的 unlock settlement 中按需调用 `executeGlobalSettlement(verseId)`；同一地址还承担 `getTotalLeveragedDebt/Interest`、`preRedeemPTFee`、settlement dust reserve 等查询/执行依赖 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/README.md](../polend/README.md) |
 | `MemeverseLauncher` | `polSplitter` | `initialize(...)` | 非零；当前代码没有 runtime setter | Launcher 保存 `POLSplitter` 接线地址；`Genesis -> Locked` 时调用 `initializeVerse`、记录 PT backing ratio、执行 `split`；normal fee 与 governor PT fee 的 preview/redeem 都依赖该地址；`Locked -> Unlocked` 的 unlock settlement 中先调用 `settle(verseId)`，settled 后普通 PT fee 与 governor PT fee 都改走 `redeemPT -> uAsset` 口径 | `[代码已证]`，其更细四池语义见 [docs/spec/polend/README.md](../polend/README.md) |
 | `MemeverseLauncher` | `yieldDispatcher` | `setYieldDispatcher` | 非零 | 本地费用分发落地 | `[代码已证]` |
-| `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`fundBasedAmount <= MAX_FUND_BASED_AMOUNT`，其中 `MAX_FUND_BASED_AMOUNT = 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格 | `[代码已证]` |
+| `MemeverseLauncher` | `fundMetaDatas[uAsset] = {minTotalFund,fundBasedAmount}` | `setFundMetaData` | 两者非零；`fundBasedAmount <= MAX_FUND_BASED_AMOUNT`，其中 `MAX_FUND_BASED_AMOUNT = 2^64-1` | Genesis 达标判断、首发 memecoin 量与初始价格；该两字段同时作为 `MemecoinYieldVault` 虚拟缓冲 V 推导输入（V 推导规则与 0.7% 系数见 §3） | `[代码已证]` |
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
 | `MemeverseLauncher` | `preorderCapRatio`,`preorderVestingDuration` | `setPreorderConfig` | 非零；`capRatio <= 10000` | preorder 容量和线性释放 | `[代码已证]` |
 | `MemeverseLauncher` | `oftReceiveGasLimit`,`yieldDispatcherGasLimit` | `setGasLimits` | 两者 `>0` | 远端分发 OFT options | `[代码已证]` |
@@ -81,6 +81,8 @@ canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy
 | `GovernanceCycleIncentivizerUpgradeable` | `CYCLE_DURATION` | `90 days` | 治理周期长度 | `[代码已证]` |
 | `MemecoinYieldVault` | `REDEEM_DELAY` | `1 days` | 赎回延迟 | `[代码已证]` |
 | `MemecoinYieldVault` | `MAX_REDEEM_REQUESTS` | `5` | 每地址最大排队赎回数 | `[代码已证]` |
+| `MemeverseLauncher` / `MemecoinYieldVault` | 虚拟缓冲 V 推导 | `V = minTotalFund × fundBasedAmount × 7 / 1000`（即 `0.7%`，等价最小主池 memecoin 的 1%，主池占创世资金 70%） | 由 Launcher 在治理链 deploy vault 时按 `FundMetaData(uAsset)` 的 `minTotalFund × fundBasedAmount` 一次性算出并传入 `vault.initialize(...)`；vault 写入 storage 后永久固定、不可改；不是 owner 可配项，也不新增 `FundMetaData` 字段；用于 share/asset 转换的虚拟缓冲，口径见 [docs/spec/governance/governance-yield-details.md](../governance/governance-yield-details.md) §4 | `[目标规范]` |
+| `MemeverseLauncher` | 虚拟缓冲系数 | `7 / 1000`（`0.7%`）常量 | 算 V 的固定系数，Launcher 端常量，非 owner 配置面；其语义为「主池占创世资金 70%」对应的等效最小主池 1% 口径 | `[目标规范]` |
 
 ## 4. 当前实现提醒
 

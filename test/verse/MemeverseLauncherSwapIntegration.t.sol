@@ -39,19 +39,22 @@ contract MockLauncherSwapIntegrationYieldVault {
     address public yieldDispatcher;
     address public asset;
     uint256 public verseId;
+    uint256 public virtualAssets;
 
     function initialize(
         string calldata name_,
         string calldata symbol_,
         address yieldDispatcher_,
         address asset_,
-        uint256 verseId_
+        uint256 verseId_,
+        uint256 virtualAssets_
     ) external {
         name = name_;
         symbol = symbol_;
         yieldDispatcher = yieldDispatcher_;
         asset = asset_;
         verseId = verseId_;
+        virtualAssets = virtualAssets_;
     }
 }
 
@@ -180,24 +183,29 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
         polend = new MockPOLendForSwapIntegration();
         splitter = new MockPOLSplitterForPreorderIntegration(address(pt), address(yt));
         MemeverseLauncher impl = new MemeverseLauncher();
-        launcherProxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                address(this),
-                address(0x1111),
-                REGISTRAR,
-                address(0x3333),
-                address(0x4444),
-                address(0x5555),
-                address(polend),
-                address(splitter),
-                25,
-                115_000,
-                135_000,
-                2_500,
-                7 days
-            ))
-        ));
+        launcherProxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        address(this),
+                        address(0x1111),
+                        REGISTRAR,
+                        address(0x3333),
+                        address(0x4444),
+                        address(0x5555),
+                        address(polend),
+                        address(splitter),
+                        25,
+                        115_000,
+                        135_000,
+                        2_500,
+                        7 days
+                    )
+                )
+            )
+        );
         launcher = IMemeverseLauncher(launcherProxy);
         MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
         address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);

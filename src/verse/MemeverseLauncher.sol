@@ -56,6 +56,12 @@ contract MemeverseLauncher is
     uint256 internal constant UNLOCK_PROTECTION_WINDOW = 24 hours;
     uint256 internal constant MAX_FUND_BASED_AMOUNT = (1 << 64) - 1;
     uint256 internal constant MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max;
+    /// @dev Numerator of the 0.7% factor used to size the yield-vault virtual buffer V from the minimum
+    ///      main-pool memecoin provision. `V = minTotalFund * fundBasedAmount * 7 / 1000`. See
+    ///      docs/spec/governance/governance-yield-details.md §4.
+    uint256 internal constant YIELD_VAULT_VIRTUAL_ASSET_FACTOR = 7;
+    /// @dev Denominator paired with `YIELD_VAULT_VIRTUAL_ASSET_FACTOR` to express 0.7%.
+    uint256 internal constant YIELD_VAULT_VIRTUAL_ASSET_DIVISOR = 1000;
 
     /// @notice Storage layout for the MemeverseLauncher ERC7201 namespace.
     ///         When adding fields in upgrades, append only at the end.
@@ -535,8 +541,7 @@ contract MemeverseLauncher is
         (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt, _hook);
         govFee += govUAssetFee + govPTFee;
 
-        uint32 govEndpointId =
-            ILzEndpointRegistry($.lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
+        uint32 govEndpointId = ILzEndpointRegistry($.lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
         bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
             .addExecutorLzReceiveOption($.oftReceiveGasLimit, 0)
             .addExecutorLzComposeOption(0, $.yieldDispatcherGasLimit, 0);
@@ -758,13 +763,19 @@ contract MemeverseLauncher is
         if (govChainId == block.chainid) {
             // On the governance chain we deploy concrete contracts immediately because fee distribution will target them locally.
             yieldVault = IMemeverseProxyDeployer(_proxyDeployer).deployYieldVault(verseId);
+            // Size the permanent virtual buffer V from the per-uAsset fund metadata: 0.7% of the minimum
+            // main-pool memecoin provision (spec §4). registerMemeverse already enforces both fields are non-zero.
+            FundMetaData storage _meta = $.fundMetaDatas[uAsset];
+            uint256 _virtualAssets = _meta.minTotalFund * _meta.fundBasedAmount * YIELD_VAULT_VIRTUAL_ASSET_FACTOR
+                / YIELD_VAULT_VIRTUAL_ASSET_DIVISOR;
             IMemecoinYieldVault(yieldVault)
                 .initialize(
                     string(abi.encodePacked("Staked ", name)),
                     string(abi.encodePacked("s", symbol)),
                     $.yieldDispatcher,
                     memecoin,
-                    verseId
+                    verseId,
+                    _virtualAssets
                 );
             (governor, incentivizer) = IMemeverseProxyDeployer(_proxyDeployer)
                 .deployGovernorAndIncentivizer(name, uAsset, memecoin, pol, yieldVault, verseId, proposalThreshold);
@@ -1082,14 +1093,12 @@ contract MemeverseLauncher is
         BalanceDelta delta = IMemeverseUniswapHook(_getMemeverseLauncherStorage().memeverseUniswapHook)
             .executeLaunchSettlement(
                 IMemeverseUniswapHook.LaunchSettlementParams({
-                    key: poolKey,
-                    params: SwapParams({
-                        zeroForOne: zeroForOne,
-                        amountSpecified: -int256(totalFunds),
-                        sqrtPriceLimitX96: sqrtPriceLimitX96
-                    }),
-                    recipient: address(this)
-                })
+                key: poolKey,
+                params: SwapParams({
+                zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: sqrtPriceLimitX96
+            }),
+                recipient: address(this)
+            })
             );
 
         uint256 settledMemecoin = _deltaAmountForToken(delta, memecoin, poolKey);
@@ -1182,9 +1191,7 @@ contract MemeverseLauncher is
         uint256 normalFunds = $.totalNormalFunds[verseId];
         require(userGenesisFund != 0 && normalFunds != 0, InvalidClaim());
 
-        amount = FullMath.mulDiv(
-            $.totalNormalClaimableYT[verseId], userGenesisFund, normalFunds
-        );
+        amount = FullMath.mulDiv($.totalNormalClaimableYT[verseId], userGenesisFund, normalFunds);
 
         $.normalYTClaimed[verseId][msgSender] = true;
         if (amount != 0) {
@@ -2037,10 +2044,7 @@ contract MemeverseLauncher is
     ) external override {
         _versIdValidate(verseId);
         MemeverseLauncherStorage storage $ = _getMemeverseLauncherStorage();
-        require(
-            msg.sender == $.memeverses[verseId].governor || msg.sender == $.memeverseRegistrar,
-            PermissionDenied()
-        );
+        require(msg.sender == $.memeverses[verseId].governor || msg.sender == $.memeverseRegistrar, PermissionDenied());
         require(bytes(description).length < 256, InvalidLength());
 
         if (bytes(uri).length != 0) $.memeverses[verseId].uri = uri;
@@ -2299,12 +2303,11 @@ contract MemeverseLauncher is
     ///      Returns both components already converted to uAsset denomination so callers can sum directly.
     ///      Used by previewGenesisMakerFees and quoteDistributionLzFee to avoid duplicating the
     ///      pending-read → auxiliary-preview → PT-to-uAsset conversion → merge pattern.
-    function _previewGovFeeWithPending(
-        uint256 verseId,
-        Memeverse storage verse,
-        address pt,
-        address _hook
-    ) internal view returns (uint256 govUAssetFee, uint256 govPTFee) {
+    function _previewGovFeeWithPending(uint256 verseId, Memeverse storage verse, address pt, address _hook)
+        internal
+        view
+        returns (uint256 govUAssetFee, uint256 govPTFee)
+    {
         PendingAuxiliaryGovFeeState storage pendingGovFeeState =
             _getMemeverseLauncherStorage().pendingAuxiliaryGovFeeStates[verseId];
 
@@ -2317,8 +2320,7 @@ contract MemeverseLauncher is
 
         // Convert PT-denominated fee to uAsset so the caller can add it directly
         if (govPTFee != 0) {
-            govPTFee =
-                IPOLSplitter(_getMemeverseLauncherStorage().polSplitter).previewPTToUAsset(verseId, govPTFee);
+            govPTFee = IPOLSplitter(_getMemeverseLauncherStorage().polSplitter).previewPTToUAsset(verseId, govPTFee);
         }
     }
 
