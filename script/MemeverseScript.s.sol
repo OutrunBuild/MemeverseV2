@@ -577,7 +577,7 @@ contract MemeverseScript is BaseScript {
 
     function _setMemeverseLauncherFundMetaData(IMemeverseLauncher launcher) internal {
         launcher.setFundMetaData(UETH, 1e19, 1000000);
-        launcher.setFundMetaData(UUSD, 50000 * 1e18, 200);
+        launcher.setFundMetaData(UUSD, 20000 * 1e18, 100000);
     }
 
     function _memeverseLauncherDeployCaller() internal view returns (address) {
