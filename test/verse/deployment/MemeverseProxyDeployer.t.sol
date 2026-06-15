@@ -610,8 +610,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
 
         assertEq(uethMinTotalFund, 1e19);
         assertEq(uethFundBasedAmount, 1000000);
-        assertEq(uusdMinTotalFund, 50000 * 1e18);
-        assertEq(uusdFundBasedAmount, 200);
+        assertEq(uusdMinTotalFund, 20000 * 1e18);
+        assertEq(uusdFundBasedAmount, 100000);
 
         // Verify implementation storage is completely isolated from proxy storage.
         // Direct calls on the implementation (not through the proxy) should return default values.

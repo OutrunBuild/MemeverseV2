@@ -702,7 +702,7 @@ contract MemeverseScript is BaseScript {
             (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = launcher.fundMetaDatas(UETH);
             (uint256 uusdMinTotalFund, uint256 uusdFundBasedAmount) = launcher.fundMetaDatas(UUSD);
             require(uethMinTotalFund == 1e19 && uethFundBasedAmount == 1000000, "LAUNCHER_UETH_META_MISMATCH");
-            require(uusdMinTotalFund == 50000 * 1e18 && uusdFundBasedAmount == 200, "LAUNCHER_UUSD_META_MISMATCH");
+            require(uusdMinTotalFund == 20000 * 1e18 && uusdFundBasedAmount == 100000, "LAUNCHER_UUSD_META_MISMATCH");
         }
     }
 
