@@ -193,70 +193,9 @@ import {
     HookedBurnableMockERC20,
     ReentrantClaimMockERC20
 } from "../mocks/polend/POLendMocks.sol";
+import {POLendStorageHelper} from "../mocks/polend/POLendStorageHelper.sol";
 
-contract POLendHarness is POLend {
-    function _getPOLendStorageHarness() internal pure returns (POLendStorage storage $) {
-        bytes32 slot = 0x04e0fabb81205fd4104b820a75487a0508fe84f0bc41932b7a41622326d3af00;
-        assembly {
-            $.slot := slot
-        }
-    }
-
-    function seedLeveragedPosition(uint256 verseId, address account, uint256 interestPaid) external {
-        _getPOLendStorageHarness().leveragedInterestPaid[verseId][account] = interestPaid;
-    }
-
-    function setRefundState(uint256 verseId) external {
-        _getPOLendStorageHarness().lendMarkets[verseId].state = MarketState.Refund;
-    }
-
-    function setLockedState(uint256 verseId, uint256 totalLeveragedYT) external {
-        POLendStorage storage $ = _getPOLendStorageHarness();
-        $.lendMarkets[verseId].state = MarketState.Locked;
-        $.lendMarkets[verseId].totalLeveragedYT = totalLeveragedYT;
-    }
-
-    function setGenesisState(uint256 verseId, uint256 totalLeveragedInterest) external {
-        POLendStorage storage $ = _getPOLendStorageHarness();
-        $.lendMarkets[verseId].state = MarketState.Genesis;
-        $.lendMarkets[verseId].totalLeveragedInterest = totalLeveragedInterest;
-    }
-
-    function seedResidual(
-        uint256 verseId,
-        uint256 residualUAsset,
-        uint256 residualMemecoin,
-        uint256 totalLeveragedInterest
-    ) external {
-        POLendStorage storage $ = _getPOLendStorageHarness();
-        $.residualStates[verseId] = ResidualState({residualUAsset: residualUAsset, residualMemecoin: residualMemecoin});
-        $.lendMarkets[verseId].totalLeveragedInterest = totalLeveragedInterest;
-        $.lendMarkets[verseId].state = MarketState.Settled;
-    }
-
-    function seedMarket(uint256 verseId, address yt, uint256 totalLeveragedInterest) external {
-        POLendStorage storage $ = _getPOLendStorageHarness();
-        $.lendMarkets[verseId].yt = yt;
-        $.lendMarkets[verseId].totalLeveragedInterest = totalLeveragedInterest;
-    }
-
-    function seedPolToken(uint256, address) external pure {}
-
-    function seedMarketUAsset(uint256 verseId, address uAsset_) external {
-        _getPOLendStorageHarness().lendMarkets[verseId].uAsset = uAsset_;
-    }
-
-    function seedGlobalDebt(address uAsset_, uint256 amount) external {
-        _getPOLendStorageHarness().globalDebtByUAsset[uAsset_] = amount;
-    }
-
-    function seedSettlementDustState(address uAsset_, uint128 reserve_, uint128 maxReserve_) external {
-        _getPOLendStorageHarness().settlementDustStates[uAsset_] =
-            SettlementDustState({reserve: reserve_, maxReserve: maxReserve_});
-    }
-}
-
-contract POLendTest is Test {
+contract POLendTest is Test, POLendStorageHelper {
     uint256 internal constant VERSE_ID = 1;
     uint256 internal constant OTHER_VERSE_ID = 2;
     uint256 internal constant MAX_SETTLEMENT_DUST = 1e9;
@@ -307,7 +246,7 @@ contract POLendTest is Test {
     MockPOLForPOLend internal pol;
     MockLauncherForPOLend internal launcher;
     MockSplitterForPOLend internal splitter;
-    POLendHarness internal polend;
+    POLend internal polend;
 
     function setUp() external {
         uAsset = new BurnableMockERC20("UASSET", "UASSET");
@@ -321,7 +260,7 @@ contract POLendTest is Test {
         splitter.setTokens(address(pt), address(yt));
         splitter.setSplitInfo(address(pol), address(memecoin), address(uAsset));
 
-        polend = _deployPOLendHarness(1e17, 10e18, address(this), address(launcher), address(splitter));
+        polend = _deployPOLend(1e17, 10e18, address(this), address(launcher), address(splitter));
         uAsset.mint(address(this), 10_000 ether);
         otherUAsset.mint(address(this), 10_000 ether);
         uAsset.approve(address(polend), type(uint256).max);
@@ -339,8 +278,6 @@ contract POLendTest is Test {
         polend.registerLendMarket(VERSE_ID);
         vm.prank(address(launcher));
         polend.registerLendMarket(OTHER_VERSE_ID);
-        polend.seedPolToken(VERSE_ID, address(pol));
-        polend.seedPolToken(OTHER_VERSE_ID, address(pol));
     }
 
     function _deployPOLend(
@@ -368,20 +305,6 @@ contract POLendTest is Test {
             POLend.initialize, (address(this), interestRate, leveragedDebtFactor, treasury, launcher_, splitter_)
         );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
-    }
-
-    function _deployPOLendHarness(
-        uint256 interestRate,
-        uint256 leveragedDebtFactor,
-        address treasury,
-        address launcher_,
-        address splitter_
-    ) internal returns (POLendHarness deployed) {
-        POLendHarness implementation = new POLendHarness();
-        bytes memory data = abi.encodeCall(
-            POLend.initialize, (address(this), interestRate, leveragedDebtFactor, treasury, launcher_, splitter_)
-        );
-        return POLendHarness(address(new ERC1967Proxy(address(implementation), data)));
     }
 
     function _fundDustReserveFromAlice(uint256 amount) internal {
@@ -516,7 +439,7 @@ contract POLendTest is Test {
 
         launcher.setVerseUAsset(VERSE_ID, address(hookedUAsset));
         launcher.setFundMetaData(address(hookedUAsset), 1_000 ether, 1);
-        polend.seedMarketUAsset(VERSE_ID, address(hookedUAsset));
+        seedMarketUAssetForTest(address(polend), VERSE_ID, address(hookedUAsset));
         hookedUAsset.enableLeveragedGenesisReentry(address(polend), VERSE_ID, 5 ether);
 
         vm.prank(ALICE);
@@ -622,12 +545,11 @@ contract POLendTest is Test {
 
     function testRegisterLendMarket_TreatsExistingUAssetAsRegisteredWhenRateIsZero() external {
         MockSplitterForPOLend localSplitter = new MockSplitterForPOLend();
-        POLendHarness localPolend =
-            _deployPOLendHarness(1e17, 10e18, address(this), address(launcher), address(localSplitter));
+        POLend localPolend = _deployPOLend(1e17, 10e18, address(this), address(launcher), address(localSplitter));
         uint256 verseId = 101;
         launcher.setVerseUAsset(verseId, address(uAsset));
         localPolend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
-        localPolend.seedMarketUAsset(verseId, address(uAsset));
+        seedMarketUAssetForTest(address(localPolend), verseId, address(uAsset));
 
         vm.prank(address(launcher));
         vm.expectRevert(IPOLend.InvalidState.selector);
@@ -636,8 +558,7 @@ contract POLendTest is Test {
 
     function testRegisterLendMarket_RevertsWhenLauncherReturnsZeroUAsset() external {
         MockSplitterForPOLend localSplitter = new MockSplitterForPOLend();
-        POLendHarness localPolend =
-            _deployPOLendHarness(1e17, 10e18, address(this), address(launcher), address(localSplitter));
+        POLend localPolend = _deployPOLend(1e17, 10e18, address(this), address(launcher), address(localSplitter));
         uint256 verseId = 102;
 
         vm.prank(address(launcher));
@@ -792,7 +713,7 @@ contract POLendTest is Test {
     }
 
     function testGetLeveragedDebtInfo_ReturnsZeroCapacityWhenDustCapUnset() external {
-        polend.seedSettlementDustState(address(uAsset), 0, 0);
+        seedSettlementDustStateForTest(address(polend), address(uAsset), 0, 0);
         (uint256 totalInterest, uint256 totalDebt, uint256 rate, uint256 debtCap, uint256 remaining) =
             _getLeveragedDebtInfo(VERSE_ID);
 
@@ -878,8 +799,8 @@ contract POLendTest is Test {
     }
 
     function testFinalizeLeveragedGenesis_RevertsWhenDustCapUnset() external {
-        polend.seedSettlementDustState(address(uAsset), 0, 0);
-        polend.setGenesisState(VERSE_ID, 10 ether);
+        seedSettlementDustStateForTest(address(polend), address(uAsset), 0, 0);
+        setGenesisStateForTest(address(polend), VERSE_ID, 10 ether);
         uAsset.mint(address(polend), 10 ether);
 
         vm.prank(address(launcher));
@@ -888,8 +809,8 @@ contract POLendTest is Test {
     }
 
     function testClaimRefund_ReturnsInterestOnlyInRefund() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.setRefundState(VERSE_ID);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        setRefundStateForTest(address(polend), VERSE_ID);
         uAsset.mint(address(polend), 10 ether);
 
         vm.prank(ALICE);
@@ -900,9 +821,9 @@ contract POLendTest is Test {
     }
 
     function testClaimRefund_MarksCallerAndRejectsZeroRecipient() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedLeveragedPosition(VERSE_ID, BOB, 5 ether);
-        polend.setRefundState(VERSE_ID);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 5 ether);
+        setRefundStateForTest(address(polend), VERSE_ID);
         uAsset.mint(address(polend), 15 ether);
 
         vm.prank(ALICE);
@@ -925,17 +846,16 @@ contract POLendTest is Test {
 
     function testClaimRefund_BlocksReentrantClaim() external {
         ReentrantClaimMockERC20 hookedUAsset = new ReentrantClaimMockERC20("HOOK", "HOOK");
-        POLendHarness localPolend =
-            _deployPOLendHarness(1e17, 10e18, address(this), address(launcher), address(splitter));
+        POLend localPolend = _deployPOLend(1e17, 10e18, address(this), address(launcher), address(splitter));
         uint256 verseId = 201;
         launcher.setVerseUAsset(verseId, address(hookedUAsset));
         localPolend.setMaxSettlementDustReserve(address(hookedUAsset), uint128(MAX_SETTLEMENT_DUST));
 
         vm.prank(address(launcher));
         localPolend.registerLendMarket(verseId);
-        localPolend.seedLeveragedPosition(verseId, ALICE, 10 ether);
-        localPolend.seedLeveragedPosition(verseId, BOB, 5 ether);
-        localPolend.setRefundState(verseId);
+        seedLeveragedPositionForTest(address(localPolend), verseId, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(localPolend), verseId, BOB, 5 ether);
+        setRefundStateForTest(address(localPolend), verseId);
         hookedUAsset.mint(address(localPolend), 15 ether);
         hookedUAsset.armReentry(
             address(localPolend),
@@ -950,10 +870,10 @@ contract POLendTest is Test {
     }
 
     function testClaimLeveragedYT_MarksCallerAndTransfersToRecipient() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedLeveragedPosition(VERSE_ID, BOB, 30 ether);
-        polend.seedMarket(VERSE_ID, address(yt), 40 ether);
-        polend.setLockedState(VERSE_ID, 400 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 30 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 40 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 400 ether);
         yt.mint(address(polend), 400 ether);
 
         vm.prank(ALICE);
@@ -972,9 +892,9 @@ contract POLendTest is Test {
     }
 
     function testClaimLeveragedYT_RevertsWhenRecipientIsZero() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.setLockedState(VERSE_ID, 100 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 100 ether);
         yt.mint(address(polend), 100 ether);
 
         vm.prank(ALICE);
@@ -986,15 +906,15 @@ contract POLendTest is Test {
 
     function testClaimLeveragedYT_UsesInterestShareInsteadOfRoundedDebtShare() external {
         uint256 verseId = 104;
-        POLendHarness localPolend = _deployPOLendHarness(3, 1e36, address(this), address(launcher), address(splitter));
+        POLend localPolend = _deployPOLend(3, 1e36, address(this), address(launcher), address(splitter));
         launcher.setVerseUAsset(verseId, address(uAsset));
         localPolend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
         vm.prank(address(launcher));
         localPolend.registerLendMarket(verseId);
-        localPolend.seedLeveragedPosition(verseId, ALICE, 1);
-        localPolend.seedLeveragedPosition(verseId, BOB, 2);
-        localPolend.seedMarket(verseId, address(yt), 3);
-        localPolend.setLockedState(verseId, 300 ether);
+        seedLeveragedPositionForTest(address(localPolend), verseId, ALICE, 1);
+        seedLeveragedPositionForTest(address(localPolend), verseId, BOB, 2);
+        seedMarketForTest(address(localPolend), verseId, address(yt), 3);
+        setLockedStateForTest(address(localPolend), verseId, 300 ether);
         yt.mint(address(localPolend), 300 ether);
 
         vm.prank(ALICE);
@@ -1008,10 +928,10 @@ contract POLendTest is Test {
 
     function testClaimLeveragedYT_BlocksReentrantClaim() external {
         ReentrantClaimMockERC20 hookedYT = new ReentrantClaimMockERC20("HOOKYT", "HOOKYT");
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedLeveragedPosition(VERSE_ID, BOB, 5 ether);
-        polend.seedMarket(VERSE_ID, address(hookedYT), 15 ether);
-        polend.setLockedState(VERSE_ID, 150 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 5 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(hookedYT), 15 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 150 ether);
         hookedYT.mint(address(polend), 150 ether);
         hookedYT.armReentry(
             address(polend),
@@ -1026,9 +946,9 @@ contract POLendTest is Test {
     }
 
     function testClaimResidual_MarksCallerAndTransfersToRecipient() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedLeveragedPosition(VERSE_ID, BOB, 30 ether);
-        polend.seedResidual(VERSE_ID, 200 ether, 100 ether, 40 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 30 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 200 ether, 100 ether, 40 ether);
         uAsset.mint(address(polend), 200 ether);
         memecoin.mint(address(polend), 100 ether);
 
@@ -1054,8 +974,8 @@ contract POLendTest is Test {
     }
 
     function testClaimResidual_RevertsWhenRecipientIsZero() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedResidual(VERSE_ID, 50 ether, 25 ether, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 50 ether, 25 ether, 10 ether);
         uAsset.mint(address(polend), 50 ether);
         memecoin.mint(address(polend), 25 ether);
 
@@ -1067,14 +987,14 @@ contract POLendTest is Test {
 
     function testClaimResidual_UsesInterestShareInsteadOfRoundedDebtShare() external {
         uint256 verseId = 105;
-        POLendHarness localPolend = _deployPOLendHarness(3, 1e36, address(this), address(launcher), address(splitter));
+        POLend localPolend = _deployPOLend(3, 1e36, address(this), address(launcher), address(splitter));
         launcher.setVerseUAsset(verseId, address(uAsset));
         localPolend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
         vm.prank(address(launcher));
         localPolend.registerLendMarket(verseId);
-        localPolend.seedLeveragedPosition(verseId, ALICE, 1);
-        localPolend.seedLeveragedPosition(verseId, BOB, 2);
-        localPolend.seedResidual(verseId, 300 ether, 600 ether, 3);
+        seedLeveragedPositionForTest(address(localPolend), verseId, ALICE, 1);
+        seedLeveragedPositionForTest(address(localPolend), verseId, BOB, 2);
+        seedResidualForTest(address(localPolend), verseId, 300 ether, 600 ether, 3);
         uAsset.mint(address(localPolend), 300 ether);
         memecoin.mint(address(localPolend), 600 ether);
 
@@ -1092,10 +1012,10 @@ contract POLendTest is Test {
 
     function testClaimResidual_BlocksReentrantClaim() external {
         ReentrantClaimMockERC20 hookedUAsset = new ReentrantClaimMockERC20("HOOK", "HOOK");
-        polend.seedMarketUAsset(VERSE_ID, address(hookedUAsset));
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedLeveragedPosition(VERSE_ID, BOB, 5 ether);
-        polend.seedResidual(VERSE_ID, 150 ether, 0, 15 ether);
+        seedMarketUAssetForTest(address(polend), VERSE_ID, address(hookedUAsset));
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 5 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 150 ether, 0, 15 ether);
         hookedUAsset.mint(address(polend), 150 ether);
         hookedUAsset.armReentry(
             address(polend),
@@ -1343,7 +1263,7 @@ contract POLendTest is Test {
         assertEq(_getTotalDebtByUAsset(address(uAsset)), 100 ether, "finalized debt");
         assertEq(_getTotalDebtByUAsset(address(otherUAsset)), 0, "other asset debt");
 
-        polend.setLockedState(VERSE_ID, 0);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
         vm.prank(address(launcher));
         polend.preRedeemPTFee(VERSE_ID, 25 ether, BOB);
         assertEq(_getTotalDebtByUAsset(address(uAsset)), 125 ether, "preRedeem debt");
@@ -1387,12 +1307,12 @@ contract POLendTest is Test {
         assertEq(debtCap, 10_000 ether, "genesis cap");
         assertEq(remaining, 990 ether, "genesis remaining");
 
-        polend.setLockedState(VERSE_ID, 0);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
         (,,, debtCap, remaining) = _getLeveragedDebtInfo(VERSE_ID);
         assertEq(debtCap, 0, "locked cap");
         assertEq(remaining, 0, "locked remaining");
 
-        polend.setRefundState(VERSE_ID);
+        setRefundStateForTest(address(polend), VERSE_ID);
         (,,, debtCap, remaining) = _getLeveragedDebtInfo(VERSE_ID);
         assertEq(debtCap, 0, "refund cap");
         assertEq(remaining, 0, "refund remaining");
@@ -1478,9 +1398,9 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_RepaysDebtAndLeavesOnlyRecoveredResidual() external {
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 150 ether);
 
         uAsset.mint(address(polend), 150 ether);
@@ -1503,9 +1423,9 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_RevertsWithoutDebtStateChangeWhenRepayFails() external {
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 150 ether);
         uAsset.mint(address(polend), 150 ether);
         uAsset.setRevertRepay(true);
@@ -1521,12 +1441,14 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_ConsumesReserveForBoundedDustDeficit() external {
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 100 ether - 1);
         uAsset.mint(address(polend), 100 ether - 1 + MAX_SETTLEMENT_DUST);
-        polend.seedSettlementDustState(address(uAsset), uint128(MAX_SETTLEMENT_DUST), uint128(MAX_SETTLEMENT_DUST));
+        seedSettlementDustStateForTest(
+            address(polend), address(uAsset), uint128(MAX_SETTLEMENT_DUST), uint128(MAX_SETTLEMENT_DUST)
+        );
         uint256 treasuryBefore = uAsset.balanceOf(address(this));
 
         uint256 consumedSettlementDustReserve = 1;
@@ -1554,9 +1476,9 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_ConsumesPubliclyFundedDustReserve() external {
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 100 ether - 2);
         uAsset.mint(address(polend), 100 ether - 2);
 
@@ -1582,12 +1504,14 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_RevertsWhenDeficitExceedsGlobalReserve() external {
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 100 ether - MAX_SETTLEMENT_DUST - 1);
         uAsset.mint(address(polend), 100 ether);
-        polend.seedSettlementDustState(address(uAsset), uint128(MAX_SETTLEMENT_DUST), uint128(MAX_SETTLEMENT_DUST));
+        seedSettlementDustStateForTest(
+            address(polend), address(uAsset), uint128(MAX_SETTLEMENT_DUST), uint128(MAX_SETTLEMENT_DUST)
+        );
 
         vm.prank(address(launcher));
         vm.expectRevert(
@@ -1599,12 +1523,12 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_RevertsWhenReserveIsUnderfunded() external {
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 100 ether - 2);
         uAsset.mint(address(polend), 100 ether);
-        polend.seedSettlementDustState(address(uAsset), 1, uint128(MAX_SETTLEMENT_DUST));
+        seedSettlementDustStateForTest(address(polend), address(uAsset), 1, uint128(MAX_SETTLEMENT_DUST));
 
         vm.prank(address(launcher));
         vm.expectRevert(abi.encodeWithSelector(IPOLend.SettlementDustInsufficient.selector, 2, 1));
@@ -1612,12 +1536,12 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_RevertsWhenReserveUnfunded() external {
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.seedGlobalDebt(address(uAsset), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 100 ether);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 100 ether - 1);
         uAsset.mint(address(polend), 100 ether);
-        polend.seedSettlementDustState(address(uAsset), 0, uint128(MAX_SETTLEMENT_DUST));
+        seedSettlementDustStateForTest(address(polend), address(uAsset), 0, uint128(MAX_SETTLEMENT_DUST));
 
         vm.prank(address(launcher));
         vm.expectRevert(abi.encodeWithSelector(IPOLend.SettlementDustInsufficient.selector, 1, 0));
@@ -1625,7 +1549,7 @@ contract POLendTest is Test {
     }
 
     function testPreRedeemPTFee_MintsToTargetAndIncreasesGlobalDebt() external {
-        polend.setLockedState(VERSE_ID, 0);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
         splitter.setPreRedeemBacking(10 ether);
 
         vm.prank(address(launcher));
@@ -1641,7 +1565,7 @@ contract POLendTest is Test {
     }
 
     function testPreRedeemPTFee_EmitsPreRedeemPTFee() external {
-        polend.setLockedState(VERSE_ID, 0);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
         splitter.setPreRedeemBacking(10 ether);
 
         vm.expectEmit(true, true, false, true);
@@ -1652,8 +1576,8 @@ contract POLendTest is Test {
 
     function testPreRedeemPTFee_MintHookObservesDebtAlreadyIncreased() external {
         HookedBurnableMockERC20 hookedUAsset = new HookedBurnableMockERC20("HOOK", "HOOK");
-        polend.setLockedState(VERSE_ID, 0);
-        polend.seedMarketUAsset(VERSE_ID, address(hookedUAsset));
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
+        seedMarketUAssetForTest(address(polend), VERSE_ID, address(hookedUAsset));
         splitter.setPreRedeemBacking(10 ether);
         hookedUAsset.expectMintDebt(address(polend), 10 ether);
 
@@ -1665,7 +1589,7 @@ contract POLendTest is Test {
     }
 
     function testBurnPreRedeemedBacking_RepaysSplitterBackingAndReducesGlobalDebt() external {
-        polend.seedGlobalDebt(address(uAsset), 40 ether);
+        seedGlobalDebtForTest(address(polend), address(uAsset), 40 ether);
         uAsset.mint(address(splitter), 40 ether);
 
         vm.prank(address(splitter));
@@ -1680,8 +1604,8 @@ contract POLendTest is Test {
 
     function testBurnPreRedeemedBacking_RepayHookObservesDebtAlreadyDecreased() external {
         HookedBurnableMockERC20 hookedUAsset = new HookedBurnableMockERC20("HOOK", "HOOK");
-        polend.seedMarketUAsset(VERSE_ID, address(hookedUAsset));
-        polend.seedGlobalDebt(address(hookedUAsset), 40 ether);
+        seedMarketUAssetForTest(address(polend), VERSE_ID, address(hookedUAsset));
+        seedGlobalDebtForTest(address(polend), address(hookedUAsset), 40 ether);
         hookedUAsset.mint(address(splitter), 40 ether);
         hookedUAsset.expectRepayDebt(address(polend), 0);
 
@@ -1693,8 +1617,8 @@ contract POLendTest is Test {
     }
 
     function testExecuteGlobalSettlement_DoesNotCountInterestTowardDebtCoverage() external {
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.setLockedState(VERSE_ID, 0);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 0);
         launcher.setSettlementResult(VERSE_ID, 0, 0, 90 ether);
 
         uAsset.mint(address(polend), 100 ether);
@@ -1790,8 +1714,8 @@ contract POLendTest is Test {
     }
 
     function testClaimResidual_SucceedsWithZeroPayoutAndMarksClaim() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 1);
-        polend.seedResidual(VERSE_ID, 1, 0, 2);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 1);
+        seedResidualForTest(address(polend), VERSE_ID, 1, 0, 2);
         uAsset.mint(address(polend), 1);
 
         vm.prank(ALICE);
@@ -1806,10 +1730,10 @@ contract POLendTest is Test {
     }
 
     function testClaimLeveragedYTAndClaimResidual_AreIndependentForSameUser() external {
-        polend.seedLeveragedPosition(VERSE_ID, ALICE, 10 ether);
-        polend.seedMarket(VERSE_ID, address(yt), 10 ether);
-        polend.setLockedState(VERSE_ID, 100 ether);
-        polend.seedResidual(VERSE_ID, 200 ether, 100 ether, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 10 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 100 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 200 ether, 100 ether, 10 ether);
         uAsset.mint(address(polend), 200 ether);
         memecoin.mint(address(polend), 100 ether);
         yt.mint(address(polend), 100 ether);

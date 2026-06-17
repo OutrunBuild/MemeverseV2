@@ -14,44 +14,6 @@ contract MockPOL is MockERC20 {
     }
 }
 
-contract NoOpBurnMockERC20 is MockERC20 {
-    constructor(string memory name_, string memory symbol_) MockERC20(name_, symbol_, 18) {}
-
-    function burn(uint256 amount) external pure {
-        amount;
-    }
-}
-
-contract DualNoOpBurnMockERC20 is MockERC20 {
-    constructor(string memory name_, string memory symbol_) MockERC20(name_, symbol_, 18) {}
-
-    function burn(uint256 amount) external pure {
-        amount;
-    }
-
-    function burn(address account, uint256 amount) public pure override {
-        account;
-        amount;
-    }
-}
-
-contract TransferOnlyBurnMockERC20 is MockERC20 {
-    address internal immutable sink;
-
-    constructor(string memory name_, string memory symbol_, address sink_) MockERC20(name_, symbol_, 18) {
-        sink = sink_;
-    }
-
-    function burn(uint256 amount) external {
-        balanceOf[msg.sender] -= amount;
-        unchecked {
-            balanceOf[sink] += amount;
-        }
-
-        emit Transfer(msg.sender, sink, amount);
-    }
-}
-
 interface IPOLSplitterReentryTarget {
     function onTokenTransferReenter(uint8 mode) external;
 }

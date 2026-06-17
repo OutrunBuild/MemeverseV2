@@ -12,6 +12,7 @@ import {YieldToken} from "../../src/polend/tokens/YieldToken.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
 import {MockPOL, ReentrantMockERC20, POLSplitterReentryProbe} from "../mocks/polend/POLSplitterMocks.sol";
+import {POLSplitterStorageHelper} from "../mocks/polend/POLSplitterStorageHelper.sol";
 
 contract MockLauncher {
     // Boundary note:
@@ -94,31 +95,7 @@ contract MockPOLendForSplitter {
     }
 }
 
-contract POLSplitterHarness is POLSplitter {
-    function mockSettled(uint256 verseId, uint256 settlementUAsset, uint256 settlementMemecoin) external {
-        POLSplitterStorage storage $ = _getPOLSplitterStorageHarness();
-        $.splitInfos[verseId].settlementUAsset = settlementUAsset;
-        $.splitInfos[verseId].settlementMemecoin = settlementMemecoin;
-        $.splitInfos[verseId].settled = true;
-    }
-
-    function mintPT(uint256 verseId, address to, uint256 amount) external {
-        PrincipalToken(_getPOLSplitterStorageHarness().splitInfos[verseId].pt).mint(to, amount);
-    }
-
-    function mintYT(uint256 verseId, address to, uint256 amount) external {
-        YieldToken(_getPOLSplitterStorageHarness().splitInfos[verseId].yt).mint(to, amount);
-    }
-
-    function _getPOLSplitterStorageHarness() internal pure returns (POLSplitterStorage storage $) {
-        bytes32 slot = 0xab504a6dee30096d32ccac13a30a002829c5eeb4c38a0196ed16a6c4e9faca00;
-        assembly {
-            $.slot := slot
-        }
-    }
-}
-
-contract POLSplitterTest is Test {
+contract POLSplitterTest is Test, POLSplitterStorageHelper {
     uint256 internal constant VERSE_ID = 1;
     uint256 internal constant OTHER_VERSE_ID = 2;
     bytes4 internal constant ZERO_INPUT_SELECTOR = bytes4(keccak256("ZeroInput()"));
@@ -135,7 +112,7 @@ contract POLSplitterTest is Test {
     MockPOL internal otherPol;
     MockLauncher internal launcher;
     MockPOLendForSplitter internal polend;
-    POLSplitterHarness internal splitter;
+    POLSplitter internal splitter;
     PrincipalToken internal pt;
     YieldToken internal yt;
 
@@ -148,7 +125,7 @@ contract POLSplitterTest is Test {
         launcher = new MockLauncher(uAsset, memecoin);
         polend = new MockPOLendForSplitter();
         launcher.setPolend(address(polend));
-        splitter = _deploySplitterHarness(address(launcher));
+        splitter = _deploySplitter(address(launcher));
 
         launcher.setVerseUAsset(VERSE_ID, address(uAsset));
         launcher.setVerseUAsset(OTHER_VERSE_ID, address(otherUAsset));
@@ -165,14 +142,14 @@ contract POLSplitterTest is Test {
         yt = YieldToken(ytAddress);
     }
 
-    function _deploySplitterHarness(address launcher_) internal returns (POLSplitterHarness deployed) {
-        POLSplitterHarness implementation = new POLSplitterHarness();
+    function _deploySplitter(address launcher_) internal returns (POLSplitter deployed) {
+        POLSplitter implementation = new POLSplitter();
         bytes memory data = abi.encodeCall(POLSplitter.initialize, (address(this), launcher_));
-        return POLSplitterHarness(address(new ERC1967Proxy(address(implementation), data)));
+        return POLSplitter(address(new ERC1967Proxy(address(implementation), data)));
     }
 
     function testDeployTokens_RevertForNonLauncherOrRepeatDeployment() external {
-        POLSplitterHarness otherSplitter = _deploySplitterHarness(address(launcher));
+        POLSplitter otherSplitter = _deploySplitter(address(launcher));
 
         vm.prank(ALICE);
         vm.expectRevert(IPOLSplitter.PermissionDenied.selector);
@@ -275,7 +252,7 @@ contract POLSplitterTest is Test {
     }
 
     function testInitializeVerse_RejectsConfiguredPOLend() external {
-        POLSplitterHarness otherSplitter = _deploySplitterHarness(address(launcher));
+        POLSplitter otherSplitter = _deploySplitter(address(launcher));
         launcher.setPolend(ALICE);
 
         vm.prank(ALICE);
@@ -321,9 +298,9 @@ contract POLSplitterTest is Test {
     function testRedeemPT_RevertsOnZeroRecipientBeforeBurn() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 100 ether, 0);
+        mockSettledForTest(address(splitter), VERSE_ID, 100 ether, 0);
         uAsset.mint(address(splitter), 100 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 100 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 100 ether);
 
         vm.prank(ALICE);
         vm.expectRevert(ZERO_INPUT_SELECTOR);
@@ -336,9 +313,9 @@ contract POLSplitterTest is Test {
     function testRedeemPT_RevertsWithInvalidClaimWhenSettlementUAssetIsInsufficient() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 40 ether, 0);
+        mockSettledForTest(address(splitter), VERSE_ID, 40 ether, 0);
         uAsset.mint(address(splitter), 40 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 60 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 60 ether);
 
         vm.prank(ALICE);
         vm.expectRevert(INVALID_CLAIM_SELECTOR);
@@ -359,7 +336,7 @@ contract POLSplitterTest is Test {
 
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 100 ether, 100 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 100 ether, 100 ether);
 
         vm.expectRevert(ZERO_INPUT_SELECTOR);
         splitter.redeemPT(VERSE_ID, 0, ALICE);
@@ -371,9 +348,9 @@ contract POLSplitterTest is Test {
     function testPreviewRedeemYTUAsset_UsesSettlementUAssetMinusReservedPT() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 600 ether, 300 ether);
-        splitter.mintPT(VERSE_ID, address(this), 200 ether);
-        splitter.mintYT(VERSE_ID, address(this), 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 600 ether, 300 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(this), 200 ether);
+        mintYTForTest(address(splitter), VERSE_ID, address(this), 300 ether);
 
         uint256 redeemedUAsset = splitter.previewRedeemYTUAsset(VERSE_ID, 150 ether);
         assertEq(redeemedUAsset, 200 ether, "uAsset pool excludes reserved PT");
@@ -382,9 +359,9 @@ contract POLSplitterTest is Test {
     function testPreviewRedeemYTUAsset_ReservesConvertedPTBacking() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 7 ether, 14 ether);
-        splitter.mockSettled(VERSE_ID, 600 ether, 300 ether);
-        splitter.mintPT(VERSE_ID, address(this), 200 ether);
-        splitter.mintYT(VERSE_ID, address(this), 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 600 ether, 300 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(this), 200 ether);
+        mintYTForTest(address(splitter), VERSE_ID, address(this), 300 ether);
 
         uint256 redeemedUAsset = splitter.previewRedeemYTUAsset(VERSE_ID, 150 ether);
         assertEq(redeemedUAsset, 250 ether, "uAsset pool excludes converted PT backing");
@@ -394,9 +371,9 @@ contract POLSplitterTest is Test {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
         uint256 pool = type(uint256).max;
-        splitter.mockSettled(VERSE_ID, pool, 0);
+        mockSettledForTest(address(splitter), VERSE_ID, pool, 0);
         uAsset.mint(address(splitter), pool);
-        splitter.mintYT(VERSE_ID, BOB, pool);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, pool);
 
         assertEq(splitter.previewRedeemYTUAsset(VERSE_ID, 2), 2, "preview");
 
@@ -411,10 +388,10 @@ contract POLSplitterTest is Test {
     function testRedeemYT_RevertsWithInvalidClaimWhenRedeemOutputsAreZeroBeforeBurn() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 1, 1);
+        mockSettledForTest(address(splitter), VERSE_ID, 1, 1);
         uAsset.mint(address(splitter), 1);
         memecoin.mint(address(splitter), 1);
-        splitter.mintYT(VERSE_ID, BOB, 3);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, 3);
 
         vm.prank(BOB);
         vm.expectRevert(INVALID_CLAIM_SELECTOR);
@@ -489,9 +466,9 @@ contract POLSplitterTest is Test {
     function testRedeemPT_RevertsOnReentrantTransfer() external {
         ReentrantMockERC20 reentrantPol = new ReentrantMockERC20("RUASSET", "RUASSET");
         POLSplitterReentryProbe probe = _deployReentryVerse(reentrantPol);
-        splitter.mockSettled(OTHER_VERSE_ID + 1, 3 ether, 0);
+        mockSettledForTest(address(splitter), OTHER_VERSE_ID + 1, 3 ether, 0);
         reentrantPol.mint(address(splitter), 3 ether);
-        splitter.mintPT(OTHER_VERSE_ID + 1, address(probe), 2 ether);
+        mintPTForTest(address(splitter), OTHER_VERSE_ID + 1, address(probe), 2 ether);
 
         vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
         probe.attackRedeemPT(1 ether);
@@ -561,7 +538,7 @@ contract POLSplitterTest is Test {
         pol.mint(address(this), 500 ether);
         pol.approve(address(splitter), 500 ether);
         splitter.split(VERSE_ID, 500 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 120 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 120 ether);
 
         vm.prank(address(polend));
         splitter.preRedeemPTFee(VERSE_ID, 120 ether);
@@ -588,7 +565,7 @@ contract POLSplitterTest is Test {
         pol.mint(address(this), 500 ether);
         pol.approve(address(splitter), 500 ether);
         splitter.split(VERSE_ID, 500 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 120 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 120 ether);
 
         vm.prank(address(polend));
         splitter.preRedeemPTFee(VERSE_ID, 120 ether);
@@ -630,11 +607,11 @@ contract POLSplitterTest is Test {
     function testRedeemPTAndRedeemYT_ConsumeCorrectPools() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 600 ether, 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 600 ether, 300 ether);
         uAsset.mint(address(splitter), 600 ether);
         memecoin.mint(address(splitter), 300 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 200 ether);
-        splitter.mintYT(VERSE_ID, BOB, 300 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 200 ether);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, 300 ether);
 
         vm.prank(ALICE);
         assertEq(splitter.redeemPT(VERSE_ID, 50 ether, ALICE), 50 ether, "pt 1:1");
@@ -651,9 +628,9 @@ contract POLSplitterTest is Test {
     function testRedeemPT_UsesFixedBackingRatio() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 7 ether, 14 ether);
-        splitter.mockSettled(VERSE_ID, 7 ether, 0);
+        mockSettledForTest(address(splitter), VERSE_ID, 7 ether, 0);
         uAsset.mint(address(splitter), 7 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 14 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 14 ether);
 
         vm.prank(ALICE);
         uint256 uAssetAmount = splitter.redeemPT(VERSE_ID, 14 ether, ALICE);
@@ -668,9 +645,9 @@ contract POLSplitterTest is Test {
     function testRedeemPT_RevertsWhenConvertedBackingIsZero() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1, 2);
-        splitter.mockSettled(VERSE_ID, 1 ether, 0);
+        mockSettledForTest(address(splitter), VERSE_ID, 1 ether, 0);
         uAsset.mint(address(splitter), 1 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 1);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 1);
 
         vm.prank(ALICE);
         vm.expectRevert(IPOLSplitter.InvalidClaim.selector);
@@ -683,11 +660,11 @@ contract POLSplitterTest is Test {
     function testRedeemYT_ReservesConvertedPTBacking() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 7 ether, 14 ether);
-        splitter.mockSettled(VERSE_ID, 600 ether, 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 600 ether, 300 ether);
         uAsset.mint(address(splitter), 600 ether);
         memecoin.mint(address(splitter), 300 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 200 ether);
-        splitter.mintYT(VERSE_ID, BOB, 300 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 200 ether);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, 300 ether);
 
         vm.prank(BOB);
         (uint256 uAssetAmount, uint256 memecoinAmount) = splitter.redeemYT(VERSE_ID, 150 ether, BOB);
@@ -701,10 +678,10 @@ contract POLSplitterTest is Test {
     function testRedeemYT_RevertsOnZeroRecipientBeforeBurn() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 600 ether, 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 600 ether, 300 ether);
         uAsset.mint(address(splitter), 600 ether);
         memecoin.mint(address(splitter), 300 ether);
-        splitter.mintYT(VERSE_ID, BOB, 300 ether);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, 300 ether);
 
         vm.prank(BOB);
         vm.expectRevert(ZERO_INPUT_SELECTOR);
@@ -718,7 +695,7 @@ contract POLSplitterTest is Test {
     function testRedeemYT_RevertsWithInvalidClaimWhenNoOutstandingYT() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 600 ether, 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 600 ether, 300 ether);
         uAsset.mint(address(splitter), 600 ether);
         memecoin.mint(address(splitter), 300 ether);
 
@@ -729,9 +706,9 @@ contract POLSplitterTest is Test {
     function testPreviewRedeemYTUAsset_RevertsWhenSettlementUAssetCannotReservePTSupply() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 50 ether, 300 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 100 ether);
-        splitter.mintYT(VERSE_ID, BOB, 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 50 ether, 300 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 100 ether);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, 300 ether);
 
         vm.expectRevert(abi.encodeWithSelector(PANIC_SELECTOR, uint256(0x11)));
         splitter.previewRedeemYTUAsset(VERSE_ID, 150 ether);
@@ -740,11 +717,11 @@ contract POLSplitterTest is Test {
     function testRedeemYT_RevertsWhenSettlementUAssetCannotReservePTSupply() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 50 ether, 300 ether);
+        mockSettledForTest(address(splitter), VERSE_ID, 50 ether, 300 ether);
         uAsset.mint(address(splitter), 50 ether);
         memecoin.mint(address(splitter), 300 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 100 ether);
-        splitter.mintYT(VERSE_ID, BOB, 300 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 100 ether);
+        mintYTForTest(address(splitter), VERSE_ID, BOB, 300 ether);
 
         vm.prank(BOB);
         vm.expectRevert(abi.encodeWithSelector(PANIC_SELECTOR, uint256(0x11)));
@@ -754,7 +731,7 @@ contract POLSplitterTest is Test {
     function testPreRedeemPTFee_BurnsLauncherPTWithoutApproveAndRecordsPreRedeemedPT() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 120 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 120 ether);
 
         vm.prank(address(polend));
         (bool success,) =
@@ -771,7 +748,7 @@ contract POLSplitterTest is Test {
     function testPreRedeemPTFee_RecordsRawPTAndConvertedBacking() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 7 ether, 14 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 140 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 140 ether);
 
         vm.prank(address(polend));
         uint256 uAssetBacking = splitter.preRedeemPTFee(VERSE_ID, 140 ether);
@@ -786,7 +763,7 @@ contract POLSplitterTest is Test {
     function testPreRedeemPTFee_RevertsWhenConvertedBackingIsZeroBeforeBurn() external {
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(VERSE_ID, 1, 2);
-        splitter.mintPT(VERSE_ID, address(launcher), 1);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 1);
 
         vm.prank(address(polend));
         vm.expectRevert(IPOLSplitter.InvalidClaim.selector);
@@ -804,7 +781,7 @@ contract POLSplitterTest is Test {
         pol.mint(address(this), 500 ether);
         pol.approve(address(splitter), 500 ether);
         splitter.split(VERSE_ID, 500 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 120 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 120 ether);
 
         vm.prank(address(polend));
         (bool success,) =
@@ -833,7 +810,7 @@ contract POLSplitterTest is Test {
         pol.mint(address(this), 500 ether);
         pol.approve(address(splitter), 500 ether);
         splitter.split(VERSE_ID, 500 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 140 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 140 ether);
 
         vm.prank(address(polend));
         uint256 uAssetBacking = splitter.preRedeemPTFee(VERSE_ID, 140 ether);
@@ -863,7 +840,7 @@ contract POLSplitterTest is Test {
         pol.mint(address(this), 500 ether);
         pol.approve(address(splitter), 500 ether);
         splitter.split(VERSE_ID, 500 ether);
-        splitter.mintPT(VERSE_ID, address(launcher), 100 ether);
+        mintPTForTest(address(splitter), VERSE_ID, address(launcher), 100 ether);
 
         launcher.seedRedemption(VERSE_ID, 900 ether, 400 ether);
         launcher.setStage(VERSE_ID, IMemeverseLauncher.Stage.Unlocked);
@@ -888,11 +865,11 @@ contract POLSplitterTest is Test {
         splitter.recordPTBackingRatio(VERSE_ID, 1 ether, 1 ether);
         vm.prank(address(launcher));
         splitter.recordPTBackingRatio(OTHER_VERSE_ID, 1 ether, 1 ether);
-        splitter.mockSettled(VERSE_ID, 100 ether, 0);
-        splitter.mockSettled(OTHER_VERSE_ID, 100 ether, 0);
+        mockSettledForTest(address(splitter), VERSE_ID, 100 ether, 0);
+        mockSettledForTest(address(splitter), OTHER_VERSE_ID, 100 ether, 0);
         uAsset.mint(address(splitter), 100 ether);
         otherUAsset.mint(address(splitter), 100 ether);
-        splitter.mintPT(VERSE_ID, ALICE, 100 ether);
+        mintPTForTest(address(splitter), VERSE_ID, ALICE, 100 ether);
 
         vm.prank(ALICE);
         splitter.redeemPT(VERSE_ID, 100 ether, ALICE);
