@@ -11,7 +11,6 @@ contract MemeverseDynamicFeeSimulation is Test {
     uint256 internal constant BPS_BASE = 10_000;
     uint256 internal constant PPM_BASE = 1_000_000;
     uint256 internal constant Q96 = 1 << 96;
-    uint256 internal constant Q96_SQUARED = Q96 * Q96;
     uint256 internal constant U = 1e18;
 
     // x = 2e28 COIN, y = 2e22 USDT => full-range equivalent L ~= sqrt(x*y) = 2e25.

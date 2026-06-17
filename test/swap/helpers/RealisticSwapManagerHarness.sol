@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -15,25 +14,16 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 
 import {MemeverseSwapRouter} from "../../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 
 import {RealisticSwapManagerHarness} from "../../mocks/swap/RealisticSwapMocks.sol";
-
-contract TestableMemeverseUniswapHookForIntegration is MemeverseUniswapHook {
-    constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
-
-    function validateHookAddress(BaseHook) internal pure override {}
-
-    function _validateProxyHookAddress() internal view virtual override {}
-}
+import {HookStorageHelper} from "../../mocks/swap/HookStorageHelper.sol";
 
 contract UnlockSwapIntegrator is IUnlockCallback {
     using SafeERC20 for IERC20;
@@ -149,7 +139,7 @@ contract RawTransferSwapIntegrator is IUnlockCallback {
     }
 }
 
-abstract contract RealisticSwapIntegrationBase is Test {
+abstract contract RealisticSwapIntegrationBase is Test, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
@@ -176,7 +166,7 @@ abstract contract RealisticSwapIntegrationBase is Test {
     }
 
     RealisticSwapManagerHarness internal manager;
-    TestableMemeverseUniswapHookForIntegration internal hook;
+    MemeverseUniswapHook internal hook;
     MemeverseSwapRouter internal router;
     UnlockSwapIntegrator internal integrator;
     RawTransferSwapIntegrator internal rawTransferIntegrator;
@@ -199,21 +189,11 @@ abstract contract RealisticSwapIntegrationBase is Test {
         token0.mint(alice, 1_000_000 ether);
         token1.mint(alice, 1_000_000 ether);
 
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
-        // Hook proxy is 3 CREATEs away: engine proxy (nonce+1), hook impl (nonce+2), hook proxy (nonce+3).
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForIntegration implementation =
-            new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), treasury, engine));
-        hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        // hookOwner = address(this), treasury = treasury, engine bound to the hook proxy.
+        (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), treasury);
+        hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), permit2_);
         integrator = new UnlockSwapIntegrator(manager);
         rawTransferIntegrator = new RawTransferSwapIntegrator(manager);

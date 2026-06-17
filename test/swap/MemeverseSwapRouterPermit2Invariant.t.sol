@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -15,18 +14,17 @@ import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IS
 import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPermit2ForRouterTest, MockPoolManagerForPermit2RouterTest} from "../mocks/swap/Permit2Mocks.sol";
-import {TestableMemeverseUniswapHookForPermit2Router} from "./MemeverseSwapRouterPermit2.t.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 
 contract Permit2AccountingHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal router;
-    TestableMemeverseUniswapHookForPermit2Router internal immutable hook;
+    MemeverseUniswapHook internal immutable hook;
     MockPermit2ForRouterTest internal immutable permit2;
     MockERC20 internal immutable token0;
     address internal immutable treasury;
@@ -37,7 +35,7 @@ contract Permit2AccountingHandler is Test {
     uint256 public lastExpectedPermitAmount;
 
     constructor(
-        TestableMemeverseUniswapHookForPermit2Router _hook,
+        MemeverseUniswapHook _hook,
         MockPermit2ForRouterTest _permit2,
         MockERC20 _token0,
         address _treasury,
@@ -152,7 +150,7 @@ contract Permit2SpoofHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseSwapRouter internal immutable router;
-    TestableMemeverseUniswapHookForPermit2Router internal immutable hook;
+    MemeverseUniswapHook internal immutable hook;
     MockPermit2ForRouterTest internal immutable permit2;
     MockERC20 internal immutable token0;
     address internal immutable treasury;
@@ -162,7 +160,7 @@ contract Permit2SpoofHandler is Test {
 
     constructor(
         MemeverseSwapRouter _router,
-        TestableMemeverseUniswapHookForPermit2Router _hook,
+        MemeverseUniswapHook _hook,
         MockPermit2ForRouterTest _permit2,
         MockERC20 _token0,
         address _treasury,
@@ -233,11 +231,11 @@ contract Permit2SpoofHandler is Test {
     }
 }
 
-contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
+contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test, HookStorageHelper {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MockPoolManagerForPermit2RouterTest internal manager;
-    TestableMemeverseUniswapHookForPermit2Router internal hook;
+    MemeverseUniswapHook internal hook;
     MockPermit2ForRouterTest internal permit2;
     MemeverseSwapRouter internal router;
     MockERC20 internal token0;
@@ -250,23 +248,12 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test {
 
     function _deployHookProxy(IPoolManager manager_, address owner_, address treasury_)
         internal
-        returns (TestableMemeverseUniswapHookForPermit2Router deployed)
+        returns (MemeverseUniswapHook deployed)
     {
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForPermit2Router implementation =
-            new TestableMemeverseUniswapHookForPermit2Router(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        deployed =
-            TestableMemeverseUniswapHookForPermit2Router(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        (address hookProxy,) = deployHookAtFlagAddress(manager_, owner_, treasury_);
+        deployed = MemeverseUniswapHook(hookProxy);
     }
 
     /// @notice Test helper for setUp.

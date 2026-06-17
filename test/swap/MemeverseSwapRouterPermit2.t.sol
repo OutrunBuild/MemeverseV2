@@ -3,59 +3,34 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
-import {BalanceDelta, BalanceDeltaLibrary, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/ISignatureTransfer.sol";
 import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
-import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
 import {
     MockPoolManagerForPermit2RouterTest,
     MockPermit2ForRouterTest,
     SignatureVerifyingPermit2ForRouterTest
 } from "../mocks/swap/Permit2Mocks.sol";
-
-contract TestableMemeverseUniswapHookForPermit2Router is MemeverseUniswapHook {
-    constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
-
-    function seedActiveLiquidityShares(PoolKey memory key, address owner, uint256 activeShares) external {
-        PoolId id = key.toId();
-        address liquidityToken = _getMemeverseUniswapHookStorage().poolInfo[id].liquidityToken;
-        if (liquidityToken == address(0)) revert PoolNotInitialized();
-
-        UniswapLP(liquidityToken).mint(owner, activeShares);
-        _getMemeverseUniswapHookStorage().cachedLpTotalSupply[id] += activeShares;
-    }
-
-    function validateHookAddress(BaseHook) internal pure override {}
-
-    function _validateProxyHookAddress() internal view virtual override {}
-}
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 
 /// @dev Test boundary:
 /// - These cases lock Permit2/router handling under the local manager and Permit2 mocks.
 /// - They do not establish real market execution, partial-fill economics, rollback guarantees,
 ///   or fee-side correctness beyond this deterministic harness.
-contract MemeverseSwapRouterPermit2Test is Test {
+contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
@@ -103,7 +78,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     }
 
     MockPoolManagerForPermit2RouterTest internal manager;
-    TestableMemeverseUniswapHookForPermit2Router internal hook;
+    MemeverseUniswapHook internal hook;
     MockPermit2ForRouterTest internal mockPermit2;
     SignatureVerifyingPermit2ForRouterTest internal realPermit2;
     MemeverseSwapRouter internal router;
@@ -126,23 +101,12 @@ contract MemeverseSwapRouterPermit2Test is Test {
 
     function _deployHookProxyForManager(IPoolManager manager_, address owner_, address treasury_)
         internal
-        returns (TestableMemeverseUniswapHookForPermit2Router deployed)
+        returns (MemeverseUniswapHook deployed)
     {
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForPermit2Router implementation =
-            new TestableMemeverseUniswapHookForPermit2Router(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        deployed =
-            TestableMemeverseUniswapHookForPermit2Router(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        (address hookProxy,) = deployHookAtFlagAddress(manager_, owner_, treasury_);
+        deployed = MemeverseUniswapHook(hookProxy);
     }
 
     /// @notice Deploys the permit2 test harness, mocks, and seeded pool state.
@@ -185,7 +149,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
         hook.setPoolInitializer(address(this));
         hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
-        hook.seedActiveLiquidityShares(key, address(this), 1e18);
+        seedActiveLiquiditySharesForTest(address(hook), poolId, address(this), 1e18);
     }
 
     /// @notice Verifies single-permit swaps pull input and execute successfully.
@@ -255,7 +219,7 @@ contract MemeverseSwapRouterPermit2Test is Test {
     /// @dev Uses hook-local pool protection while still funding the input through Permit2 first.
     function testSwapWithPermit2_RevertsDuringPostUnlockProtectionWindow() external {
         MockPoolManagerForPermit2RouterTest guardedManager = new MockPoolManagerForPermit2RouterTest();
-        TestableMemeverseUniswapHookForPermit2Router guardedHook =
+        MemeverseUniswapHook guardedHook =
             _deployHookProxyForManager(IPoolManager(address(guardedManager)), address(this), treasury);
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),

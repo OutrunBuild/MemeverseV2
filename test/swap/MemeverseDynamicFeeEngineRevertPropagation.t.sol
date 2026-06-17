@@ -49,7 +49,7 @@ contract MemeverseDynamicFeeEngineRevertPropagationTest is RealisticSwapIntegrat
         );
         // Bypass upgradeDynamicFeeEngine authorization check by writing directly to hook storage.
         // dynamicFeeEngine is at slot 11 relative to the base storage location.
-        bytes32 baseSlot = 0x9f27a56b97c42ac08d93ff5a852851d11eb052b06dc4c041fc6bfa4414f7e000;
+        bytes32 baseSlot = HOOK_SLOT;
         vm.store(address(hook), bytes32(uint256(baseSlot) + 11), bytes32(uint256(uint160(address(newEngine)))));
         engine = newEngine;
     }

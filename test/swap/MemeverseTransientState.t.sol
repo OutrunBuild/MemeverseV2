@@ -3,26 +3,24 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {TestableMemeverseUniswapHook} from "./MemeverseUniswapHookLiquidity.t.sol";
 import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 
-contract MemeverseTransientStateTest is Test {
+contract MemeverseTransientStateTest is Test, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MockPoolManagerForHookLiquidity internal mockManager;
-    TestableMemeverseUniswapHook internal hook;
+    MemeverseUniswapHook internal hook;
     MockERC20 internal token0;
     MockERC20 internal token1;
     PoolKey internal key;
@@ -80,33 +78,11 @@ contract MemeverseTransientStateTest is Test {
         assertEq(unspecifiedDelta, 0, "input-side exact-input swap should not emit output delta");
     }
 
-    function _deployHookProxy(address owner_, address treasury_) internal returns (TestableMemeverseUniswapHook) {
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
-        MemeverseDynamicFeeEngine engine =
-            _deployEngineProxy(IPoolManager(address(mockManager)), predictedHook, predictedHook);
-        TestableMemeverseUniswapHook implementation =
-            new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        return TestableMemeverseUniswapHook(address(new ERC1967Proxy(address(implementation), data)));
-    }
-
-    function _deployEngineProxy(IPoolManager manager_, address owner_) internal returns (MemeverseDynamicFeeEngine) {
-        return _deployEngineProxy(manager_, owner_, address(0xBAD));
-    }
-
-    function _deployEngineProxy(IPoolManager manager_, address owner_, address authorizedHook_)
-        internal
-        returns (MemeverseDynamicFeeEngine)
-    {
-        MemeverseDynamicFeeEngine implementation = new MemeverseDynamicFeeEngine(manager_);
-        return MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(implementation),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (owner_, authorizedHook_))
-                )
-            )
-        );
+    function _deployHookProxy(address owner_, address treasury_) internal returns (MemeverseUniswapHook) {
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared helper
+        // (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(mockManager)), owner_, treasury_);
+        return MemeverseUniswapHook(hookProxy);
     }
 
     function _addLiquidity() internal {

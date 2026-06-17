@@ -5,7 +5,7 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -192,8 +192,7 @@ contract RealisticSwapManagerHarness {
                 require(address(this).balance >= amount, "take: insufficient balance");
             } else {
                 require(
-                    IERC20(Currency.unwrap(currency)).balanceOf(address(this)) >= amount,
-                    "take: insufficient balance"
+                    IERC20(Currency.unwrap(currency)).balanceOf(address(this)) >= amount, "take: insufficient balance"
                 );
             }
         }
@@ -246,7 +245,9 @@ contract RealisticSwapManagerHarness {
                 backedAmountState[currency] += uint256(d);
             }
             currencyDeltaState[k] = 0;
-            unchecked { --nonzeroDeltaCount; }
+            unchecked {
+                --nonzeroDeltaCount;
+            }
         }
         return paid;
     }

@@ -16,7 +16,6 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
@@ -27,53 +26,17 @@ import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
 import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
 import {FeeEngineStorageSlots} from "../mocks/swap/FeeEngineStorageSlots.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {TestableMemeverseDynamicFeeEngineV2} from "../mocks/upgrade/TestableMemeverseDynamicFeeEngineV2.sol";
-
-contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
-    constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
-
-    function validateHookAddress(BaseHook) internal pure override {}
-
-    function _validateProxyHookAddress() internal view virtual override {}
-
-    function exposedBaseFeeBps() external pure returns (uint256) {
-        return FEE_BASE_BPS;
-    }
-
-    function exposedCachedLpTotalSupply(PoolId poolId) external view returns (uint256) {
-        return _getMemeverseUniswapHookStorage().cachedLpTotalSupply[poolId];
-    }
-}
-
-contract TestableMemeverseUniswapHookV2 is TestableMemeverseUniswapHook {
-    constructor(IPoolManager _manager) TestableMemeverseUniswapHook(_manager) {}
-
-    function version() external pure returns (uint256) {
-        return 2;
-    }
-}
+import {MemeverseUniswapHookV2} from "../mocks/upgrade/MemeverseUniswapHookV2.sol";
 
 /// @dev Test boundary:
 /// - These cases lock hook-side handling under the local hook-liquidity manager mock.
 /// - They do not establish real market execution, partial-fill economics, rollback guarantees,
 ///   or fee-side correctness beyond this deterministic harness.
-contract MemeverseUniswapHookLiquidityTest is Test {
+contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     using FeeEngineStorageSlots for *;
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
-    uint160 internal constant PRICE_MOVE_59_999_UP_POST = 81570347323081481549928488305;
-    uint160 internal constant PRICE_MOVE_60_000_UP_POST = 81570385799687631547685037519;
-    uint160 internal constant PRICE_MOVE_59_999_DOWN_POST = 76814594370895530393110659596;
-    uint160 internal constant PRICE_MOVE_60_000_DOWN_POST = 76814553512101337462432816780;
-    uint160 internal constant PRICE_MOVE_149_999_UP_POST = 84962701926156676880859777928;
-    uint160 internal constant PRICE_MOVE_150_000_UP_POST = 84962738866485953687210797630;
-    uint160 internal constant PRICE_MOVE_149_999_DOWN_POST = 73044799624479866430778194544;
-    uint160 internal constant PRICE_MOVE_150_000_DOWN_POST = 73044756656988588048856075193;
-    uint160 internal constant PRICE_MOVE_AMBIGUOUS_POST = 79267766696949822951113378805;
-    uint160 internal constant SPOT_VECTOR_128_PLUS_1 = uint160((uint256(1) << 128) + 1);
-    uint160 internal constant SPOT_VECTOR_128_64_12345 = uint160((uint256(1) << 128) + (uint256(1) << 64) + 12345);
-    uint160 internal constant SPOT_VECTOR_128_127_PLUS_1 = uint160((uint256(1) << 128) + (uint256(1) << 127) + 1);
-    uint160 internal constant SPOT_VECTOR_129_MINUS_1 = uint160((uint256(1) << 129) - 1);
-    uint160 internal constant SPOT_VECTOR_140_PLUS_987654321 = uint160((uint256(1) << 140) + 987654321);
     uint256 internal constant Q128 = uint256(1) << 128;
     uint256 internal constant E18 = 1e18;
     uint256 internal constant PPM_BASE = 1_000_000;
@@ -103,7 +66,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     bytes32 internal constant FEE_ENGINE_STORAGE_LOCATION = FeeEngineStorageSlots.LOCATION;
 
     MockPoolManagerForHookLiquidity internal mockManager;
-    TestableMemeverseUniswapHook internal hook;
+    MemeverseUniswapHook internal hook;
     MemeverseSwapRouter internal router;
     MockERC20 internal token0;
     MockERC20 internal token1;
@@ -112,14 +75,13 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
     function _deployHookProxyForManager(IPoolManager manager_, address owner_, address treasury_)
         internal
-        returns (TestableMemeverseUniswapHook deployed)
+        returns (MemeverseUniswapHook deployed)
     {
-        // Hook proxy is 3 CREATEs away: engine impl (+1), engine proxy (+2), hook impl (+3), hook proxy (+4).
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
-        MemeverseDynamicFeeEngine engine = _deployEngineProxyForManager(manager_, predictedHook, predictedHook);
-        TestableMemeverseUniswapHook implementation = new TestableMemeverseUniswapHook(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        deployed = TestableMemeverseUniswapHook(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared helper
+        // (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`). Engine proxy is
+        // created and bound by the helper; hook impl is the production contract.
+        (address hookProxy,) = deployHookAtFlagAddress(manager_, owner_, treasury_);
+        return MemeverseUniswapHook(hookProxy);
     }
 
     function _deployEngineProxyForManager(IPoolManager manager_, address owner_)
@@ -144,10 +106,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
     }
 
-    function _deployHookProxy(address owner_, address treasury_)
-        internal
-        returns (TestableMemeverseUniswapHook deployed)
-    {
+    function _deployHookProxy(address owner_, address treasury_) internal returns (MemeverseUniswapHook deployed) {
         deployed = _deployHookProxyForManager(IPoolManager(address(mockManager)), owner_, treasury_);
     }
 
@@ -230,7 +189,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
     function testBeforeInitialize_RevertsWithoutAuthorizedInitializer() external {
         MockPoolManagerForHookLiquidity freshManager = new MockPoolManagerForHookLiquidity();
-        TestableMemeverseUniswapHook freshHook =
+        MemeverseUniswapHook freshHook =
             _deployHookProxyForManager(IPoolManager(address(freshManager)), address(this), address(this));
         MockERC20 freshToken0 = new MockERC20("Fresh0", "F0", 18);
         MockERC20 freshToken1 = new MockERC20("Fresh1", "F1", 18);
@@ -707,7 +666,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
         assertEq(UniswapLP(lpToken).totalSupply(), 0, "no locked LP supply");
         assertEq(UniswapLP(lpToken).balanceOf(address(0)), 0, "zero address LP balance");
-        assertEq(hook.exposedCachedLpTotalSupply(poolId), 0, "cached supply");
+        assertEq(getCachedLpTotalSupplyForTest(address(hook), poolId), 0, "cached supply");
         assertEq(mockManager.getLiquidity(poolId), 0, "pool liquidity");
     }
 
@@ -719,7 +678,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         (address lpToken,,) = hook.poolInfo(poolId);
 
         uint256 actualSupply = UniswapLP(lpToken).totalSupply();
-        uint256 cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
+        uint256 cachedSupply = getCachedLpTotalSupplyForTest(address(hook), poolId);
         assertEq(cachedSupply, actualSupply, "cached supply after add");
 
         // After partial removal: still in sync
@@ -731,7 +690,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
 
         actualSupply = UniswapLP(lpToken).totalSupply();
-        cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
+        cachedSupply = getCachedLpTotalSupplyForTest(address(hook), poolId);
         assertEq(cachedSupply, actualSupply, "cached supply after partial remove");
 
         // After full removal: still in sync with no permanently locked supply
@@ -745,7 +704,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         );
 
         actualSupply = UniswapLP(lpToken).totalSupply();
-        cachedSupply = hook.exposedCachedLpTotalSupply(poolId);
+        cachedSupply = getCachedLpTotalSupplyForTest(address(hook), poolId);
         assertEq(cachedSupply, actualSupply, "cached supply after full remove");
         assertEq(actualSupply, 0, "no locked supply remains");
         assertEq(mockManager.getLiquidity(poolId), 0, "pool liquidity after full remove");
@@ -1019,7 +978,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         // Bypass the admin guard so settlement exercises a broken bound engine directly.
         MemeverseDynamicFeeEngine newEngine =
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
-        bytes32 baseSlot = 0x9f27a56b97c42ac08d93ff5a852851d11eb052b06dc4c041fc6bfa4414f7e000;
+        bytes32 baseSlot = HOOK_SLOT;
         vm.store(address(hook), bytes32(uint256(baseSlot) + 11), bytes32(uint256(uint160(address(newEngine)))));
 
         vm.expectRevert(abi.encodeWithSelector(IMemeverseDynamicFeeEngine.UnauthorizedCaller.selector, address(hook)));
@@ -1083,7 +1042,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     /// @notice Verifies launch settlement requires the pool to be initialized.
     function testExecuteLaunchSettlement_RevertsWhenPoolNotInitialized() external {
         MockPoolManagerForHookLiquidity uninitializedManager = new MockPoolManagerForHookLiquidity();
-        TestableMemeverseUniswapHook uninitializedHook =
+        MemeverseUniswapHook uninitializedHook =
             _deployHookProxyForManager(IPoolManager(address(uninitializedManager)), address(this), address(this));
         PoolKey memory uninitializedKey = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -1156,15 +1115,14 @@ contract MemeverseUniswapHookLiquidityTest is Test {
                 )
             )
         );
-        TestableMemeverseUniswapHook implementation =
-            new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)));
+        MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         implementation.initialize(address(this), address(this), engine);
     }
 
     function testProxyInitializeSetsOwnerTreasuryAndLaunchFeeConfig() external {
-        TestableMemeverseUniswapHook initialized = _deployHookProxy(address(0xA11CE), address(0xFEE));
+        MemeverseUniswapHook initialized = _deployHookProxy(address(0xA11CE), address(0xFEE));
 
         assertEq(initialized.owner(), address(0xA11CE), "owner");
         assertEq(initialized.treasury(), address(0xFEE), "treasury");
@@ -1190,8 +1148,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         MemeverseDynamicFeeEngine engine =
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this), predictedHook);
-        TestableMemeverseUniswapHook implementation =
-            new TestableMemeverseUniswapHook(IPoolManager(address(mockManager)));
+        MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -1205,37 +1162,62 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     }
 
     function testNonOwnerCannotUpgrade() external {
-        TestableMemeverseUniswapHook initialized = _deployHookProxy(address(this), address(this));
-        TestableMemeverseUniswapHookV2 newImplementation =
-            new TestableMemeverseUniswapHookV2(IPoolManager(address(mockManager)));
+        MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(this));
+        MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(mockManager)));
 
         vm.prank(address(0xB0B));
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
         initialized.upgradeToAndCall(address(newImplementation), bytes(""));
     }
 
+    /// @notice Verifies a UUPS upgrade to the V2 facade preserves V1 hook storage (owner, treasury, launcher,
+    ///         poolInitializer).
+    /// @dev Mirrors the #9 engine facade upgrade test: the facade shell does not inherit MemeverseUniswapHook, so
+    ///      it exposes no V1 getters and post-upgrade storage is read via `vm.load` against the V1 storage slots
+    ///      (OwnableUpgradeable owner slot + the hook ERC7201 namespace struct field offsets). Upgrade authorization
+    ///      still runs V1's `_authorizeUpgrade` (onlyOwner + `MemeverseUniswapHook(newImpl).poolManager()` match),
+    ///      which the facade satisfies via its immutable `poolManager`. Upgrade semantics are unchanged; only the
+    ///      read mechanism moves from V1 getters to slot loads, because the facade intentionally lacks them.
     function testOwnerCanUpgradeAndPreserveStorage() external {
-        TestableMemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
+        MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
         initialized.setLauncher(address(0xD00D));
         initialized.setPoolInitializer(address(0xBEEF));
 
-        TestableMemeverseUniswapHookV2 newImplementation =
-            new TestableMemeverseUniswapHookV2(IPoolManager(address(mockManager)));
+        // Snapshot the V1-set storage through the V1 getters while V1 is still live.
+        bytes32 ownableSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
+        bytes32 snapshotOwner = vm.load(address(initialized), ownableSlot);
+        bytes32 snapshotTreasury = vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_TREASURY));
+        bytes32 snapshotLauncher = vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_LAUNCHER));
+        bytes32 snapshotPoolInitializer =
+            vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_POOL_INITIALIZER));
+
+        MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(mockManager)));
 
         initialized.upgradeToAndCall(address(newImplementation), bytes(""));
 
-        assertEq(TestableMemeverseUniswapHookV2(address(initialized)).version(), 2, "version");
-        assertEq(initialized.owner(), address(this), "owner");
-        assertEq(initialized.treasury(), address(0xFEE), "treasury");
-        assertEq(initialized.launcher(), address(0xD00D), "launcher");
-        assertEq(initialized.poolInitializer(), address(0xBEEF), "poolInitializer");
+        assertEq(MemeverseUniswapHookV2(address(initialized)).version(), 2, "version");
+        assertEq(vm.load(address(initialized), ownableSlot), snapshotOwner, "owner survived");
+        assertEq(
+            vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_TREASURY)),
+            snapshotTreasury,
+            "treasury survived"
+        );
+        assertEq(
+            vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_LAUNCHER)),
+            snapshotLauncher,
+            "launcher survived"
+        );
+        assertEq(
+            vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_POOL_INITIALIZER)),
+            snapshotPoolInitializer,
+            "poolInitializer survived"
+        );
     }
 
     function testOwnerCannotUpgradeToImplementationWithDifferentPoolManager() external {
-        TestableMemeverseUniswapHook initialized = _deployHookProxy(address(this), address(this));
+        MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(this));
         MockPoolManagerForHookLiquidity differentManager = new MockPoolManagerForHookLiquidity();
-        TestableMemeverseUniswapHookV2 newImplementation =
-            new TestableMemeverseUniswapHookV2(IPoolManager(address(differentManager)));
+        MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(differentManager)));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -1247,11 +1229,11 @@ contract MemeverseUniswapHookLiquidityTest is Test {
 
     function testConstructorRevertsWhenPoolManagerIsZero() external {
         vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
-        new TestableMemeverseUniswapHook(IPoolManager(address(0)));
+        new MemeverseUniswapHook(IPoolManager(address(0)));
     }
 
     function testProxyInitializeRevertsOnSecondCall() external {
-        TestableMemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
+        MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
         IMemeverseDynamicFeeEngine engine = IMemeverseDynamicFeeEngine(address(initialized.dynamicFeeEngine()));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -1295,17 +1277,26 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(address(hook.dynamicFeeEngine()), address(newEngine), "engine pointer");
     }
 
+    /// @notice Verifies a UUPS upgrade to the V2 facade preserves the V1 dynamic-fee-engine pointer slot.
+    /// @dev Same facade-no-getters constraint as `testOwnerCanUpgradeAndPreserveStorage`: the engine pointer
+    ///      (`dynamicFeeEngine`, struct offset 11 in the hook ERC7201 namespace) is read via `vm.load` after the
+    ///      upgrade because the facade shell lacks the V1 `dynamicFeeEngine()` view.
     function testHookUpgradePreservesDynamicFeeEnginePointer() external {
         MemeverseDynamicFeeEngine newEngine =
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(hook), address(hook));
         hook.upgradeDynamicFeeEngine(newEngine);
 
-        TestableMemeverseUniswapHookV2 newImplementation =
-            new TestableMemeverseUniswapHookV2(IPoolManager(address(mockManager)));
+        bytes32 snapshotEnginePointer = vm.load(address(hook), bytes32(uint256(HOOK_SLOT) + OFF_DYNAMIC_FEE_ENGINE));
+
+        MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(mockManager)));
         hook.upgradeToAndCall(address(newImplementation), bytes(""));
 
-        assertEq(TestableMemeverseUniswapHookV2(address(hook)).version(), 2, "version");
-        assertEq(address(hook.dynamicFeeEngine()), address(newEngine), "engine pointer");
+        assertEq(MemeverseUniswapHookV2(address(hook)).version(), 2, "version");
+        assertEq(
+            vm.load(address(hook), bytes32(uint256(HOOK_SLOT) + OFF_DYNAMIC_FEE_ENGINE)),
+            snapshotEnginePointer,
+            "engine pointer survived"
+        );
     }
 
     /// @notice Regression: upgrading to an engine that hasn't authorized this hook must revert.
@@ -1574,7 +1565,7 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         // Use vm.store to bypass upgradeDynamicFeeEngine's authorization check.
         MemeverseDynamicFeeEngine newEngine =
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
-        bytes32 baseSlot = 0x9f27a56b97c42ac08d93ff5a852851d11eb052b06dc4c041fc6bfa4414f7e000;
+        bytes32 baseSlot = HOOK_SLOT;
         vm.store(address(hook), bytes32(uint256(baseSlot) + 11), bytes32(uint256(uint160(address(newEngine)))));
 
         _addLiquidity();

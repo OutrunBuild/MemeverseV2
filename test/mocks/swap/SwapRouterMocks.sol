@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
-import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -371,23 +371,4 @@ contract MockPoolManagerForRouterTest {
     }
 
     receive() external payable {}
-}
-
-/// @notice Stand-in launcher exposing pair-level public-swap gating used by router protection tests.
-/// @dev Records pair-level allow/deny verdicts without modeling full launcher semantics.
-contract MockLauncherForRouterProtectionTest {
-    mapping(bytes32 => bool) internal blockedPairs;
-
-    function setPublicSwapBlocked(address tokenA, address tokenB, bool blocked) external {
-        blockedPairs[_pairKey(tokenA, tokenB)] = blocked;
-    }
-
-    function isPublicSwapAllowed(address tokenA, address tokenB) external view returns (bool) {
-        return !blockedPairs[_pairKey(tokenA, tokenB)];
-    }
-
-    function _pairKey(address tokenA, address tokenB) internal pure returns (bytes32) {
-        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
-        return keccak256(abi.encode(token0, token1));
-    }
 }

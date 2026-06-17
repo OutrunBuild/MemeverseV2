@@ -3,8 +3,7 @@ pragma solidity ^0.8.35;
 
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -13,7 +12,6 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {LiquidityAmounts} from "../../../src/swap/libraries/LiquidityAmounts.sol";
-import {IMemeverseUniswapHook} from "../../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 
 /// @dev Mock-harness boundary:
 /// - This file's local hook-liquidity manager mock only covers plumbing, local revert surface,
@@ -234,76 +232,5 @@ contract MockPoolManagerForHookLiquidity {
 
         extStorage[stateSlot] = bytes32(uint256(state.sqrtPriceX96));
         extStorage[bytes32(uint256(stateSlot) + LIQUIDITY_OFFSET)] = bytes32(uint256(liquidityState[poolId]));
-    }
-}
-
-/// @notice Stand-in recipient used to exercise reentrancy behavior in hook-liquidity tests.
-/// @dev Re-attempts `quoteSwap` on first native receipt to witness whether the hook guards against reentry.
-contract ReentrantExitRecipient {
-    IMemeverseUniswapHook internal immutable hook;
-    MockERC20 internal immutable token;
-    Currency internal immutable currency0;
-    Currency internal immutable currency1;
-
-    bool internal hasReentered;
-    bool internal quoteSucceeded;
-
-    constructor(IMemeverseUniswapHook _hook, MockERC20 _token, Currency _currency0, Currency _currency1) {
-        hook = _hook;
-        token = _token;
-        currency0 = _currency0;
-        currency1 = _currency1;
-        token.approve(address(_hook), type(uint256).max);
-    }
-
-    function addLiquidity(uint256 amount0Desired, uint256 amount1Desired) external returns (uint128 liquidity) {
-        (liquidity,) = hook.addLiquidityCore(
-            IMemeverseUniswapHook.AddLiquidityCoreParams({
-                currency0: currency0,
-                currency1: currency1,
-                amount0Desired: amount0Desired,
-                amount1Desired: amount1Desired,
-                to: address(this)
-            })
-        );
-    }
-
-    function removeLiquidity(uint128 liquidity) external {
-        hook.removeLiquidityCore(
-            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
-                currency0: currency0, currency1: currency1, liquidity: liquidity, recipient: address(this)
-            })
-        );
-    }
-
-    function quoteSucceededDuringReceive() external view returns (bool) {
-        return quoteSucceeded;
-    }
-
-    function callbackTriggered() external view returns (bool) {
-        return hasReentered;
-    }
-
-    receive() external payable {
-        if (hasReentered) return;
-        hasReentered = true;
-
-        try hook.quoteSwap(
-            PoolKey({
-                currency0: currency0,
-                currency1: currency1,
-                fee: 0x800000,
-                tickSpacing: 200,
-                hooks: IHooks(address(hook))
-            }),
-            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: 0}),
-            address(this)
-        ) returns (
-            IMemeverseUniswapHook.SwapQuote memory
-        ) {
-            quoteSucceeded = true;
-        } catch {
-            quoteSucceeded = false;
-        }
     }
 }

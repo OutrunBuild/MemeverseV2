@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -14,22 +13,20 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {TestableMemeverseUniswapHook} from "./MemeverseUniswapHookLiquidity.t.sol";
 import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
 import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
-import {TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 
 contract LaunchFeeQuoteHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
-    TestableMemeverseUniswapHook internal immutable hook;
+    MemeverseUniswapHook internal immutable hook;
     PoolKey internal key;
     uint256 public lastObservedFeeBps;
 
-    constructor(TestableMemeverseUniswapHook _hook, PoolKey memory _key) {
+    constructor(MemeverseUniswapHook _hook, PoolKey memory _key) {
         hook = _hook;
         key = _key;
         lastObservedFeeBps = _currentQuoteFee();
@@ -88,7 +85,7 @@ contract DirectLaunchSettlementHandler is Test {
     uint256 internal constant PROTOCOL_FEE_BPS = 30;
     uint256 internal constant LP_FEE_BPS = 70;
     uint256 internal constant BPS_BASE = 10_000;
-    TestableMemeverseUniswapHookForRouter internal immutable hook;
+    MemeverseUniswapHook internal immutable hook;
     address internal immutable owner;
     address public immutable settlementRecipient;
     MockERC20 internal immutable token0;
@@ -105,7 +102,7 @@ contract DirectLaunchSettlementHandler is Test {
     bool internal expectedBalancesInitialized;
 
     constructor(
-        TestableMemeverseUniswapHookForRouter _hook,
+        MemeverseUniswapHook _hook,
         PoolKey memory _key,
         MockERC20 _token0,
         MockERC20 _token1,
@@ -211,13 +208,13 @@ contract DirectLaunchSettlementHandler is Test {
     }
 }
 
-contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
+contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MockPoolManagerForHookLiquidity internal manager;
-    TestableMemeverseUniswapHook internal hook;
+    MemeverseUniswapHook internal hook;
     MockERC20 internal token0;
     MockERC20 internal token1;
     PoolKey internal key;
@@ -226,21 +223,12 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
 
     function _deployHookProxy(IPoolManager manager_, address owner_, address treasury_)
         internal
-        returns (TestableMemeverseUniswapHook deployed)
+        returns (MemeverseUniswapHook deployed)
     {
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHook implementation = new TestableMemeverseUniswapHook(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        deployed = TestableMemeverseUniswapHook(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared helper
+        // (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        (address hookProxy,) = deployHookAtFlagAddress(manager_, owner_, treasury_);
+        return MemeverseUniswapHook(hookProxy);
     }
 
     /// @notice Test helper for setUp.
@@ -299,13 +287,13 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test {
     }
 }
 
-contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test {
+contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MockPoolManagerForRouterTest internal manager;
-    TestableMemeverseUniswapHookForRouter internal hook;
+    MemeverseUniswapHook internal hook;
     MockERC20 internal token0;
     MockERC20 internal token1;
     PoolKey internal key;
@@ -316,21 +304,12 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
 
     function _deployRouterHookProxy(IPoolManager manager_, address owner_, address treasury_)
         internal
-        returns (TestableMemeverseUniswapHookForRouter deployed)
+        returns (MemeverseUniswapHook deployed)
     {
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        (address hookProxy,) = deployHookAtFlagAddress(manager_, owner_, treasury_);
+        deployed = MemeverseUniswapHook(hookProxy);
     }
 
     /// @notice Test helper for setUp.
@@ -356,7 +335,7 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
         hook.setPoolInitializer(address(this));
         hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         manager.initialize(key, SQRT_PRICE_1_1);
-        hook.seedActiveLiquidityShares(key, address(this), 1e18);
+        seedActiveLiquiditySharesForTest(address(hook), poolId, address(this), 1e18);
         hook.setProtocolFeeCurrency(key.currency0);
 
         handler = new DirectLaunchSettlementHandler(hook, key, token0, token1, address(this), settlementRecipient);
