@@ -14,129 +14,25 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
-import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
+import {POLendInvariantStub, POLSplitterInvariantStub} from "../mocks/verse/LauncherInvariantStubs.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {TestableMemeverseUniswapHookForLauncherIntegration} from "./MemeverseLauncherPreorderIntegration.t.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {
     MockIntegrationMemecoin,
     MockLauncherIntegrationLzEndpointRegistry,
     MockLauncherIntegrationProxyDeployer
 } from "../mocks/verse/LauncherPreorderIntegrationMocks.sol";
-import {MockPoolManagerForRouterTest} from "../swap/MemeverseSwapRouter.t.sol";
+import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
 
-contract MockPOLendForPreorderInvariant {
-    uint256 internal totalLeveragedDebt_;
-    address internal pt_;
-    address internal yt_;
+contract MockPOLendForPreorderInvariant is POLendInvariantStub {}
 
-    function setLendMarket(address pt, address yt) external {
-        pt_ = pt;
-        yt_ = yt;
-    }
-
-    function registerLendMarket(uint256) external {}
-
-    function getTotalLeveragedDebt(uint256) external view returns (uint256) {
-        return totalLeveragedDebt_;
-    }
-
-    function getTotalLeveragedInterest(uint256) external pure returns (uint256) {
-        return 0;
-    }
-
-    function getLendMarket(uint256) external view returns (IPOLend.LendMarket memory market) {
-        market.yt = yt_;
-    }
-
-    function finalizeLeveragedGenesis(uint256) external {}
-
-    function recordLeveragedYT(uint256, address, uint256) external {}
-
-    function markRefundable(uint256) external {}
-
-    function executeGlobalSettlement(uint256) external {}
+contract MockPOLSplitterForPreorderInvariant is POLSplitterInvariantStub {
+    constructor(address pt_, address yt_) POLSplitterInvariantStub(pt_, yt_) {}
 }
 
-contract MockPOLSplitterForPreorderInvariant {
-    address internal immutable pt;
-    address internal immutable yt;
-
-    constructor(address pt_, address yt_) {
-        pt = pt_;
-        yt = yt_;
-    }
-
-    function initializeVerse(uint256, address, address, address, string calldata, string calldata)
-        external
-        view
-        returns (address, address)
-    {
-        return (pt, yt);
-    }
-
-    function splitInfos(uint256)
-        external
-        view
-        returns (address, address, address, address, address, uint256, uint256, uint256, uint256, uint256, bool)
-    {
-        return (pt, yt, address(0), address(0), address(0), 0, 0, 0, 0, 0, false);
-    }
-
-    function getPT(uint256) external view returns (address) {
-        return pt;
-    }
-
-    function getYT(uint256) external view returns (address) {
-        return yt;
-    }
-
-    function getMemecoin(uint256) external pure returns (address) {
-        return address(0);
-    }
-
-    function getPTAndYT(uint256) external view returns (address, address) {
-        return (pt, yt);
-    }
-
-    function getPTSettlementState(uint256) external view returns (address, bool) {
-        return (pt, false);
-    }
-
-    function split(uint256, uint256 polAmount) external returns (uint256 ptAmount, uint256 ytAmount) {
-        MockERC20(pt).mint(msg.sender, polAmount);
-        MockERC20(yt).mint(msg.sender, polAmount);
-        return (polAmount, polAmount);
-    }
-
-    function settle(uint256) external pure returns (uint256 settlementUAsset, uint256 settlementMemecoin) {
-        return (0, 0);
-    }
-
-    function merge(uint256, uint256) external pure returns (uint256) {
-        revert("unused");
-    }
-
-    function preRedeemPTFee(uint256, uint256) external pure returns (uint256 uAssetBacking) {
-        return 0;
-    }
-
-    function redeemPT(uint256, uint256, address) external pure returns (uint256) {
-        revert("unused");
-    }
-
-    function redeemYT(uint256, uint256, address) external pure returns (uint256, uint256) {
-        revert("unused");
-    }
-
-    function previewRedeemYTUAsset(uint256, uint256) external pure returns (uint256 uAssetAmount) {
-        return 0;
-    }
-}
-
-abstract contract MemeverseLauncherPreorderInvariantBase is Test, MemeverseLauncherTestHelper {
+abstract contract MemeverseLauncherPreorderInvariantBase is Test, MemeverseLauncherTestHelper, HookStorageHelper {
     address internal constant REGISTRAR = address(0xBEEF);
     uint32 internal constant REMOTE_GOV_CHAIN_ID = 202;
     uint32 internal constant REMOTE_EID = 302;
@@ -342,7 +238,7 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
     address internal constant CHARLIE = address(0xCA11E);
 
     MockPoolManagerForRouterTest internal manager;
-    TestableMemeverseUniswapHookForLauncherIntegration internal hook;
+    MemeverseUniswapHook internal hook;
     MemeverseSwapRouter internal router;
     IMemeverseLauncher internal launcher;
     address internal launcherProxy;
@@ -392,22 +288,10 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
             )
         );
         launcher = IMemeverseLauncher(launcherProxy);
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForLauncherIntegration implementation =
-            new TestableMemeverseUniswapHookForLauncherIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine));
-        hook = TestableMemeverseUniswapHookForLauncherIntegration(
-            address(new ERC1967Proxy(address(implementation), data))
-        );
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass + hand-rolled engine deployment).
+        (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), address(this));
+        hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );

@@ -8,33 +8,23 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {MockPoolManagerForRouterTest} from "../swap/MemeverseSwapRouter.t.sol";
+import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {
     MockIntegrationLiquidProof,
-    MockIntegrationMemecoin,
     MockLauncherIntegrationLzEndpointRegistry,
     MockLauncherIntegrationProxyDeployer,
     MockPOLendForPreorderIntegration,
     MockPOLSplitterForPreorderIntegration
 } from "../mocks/verse/LauncherPreorderIntegrationMocks.sol";
 
-contract TestableMemeverseUniswapHookForLauncherIntegration is MemeverseUniswapHook {
-    constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
-
-    function validateHookAddress(BaseHook) internal pure override {}
-
-    function _validateProxyHookAddress() internal view virtual override {}
-}
-
-contract MemeverseLauncherPreorderIntegrationTest is Test {
+contract MemeverseLauncherPreorderIntegrationTest is Test, HookStorageHelper {
     address internal constant REGISTRAR = address(0xBEEF);
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
@@ -42,7 +32,7 @@ contract MemeverseLauncherPreorderIntegrationTest is Test {
     uint32 internal constant REMOTE_EID = 302;
 
     MockPoolManagerForRouterTest internal manager;
-    TestableMemeverseUniswapHookForLauncherIntegration internal hook;
+    MemeverseUniswapHook internal hook;
     MemeverseSwapRouter internal router;
     MemeverseLauncher internal launcher;
     MockLauncherIntegrationProxyDeployer internal proxyDeployer;
@@ -83,22 +73,11 @@ contract MemeverseLauncherPreorderIntegrationTest is Test {
             )
         );
         launcher = MemeverseLauncher(address(new ERC1967Proxy(address(launcherImplementation), launcherInitData)));
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForLauncherIntegration implementation =
-            new TestableMemeverseUniswapHookForLauncherIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine));
-        hook = TestableMemeverseUniswapHookForLauncherIntegration(
-            address(new ERC1967Proxy(address(implementation), data))
-        );
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        // hookOwner = address(this), treasury = address(this), engine bound to the hook proxy.
+        (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), address(this));
+        hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
         );

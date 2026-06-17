@@ -17,8 +17,8 @@ import {
     MockHookForPOLendIntegration,
     MockMemecoinForPOLendIntegration,
     MockPolForPOLendIntegration,
-    MockPOLendForTask5,
-    MockPOLSplitterForTask5,
+    MockPOLendForPOLendIntegration,
+    MockPOLSplitterForPOLendIntegration,
     MockProxyDeployerForPOLendIntegration,
     MockRouterForPOLendIntegration,
     MockYieldDispatcherForPOLendIntegration,
@@ -36,8 +36,8 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
     MockERC20 internal uAsset;
     MockMemecoinForPOLendIntegration internal memecoin;
     MockPolForPOLendIntegration internal pol;
-    MockPOLendForTask5 internal polend;
-    MockPOLSplitterForTask5 internal splitter;
+    MockPOLendForPOLendIntegration internal polend;
+    MockPOLSplitterForPOLendIntegration internal splitter;
     MockYieldDispatcherForPOLendIntegration internal dispatcher;
     MintableTokenForPOLendIntegration internal pt;
     MintableTokenForPOLendIntegration internal yt;
@@ -50,14 +50,14 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
         proxyDeployer = new MockProxyDeployerForPOLendIntegration();
         uAsset = new MockERC20("UASSET", "UASSET", 18);
         recorder = new CallRecorder();
-        polend = new MockPOLendForTask5(uAsset, recorder);
+        polend = new MockPOLendForPOLendIntegration(uAsset, recorder);
         dispatcher = new MockYieldDispatcherForPOLendIntegration();
         pt = new MintableTokenForPOLendIntegration("PT", "PT");
         yt = new MintableTokenForPOLendIntegration("YT", "YT");
         polUAssetLp = new MockERC20("POL-UASSET-LP", "POL-UASSET-LP", 18);
         ptUAssetLp = new MockERC20("PT-UASSET-LP", "PT-UASSET-LP", 18);
         ptPolLp = new MockERC20("PT-POL-LP", "PT-POL-LP", 18);
-        splitter = new MockPOLSplitterForTask5(address(pt), address(yt), recorder);
+        splitter = new MockPOLSplitterForPOLendIntegration(address(pt), address(yt), recorder);
         MemeverseLauncher impl = new MemeverseLauncher();
         launcherProxy = address(
             new ERC1967Proxy(
@@ -442,7 +442,8 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
             _sortedTokenAddresses(address(tokenA), address(tokenB), address(tokenC));
         assertGt(uint160(testPol), uint160(testUAsset), "pol/uAsset caller order reversed");
 
-        MockPOLSplitterForTask5 testSplitter = new MockPOLSplitterForTask5(testPt, address(yt), recorder);
+        MockPOLSplitterForPOLendIntegration testSplitter =
+            new MockPOLSplitterForPOLendIntegration(testPt, address(yt), recorder);
         testSplitter.setPolForTest(testPol);
         testSplitter.setPolendForTest(address(polend));
         setPolSplitterForTest(launcherProxy, address(testSplitter));

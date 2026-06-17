@@ -14,14 +14,11 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
-import {
-    RealisticSwapManagerHarness,
-    TestableMemeverseUniswapHookForIntegration
-} from "../swap/helpers/RealisticSwapManagerHarness.sol";
+import {RealisticSwapManagerHarness} from "../swap/helpers/RealisticSwapManagerHarness.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MockOFTDispatcher} from "../mocks/verse/LauncherLifecycleMocks.sol";
@@ -56,7 +53,7 @@ contract DirectPoolManagerSwapHelper is IUnlockCallback {
     }
 }
 
-contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelper {
+contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelper, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint256 internal constant VERSE_ID = 1;
@@ -64,11 +61,10 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
     address internal constant TREASURY = address(0x7EA5);
-    address internal constant REWARD_RECEIVER = address(0xCAFE);
 
     RealisticSwapManagerHarness internal manager;
     DirectPoolManagerSwapHelper internal directSwapHelper;
-    TestableMemeverseUniswapHookForIntegration internal hook;
+    MemeverseUniswapHook internal hook;
     MemeverseSwapRouter internal router;
     IMemeverseLauncher internal launcher;
     address internal launcherProxy;
@@ -116,20 +112,11 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
             )
         );
         launcher = IMemeverseLauncher(launcherProxy);
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForIntegration implementation =
-            new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), TREASURY, engine));
-        hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        // hookOwner = address(this), treasury = TREASURY, engine bound to the hook proxy.
+        (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), TREASURY);
+        hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0))
         );

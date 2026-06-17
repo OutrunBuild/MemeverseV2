@@ -20,7 +20,6 @@ import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {
     MockSwapRouter,
@@ -33,9 +32,10 @@ import {
     MockLaunchSettlementHookForLauncherTest,
     RedeemMemecoinLiquidityReenterer
 } from "../mocks/verse/LauncherLifecycleMocks.sol";
-import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "../swap/MemeverseSwapRouter.t.sol";
+import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 
-contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHelper {
+contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHelper, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     bytes4 internal constant PUBLIC_SWAP_DISABLED_SELECTOR = bytes4(keccak256("PublicSwapDisabled()"));
@@ -59,24 +59,13 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
 
     function _deployHookProxy(IPoolManager manager_, address owner_, address treasury_)
         internal
-        returns (TestableMemeverseUniswapHookForRouter deployed)
+        returns (MemeverseUniswapHook deployed)
     {
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager_);
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForRouter implementation = new TestableMemeverseUniswapHookForRouter(manager_);
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (owner_, treasury_, engine));
-        deployed = TestableMemeverseUniswapHookForRouter(address(new ERC1967Proxy(address(implementation), data)));
+        // Real MemeverseUniswapHook deployed behind a CREATE2-mined flag-address proxy via the shared
+        // helper (replaces the former Testable subclass that bypassed `_validateProxyHookAddress`).
+        (address hookProxy,) = deployHookAtFlagAddress(manager_, owner_, treasury_);
+        deployed = MemeverseUniswapHook(hookProxy);
     }
-
-    address internal constant ALICE = address(0xA11CE);
 
     function setUp() external {
         dispatcher = new MockOFTDispatcher();
@@ -156,7 +145,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
         IMemeverseLauncher localLauncher = IMemeverseLauncher(localProxy);
         _setLockedVerseReadyToUnlock(localLauncher, verseId);
         MockPoolManagerForRouterTest guardedManager = new MockPoolManagerForRouterTest();
-        TestableMemeverseUniswapHookForRouter guardedHook =
+        MemeverseUniswapHook guardedHook =
             _deployHookProxy(IPoolManager(address(guardedManager)), address(this), address(1));
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
@@ -172,7 +161,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
         _initializeHookPool(guardedHook, guardedManager, address(pt), address(uAsset));
         _initializeHookPool(guardedHook, guardedManager, address(pt), address(liquidProof));
         guardedHook.setPoolInitializer(address(guardedRouter));
-        guardedHook.seedActiveLiquidityShares(key, address(this), 1e18);
+        seedActiveLiquiditySharesForTest(address(guardedHook), key.toId(), address(this), 1e18);
         guardedHook.setProtocolFeeCurrency(key.currency0);
         memecoin.mint(address(this), 1_000_000 ether);
         uAsset.mint(address(this), 1_000_000 ether);
@@ -367,7 +356,7 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
     }
 
     function _initializeHookPool(
-        TestableMemeverseUniswapHookForRouter targetHook,
+        MemeverseUniswapHook targetHook,
         MockPoolManagerForRouterTest targetManager,
         address tokenA,
         address tokenB

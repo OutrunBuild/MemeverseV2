@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
-import {MockPOLendForTask5} from "../mocks/verse/LauncherPOLendIntegrationMocks.sol";
+import {MockPOLendForPOLendIntegration} from "../mocks/verse/LauncherPOLendIntegrationMocks.sol";
 import {MemeverseLauncherPOLendIntegrationTest} from "./MemeverseLauncherPOLendIntegration.t.sol";
 
 contract MemeverseLauncherGenesisThresholdRegressionTest is MemeverseLauncherPOLendIntegrationTest {
@@ -22,6 +22,6 @@ contract MemeverseLauncherGenesisThresholdRegressionTest is MemeverseLauncherPOL
         assertEq(
             uint256(launcher.getStageByVerseId(VERSE_ID)), uint256(IMemeverseLauncher.Stage.Refund), "stored stage"
         );
-        assertEq(MockPOLendForTask5(address(polend)).lastRefundedVerse(), VERSE_ID, "mark refundable");
+        assertEq(MockPOLendForPOLendIntegration(address(polend)).lastRefundedVerse(), VERSE_ID, "mark refundable");
     }
 }

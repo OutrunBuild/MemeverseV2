@@ -14,14 +14,11 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
-import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
-import {
-    RealisticSwapManagerHarness,
-    TestableMemeverseUniswapHookForIntegration
-} from "../swap/helpers/RealisticSwapManagerHarness.sol";
+import {RealisticSwapManagerHarness} from "../swap/helpers/RealisticSwapManagerHarness.sol";
+import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {POLend} from "../../src/polend/POLend.sol";
 import {POLSplitter} from "../../src/polend/POLSplitter.sol";
@@ -45,7 +42,7 @@ import {UniversalAssetForPOLendSettlementInvariant} from "../mocks/verse/Launche
 ///      UniversalAsset. This is a class-A integration test: every contract in the settlement
 ///      call chain is a production artifact, only the periphery (registrar/registry/dispatcher/
 ///      proxyDeployer/uAsset) is mocked.
-contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLauncherTestHelper {
+contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLauncherTestHelper, HookStorageHelper {
     using PoolIdLibrary for Currency;
 
     uint256 internal constant VERSE_ID = 1;
@@ -56,7 +53,7 @@ contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLaun
 
     // ── Real Uniswap v4 swap stack ──
     RealisticSwapManagerHarness internal manager;
-    TestableMemeverseUniswapHookForIntegration internal hook;
+    MemeverseUniswapHook internal hook;
     MemeverseSwapRouter internal router;
 
     // ── Real Launcher proxy + production POLend/POLSplitter ──
@@ -113,22 +110,12 @@ contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLaun
         );
         launcher = MemeverseLauncher(launcherProxy);
 
-        // 4. Real MemeverseUniswapHook + DynamicFeeEngine + Router. Mirrors SwapIntegration setUp:
-        //    predictedHook is two CREATEs ahead (engine proxy, then hook impl, then hook proxy).
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
-            address(
-                new ERC1967Proxy(
-                    address(engineImpl),
-                    abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (predictedHook, predictedHook))
-                )
-            )
-        );
-        TestableMemeverseUniswapHookForIntegration hookImpl =
-            new TestableMemeverseUniswapHookForIntegration(IPoolManager(address(manager)));
-        bytes memory hookData = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), TREASURY, engine));
-        hook = TestableMemeverseUniswapHookForIntegration(address(new ERC1967Proxy(address(hookImpl), hookData)));
+        // 4. Real MemeverseUniswapHook + DynamicFeeEngine + Router. The hook is deployed behind a
+        //    CREATE2-mined flag-address proxy via the shared helper (replaces the former Testable
+        //    subclass that bypassed `_validateProxyHookAddress`). hookOwner = address(this),
+        //    treasury = TREASURY, engine bound to the hook proxy.
+        (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), TREASURY);
+        hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(
             IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0))
         );
