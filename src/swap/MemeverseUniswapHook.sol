@@ -67,6 +67,7 @@ interface IMemeverseDynamicFeeEngineAdmin {
  * - `claimFeesCore`: lets the calling LP claim its own accrued fees to a chosen recipient
  *   (tracked via per-share accounting).
  */
+// solhint-disable-next-line gas-small-strings
 contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswapHook")
     is
     IMemeverseUniswapHook,

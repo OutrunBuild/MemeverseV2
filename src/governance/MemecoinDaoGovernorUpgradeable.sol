@@ -32,6 +32,7 @@ import {IGovernanceCycleIncentivizer} from "./interfaces/IGovernanceCycleIncenti
  * @notice This contract is a modified version of the GovernorUpgradeable contract from OpenZeppelin.
  * @dev It is used to manage the DAO of the Memecoin project, also as Memecoin DAO Treasury.
  */
+// solhint-disable-next-line gas-small-strings
 contract MemecoinDaoGovernorUpgradeable layout at erc7201("outrun.storage.MemecoinDaoGovernor")
     is
     IMemecoinDaoGovernor,

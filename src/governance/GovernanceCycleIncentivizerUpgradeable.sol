@@ -13,6 +13,7 @@ import {IMemecoinDaoGovernor} from "./interfaces/IMemecoinDaoGovernor.sol";
 /**
  * @dev External expansion of {Governor} for governance cycle incentive.
  */
+// solhint-disable-next-line gas-small-strings
 contract GovernanceCycleIncentivizerUpgradeable layout at erc7201("outrun.storage.GovernanceCycleIncentivizer")
     is
     IGovernanceCycleIncentivizer,

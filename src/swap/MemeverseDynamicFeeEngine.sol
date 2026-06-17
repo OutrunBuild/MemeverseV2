@@ -22,6 +22,7 @@ import {FeeMath} from "./libraries/FeeMath.sol";
 ///      Upgradeable UUPS proxy; mutable state lives in the ERC7201 namespace.
 ///      Pure price/fee math primitives (spot conversion, price-move ppm, volatility fee) live in
 ///      the `FeeMath` library; they are `internal pure` and inline into this contract.
+// solhint-disable-next-line gas-small-strings
 contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDynamicFeeEngine")
     is
     IMemeverseDynamicFeeEngine,
