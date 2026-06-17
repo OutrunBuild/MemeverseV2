@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {IPOLend} from "../../../src/polend/interfaces/IPOLend.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";

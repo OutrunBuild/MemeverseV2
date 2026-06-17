@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.35;
 
 import {IERC20} from "../common/token/OutrunERC20Init.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -15,7 +15,15 @@ import {IPOLSplitter} from "./interfaces/IPOLSplitter.sol";
 import {IUniversalAssets} from "./interfaces/IUniversalAssets.sol";
 import {IMemeverseLauncher} from "../verse/interfaces/IMemeverseLauncher.sol";
 
-contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableUpgradeable, ReentrancyGuard, IPOLend {
+contract POLend layout at erc7201("outrun.storage.POLend")
+    is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable,
+    PausableUpgradeable,
+    ReentrancyGuard,
+    IPOLend
+{
     using OutrunSafeERC20 for IERC20;
 
     uint8 internal constant CLAIM_REFUND = 1 << 0;
@@ -40,15 +48,7 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
         mapping(uint256 => mapping(address => uint8)) claimFlags;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.POLend")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant POL_LEND_STORAGE_LOCATION =
-        0x04e0fabb81205fd4104b820a75487a0508fe84f0bc41932b7a41622326d3af00;
-
-    function _getPOLendStorage() private pure returns (POLendStorage storage $) {
-        assembly {
-            $.slot := POL_LEND_STORAGE_LOCATION
-        }
-    }
+    POLendStorage private polendStorage;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -56,12 +56,12 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     modifier onlyLauncher() {
-        if (msg.sender != _getPOLendStorage().launcher) revert PermissionDenied();
+        if (msg.sender != polendStorage.launcher) revert PermissionDenied();
         _;
     }
 
     modifier onlySplitter() {
-        if (msg.sender != _getPOLendStorage().splitter) revert PermissionDenied();
+        if (msg.sender != polendStorage.splitter) revert PermissionDenied();
         _;
     }
 
@@ -81,44 +81,42 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
         __Ownable_init(initialOwner);
         __Pausable_init();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        $.defaultInterestRate = interestRate_;
-        $.leveragedDebtFactor = leveragedDebtFactor_;
-        $.treasury = treasury_;
-        $.launcher = launcher_;
-        $.splitter = splitter_;
+        polendStorage.defaultInterestRate = interestRate_;
+        polendStorage.leveragedDebtFactor = leveragedDebtFactor_;
+        polendStorage.treasury = treasury_;
+        polendStorage.launcher = launcher_;
+        polendStorage.splitter = splitter_;
     }
 
     function setProtocolTreasury(address newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert ZeroInput();
-        POLendStorage storage $ = _getPOLendStorage();
-        address oldTreasury = $.treasury;
-        $.treasury = newTreasury;
+
+        address oldTreasury = polendStorage.treasury;
+        polendStorage.treasury = newTreasury;
         emit ProtocolTreasuryChanged(oldTreasury, newTreasury);
     }
 
     function setDefaultInterestRate(uint256 newRate) external onlyOwner {
         if (newRate == 0) revert ZeroInput();
         if (newRate > 1e18) revert InvalidConfig();
-        POLendStorage storage $ = _getPOLendStorage();
-        _validateLeverageConfig(newRate, $.leveragedDebtFactor);
-        uint256 oldRate = $.defaultInterestRate;
-        $.defaultInterestRate = newRate;
+
+        _validateLeverageConfig(newRate, polendStorage.leveragedDebtFactor);
+        uint256 oldRate = polendStorage.defaultInterestRate;
+        polendStorage.defaultInterestRate = newRate;
         emit DefaultInterestRateChanged(oldRate, newRate);
     }
 
     function setLeveragedDebtFactor(uint256 newFactor) external onlyOwner {
-        POLendStorage storage $ = _getPOLendStorage();
-        _validateLeverageConfig($.defaultInterestRate, newFactor);
-        uint256 oldFactor = $.leveragedDebtFactor;
-        $.leveragedDebtFactor = newFactor;
+        _validateLeverageConfig(polendStorage.defaultInterestRate, newFactor);
+        uint256 oldFactor = polendStorage.leveragedDebtFactor;
+        polendStorage.leveragedDebtFactor = newFactor;
         emit LeveragedDebtFactorChanged(oldFactor, newFactor);
     }
 
     function setMaxSettlementDustReserve(address uAsset, uint128 maxReserve) external onlyOwner {
         if (uAsset == address(0) || maxReserve == 0) revert ZeroInput();
-        POLendStorage storage $ = _getPOLendStorage();
-        SettlementDustState storage state = $.settlementDustStates[uAsset];
+
+        SettlementDustState storage state = polendStorage.settlementDustStates[uAsset];
         if (state.reserve > maxReserve) revert InvalidConfig();
         uint128 oldMaxReserve = state.maxReserve;
         state.maxReserve = maxReserve;
@@ -126,16 +124,15 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     function registerLendMarket(uint256 verseId) external onlyLauncher {
-        POLendStorage storage $ = _getPOLendStorage();
-        if ($.lendMarkets[verseId].uAsset != address(0)) revert InvalidState();
-        _validateLeverageConfig($.defaultInterestRate, $.leveragedDebtFactor);
-        address uAsset = IMemeverseLauncher($.launcher).getUAssetByVerseId(verseId);
+        if (polendStorage.lendMarkets[verseId].uAsset != address(0)) revert InvalidState();
+        _validateLeverageConfig(polendStorage.defaultInterestRate, polendStorage.leveragedDebtFactor);
+        address uAsset = IMemeverseLauncher(polendStorage.launcher).getUAssetByVerseId(verseId);
         if (uAsset == address(0)) revert ZeroInput();
-        if ($.settlementDustStates[uAsset].maxReserve == 0) revert InvalidConfig();
-        $.lendMarkets[verseId] = LendMarket({
+        if (polendStorage.settlementDustStates[uAsset].maxReserve == 0) revert InvalidConfig();
+        polendStorage.lendMarkets[verseId] = LendMarket({
             uAsset: uAsset,
             yt: address(0),
-            interestRate: $.defaultInterestRate,
+            interestRate: polendStorage.defaultInterestRate,
             totalLeveragedInterest: 0,
             totalLeveragedYT: 0,
             state: MarketState.None
@@ -149,15 +146,14 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     {
         if (interestAmount == 0) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.interestRate == 0) revert InvalidState();
         if (market.state != MarketState.None && market.state != MarketState.Genesis) revert InvalidState();
         address marketUAsset = market.uAsset;
-        if (IMemeverseLauncher($.launcher).getStageByVerseId(verseId) != IMemeverseLauncher.Stage.Genesis) {
+        if (IMemeverseLauncher(polendStorage.launcher).getStageByVerseId(verseId) != IMemeverseLauncher.Stage.Genesis) {
             revert InvalidState();
         }
-        uint256 actualNormalFunds = IMemeverseLauncher($.launcher).totalNormalFunds(verseId);
+        uint256 actualNormalFunds = IMemeverseLauncher(polendStorage.launcher).totalNormalFunds(verseId);
         if (actualNormalFunds > MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) revert InvalidConfig();
 
         uint256 nextTotalInterest = market.totalLeveragedInterest + interestAmount;
@@ -167,7 +163,7 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
         if (previewTotalDebt > _debtCap(verseId)) revert DebtCapExceeded();
 
         borrowedAmount = Math.mulDiv(interestAmount, 1e18, market.interestRate);
-        $.leveragedInterestPaid[verseId][msg.sender] += interestAmount;
+        polendStorage.leveragedInterestPaid[verseId][msg.sender] += interestAmount;
         market.totalLeveragedInterest = nextTotalInterest;
         if (market.state == MarketState.None) market.state = MarketState.Genesis;
         IERC20(marketUAsset).safeTransferFrom(msg.sender, address(this), interestAmount);
@@ -175,15 +171,13 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     function markRefundable(uint256 verseId) external onlyLauncher {
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Genesis) revert InvalidState();
         market.state = MarketState.Refund;
     }
 
     function finalizeLeveragedGenesis(uint256 verseId) external onlyLauncher {
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Genesis) revert InvalidState();
         uint256 debt = _totalLeveragedDebt(market);
         if (debt == 0) revert InvalidState();
@@ -194,18 +188,17 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
             _creditSettlementDustReserve(marketUAsset, totalLeveragedInterest);
 
         market.state = MarketState.Locked;
-        $.globalDebtByUAsset[marketUAsset] += debt;
+        polendStorage.globalDebtByUAsset[marketUAsset] += debt;
 
-        IUniversalAssets(marketUAsset).mint($.launcher, debt);
-        if (treasuryInterest != 0) IERC20(marketUAsset).safeTransfer($.treasury, treasuryInterest);
+        IUniversalAssets(marketUAsset).mint(polendStorage.launcher, debt);
+        if (treasuryInterest != 0) IERC20(marketUAsset).safeTransfer(polendStorage.treasury, treasuryInterest);
         emit SettlementDustReservedFromInterest(
             verseId, marketUAsset, totalLeveragedInterest, credited, treasuryInterest, reserveAfter
         );
     }
 
     function recordLeveragedYT(uint256 verseId, address yt, uint256 totalLeveragedYT) external onlyLauncher {
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked || market.yt != address(0)) revert InvalidState();
         if (yt == address(0) || totalLeveragedYT == 0) revert ZeroInput();
         market.yt = yt;
@@ -213,20 +206,21 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     function executeGlobalSettlement(uint256 verseId) external onlyLauncher nonReentrant {
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked) revert InvalidState();
         address marketUAsset = market.uAsset;
 
         (uint256 polAmount, uint256 ptAmount, uint256 lpUAsset) =
-            IMemeverseLauncher($.launcher).settleLeveragedAuxiliaryLiquidity(verseId);
+            IMemeverseLauncher(polendStorage.launcher).settleLeveragedAuxiliaryLiquidity(verseId);
         (uint256 burnedPolUAsset, uint256 burnedPolMemecoin) = _burnSettledPol(verseId, polAmount);
         uint256 redeemedPtUAsset;
-        if (ptAmount != 0) redeemedPtUAsset = IPOLSplitter($.splitter).redeemPT(verseId, ptAmount, address(this));
+        if (ptAmount != 0) {
+            redeemedPtUAsset = IPOLSplitter(polendStorage.splitter).redeemPT(verseId, ptAmount, address(this));
+        }
 
         uint256 totalRecoveredUAsset = lpUAsset + burnedPolUAsset + redeemedPtUAsset;
         uint256 debt = _totalLeveragedDebt(market);
-        SettlementDustState storage dustState = $.settlementDustStates[marketUAsset];
+        SettlementDustState storage dustState = polendStorage.settlementDustStates[marketUAsset];
         uint256 reserveBeforeSettlement = dustState.reserve;
         uint256 reserveAfterSettlement = reserveBeforeSettlement;
         uint256 consumedSettlementDustReserve;
@@ -243,9 +237,10 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
             emit SettlementDustReserveConsumed(verseId, marketUAsset, deficit, reserveAfterSettlement);
         }
 
-        $.residualStates[verseId] = ResidualState({residualUAsset: residualUAsset, residualMemecoin: burnedPolMemecoin});
+        polendStorage.residualStates[verseId] =
+            ResidualState({residualUAsset: residualUAsset, residualMemecoin: burnedPolMemecoin});
         market.state = MarketState.Settled;
-        if (debt != 0) $.globalDebtByUAsset[marketUAsset] -= debt;
+        if (debt != 0) polendStorage.globalDebtByUAsset[marketUAsset] -= debt;
 
         if (debt != 0) IUniversalAssets(marketUAsset).repay(address(this), debt);
 
@@ -264,21 +259,20 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     function fundSettlementDustReserve(address uAsset, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        SettlementDustState storage state = $.settlementDustStates[uAsset];
+        SettlementDustState storage state = polendStorage.settlementDustStates[uAsset];
         uint256 maxReserve = state.maxReserve;
         if (maxReserve == 0) revert InvalidConfig();
 
         uint256 reserve = state.reserve;
         uint256 capacity = maxReserve - reserve;
-        bool fromLauncher = msg.sender == $.launcher;
+        bool fromLauncher = msg.sender == polendStorage.launcher;
         if (!fromLauncher && amount > capacity) revert SettlementDustReserveExceeded(amount, capacity);
 
         IERC20(uAsset).safeTransferFrom(msg.sender, address(this), amount);
         uint256 credited = Math.min(amount, capacity);
         uint256 excess = amount - credited;
         state.reserve = uint128(reserve + credited);
-        if (excess != 0) IERC20(uAsset).safeTransfer($.treasury, excess);
+        if (excess != 0) IERC20(uAsset).safeTransfer(polendStorage.treasury, excess);
         emit SettlementDustReserveFunded(uAsset, msg.sender, amount, credited, excess);
     }
 
@@ -289,12 +283,11 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     {
         if (ptAmount == 0 || mintTo == address(0)) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked) revert InvalidState();
 
-        uAssetBacking = IPOLSplitter($.splitter).preRedeemPTFee(verseId, ptAmount);
-        $.globalDebtByUAsset[market.uAsset] += uAssetBacking;
+        uAssetBacking = IPOLSplitter(polendStorage.splitter).preRedeemPTFee(verseId, ptAmount);
+        polendStorage.globalDebtByUAsset[market.uAsset] += uAssetBacking;
         IUniversalAssets(market.uAsset).mint(mintTo, uAssetBacking);
         emit PreRedeemPTFee(verseId, market.uAsset, ptAmount, uAssetBacking, mintTo);
     }
@@ -302,20 +295,18 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     function burnPreRedeemedBacking(uint256 verseId, uint256 amount) external onlySplitter {
         if (amount == 0) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        address marketUAsset = $.lendMarkets[verseId].uAsset;
-        $.globalDebtByUAsset[marketUAsset] -= amount;
-        IUniversalAssets(marketUAsset).repay($.splitter, amount);
+        address marketUAsset = polendStorage.lendMarkets[verseId].uAsset;
+        polendStorage.globalDebtByUAsset[marketUAsset] -= amount;
+        IUniversalAssets(marketUAsset).repay(polendStorage.splitter, amount);
     }
 
     function claimRefund(uint256 verseId, address to) external nonReentrant returns (uint256 refundedAmount) {
         if (to == address(0)) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Refund) revert InvalidState();
 
-        refundedAmount = $.leveragedInterestPaid[verseId][msg.sender];
+        refundedAmount = polendStorage.leveragedInterestPaid[verseId][msg.sender];
         if (refundedAmount == 0) revert InvalidClaim();
 
         _consumeClaimFlag(verseId, msg.sender, CLAIM_REFUND);
@@ -326,11 +317,10 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     function claimLeveragedYT(uint256 verseId, address to) external nonReentrant returns (uint256 amount) {
         if (to == address(0)) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked && market.state != MarketState.Settled) revert InvalidState();
 
-        uint256 interestPaid = $.leveragedInterestPaid[verseId][msg.sender];
+        uint256 interestPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender];
         uint256 totalLeveragedInterest = market.totalLeveragedInterest;
         if (interestPaid == 0 || totalLeveragedInterest == 0) revert InvalidClaim();
 
@@ -347,23 +337,22 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     {
         if (to == address(0)) revert ZeroInput();
 
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Settled) revert InvalidState();
 
-        uint256 interestPaid = $.leveragedInterestPaid[verseId][msg.sender];
+        uint256 interestPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender];
         uint256 totalLeveragedInterest = market.totalLeveragedInterest;
         if (interestPaid == 0 || totalLeveragedInterest == 0) revert InvalidClaim();
 
         _consumeClaimFlag(verseId, msg.sender, CLAIM_RESIDUAL);
 
-        ResidualState storage residual = $.residualStates[verseId];
+        ResidualState storage residual = polendStorage.residualStates[verseId];
         uAssetAmount = Math.mulDiv(residual.residualUAsset, interestPaid, totalLeveragedInterest);
         memecoinAmount = Math.mulDiv(residual.residualMemecoin, interestPaid, totalLeveragedInterest);
 
         if (uAssetAmount != 0) IERC20(market.uAsset).safeTransfer(to, uAssetAmount);
         if (memecoinAmount != 0) {
-            address memecoin = IPOLSplitter($.splitter).getMemecoin(verseId);
+            address memecoin = IPOLSplitter(polendStorage.splitter).getMemecoin(verseId);
             IERC20(memecoin).safeTransfer(to, memecoinAmount);
         }
         emit ClaimResidual(verseId, msg.sender, to, uAssetAmount, memecoinAmount);
@@ -372,70 +361,69 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     // --- View functions (replacing auto-generated public getters) ---
 
     function defaultInterestRate() external view returns (uint256) {
-        return _getPOLendStorage().defaultInterestRate;
+        return polendStorage.defaultInterestRate;
     }
 
     function leveragedDebtFactor() external view returns (uint256) {
-        return _getPOLendStorage().leveragedDebtFactor;
+        return polendStorage.leveragedDebtFactor;
     }
 
     function treasury() external view returns (address) {
-        return _getPOLendStorage().treasury;
+        return polendStorage.treasury;
     }
 
     function launcher() external view returns (address) {
-        return _getPOLendStorage().launcher;
+        return polendStorage.launcher;
     }
 
     function splitter() external view returns (address) {
-        return _getPOLendStorage().splitter;
+        return polendStorage.splitter;
     }
 
     function lendMarkets(uint256 verseId) external view returns (LendMarket memory) {
-        return _getPOLendStorage().lendMarkets[verseId];
+        return polendStorage.lendMarkets[verseId];
     }
 
     function leveragedInterestPaid(uint256 verseId, address user) external view returns (uint256) {
-        return _getPOLendStorage().leveragedInterestPaid[verseId][user];
+        return polendStorage.leveragedInterestPaid[verseId][user];
     }
 
     function residualStates(uint256 verseId) external view returns (uint256 residualUAsset, uint256 residualMemecoin) {
-        ResidualState storage r = _getPOLendStorage().residualStates[verseId];
+        ResidualState storage r = polendStorage.residualStates[verseId];
         residualUAsset = r.residualUAsset;
         residualMemecoin = r.residualMemecoin;
     }
 
     function globalDebtByUAsset(address uAsset) external view returns (uint256) {
-        return _getPOLendStorage().globalDebtByUAsset[uAsset];
+        return polendStorage.globalDebtByUAsset[uAsset];
     }
 
     function settlementDustStates(address uAsset) external view returns (uint128 reserve, uint128 maxReserve) {
-        SettlementDustState storage state = _getPOLendStorage().settlementDustStates[uAsset];
+        SettlementDustState storage state = polendStorage.settlementDustStates[uAsset];
         return (state.reserve, state.maxReserve);
     }
 
     // --- External view helpers ---
 
     function getTotalLeveragedDebt(uint256 verseId) external view returns (uint256) {
-        return _totalLeveragedDebt(_getPOLendStorage().lendMarkets[verseId]);
+        return _totalLeveragedDebt(polendStorage.lendMarkets[verseId]);
     }
 
     function getUserLeveragedDebt(uint256 verseId, address user) external view returns (uint256) {
         if (user == address(0)) revert ZeroInput();
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.interestRate == 0) revert InvalidState();
-        return Math.mulDiv($.leveragedInterestPaid[verseId][user], 1e18, market.interestRate);
+        return Math.mulDiv(polendStorage.leveragedInterestPaid[verseId][user], 1e18, market.interestRate);
     }
 
     function getTotalDebtByUAsset(address uAsset) external view returns (uint256) {
         if (uAsset == address(0)) revert ZeroInput();
-        return _getPOLendStorage().globalDebtByUAsset[uAsset];
+        return polendStorage.globalDebtByUAsset[uAsset];
     }
 
     function getLeveragedDebtInfo(uint256 verseId) external view returns (LeveragedDebtInfo memory info) {
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.interestRate == 0) revert InvalidState();
 
         info.totalLeveragedInterest = market.totalLeveragedInterest;
@@ -445,11 +433,11 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     function getTotalLeveragedInterest(uint256 verseId) external view returns (uint256) {
-        return _getPOLendStorage().lendMarkets[verseId].totalLeveragedInterest;
+        return polendStorage.lendMarkets[verseId].totalLeveragedInterest;
     }
 
     function getLendMarket(uint256 verseId) external view returns (LendMarket memory market) {
-        return _getPOLendStorage().lendMarkets[verseId];
+        return polendStorage.lendMarkets[verseId];
     }
 
     // --- Internal ---
@@ -464,15 +452,14 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
         view
         returns (uint256 debtCap, uint256 remainingAdditionalInterest)
     {
-        POLendStorage storage $ = _getPOLendStorage();
         if (market.state != MarketState.None && market.state != MarketState.Genesis) return (0, 0);
-        if ($.settlementDustStates[market.uAsset].maxReserve == 0) return (0, 0);
-        if (IMemeverseLauncher($.launcher).getStageByVerseId(verseId) != IMemeverseLauncher.Stage.Genesis) {
+        if (polendStorage.settlementDustStates[market.uAsset].maxReserve == 0) return (0, 0);
+        if (IMemeverseLauncher(polendStorage.launcher).getStageByVerseId(verseId) != IMemeverseLauncher.Stage.Genesis) {
             return (0, 0);
         }
 
         debtCap = _debtCap(verseId);
-        uint256 actualNormalFunds = IMemeverseLauncher($.launcher).totalNormalFunds(verseId);
+        uint256 actualNormalFunds = IMemeverseLauncher(polendStorage.launcher).totalNormalFunds(verseId);
         if (actualNormalFunds >= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) return (0, 0);
         uint256 aggregateDebtCap = MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - actualNormalFunds;
         if (debtCap > aggregateDebtCap) debtCap = aggregateDebtCap;
@@ -498,9 +485,8 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     function _debtCap(uint256 verseId) internal view returns (uint256) {
-        POLendStorage storage $ = _getPOLendStorage();
-        uint256 capBase = IMemeverseLauncher($.launcher).getDebtCapBaseByVerseId(verseId);
-        return _mulDiv1e18Saturating($.leveragedDebtFactor, capBase);
+        uint256 capBase = IMemeverseLauncher(polendStorage.launcher).getDebtCapBaseByVerseId(verseId);
+        return _mulDiv1e18Saturating(polendStorage.leveragedDebtFactor, capBase);
     }
 
     function _mulDiv1e18Saturating(uint256 a, uint256 b) internal pure returns (uint256 result) {
@@ -526,8 +512,7 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
         internal
         returns (uint256 credited, uint256 excess, uint256 reserveAfter)
     {
-        POLendStorage storage $ = _getPOLendStorage();
-        SettlementDustState storage state = $.settlementDustStates[uAsset];
+        SettlementDustState storage state = polendStorage.settlementDustStates[uAsset];
         uint256 maxReserve = state.maxReserve;
         if (maxReserve == 0) revert InvalidConfig();
 
@@ -540,10 +525,9 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     }
 
     function _consumeClaimFlag(uint256 verseId, address account, uint8 mask) internal {
-        POLendStorage storage $ = _getPOLendStorage();
-        uint8 flags = $.claimFlags[verseId][account];
+        uint8 flags = polendStorage.claimFlags[verseId][account];
         if (flags & mask != 0) revert InvalidClaim();
-        $.claimFlags[verseId][account] = flags | mask;
+        polendStorage.claimFlags[verseId][account] = flags | mask;
     }
 
     function _burnSettledPol(uint256 verseId, uint256 polAmount)
@@ -552,14 +536,13 @@ contract POLend is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableU
     {
         if (polAmount == 0) return (0, 0);
 
-        POLendStorage storage $ = _getPOLendStorage();
-        LendMarket storage market = $.lendMarkets[verseId];
-        (address pol, address memecoin) = IPOLSplitter($.splitter).getPOLAndMemecoin(verseId);
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
+        (address pol, address memecoin) = IPOLSplitter(polendStorage.splitter).getPOLAndMemecoin(verseId);
         uint256 beforeUAsset = IERC20(market.uAsset).balanceOf(address(this));
         uint256 beforeMemecoin = IERC20(memecoin).balanceOf(address(this));
 
-        IERC20(pol).approve($.launcher, polAmount);
-        IMemeverseLauncher($.launcher).redeemMemecoinLiquidity(verseId, polAmount, true);
+        IERC20(pol).approve(polendStorage.launcher, polAmount);
+        IMemeverseLauncher(polendStorage.launcher).redeemMemecoinLiquidity(verseId, polAmount, true);
 
         uAssetAmount = IERC20(market.uAsset).balanceOf(address(this)) - beforeUAsset;
         memecoinAmount = IERC20(memecoin).balanceOf(address(this)) - beforeMemecoin;

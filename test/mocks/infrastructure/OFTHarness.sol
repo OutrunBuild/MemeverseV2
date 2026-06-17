@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {OutrunOFTInit} from "../../../src/common/omnichain/oft/OutrunOFTInit.sol";
 

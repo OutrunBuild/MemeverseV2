@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL3.0
 // OpenZeppelin Contracts (last updated v5.5.0) (token/ERC20/utils/SafeERC20.sol)
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {IERC20} from "../../common/token/OutrunERC20Init.sol";
 

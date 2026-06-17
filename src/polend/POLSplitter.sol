@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.35;
 
 import {IERC20} from "../common/token/OutrunERC20Init.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -17,7 +17,14 @@ import {PrincipalToken} from "./tokens/PrincipalToken.sol";
 import {YieldToken} from "./tokens/YieldToken.sol";
 import {IMemeverseLauncher} from "../verse/interfaces/IMemeverseLauncher.sol";
 
-contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuard, IPOLSplitter {
+contract POLSplitter layout at erc7201("outrun.storage.POLSplitter")
+    is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable,
+    ReentrancyGuard,
+    IPOLSplitter
+{
     using OutrunSafeERC20 for IERC20;
     using Clones for address;
 
@@ -31,15 +38,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         address yieldTokenImplementation;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.POLSplitter")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant POL_SPLITTER_STORAGE_LOCATION =
-        0xab504a6dee30096d32ccac13a30a002829c5eeb4c38a0196ed16a6c4e9faca00;
-
-    function _getPOLSplitterStorage() private pure returns (POLSplitterStorage storage $) {
-        assembly {
-            $.slot := POL_SPLITTER_STORAGE_LOCATION
-        }
-    }
+    POLSplitterStorage private polSplitterStorage;
 
     function splitInfos(uint256 verseId)
         external
@@ -58,7 +57,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
             bool settled
         )
     {
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         pt = info.pt;
         yt = info.yt;
         pol = info.pol;
@@ -73,63 +72,63 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
     }
 
     function preRedeemedStates(uint256 verseId) external view returns (uint256 ptAmount, uint256 uAssetBacking) {
-        PreRedeemedState storage state = _getPOLSplitterStorage().preRedeemedStates[verseId];
+        PreRedeemedState storage state = polSplitterStorage.preRedeemedStates[verseId];
         return (state.ptAmount, state.uAssetBacking);
     }
 
     function preRedeemedPT(uint256 verseId) external view returns (uint256) {
-        return _getPOLSplitterStorage().preRedeemedStates[verseId].ptAmount;
+        return polSplitterStorage.preRedeemedStates[verseId].ptAmount;
     }
 
     function ptBackingRatios(uint256 verseId) external view returns (uint256 numerator, uint256 denominator) {
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         return (info.ptBackingNumerator, info.ptBackingDenominator);
     }
 
     function getPT(uint256 verseId) external view returns (address pt) {
-        pt = _getPOLSplitterStorage().splitInfos[verseId].pt;
+        pt = polSplitterStorage.splitInfos[verseId].pt;
     }
 
     function getYT(uint256 verseId) external view returns (address yt) {
-        yt = _getPOLSplitterStorage().splitInfos[verseId].yt;
+        yt = polSplitterStorage.splitInfos[verseId].yt;
     }
 
     function getMemecoin(uint256 verseId) external view returns (address memecoin) {
-        memecoin = _getPOLSplitterStorage().splitInfos[verseId].memecoin;
+        memecoin = polSplitterStorage.splitInfos[verseId].memecoin;
     }
 
     function getPTAndYT(uint256 verseId) external view returns (address pt, address yt) {
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         pt = info.pt;
         yt = info.yt;
     }
 
     function getPTSettlementState(uint256 verseId) external view returns (address pt, bool settled) {
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         pt = info.pt;
         settled = info.settled;
     }
 
     function getPOLAndMemecoin(uint256 verseId) external view returns (address pol, address memecoin) {
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         pol = info.pol;
         memecoin = info.memecoin;
     }
 
     function launcher() external view returns (address) {
-        return _getPOLSplitterStorage().launcher;
+        return polSplitterStorage.launcher;
     }
 
     function polend() external view returns (address) {
-        return _getPOLSplitterStorage().polend;
+        return polSplitterStorage.polend;
     }
 
     function principalTokenImplementation() external view returns (address) {
-        return _getPOLSplitterStorage().principalTokenImplementation;
+        return polSplitterStorage.principalTokenImplementation;
     }
 
     function yieldTokenImplementation() external view returns (address) {
-        return _getPOLSplitterStorage().yieldTokenImplementation;
+        return polSplitterStorage.yieldTokenImplementation;
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -138,12 +137,12 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
     }
 
     modifier onlyLauncher() {
-        if (msg.sender != _getPOLSplitterStorage().launcher) revert PermissionDenied();
+        if (msg.sender != polSplitterStorage.launcher) revert PermissionDenied();
         _;
     }
 
     modifier onlyPOLend() {
-        if (msg.sender != _getPOLSplitterStorage().polend) revert PermissionDenied();
+        if (msg.sender != polSplitterStorage.polend) revert PermissionDenied();
         _;
     }
 
@@ -152,11 +151,10 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
 
         __Ownable_init(initialOwner);
 
-        POLSplitterStorage storage $ = _getPOLSplitterStorage();
-        $.launcher = _launcher;
-        $.polend = IMemeverseLauncher(_launcher).polend();
-        $.principalTokenImplementation = address(new PrincipalToken());
-        $.yieldTokenImplementation = address(new YieldToken());
+        polSplitterStorage.launcher = _launcher;
+        polSplitterStorage.polend = IMemeverseLauncher(_launcher).polend();
+        polSplitterStorage.principalTokenImplementation = address(new PrincipalToken());
+        polSplitterStorage.yieldTokenImplementation = address(new YieldToken());
     }
 
     function initializeVerse(
@@ -167,16 +165,15 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         string calldata name,
         string calldata symbol
     ) external onlyLauncher returns (address pt, address yt) {
-        POLSplitterStorage storage $ = _getPOLSplitterStorage();
-        if ($.splitInfos[verseId].pt != address(0)) revert AlreadyDeployed();
+        if (polSplitterStorage.splitInfos[verseId].pt != address(0)) revert AlreadyDeployed();
 
-        pt = $.principalTokenImplementation.cloneDeterministic(bytes32(verseId));
-        yt = $.yieldTokenImplementation.cloneDeterministic(bytes32(verseId));
+        pt = polSplitterStorage.principalTokenImplementation.cloneDeterministic(bytes32(verseId));
+        yt = polSplitterStorage.yieldTokenImplementation.cloneDeterministic(bytes32(verseId));
 
         PrincipalToken(pt).initialize(string.concat("PT-", name), string.concat("PT-", symbol), address(this));
         YieldToken(yt).initialize(string.concat("YT-", name), string.concat("YT-", symbol), address(this));
 
-        $.splitInfos[verseId] = SplitInfo({
+        polSplitterStorage.splitInfos[verseId] = SplitInfo({
             pt: pt,
             yt: yt,
             pol: pol,
@@ -199,7 +196,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         returns (uint256 ptAmount, uint256 ytAmount)
     {
         if (polAmount == 0) revert ZeroInput();
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (_isUnlocked(verseId) || info.settled) revert AlreadyUnlocked();
         _requirePTBackingRatio(info);
 
@@ -213,7 +210,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
 
     function merge(uint256 verseId, uint256 amount) external nonReentrant returns (uint256 polAmount) {
         if (amount == 0) revert ZeroInput();
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (_isUnlocked(verseId) || info.settled) revert AlreadyUnlocked();
         _requirePTBackingRatio(info);
 
@@ -230,8 +227,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         onlyLauncher
         returns (uint256 settlementUAsset, uint256 settlementMemecoin)
     {
-        POLSplitterStorage storage $ = _getPOLSplitterStorage();
-        SplitInfo storage info = $.splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (info.settled) revert AlreadySettled();
         if (!_isUnlocked(verseId)) revert NotUnlocked();
 
@@ -240,16 +236,16 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
 
         // Interactions
         (settlementUAsset, settlementMemecoin) = _settlePOLCollateral(verseId, info);
-        PreRedeemedState storage state = $.preRedeemedStates[verseId];
+        PreRedeemedState storage state = polSplitterStorage.preRedeemedStates[verseId];
         uint256 preRedeemedUAssetBacking = state.uAssetBacking;
         if (settlementUAsset < preRedeemedUAssetBacking) revert InvalidClaim();
         settlementUAsset -= preRedeemedUAssetBacking;
         if (settlementUAsset < _ptToUAsset(info, IERC20(info.pt).totalSupply())) revert InvalidClaim();
         if (preRedeemedUAssetBacking != 0) {
-            address _polend = $.polend;
+            address _polend = polSplitterStorage.polend;
             IERC20(info.uAsset).approve(_polend, preRedeemedUAssetBacking);
             IPOLend(_polend).burnPreRedeemedBacking(verseId, preRedeemedUAssetBacking);
-            delete $.preRedeemedStates[verseId];
+            delete polSplitterStorage.preRedeemedStates[verseId];
         }
 
         // Effects: write post-interaction state
@@ -260,8 +256,8 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
 
     function recordPTBackingRatio(uint256 verseId, uint256 numerator, uint256 denominator) external onlyLauncher {
         if (numerator == 0 || denominator == 0) revert ZeroInput();
-        POLSplitterStorage storage $ = _getPOLSplitterStorage();
-        SplitInfo storage info = $.splitInfos[verseId];
+
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (info.pt == address(0)) revert InvalidClaim();
         if (info.settled) revert AlreadySettled();
         if (info.totalPOLCollateral != 0) revert InvalidClaim();
@@ -273,19 +269,18 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
 
     function previewPTToUAsset(uint256 verseId, uint256 ptAmount) external view returns (uint256 uAssetAmount) {
         if (ptAmount == 0) return 0;
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         return _ptToUAsset(info, ptAmount);
     }
 
     function preRedeemPTFee(uint256 verseId, uint256 ptAmount) external onlyPOLend returns (uint256 uAssetBacking) {
-        POLSplitterStorage storage $ = _getPOLSplitterStorage();
-        SplitInfo storage info = $.splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (info.settled) revert AlreadySettled();
 
         uAssetBacking = _ptToUAsset(info, ptAmount);
         if (uAssetBacking == 0) revert InvalidClaim();
-        PrincipalToken(info.pt).burn($.launcher, ptAmount);
-        PreRedeemedState storage state = $.preRedeemedStates[verseId];
+        PrincipalToken(info.pt).burn(polSplitterStorage.launcher, ptAmount);
+        PreRedeemedState storage state = polSplitterStorage.preRedeemedStates[verseId];
         state.ptAmount += ptAmount;
         state.uAssetBacking += uAssetBacking;
     }
@@ -296,7 +291,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         returns (uint256 uAssetAmount)
     {
         if (ptAmount == 0) revert ZeroInput();
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (!info.settled) revert NotSettled();
         if (to == address(0)) revert ZeroInput();
         uAssetAmount = _ptToUAsset(info, ptAmount);
@@ -318,7 +313,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         returns (uint256 uAssetAmount, uint256 memecoinAmount)
     {
         if (ytAmount == 0) revert ZeroInput();
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         if (!info.settled) revert NotSettled();
         if (to == address(0)) revert ZeroInput();
 
@@ -342,7 +337,7 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
     }
 
     function previewRedeemYTUAsset(uint256 verseId, uint256 ytAmount) external view returns (uint256 uAssetAmount) {
-        SplitInfo storage info = _getPOLSplitterStorage().splitInfos[verseId];
+        SplitInfo storage info = polSplitterStorage.splitInfos[verseId];
         uint256 outstandingYT = IERC20(info.yt).totalSupply();
         if (outstandingYT == 0) return 0;
 
@@ -353,8 +348,9 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
     }
 
     function _isUnlocked(uint256 verseId) internal view returns (bool) {
-        return IMemeverseLauncher(_getPOLSplitterStorage().launcher).getStageByVerseId(verseId)
-            == IMemeverseLauncher.Stage.Unlocked;
+        return
+            IMemeverseLauncher(polSplitterStorage.launcher).getStageByVerseId(verseId)
+                == IMemeverseLauncher.Stage.Unlocked;
     }
 
     function _settlePOLCollateral(uint256 verseId, SplitInfo storage info)
@@ -366,8 +362,8 @@ contract POLSplitter is Initializable, OwnableUpgradeable, UUPSUpgradeable, Reen
         uint256 beforeUAsset = IERC20(info.uAsset).balanceOf(address(this));
         uint256 beforeMemecoin = IERC20(memecoin).balanceOf(address(this));
 
-        IERC20(info.pol).approve(_getPOLSplitterStorage().launcher, polAmount);
-        IMemeverseLauncher(_getPOLSplitterStorage().launcher).redeemMemecoinLiquidity(verseId, polAmount, true);
+        IERC20(info.pol).approve(polSplitterStorage.launcher, polAmount);
+        IMemeverseLauncher(polSplitterStorage.launcher).redeemMemecoinLiquidity(verseId, polAmount, true);
 
         settlementUAsset = IERC20(info.uAsset).balanceOf(address(this)) - beforeUAsset;
         settlementMemecoin = IERC20(memecoin).balanceOf(address(this)) - beforeMemecoin;

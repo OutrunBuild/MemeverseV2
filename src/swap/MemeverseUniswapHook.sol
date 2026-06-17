@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -67,7 +67,8 @@ interface IMemeverseDynamicFeeEngineAdmin {
  * - `claimFeesCore`: lets the calling LP claim its own accrued fees to a chosen recipient
  *   (tracked via per-share accounting).
  */
-contract MemeverseUniswapHook is
+contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswapHook")
+    is
     IMemeverseUniswapHook,
     IUnlockCallback,
     BaseHook,
@@ -143,15 +144,7 @@ contract MemeverseUniswapHook is
         IMemeverseDynamicFeeEngine dynamicFeeEngine;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.MemeverseUniswapHook")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant MEMEVERSE_UNISWAP_HOOK_STORAGE_LOCATION =
-        0x9f27a56b97c42ac08d93ff5a852851d11eb052b06dc4c041fc6bfa4414f7e000;
-
-    function _getMemeverseUniswapHookStorage() internal pure returns (MemeverseUniswapHookStorage storage $) {
-        assembly {
-            $.slot := MEMEVERSE_UNISWAP_HOOK_STORAGE_LOCATION
-        }
-    }
+    MemeverseUniswapHookStorage private memeverseUniswapHookStorage;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     /// @param _manager Uniswap v4 pool manager stored by `BaseHook` as immutable implementation bytecode state.
@@ -183,11 +176,10 @@ contract MemeverseUniswapHook is
         _validateProxyHookAddress();
         __Ownable_init(initialOwner);
 
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        $.treasury = treasury_;
-        $.dynamicFeeEngine = dynamicFeeEngine_;
+        memeverseUniswapHookStorage.treasury = treasury_;
+        memeverseUniswapHookStorage.dynamicFeeEngine = dynamicFeeEngine_;
         emit TreasuryUpdated(address(0), treasury_);
-        $.defaultLaunchFeeConfig = IMemeverseDynamicFeeEngine.LaunchFeeConfig({
+        memeverseUniswapHookStorage.defaultLaunchFeeConfig = IMemeverseDynamicFeeEngine.LaunchFeeConfig({
             startFeeBps: 5000, minFeeBps: FEE_BASE_BPS, decayDurationSeconds: 900
         });
         emit DefaultLaunchFeeConfigUpdated(0, 0, 0, 5000, FEE_BASE_BPS, 900);
@@ -216,15 +208,15 @@ contract MemeverseUniswapHook is
     /// @notice Returns the dynamic fee engine bound to this hook.
     /// @return The engine contract used for dynamic fee quotes and realized swap state.
     function dynamicFeeEngine() external view override returns (IMemeverseDynamicFeeEngine) {
-        return _getMemeverseUniswapHookStorage().dynamicFeeEngine;
+        return memeverseUniswapHookStorage.dynamicFeeEngine;
     }
 
     function _dynamicFeeEngine() internal view returns (IMemeverseDynamicFeeEngine) {
-        return _getMemeverseUniswapHookStorage().dynamicFeeEngine;
+        return memeverseUniswapHookStorage.dynamicFeeEngine;
     }
 
     function _boundDynamicFeeEngine() internal view returns (IMemeverseDynamicFeeEngine engine) {
-        engine = _getMemeverseUniswapHookStorage().dynamicFeeEngine;
+        engine = memeverseUniswapHookStorage.dynamicFeeEngine;
         _requireEngineBoundToHook(engine);
     }
 
@@ -248,9 +240,9 @@ contract MemeverseUniswapHook is
         // calls would revert with UnauthorizedCaller inside the engine.
         if (newEngine.authorizedHook() != address(this)) revert EngineNotAuthorizedCaller(address(newEngine));
         _requireEngineOwnedByHook(newEngine);
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        address oldEngine = address($.dynamicFeeEngine);
-        $.dynamicFeeEngine = newEngine;
+
+        address oldEngine = address(memeverseUniswapHookStorage.dynamicFeeEngine);
+        memeverseUniswapHookStorage.dynamicFeeEngine = newEngine;
         emit DynamicFeeEngineUpdated(oldEngine, address(newEngine));
     }
 
@@ -283,15 +275,15 @@ contract MemeverseUniswapHook is
     }
 
     function treasury() external view returns (address) {
-        return _getMemeverseUniswapHookStorage().treasury;
+        return memeverseUniswapHookStorage.treasury;
     }
 
     function launcher() external view override returns (address) {
-        return _getMemeverseUniswapHookStorage().launcher;
+        return memeverseUniswapHookStorage.launcher;
     }
 
     function supportedProtocolFeeCurrencies(address currency) external view returns (bool) {
-        return _getMemeverseUniswapHookStorage().supportedProtocolFeeCurrencies[currency];
+        return memeverseUniswapHookStorage.supportedProtocolFeeCurrencies[currency];
     }
 
     function poolInfo(PoolId poolId)
@@ -300,16 +292,16 @@ contract MemeverseUniswapHook is
         override
         returns (address liquidityToken, uint256 fee0PerShare, uint256 fee1PerShare)
     {
-        PoolInfo storage info = _getMemeverseUniswapHookStorage().poolInfo[poolId];
+        PoolInfo storage info = memeverseUniswapHookStorage.poolInfo[poolId];
         return (info.liquidityToken, info.fee0PerShare, info.fee1PerShare);
     }
 
     function poolLaunchTimestamp(PoolId poolId) external view override returns (uint40) {
-        return _getMemeverseUniswapHookStorage().poolLaunchTimestamp[poolId];
+        return memeverseUniswapHookStorage.poolLaunchTimestamp[poolId];
     }
 
     function publicSwapResumeTime(PoolId poolId) external view override returns (uint40) {
-        return _getMemeverseUniswapHookStorage().publicSwapResumeTime[poolId];
+        return memeverseUniswapHookStorage.publicSwapResumeTime[poolId];
     }
 
     function userFeeState(PoolId poolId, address user)
@@ -317,7 +309,7 @@ contract MemeverseUniswapHook is
         view
         returns (uint256 fee0Offset, uint256 fee1Offset, uint256 pendingFee0, uint256 pendingFee1)
     {
-        UserFeeState storage state = _getMemeverseUniswapHookStorage().userFeeState[poolId][user];
+        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[poolId][user];
         return (state.fee0Offset, state.fee1Offset, state.pendingFee0, state.pendingFee1);
     }
 
@@ -327,13 +319,12 @@ contract MemeverseUniswapHook is
         override
         returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds)
     {
-        IMemeverseDynamicFeeEngine.LaunchFeeConfig storage config =
-        _getMemeverseUniswapHookStorage().defaultLaunchFeeConfig;
+        IMemeverseDynamicFeeEngine.LaunchFeeConfig storage config = memeverseUniswapHookStorage.defaultLaunchFeeConfig;
         return (config.startFeeBps, config.minFeeBps, config.decayDurationSeconds);
     }
 
     function poolInitializer() external view override returns (address) {
-        return _getMemeverseUniswapHookStorage().poolInitializer;
+        return memeverseUniswapHookStorage.poolInitializer;
     }
 
     function poolDynamicFeeState(PoolId poolId)
@@ -368,7 +359,7 @@ contract MemeverseUniswapHook is
     }
 
     modifier onlyLauncher() {
-        if (msg.sender != _getMemeverseUniswapHookStorage().launcher) revert Unauthorized();
+        if (msg.sender != memeverseUniswapHookStorage.launcher) revert Unauthorized();
         _;
     }
 
@@ -420,7 +411,7 @@ contract MemeverseUniswapHook is
         _revertIfNoActiveLiquidityShares(poolId, params.amountSpecified);
         _revertIfPublicSwapBlocked(poolId);
         SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
+
         IMemeverseDynamicFeeEngine engine = _dynamicFeeEngine();
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
@@ -433,8 +424,8 @@ contract MemeverseUniswapHook is
                 preSqrtPriceX96: preSqrtPriceX96,
                 liquidity: liquidity,
                 protocolFeeOnInput: ctx.protocolFeeOnInput,
-                launchFeeConfig: $.defaultLaunchFeeConfig,
-                launchTimestamp: $.poolLaunchTimestamp[poolId]
+                launchFeeConfig: memeverseUniswapHookStorage.defaultLaunchFeeConfig,
+                launchTimestamp: memeverseUniswapHookStorage.poolLaunchTimestamp[poolId]
             })
         );
         (uint256 lpFeeBps, uint256 protocolFeeBps) = FeeMath.splitFeeBps(feeQuote.feeBps);
@@ -481,7 +472,7 @@ contract MemeverseUniswapHook is
         erc20Pair(key.currency0, key.currency1)
         returns (address liquidityToken)
     {
-        return _getMemeverseUniswapHookStorage().poolInfo[key.toId()].liquidityToken;
+        return memeverseUniswapHookStorage.poolInfo[key.toId()].liquidityToken;
     }
 
     /// @notice Preview the current claimable LP fees for an owner without mutating accounting state.
@@ -499,11 +490,11 @@ contract MemeverseUniswapHook is
         returns (uint256 fee0Amount, uint256 fee1Amount)
     {
         PoolId poolId = key.toId();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        PoolInfo storage pool = $.poolInfo[poolId];
+
+        PoolInfo storage pool = memeverseUniswapHookStorage.poolInfo[poolId];
         if (pool.liquidityToken == address(0) || owner == address(0)) return (0, 0);
 
-        UserFeeState storage state = $.userFeeState[poolId][owner];
+        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[poolId][owner];
         fee0Amount = state.pendingFee0;
         fee1Amount = state.pendingFee1;
 
@@ -528,21 +519,21 @@ contract MemeverseUniswapHook is
         if (!LPFeeLibrary.isDynamicFee(key.fee)) revert FeeMustBeDynamic();
 
         PoolId poolId = key.toId();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        if (sender != $.poolInitializer) revert UnauthorizedPoolInitializer();
 
-        PoolInitializationAuth memory auth = $.poolInitializationAuth[poolId];
+        if (sender != memeverseUniswapHookStorage.poolInitializer) revert UnauthorizedPoolInitializer();
+
+        PoolInitializationAuth memory auth = memeverseUniswapHookStorage.poolInitializationAuth[poolId];
         if (!auth.active) revert UnauthorizedPoolInitialization();
         if (auth.startPriceX96 != sqrtPriceX96) revert InvalidInitialPrice();
-        delete $.poolInitializationAuth[poolId];
+        delete memeverseUniswapHookStorage.poolInitializationAuth[poolId];
 
         string memory tokenSymbol = string(
             abi.encodePacked("Outrun", "-", _currencySymbol(key.currency0), "-", _currencySymbol(key.currency1), "-LP")
         );
         address liquidityToken = address(new UniswapLP(tokenSymbol, tokenSymbol, 18, poolId, address(this)));
 
-        $.poolInfo[poolId].liquidityToken = liquidityToken;
-        $.poolLaunchTimestamp[poolId] = uint40(block.timestamp);
+        memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken = liquidityToken;
+        memeverseUniswapHookStorage.poolLaunchTimestamp[poolId] = uint40(block.timestamp);
 
         emit PoolInitialized(poolId, liquidityToken, key.currency0, key.currency1);
 
@@ -570,21 +561,22 @@ contract MemeverseUniswapHook is
 
         (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         uint128 liquidity = poolManager.getLiquidity(poolId);
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        IMemeverseDynamicFeeEngine.LaunchFeeConfig memory launchConfig = $.defaultLaunchFeeConfig;
+
+        IMemeverseDynamicFeeEngine.LaunchFeeConfig memory launchConfig =
+        memeverseUniswapHookStorage.defaultLaunchFeeConfig;
         IMemeverseDynamicFeeEngine.PreparedSwapFee memory quote = _dynamicFeeEngine()
             .prepareSwapFee(
                 IMemeverseDynamicFeeEngine.PrepareSwapFeeParams({
-                    poolId: poolId,
-                    swapParams: params,
-                    // solhint-disable-next-line avoid-tx-origin
-                    trader: tx.origin,
-                    preSqrtPriceX96: preSqrtPriceX96,
-                    liquidity: liquidity,
-                    protocolFeeOnInput: ctx.protocolFeeOnInput,
-                    launchFeeConfig: launchConfig,
-                    launchTimestamp: $.poolLaunchTimestamp[poolId]
-                })
+                poolId: poolId,
+                swapParams: params,
+                // solhint-disable-next-line avoid-tx-origin
+                trader: tx.origin,
+                preSqrtPriceX96: preSqrtPriceX96,
+                liquidity: liquidity,
+                protocolFeeOnInput: ctx.protocolFeeOnInput,
+                launchFeeConfig: launchConfig,
+                launchTimestamp: memeverseUniswapHookStorage.poolLaunchTimestamp[poolId]
+            })
             );
         uint256 dynamicFeeBps = quote.feeBps;
         uint256 estimatedGrossOutputAmount = quote.estimatedGrossOutputAmount;
@@ -642,7 +634,7 @@ contract MemeverseUniswapHook is
     }
 
     function _revertIfPublicSwapBlocked(PoolId poolId) internal view {
-        uint40 resumeTime = _getMemeverseUniswapHookStorage().publicSwapResumeTime[poolId];
+        uint40 resumeTime = memeverseUniswapHookStorage.publicSwapResumeTime[poolId];
         if (resumeTime != 0 && block.timestamp < resumeTime) revert PublicSwapDisabled();
     }
 
@@ -672,13 +664,13 @@ contract MemeverseUniswapHook is
         _dynamicFeeEngine()
             .updateAfterSwap(
                 IMemeverseDynamicFeeEngine.UpdateAfterSwapParams({
-                    poolId: poolId,
-                    delta: delta,
-                    // solhint-disable-next-line avoid-tx-origin
-                    trader: tx.origin,
-                    preSqrtPriceX96: preSqrtPriceX96,
-                    postSqrtPriceX96: postSqrtPriceX96
-                })
+                poolId: poolId,
+                delta: delta,
+                // solhint-disable-next-line avoid-tx-origin
+                trader: tx.origin,
+                preSqrtPriceX96: preSqrtPriceX96,
+                postSqrtPriceX96: postSqrtPriceX96
+            })
             );
 
         (uint256 lpFeeBps, uint256 protocolFeeBps) = FeeMath.splitFeeBps(feeBps);
@@ -723,7 +715,7 @@ contract MemeverseUniswapHook is
 
             uint256 exactOutputLpFeeInputAmount = FullMath.mulDiv(actualInputAbs, lpFeeBps, BPS_BASE);
             if (exactOutputLpFeeInputAmount > 0) {
-                uint256 effectiveSupply = _getMemeverseUniswapHookStorage().cachedLpTotalSupply[poolId];
+                uint256 effectiveSupply = memeverseUniswapHookStorage.cachedLpTotalSupply[poolId];
                 _collectLpFee(
                     poolId, ctx.currencyIn, ctx.inputIsCurrency0, exactOutputLpFeeInputAmount, effectiveSupply
                 );
@@ -782,8 +774,8 @@ contract MemeverseUniswapHook is
         if (params.to == address(0)) revert ZeroAddress();
         PoolKey memory key = _poolKey(params.currency0, params.currency1);
         PoolId poolId = key.toId();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        PoolInfo storage pool = $.poolInfo[poolId];
+
+        PoolInfo storage pool = memeverseUniswapHookStorage.poolInfo[poolId];
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         if (pool.liquidityToken == address(0) || sqrtPriceX96 == 0) revert PoolNotInitialized();
 
@@ -800,7 +792,7 @@ contract MemeverseUniswapHook is
         );
 
         UniswapLP(pool.liquidityToken).mint(params.to, liquidity);
-        $.cachedLpTotalSupply[poolId] += liquidity;
+        memeverseUniswapHookStorage.cachedLpTotalSupply[poolId] += liquidity;
 
         emit LiquidityAdded(
             poolId,
@@ -834,10 +826,9 @@ contract MemeverseUniswapHook is
 
         updateUserSnapshot(poolId, msg.sender);
 
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        UniswapLP lp = UniswapLP($.poolInfo[poolId].liquidityToken);
+        UniswapLP lp = UniswapLP(memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken);
         lp.burn(msg.sender, params.liquidity);
-        $.cachedLpTotalSupply[poolId] -= params.liquidity;
+        memeverseUniswapHookStorage.cachedLpTotalSupply[poolId] -= params.liquidity;
 
         delta = _modifyLiquidity(
             params.recipient,
@@ -885,7 +876,7 @@ contract MemeverseUniswapHook is
     {
         PoolId poolId = params.key.toId();
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        if (_getMemeverseUniswapHookStorage().poolInfo[poolId].liquidityToken == address(0) || sqrtPriceX96 == 0) {
+        if (memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken == address(0) || sqrtPriceX96 == 0) {
             revert PoolNotInitialized();
         }
         if (params.params.amountSpecified >= 0) revert ZeroValue();
@@ -994,12 +985,12 @@ contract MemeverseUniswapHook is
         _dynamicFeeEngine()
             .updateAfterSwap(
                 IMemeverseDynamicFeeEngine.UpdateAfterSwapParams({
-                    poolId: poolId,
-                    delta: swapDelta,
-                    trader: data.payer,
-                    preSqrtPriceX96: preSwapSqrtPriceX96,
-                    postSqrtPriceX96: postSwapSqrtPriceX96
-                })
+                poolId: poolId,
+                delta: swapDelta,
+                trader: data.payer,
+                preSqrtPriceX96: preSwapSqrtPriceX96,
+                postSqrtPriceX96: postSwapSqrtPriceX96
+            })
             );
         int128 amount0 = swapDelta.amount0();
         int128 amount1 = swapDelta.amount1();
@@ -1065,12 +1056,12 @@ contract MemeverseUniswapHook is
         returns (uint256 fee0Amount, uint256 fee1Amount)
     {
         PoolId poolId = key.toId();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        if ($.poolInfo[poolId].liquidityToken == address(0)) revert PoolNotInitialized();
+
+        if (memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken == address(0)) revert PoolNotInitialized();
 
         updateUserSnapshot(poolId, owner);
 
-        UserFeeState storage state = $.userFeeState[poolId][owner];
+        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[poolId][owner];
         fee0Amount = state.pendingFee0;
         fee1Amount = state.pendingFee1;
 
@@ -1167,9 +1158,8 @@ contract MemeverseUniswapHook is
         uint256 lpFeeInputAmount,
         uint256 protocolFeeInputAmount
     ) internal {
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
         if (lpFeeInputAmount > 0) {
-            uint256 effectiveSupply = $.cachedLpTotalSupply[poolId];
+            uint256 effectiveSupply = memeverseUniswapHookStorage.cachedLpTotalSupply[poolId];
             if (effectiveSupply == 0) revert NoActiveLiquidityShares();
             // Launcher settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, address(this), lpFeeInputAmount)) {
@@ -1179,7 +1169,7 @@ contract MemeverseUniswapHook is
         }
 
         if (protocolFeeInputAmount > 0) {
-            address treasury_ = $.treasury;
+            address treasury_ = memeverseUniswapHookStorage.treasury;
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, treasury_, protocolFeeInputAmount))
             {
                 revert ERC20TransferFailed();
@@ -1189,19 +1179,19 @@ contract MemeverseUniswapHook is
     }
 
     function _takeToTreasury(Currency feeCurrency, uint256 amount) internal returns (address treasury_) {
-        treasury_ = _getMemeverseUniswapHookStorage().treasury;
+        treasury_ = memeverseUniswapHookStorage.treasury;
         if (treasury_ == address(0)) revert Unauthorized();
         poolManager.take(feeCurrency, treasury_, amount);
     }
 
     function _setProtocolFeeCurrencySupport(Currency currency, bool supported) internal {
         if (currency.isAddressZero()) revert NativeCurrencyUnsupported();
-        _getMemeverseUniswapHookStorage().supportedProtocolFeeCurrencies[Currency.unwrap(currency)] = supported;
+        memeverseUniswapHookStorage.supportedProtocolFeeCurrencies[Currency.unwrap(currency)] = supported;
         emit ProtocolFeeCurrencySupportUpdated(currency, supported);
     }
 
     function _isProtocolFeeCurrencySupported(Currency currency) internal view returns (bool) {
-        return _getMemeverseUniswapHookStorage().supportedProtocolFeeCurrencies[Currency.unwrap(currency)];
+        return memeverseUniswapHookStorage.supportedProtocolFeeCurrencies[Currency.unwrap(currency)];
     }
 
     function _creditLpFee(
@@ -1211,7 +1201,7 @@ contract MemeverseUniswapHook is
         uint256 lpFeeAmount,
         uint256 effectiveSupply
     ) internal {
-        PoolInfo storage pool = _getMemeverseUniswapHookStorage().poolInfo[poolId];
+        PoolInfo storage pool = memeverseUniswapHookStorage.poolInfo[poolId];
         uint256 feePerShare = FullMath.mulDiv(lpFeeAmount, FEE_GROWTH_Q128, effectiveSupply);
         if (feeCurrencyIsCurrency0) {
             uint256 newFee0PerShare = pool.fee0PerShare + feePerShare;
@@ -1238,9 +1228,8 @@ contract MemeverseUniswapHook is
     /// @param id The hook-managed pool id.
     /// @param user The user whose fee snapshot is synchronized.
     function updateUserSnapshot(PoolId id, address user) public override {
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        PoolInfo storage pool = $.poolInfo[id];
-        UserFeeState storage state = $.userFeeState[id][user];
+        PoolInfo storage pool = memeverseUniswapHookStorage.poolInfo[id];
+        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[id][user];
 
         if (user == address(0)) {
             state.fee0Offset = pool.fee0PerShare;
@@ -1276,7 +1265,7 @@ contract MemeverseUniswapHook is
     {
         if (amountSpecified == 0) return 0;
 
-        effectiveSupply = _getMemeverseUniswapHookStorage().cachedLpTotalSupply[poolId];
+        effectiveSupply = memeverseUniswapHookStorage.cachedLpTotalSupply[poolId];
         if (effectiveSupply != 0) return effectiveSupply;
         // A fully drained pool returns 0 to preserve zero-liquidity quote semantics.
         if (poolManager.getLiquidity(poolId) == 0) return 0;
@@ -1294,9 +1283,9 @@ contract MemeverseUniswapHook is
     /// @param _treasury The new treasury address.
     function setTreasury(address _treasury) external onlyOwner {
         if (_treasury == address(0)) revert ZeroAddress();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        address old = $.treasury;
-        $.treasury = _treasury;
+
+        address old = memeverseUniswapHookStorage.treasury;
+        memeverseUniswapHookStorage.treasury = _treasury;
         emit TreasuryUpdated(old, _treasury);
     }
 
@@ -1320,9 +1309,9 @@ contract MemeverseUniswapHook is
     /// @param launcher_ The launcher binding used for `isPublicSwapAllowed` checks.
     function setLauncher(address launcher_) external onlyOwner {
         if (launcher_ == address(0)) revert ZeroAddress();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        address oldLauncher = $.launcher;
-        $.launcher = launcher_;
+
+        address oldLauncher = memeverseUniswapHookStorage.launcher;
+        memeverseUniswapHookStorage.launcher = launcher_;
         emit LauncherUpdated(oldLauncher, launcher_);
     }
 
@@ -1331,9 +1320,9 @@ contract MemeverseUniswapHook is
     /// @param initializer The authorized pool-initializer router.
     function setPoolInitializer(address initializer) external onlyOwner {
         if (initializer == address(0)) revert ZeroAddress();
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        address oldInitializer = $.poolInitializer;
-        $.poolInitializer = initializer;
+
+        address oldInitializer = memeverseUniswapHookStorage.poolInitializer;
+        memeverseUniswapHookStorage.poolInitializer = initializer;
         emit PoolInitializerUpdated(oldInitializer, initializer);
     }
 
@@ -1345,11 +1334,13 @@ contract MemeverseUniswapHook is
         external
         erc20Pair(key.currency0, key.currency1)
     {
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        if (msg.sender != $.poolInitializer) revert UnauthorizedPoolInitializer();
+        if (msg.sender != memeverseUniswapHookStorage.poolInitializer) revert UnauthorizedPoolInitializer();
         PoolId poolId = key.toId();
-        if ($.poolInitializationAuth[poolId].active) revert PoolInitializationAlreadyAuthorized();
-        $.poolInitializationAuth[poolId] = PoolInitializationAuth({startPriceX96: startPriceX96, active: true});
+        if (memeverseUniswapHookStorage.poolInitializationAuth[poolId].active) {
+            revert PoolInitializationAlreadyAuthorized();
+        }
+        memeverseUniswapHookStorage.poolInitializationAuth[poolId] =
+            PoolInitializationAuth({startPriceX96: startPriceX96, active: true});
         emit PoolInitializationAuthorized(poolId, startPriceX96);
     }
 
@@ -1361,10 +1352,9 @@ contract MemeverseUniswapHook is
     /// @param tokenB The other token in the protected pool.
     /// @param resumeTime New public-swap resume timestamp for the pool.
     function setPublicSwapResumeTime(address tokenA, address tokenB, uint40 resumeTime) external onlyLauncher {
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
         PoolId poolId = _poolIdForTokens(tokenA, tokenB);
-        uint40 oldResumeTime = $.publicSwapResumeTime[poolId];
-        $.publicSwapResumeTime[poolId] = resumeTime;
+        uint40 oldResumeTime = memeverseUniswapHookStorage.publicSwapResumeTime[poolId];
+        memeverseUniswapHookStorage.publicSwapResumeTime[poolId] = resumeTime;
         emit PublicSwapResumeTimeUpdated(poolId, oldResumeTime, resumeTime);
     }
 
@@ -1376,9 +1366,9 @@ contract MemeverseUniswapHook is
         if (config.startFeeBps > BPS_BASE || config.minFeeBps > BPS_BASE || config.minFeeBps > config.startFeeBps) {
             revert ZeroValue();
         }
-        MemeverseUniswapHookStorage storage $ = _getMemeverseUniswapHookStorage();
-        IMemeverseDynamicFeeEngine.LaunchFeeConfig memory oldConfig = $.defaultLaunchFeeConfig;
-        $.defaultLaunchFeeConfig = config;
+
+        IMemeverseDynamicFeeEngine.LaunchFeeConfig memory oldConfig = memeverseUniswapHookStorage.defaultLaunchFeeConfig;
+        memeverseUniswapHookStorage.defaultLaunchFeeConfig = config;
         emit DefaultLaunchFeeConfigUpdated(
             oldConfig.startFeeBps,
             oldConfig.minFeeBps,

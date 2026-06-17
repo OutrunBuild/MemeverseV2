@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.35;
 
 import {OutrunOwnableInit} from "../../common/access/OutrunOwnableInit.sol";
 import {OutrunERC20Init} from "../../common/token/OutrunERC20Init.sol";

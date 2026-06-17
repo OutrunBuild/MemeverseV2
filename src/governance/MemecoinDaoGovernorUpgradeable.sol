@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 // Compatible with OpenZeppelin Contracts ^5.0.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -32,7 +32,8 @@ import {IGovernanceCycleIncentivizer} from "./interfaces/IGovernanceCycleIncenti
  * @notice This contract is a modified version of the GovernorUpgradeable contract from OpenZeppelin.
  * @dev It is used to manage the DAO of the Memecoin project, also as Memecoin DAO Treasury.
  */
-contract MemecoinDaoGovernorUpgradeable is
+contract MemecoinDaoGovernorUpgradeable layout at erc7201("outrun.storage.MemecoinDaoGovernor")
+    is
     IMemecoinDaoGovernor,
     Initializable,
     GovernorUpgradeable,
@@ -55,15 +56,7 @@ contract MemecoinDaoGovernorUpgradeable is
         uint256 _upgradeSupermajorityRatio;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.MemecoinDaoGovernor")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant MEMECOIN_DAO_GOVERNOR_STORAGE_LOCATION =
-        0x268497fe5dd9452fe73d6476bb0f21165f748dafac6b1c2687b0261939d22c00;
-
-    function _getMemecoinDaoGovernorStorage() private pure returns (MemecoinDaoGovernorStorage storage $) {
-        assembly {
-            $.slot := MEMECOIN_DAO_GOVERNOR_STORAGE_LOCATION
-        }
-    }
+    MemecoinDaoGovernorStorage private memecoinDaoGovernorStorage;
 
     function __MemecoinDaoGovernor_init(
         address _governanceCycleIncentivizer,
@@ -77,12 +70,12 @@ contract MemecoinDaoGovernorUpgradeable is
                 && _upgradeSupermajorityRatio <= 10000,
             InvalidGovernanceParams()
         );
-        MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
-        $._governanceCycleIncentivizer = IGovernanceCycleIncentivizer(_governanceCycleIncentivizer);
-        $._minQuorum = _minQuorum;
-        $._governanceStartTime = block.timestamp + _bootstrapPeriod;
-        $._maxTreasurySpendRatio = _maxTreasurySpendRatio;
-        $._upgradeSupermajorityRatio = _upgradeSupermajorityRatio;
+        memecoinDaoGovernorStorage._governanceCycleIncentivizer =
+            IGovernanceCycleIncentivizer(_governanceCycleIncentivizer);
+        memecoinDaoGovernorStorage._minQuorum = _minQuorum;
+        memecoinDaoGovernorStorage._governanceStartTime = block.timestamp + _bootstrapPeriod;
+        memecoinDaoGovernorStorage._maxTreasurySpendRatio = _maxTreasurySpendRatio;
+        memecoinDaoGovernorStorage._upgradeSupermajorityRatio = _upgradeSupermajorityRatio;
     }
 
     constructor() {
@@ -154,7 +147,7 @@ contract MemecoinDaoGovernorUpgradeable is
         override(GovernorUpgradeable, GovernorVotesQuorumFractionUpgradeable)
         returns (uint256)
     {
-        return Math.max(super.quorum(blockNumber), _getMemecoinDaoGovernorStorage()._minQuorum);
+        return Math.max(super.quorum(blockNumber), memecoinDaoGovernorStorage._minQuorum);
     }
 
     /// @notice Exposes the minimum voting power required to create a proposal.
@@ -173,27 +166,27 @@ contract MemecoinDaoGovernorUpgradeable is
     /// @dev The incentivizer tracks cycle votes and reward distribution for this DAO.
     /// @return Incentivizer contract address.
     function governanceCycleIncentivizer() external view override returns (address) {
-        return address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer);
+        return address(memecoinDaoGovernorStorage._governanceCycleIncentivizer);
     }
 
     /// @notice Returns the absolute minimum quorum floor.
     /// @return Minimum quorum in vote units.
     function minQuorum() external view override returns (uint256) {
-        return _getMemecoinDaoGovernorStorage()._minQuorum;
+        return memecoinDaoGovernorStorage._minQuorum;
     }
 
     /// @notice Returns the timestamp when governance proposals become active.
     /// @return Start timestamp for governance.
     function governanceStartTime() external view override returns (uint256) {
-        return _getMemecoinDaoGovernorStorage()._governanceStartTime;
+        return memecoinDaoGovernorStorage._governanceStartTime;
     }
 
     function maxTreasurySpendRatio() external view override returns (uint256) {
-        return _getMemecoinDaoGovernorStorage()._maxTreasurySpendRatio;
+        return memecoinDaoGovernorStorage._maxTreasurySpendRatio;
     }
 
     function upgradeSupermajorityRatio() external view returns (uint256) {
-        return _getMemecoinDaoGovernorStorage()._upgradeSupermajorityRatio;
+        return memecoinDaoGovernorStorage._upgradeSupermajorityRatio;
     }
 
     /// @notice Creates a new governance proposal for the caller.
@@ -209,11 +202,10 @@ contract MemecoinDaoGovernorUpgradeable is
         bytes[] memory calldatas,
         string memory description
     ) public override returns (uint256) {
-        MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
-        require(block.timestamp >= $._governanceStartTime, GovernanceNotStarted());
+        require(block.timestamp >= memecoinDaoGovernorStorage._governanceStartTime, GovernanceNotStarted());
 
         // Restrict each address from submitting new proposals while it has unfinalized proposal
-        uint256 unfinalizedProposalId = $.userUnfinalizedProposalId[msg.sender];
+        uint256 unfinalizedProposalId = memecoinDaoGovernorStorage.userUnfinalizedProposalId[msg.sender];
         require(
             unfinalizedProposalId == 0 || state(unfinalizedProposalId) == ProposalState.Defeated
                 || state(unfinalizedProposalId) == ProposalState.Succeeded,
@@ -221,7 +213,7 @@ contract MemecoinDaoGovernorUpgradeable is
         );
 
         uint256 proposalId = super.propose(targets, values, calldatas, description);
-        $.userUnfinalizedProposalId[msg.sender] = proposalId;
+        memecoinDaoGovernorStorage.userUnfinalizedProposalId[msg.sender] = proposalId;
 
         return proposalId;
     }
@@ -241,7 +233,7 @@ contract MemecoinDaoGovernorUpgradeable is
     ) public payable override returns (uint256) {
         uint256 proposalId = super.execute(targets, values, calldatas, descriptionHash);
 
-        _getMemecoinDaoGovernorStorage().userUnfinalizedProposalId[proposalProposer(proposalId)] = 0;
+        memecoinDaoGovernorStorage.userUnfinalizedProposalId[proposalProposer(proposalId)] = 0;
 
         return proposalId;
     }
@@ -254,7 +246,7 @@ contract MemecoinDaoGovernorUpgradeable is
     ) internal override returns (uint256) {
         uint256 proposalId = super._cancel(targets, values, calldatas, descriptionHash);
 
-        _getMemecoinDaoGovernorStorage().userUnfinalizedProposalId[proposalProposer(proposalId)] = 0;
+        memecoinDaoGovernorStorage.userUnfinalizedProposalId[proposalProposer(proposalId)] = 0;
 
         return proposalId;
     }
@@ -267,7 +259,7 @@ contract MemecoinDaoGovernorUpgradeable is
      */
     function receiveTreasuryIncome(address _token, uint256 _amount) external override {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
-        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
+        memecoinDaoGovernorStorage._governanceCycleIncentivizer;
         IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
         _governanceCycleIncentivizer.recordTreasuryIncome(_token, _amount);
     }
@@ -281,7 +273,7 @@ contract MemecoinDaoGovernorUpgradeable is
      */
     function sendTreasuryAssets(address _token, address _to, uint256 _amount) external override onlyGovernance {
         IGovernanceCycleIncentivizer _governanceCycleIncentivizer =
-        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer;
+        memecoinDaoGovernorStorage._governanceCycleIncentivizer;
         _governanceCycleIncentivizer.recordTreasuryAssetSpend(_token, _to, _amount);
 
         IERC20(_token).safeTransfer(_to, _amount);
@@ -296,8 +288,7 @@ contract MemecoinDaoGovernorUpgradeable is
      */
     function disburseReward(address _token, address _to, uint256 _amount) external override {
         require(
-            msg.sender == address(_getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer),
-            UnauthorizedRewardPayout()
+            msg.sender == address(memecoinDaoGovernorStorage._governanceCycleIncentivizer), UnauthorizedRewardPayout()
         );
 
         IERC20(_token).safeTransfer(_to, _amount);
@@ -310,8 +301,6 @@ contract MemecoinDaoGovernorUpgradeable is
         bytes[] memory calldatas,
         bytes32 descriptionHash
     ) internal override {
-        MemecoinDaoGovernorStorage storage $ = _getMemecoinDaoGovernorStorage();
-
         // Layer 4: self-call requires supermajority
         bool isSelfCall = false;
         uint256 targetsLength = targets.length;
@@ -325,13 +314,15 @@ contract MemecoinDaoGovernorUpgradeable is
             (uint256 againstVotes, uint256 forVotes, uint256 abstainVotes) = proposalVotes(proposalId);
             uint256 totalVotes = forVotes + againstVotes + abstainVotes;
             require(
-                forVotes * 10000 >= totalVotes * $._upgradeSupermajorityRatio,
-                UpgradeSupermajorityRequired(forVotes, totalVotes, $._upgradeSupermajorityRatio)
+                forVotes * 10000 >= totalVotes * memecoinDaoGovernorStorage._upgradeSupermajorityRatio,
+                UpgradeSupermajorityRequired(
+                    forVotes, totalVotes, memecoinDaoGovernorStorage._upgradeSupermajorityRatio
+                )
             );
         }
 
         // Layer 3: snapshot treasury balances
-        (,,, address[] memory treasuryTokens,) = $._governanceCycleIncentivizer.metaData();
+        (,,, address[] memory treasuryTokens,) = memecoinDaoGovernorStorage._governanceCycleIncentivizer.metaData();
         uint256 len = treasuryTokens.length;
         uint256[] memory preBalances = new uint256[](len);
         for (uint256 i = 0; i < len; ++i) {
@@ -346,7 +337,7 @@ contract MemecoinDaoGovernorUpgradeable is
             uint256 postBalance = IERC20(treasuryTokens[i]).balanceOf(address(this));
             if (postBalance >= preBalances[i]) continue;
             uint256 spent = preBalances[i] - postBalance;
-            uint256 limit = preBalances[i] * $._maxTreasurySpendRatio / 10000;
+            uint256 limit = preBalances[i] * memecoinDaoGovernorStorage._maxTreasurySpendRatio / 10000;
             require(spent <= limit, TreasurySpendExceedsLimit(treasuryTokens[i], spent, limit));
         }
     }
@@ -367,7 +358,7 @@ contract MemecoinDaoGovernorUpgradeable is
         returns (uint256)
     {
         uint256 votes = super._castVote(proposalId, account, support, reason, params);
-        _getMemecoinDaoGovernorStorage()._governanceCycleIncentivizer.accumCycleVotes(account, votes);
+        memecoinDaoGovernorStorage._governanceCycleIncentivizer.accumCycleVotes(account, votes);
         return votes;
     }
 

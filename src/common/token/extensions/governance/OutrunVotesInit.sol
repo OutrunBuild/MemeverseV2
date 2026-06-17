@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 // OpenZeppelin Contracts (last updated v5.2.0) (governance/utils/Votes.sol)
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
@@ -50,13 +50,12 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         Checkpoints.Trace208 _totalAssetsCheckpoint;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.Votes")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant VOTES_STORAGE_LOCATION =
-        0x208f5ae36e3aa0934f277adce61242847ae71fe37b1a71ca90478a975291f400;
-
     function _getVotesStorage() private pure returns (VotesStorage storage $) {
         assembly {
-            $.slot := VOTES_STORAGE_LOCATION
+            // erc7201("outrun.storage.Votes")
+            mstore(0x00, "outrun.storage.Votes")
+            mstore(0x00, sub(keccak256(0x00, 20), 1))
+            $.slot := and(keccak256(0x00, 0x20), not(0xff))
         }
     }
 

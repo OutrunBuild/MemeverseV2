@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -22,7 +22,13 @@ import {FeeMath} from "./libraries/FeeMath.sol";
 ///      Upgradeable UUPS proxy; mutable state lives in the ERC7201 namespace.
 ///      Pure price/fee math primitives (spot conversion, price-move ppm, volatility fee) live in
 ///      the `FeeMath` library; they are `internal pure` and inline into this contract.
-contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable, OwnableUpgradeable, UUPSUpgradeable {
+contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDynamicFeeEngine")
+    is
+    IMemeverseDynamicFeeEngine,
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
     uint256 public constant BPS_BASE = FeeMath.BPS_BASE;
     uint256 public constant PPM_BASE = FeeMath.PPM_BASE;
     uint24 internal constant FEE_ALPHA = 500_000;
@@ -54,15 +60,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         address authorizedHook;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.MemeverseDynamicFeeEngine")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION =
-        0xb7b6769a89985fd739eb1342563b5dbd4d11da8b84d601f10d877057788e0e00;
-
-    function _getMemeverseDynamicFeeEngineStorage() internal pure returns (MemeverseDynamicFeeEngineStorage storage $) {
-        assembly {
-            $.slot := MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION
-        }
-    }
+    MemeverseDynamicFeeEngineStorage private memeverseDynamicFeeEngineStorage;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     /// @param _poolManager PoolManager shared with the hook.
@@ -78,7 +76,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
     function initialize(address initialOwner, address authorizedHook_) external initializer {
         if (initialOwner == address(0) || authorizedHook_ == address(0)) revert ZeroAddress();
         __Ownable_init(initialOwner);
-        _getMemeverseDynamicFeeEngineStorage().authorizedHook = authorizedHook_;
+        memeverseDynamicFeeEngineStorage.authorizedHook = authorizedHook_;
     }
 
     /// @notice Engine ownership is managed through the Hook contract.
@@ -107,13 +105,12 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
 
     /// @inheritdoc IMemeverseDynamicFeeEngine
     function authorizedHook() external view override returns (address) {
-        return _getMemeverseDynamicFeeEngineStorage().authorizedHook;
+        return memeverseDynamicFeeEngineStorage.authorizedHook;
     }
 
     /// @inheritdoc IMemeverseDynamicFeeEngine
     function refreshBeforeSwap(RefreshBeforeSwapParams calldata params) external override onlyAuthorizedCaller {
-        DynamicFeeState storage stored =
-            _getMemeverseDynamicFeeEngineStorage().dynamicFeeStates[msg.sender][params.poolId];
+        DynamicFeeState storage stored = memeverseDynamicFeeEngineStorage.dynamicFeeStates[msg.sender][params.poolId];
         _refreshVolatilityAnchorAndCarry(stored, params.preSqrtPriceX96);
     }
 
@@ -124,12 +121,11 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         onlyAuthorizedCaller
         returns (PreparedSwapFee memory quote)
     {
-        MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
-        DynamicFeeState storage stored = $.dynamicFeeStates[msg.sender][params.poolId];
+        DynamicFeeState storage stored = memeverseDynamicFeeEngineStorage.dynamicFeeStates[msg.sender][params.poolId];
         _refreshVolatilityAnchorAndCarry(stored, params.preSqrtPriceX96);
         return _estimateDynamicFeeQuote(
             stored,
-            $.addressBatchStates[msg.sender][params.trader][params.poolId],
+            memeverseDynamicFeeEngineStorage.addressBatchStates[msg.sender][params.trader][params.poolId],
             params.liquidity,
             params.preSqrtPriceX96,
             params.swapParams.zeroForOne,
@@ -144,9 +140,9 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         if (params.preSqrtPriceX96 == 0) return;
 
         uint256 pifPpm = FeeMath.priceMovePpmCapped(params.preSqrtPriceX96, params.postSqrtPriceX96);
-        MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
-        DynamicFeeState storage state = $.dynamicFeeStates[msg.sender][params.poolId];
-        AddressBatchState storage batch = $.addressBatchStates[msg.sender][params.trader][params.poolId];
+        DynamicFeeState storage state = memeverseDynamicFeeEngineStorage.dynamicFeeStates[msg.sender][params.poolId];
+        AddressBatchState storage batch =
+            memeverseDynamicFeeEngineStorage.addressBatchStates[msg.sender][params.trader][params.poolId];
 
         if (batch.batchStartTs > 0 && block.timestamp - uint256(batch.batchStartTs) < ADDRESS_BATCH_WINDOW_SEC) {
             batch.batchAccumPpm = uint192(uint256(batch.batchAccumPpm) + pifPpm);
@@ -195,8 +191,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         onlyAuthorizedCaller
         returns (PreparedSwapFee memory quote)
     {
-        MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
-        DynamicFeeState memory state = $.dynamicFeeStates[hook][context.poolId];
+        DynamicFeeState memory state = memeverseDynamicFeeEngineStorage.dynamicFeeStates[hook][context.poolId];
         // Inline volatility refresh on the memory copy — mirrors _refreshVolatilityAnchorAndCarry
         // without touching storage, since quoteSwapWithContext is a view function.
         if (state.volAnchorSqrtPriceX96 == 0) state.volAnchorSqrtPriceX96 = context.preSqrtPriceX96;
@@ -211,7 +206,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
 
         return _estimateDynamicFeeQuote(
             state,
-            $.addressBatchStates[hook][context.trader][context.poolId],
+            memeverseDynamicFeeEngineStorage.addressBatchStates[hook][context.trader][context.poolId],
             context.liquidity,
             context.preSqrtPriceX96,
             context.swapParams.zeroForOne,
@@ -228,7 +223,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         override
         returns (DynamicFeeState memory state)
     {
-        return _getMemeverseDynamicFeeEngineStorage().dynamicFeeStates[hook][poolId];
+        return memeverseDynamicFeeEngineStorage.dynamicFeeStates[hook][poolId];
     }
 
     /// @inheritdoc IMemeverseDynamicFeeEngine
@@ -238,11 +233,11 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         override
         returns (AddressBatchState memory state)
     {
-        return _getMemeverseDynamicFeeEngineStorage().addressBatchStates[hook][trader][poolId];
+        return memeverseDynamicFeeEngineStorage.addressBatchStates[hook][trader][poolId];
     }
 
     modifier onlyAuthorizedCaller() {
-        if (msg.sender != _getMemeverseDynamicFeeEngineStorage().authorizedHook) {
+        if (msg.sender != memeverseDynamicFeeEngineStorage.authorizedHook) {
             revert UnauthorizedCaller(msg.sender);
         }
         _;

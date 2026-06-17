@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 import {Initializable} from "../access/Initializable.sol";
 
@@ -17,13 +17,12 @@ abstract contract OutrunNoncesInit is Initializable {
         mapping(address account => uint256) _nonces;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("outrun.storage.Nonces")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant NONCES_STORAGE_LOCATION =
-        0xbc43161bd6c888bfd7c69c0710419a94949c687678098a4e6d8f37f01804b400;
-
     function _getNoncesStorage() private pure returns (NoncesStorage storage $) {
         assembly {
-            $.slot := NONCES_STORAGE_LOCATION
+            // erc7201("outrun.storage.Nonces")
+            mstore(0x00, "outrun.storage.Nonces")
+            mstore(0x00, sub(keccak256(0x00, 21), 1))
+            $.slot := and(keccak256(0x00, 0x20), not(0xff))
         }
     }
 

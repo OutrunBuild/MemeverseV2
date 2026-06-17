@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 /* solhint-disable one-contract-per-file */
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.35;
 
 // MemeverseERC1967Proxy exists only for this deployer's circular CREATE2 governor/incentivizer flow.
 
