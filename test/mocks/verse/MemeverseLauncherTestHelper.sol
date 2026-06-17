@@ -2,6 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
+import {StorageSlotPrimitives} from "../StorageSlotPrimitives.sol";
 import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -13,7 +14,7 @@ import {IMemecoin} from "../../../src/token/interfaces/IMemecoin.sol";
 import {IMemeverseUniswapHook} from "../../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {InitialPriceCalculator} from "../../../src/verse/libraries/InitialPriceCalculator.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -22,7 +23,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 /// @notice Standalone white-box accessor for MemeverseLauncher proxy storage.
 ///         Does not inherit any src/ contract. Reads/writes proxy storage slots via vm.load/vm.store.
 ///         Your test contract should inherit this helper (`is Test, MemeverseLauncherTestHelper`).
-abstract contract MemeverseLauncherTestHelper is Test {
+abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
     // ── Internal struct used by forceDeployLiquidity ──
 
     struct BootstrapPolPlan {
@@ -37,26 +38,23 @@ abstract contract MemeverseLauncherTestHelper is Test {
     // Memeverse sub-struct layout: slots 0-3 = string offsets, 4-9 = addresses,
     //   10 = endTime|unlockTime, 11 = omnichainIds length, 12 = currentStage|flashGenesis.
 
-    bytes32 internal constant LAUNCHER_SLOT =
-        0xe4d68b4f0bdabf27c869795dba7c9a87fd97b24006928b28f58769be5bd8f500;
+    bytes32 internal constant LAUNCHER_SLOT = 0xe4d68b4f0bdabf27c869795dba7c9a87fd97b24006928b28f58769be5bd8f500;
 
     // Struct field slot offsets — each number corresponds to the field position in the struct above
-    uint256 internal constant OFF_POLEND          = 7;
-    uint256 internal constant OFF_POL_SPLITTER    = 8;
-    uint256 internal constant OFF_POL_TO_IDS      = 13;
+    uint256 internal constant OFF_POLEND = 7;
+    uint256 internal constant OFF_POL_SPLITTER = 8;
+    uint256 internal constant OFF_POL_TO_IDS = 13;
     uint256 internal constant OFF_MEMECOIN_TO_IDS = 14;
-    uint256 internal constant OFF_MEMEVERSES      = 15;
+    uint256 internal constant OFF_MEMEVERSES = 15;
     uint256 internal constant OFF_FUND_META_DATAS = 16;
     uint256 internal constant OFF_TOTAL_NORMAL_FUNDS = 17;
     uint256 internal constant OFF_PREORDER_STATES = 18;
     uint256 internal constant OFF_AUX_LIQUIDITIES = 19;
     uint256 internal constant OFF_BOOTSTRAP_CLAIMS = 20;
     uint256 internal constant OFF_TOTAL_NORMAL_YT = 21;
-    uint256 internal constant OFF_NORMAL_YT_CLAIMED = 22;
-    uint256 internal constant OFF_USER_GENESIS    = 23;
-    uint256 internal constant OFF_USER_PREORDER   = 24;
-    uint256 internal constant OFF_NORMAL_FEES     = 26;
-    uint256 internal constant OFF_USER_FEE_CLAIMS = 27;
+    uint256 internal constant OFF_USER_GENESIS = 23;
+    uint256 internal constant OFF_USER_PREORDER = 24;
+    uint256 internal constant OFF_NORMAL_FEES = 26;
     uint256 internal constant OFF_PENDING_GOV_FEE = 28;
 
     // ── Slot computation helpers ──
@@ -67,9 +65,7 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     /// @dev Slot for mapping(uint256 => mapping(address => T))
-    function _nestedMappingSlot(uint256 fieldOffset, uint256 key1, address key2)
-        internal pure returns (bytes32)
-    {
+    function _nestedMappingSlot(uint256 fieldOffset, uint256 key1, address key2) internal pure returns (bytes32) {
         return keccak256(abi.encode(key2, _mappingSlot(fieldOffset, key1)));
     }
 
@@ -78,20 +74,13 @@ abstract contract MemeverseLauncherTestHelper is Test {
         return keccak256(abi.encode(key, bytes32(uint256(LAUNCHER_SLOT) + fieldOffset)));
     }
 
-    /// @dev Read a single storage slot from proxy
-    function _loadSlot(address proxy, bytes32 slot) internal view returns (bytes32) {
-        return vm.load(proxy, slot);
-    }
-
-    function _writeSlot(address proxy, bytes32 slot, bytes32 value) internal {
-        vm.store(proxy, slot, value);
-    }
-
     // ── Read methods ──
 
     /// @notice Read preorderStates[verseId] from proxy (mirrors TestBase.getPreorderStateForTest)
     function getPreorderStateForTest(address proxy, uint256 verseId)
-        public view returns (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp)
+        public
+        view
+        returns (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp)
     {
         bytes32 base = _mappingSlot(OFF_PREORDER_STATES, verseId);
         totalFunds = uint256(_loadSlot(proxy, base));
@@ -102,7 +91,9 @@ abstract contract MemeverseLauncherTestHelper is Test {
     /// @notice Read claimable preorder memecoin after vesting from proxy
     ///         mirrors MemeverseLauncher.sol:435-465, uses FullMath.mulDiv
     function claimablePreorderMemecoinForTest(address proxy, uint256 verseId, address account)
-        public view returns (uint256 amount)
+        public
+        view
+        returns (uint256 amount)
     {
         // Skip _versIdValidate and currentStage checks — invalid verseId yields totalFunds=0, returns 0
 
@@ -126,9 +117,7 @@ abstract contract MemeverseLauncherTestHelper is Test {
         if (purchasedMemecoin <= claimedMemecoin) return 0;
 
         uint256 vestingDuration = uint256(_loadSlot(proxy, bytes32(uint256(LAUNCHER_SLOT) + 11)));
-        uint256 elapsed = block.timestamp > settlementTimestamp
-            ? block.timestamp - settlementTimestamp
-            : 0;
+        uint256 elapsed = block.timestamp > settlementTimestamp ? block.timestamp - settlementTimestamp : 0;
         if (elapsed >= vestingDuration) {
             return purchasedMemecoin - claimedMemecoin;
         }
@@ -156,10 +145,6 @@ abstract contract MemeverseLauncherTestHelper is Test {
         _writeSlot(proxy, _mappingSlot(OFF_TOTAL_NORMAL_YT, verseId), bytes32(amount));
     }
 
-    function setVerseIdByPolForTest(address proxy, address pol, uint256 verseId) internal {
-        _writeSlot(proxy, _mappingAddrSlot(OFF_POL_TO_IDS, pol), bytes32(verseId));
-    }
-
     function setVerseIdByMemecoinForTest(address proxy, address memecoin, uint256 verseId) internal {
         _writeSlot(proxy, _mappingAddrSlot(OFF_MEMECOIN_TO_IDS, memecoin), bytes32(verseId));
     }
@@ -167,8 +152,12 @@ abstract contract MemeverseLauncherTestHelper is Test {
     // ── Write methods — struct fields ──
 
     function setUserGenesisDataForTest(
-        address proxy, uint256 verseId, address account,
-        uint256 genesisFund, bool isRefunded, bool isRedeemed
+        address proxy,
+        uint256 verseId,
+        address account,
+        uint256 genesisFund,
+        bool isRefunded,
+        bool isRedeemed
     ) internal {
         bytes32 base = _nestedMappingSlot(OFF_USER_GENESIS, verseId, account);
         _writeSlot(proxy, base, bytes32(genesisFund));
@@ -177,8 +166,12 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function setUserPreorderDataForTest(
-        address proxy, uint256 verseId, address account,
-        uint256 funds, uint256 claimedMemecoin, bool isRefunded
+        address proxy,
+        uint256 verseId,
+        address account,
+        uint256 funds,
+        uint256 claimedMemecoin,
+        bool isRefunded
     ) internal {
         bytes32 base = _nestedMappingSlot(OFF_USER_PREORDER, verseId, account);
         _writeSlot(proxy, base, bytes32(funds));
@@ -187,7 +180,11 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function setPreorderStateForTest(
-        address proxy, uint256 verseId, uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp
+        address proxy,
+        uint256 verseId,
+        uint256 totalFunds,
+        uint256 settledMemecoin,
+        uint40 settlementTimestamp
     ) internal {
         bytes32 base = _mappingSlot(OFF_PREORDER_STATES, verseId);
         _writeSlot(proxy, base, bytes32(totalFunds));
@@ -196,7 +193,11 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function setAuxiliaryLiquiditiesForTest(
-        address proxy, uint256 verseId, uint256 polUAsset, uint256 ptUAsset, uint256 ptPol
+        address proxy,
+        uint256 verseId,
+        uint256 polUAsset,
+        uint256 ptUAsset,
+        uint256 ptPol
     ) internal {
         bytes32 base = _mappingSlot(OFF_AUX_LIQUIDITIES, verseId);
         _writeSlot(proxy, base, bytes32(polUAsset));
@@ -205,9 +206,12 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function setBootstrapResidualClaimsForTest(
-        address proxy, uint256 verseId,
-        uint256 normalResidualPOL, uint256 normalResidualPT,
-        uint256 leveragedResidualPOL, uint256 leveragedResidualPT
+        address proxy,
+        uint256 verseId,
+        uint256 normalResidualPOL,
+        uint256 normalResidualPT,
+        uint256 leveragedResidualPOL,
+        uint256 leveragedResidualPT
     ) internal {
         bytes32 base = _mappingSlot(OFF_BOOTSTRAP_CLAIMS, verseId);
         _writeSlot(proxy, base, bytes32(normalResidualPOL));
@@ -228,7 +232,9 @@ abstract contract MemeverseLauncherTestHelper is Test {
         _writeSlot(proxy, bytes32(uint256(base) + 1), bytes32(ptFee));
     }
 
-    function setFundMetaDataForTest(address proxy, address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) internal {
+    function setFundMetaDataForTest(address proxy, address uAsset, uint256 minTotalFund, uint256 fundBasedAmount)
+        internal
+    {
         bytes32 base = _mappingAddrSlot(OFF_FUND_META_DATAS, uAsset);
         _writeSlot(proxy, base, bytes32(minTotalFund));
         _writeSlot(proxy, bytes32(uint256(base) + 1), bytes32(fundBasedAmount));
@@ -237,11 +243,18 @@ abstract contract MemeverseLauncherTestHelper is Test {
     /// @notice Set commonly-used fields of Memeverse struct. Complex dynamic fields (name/symbol/uri/desc/omnichainIds)
     ///         are not written field-by-field here; use proxy's initialize() for full setup.
     function setMemeverseForTest(
-        address proxy, uint256 verseId,
-        address uAsset, address memecoin, address pol, address yieldVault,
-        address governor, address incentivizer,
-        uint128 endTime, uint128 unlockTime,
-        IMemeverseLauncher.Stage currentStage, bool flashGenesis
+        address proxy,
+        uint256 verseId,
+        address uAsset,
+        address memecoin,
+        address pol,
+        address yieldVault,
+        address governor,
+        address incentivizer,
+        uint128 endTime,
+        uint128 unlockTime,
+        IMemeverseLauncher.Stage currentStage,
+        bool flashGenesis
     ) internal {
         bytes32 base = _mappingSlot(OFF_MEMEVERSES, verseId);
         _writeSlot(proxy, bytes32(uint256(base) + 4), bytes32(uint256(uint160(uAsset))));
@@ -251,8 +264,11 @@ abstract contract MemeverseLauncherTestHelper is Test {
         _writeSlot(proxy, bytes32(uint256(base) + 8), bytes32(uint256(uint160(governor))));
         _writeSlot(proxy, bytes32(uint256(base) + 9), bytes32(uint256(uint160(incentivizer))));
         // endTime (uint128) and unlockTime (uint128) are packed into one slot
-        _writeSlot(proxy, bytes32(uint256(base) + 10),
-            bytes32(uint256(uint128(endTime)) | (uint256(uint128(unlockTime)) << 128)));
+        _writeSlot(
+            proxy,
+            bytes32(uint256(base) + 10),
+            bytes32(uint256(uint128(endTime)) | (uint256(uint128(unlockTime)) << 128))
+        );
         // currentStage (bytes1) is in the LSB of slot+12, flashGenesis is bit 8
         uint256 stageAndFlash = uint256(uint8(currentStage)) | (flashGenesis ? 256 : 0);
         _writeSlot(proxy, bytes32(uint256(base) + 12), bytes32(stageAndFlash));
@@ -304,7 +320,8 @@ abstract contract MemeverseLauncherTestHelper is Test {
         address hookAddress = address(uint160(uint256(_loadSlot(proxy, bytes32(uint256(LAUNCHER_SLOT) + 6)))));
         require(swapRouter != address(0) && hookAddress != address(0));
 
-        uint256 fundBasedAmount = uint256(_loadSlot(proxy, bytes32(uint256(_mappingAddrSlot(OFF_FUND_META_DATAS, uAsset)) + 1)));
+        uint256 fundBasedAmount =
+            uint256(_loadSlot(proxy, bytes32(uint256(_mappingAddrSlot(OFF_FUND_META_DATAS, uAsset)) + 1)));
         uint256 mainPoolMemecoinBudget = mainPoolUAssetBudget * fundBasedAmount;
 
         // _safeApprove(uAsset, swapRouter, totalGenesisFunds)
@@ -324,10 +341,17 @@ abstract contract MemeverseLauncherTestHelper is Test {
             memecoin, uAsset, mainPoolMemecoinBudget, mainPoolUAssetBudget
         );
         vm.prank(proxy);
-        (uint128 mainPoolLiquidity, PoolKey memory poolKey, uint256 mainPoolMemecoinUsed, uint256 mainPoolUAssetUsed) =
-            IMemeverseSwapRouter(swapRouter).createPoolAndAddLiquidity(
-                memecoin, uAsset, mainPoolMemecoinBudget, mainPoolUAssetBudget,
-                mainPoolStartPrice, proxy, block.timestamp
+        (uint128 mainPoolLiquidity, PoolKey memory poolKey, uint256 mainPoolMemecoinUsed, uint256 mainPoolUAssetUsed) = IMemeverseSwapRouter(
+                swapRouter
+            )
+            .createPoolAndAddLiquidity(
+                memecoin,
+                uAsset,
+                mainPoolMemecoinBudget,
+                mainPoolUAssetBudget,
+                mainPoolStartPrice,
+                proxy,
+                block.timestamp
             );
 
         uint256 burnedMemecoin = mainPoolMemecoinBudget - mainPoolMemecoinUsed;
@@ -364,12 +388,13 @@ abstract contract MemeverseLauncherTestHelper is Test {
 
         // create POL/uAsset pool
         uint256 polUAssetRequired = FullMath.mulDiv(plan.polForPolUAsset, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        uint160 polUAssetPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
-            pol, uAsset, plan.polForPolUAsset, polUAssetRequired
-        );
+        uint160 polUAssetPrice =
+            InitialPriceCalculator.calculateInitialSqrtPriceX96(pol, uAsset, plan.polForPolUAsset, polUAssetRequired);
         vm.prank(proxy);
-        (uint128 polUAssetLpAmount,, uint256 polUsedForPolUAsset, uint256 polUAssetUsed) =
-            IMemeverseSwapRouter(swapRouter).createPoolAndAddLiquidity(
+        (uint128 polUAssetLpAmount,, uint256 polUsedForPolUAsset, uint256 polUAssetUsed) = IMemeverseSwapRouter(
+                swapRouter
+            )
+            .createPoolAndAddLiquidity(
                 pol, uAsset, plan.polForPolUAsset, polUAssetRequired, polUAssetPrice, proxy, block.timestamp
             );
 
@@ -384,7 +409,8 @@ abstract contract MemeverseLauncherTestHelper is Test {
 
         // split POL into PT + YT
         vm.prank(proxy);
-        (uint256 totalPT,) = IPOLSplitter(polSplitterAddr).split(verseId, plan.normalPolToSplit + plan.leveragedPolToSplit);
+        (uint256 totalPT,) =
+            IPOLSplitter(polSplitterAddr).split(verseId, plan.normalPolToSplit + plan.leveragedPolToSplit);
 
         // approve pt for router
         _proxyApprove(proxy, pt, swapRouter, totalPT);
@@ -394,26 +420,21 @@ abstract contract MemeverseLauncherTestHelper is Test {
 
         // create PT/uAsset pool
         uint256 ptUAssetRequired = FullMath.mulDiv(ptForPtUAsset, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        uint160 ptUAssetPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
-            pt, uAsset, ptForPtUAsset, ptUAssetRequired
-        );
+        uint160 ptUAssetPrice =
+            InitialPriceCalculator.calculateInitialSqrtPriceX96(pt, uAsset, ptForPtUAsset, ptUAssetRequired);
         vm.prank(proxy);
-        (uint128 ptUAssetLpAmount,, uint256 ptUsedForPtUAsset, uint256 ptUAssetUsed) =
-            IMemeverseSwapRouter(swapRouter).createPoolAndAddLiquidity(
+        (uint128 ptUAssetLpAmount,, uint256 ptUsedForPtUAsset, uint256 ptUAssetUsed) = IMemeverseSwapRouter(swapRouter)
+            .createPoolAndAddLiquidity(
                 pt, uAsset, ptForPtUAsset, ptUAssetRequired, ptUAssetPrice, proxy, block.timestamp
             );
         // write ptUAssetLpAmount
         _writeSlot(proxy, bytes32(uint256(auxBase) + 1), bytes32(uint256(ptUAssetLpAmount)));
 
         // create PT/pol pool
-        uint160 ptPolPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
-            pt, pol, ptForPtPol, plan.polForPtPol
-        );
+        uint160 ptPolPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(pt, pol, ptForPtPol, plan.polForPtPol);
         vm.prank(proxy);
-        (uint128 ptPolLpAmount,, uint256 ptUsedForPtPol, uint256 polUsedForPtPol) =
-            IMemeverseSwapRouter(swapRouter).createPoolAndAddLiquidity(
-                pt, pol, ptForPtPol, plan.polForPtPol, ptPolPrice, proxy, block.timestamp
-            );
+        (uint128 ptPolLpAmount,, uint256 ptUsedForPtPol, uint256 polUsedForPtPol) = IMemeverseSwapRouter(swapRouter)
+            .createPoolAndAddLiquidity(pt, pol, ptForPtPol, plan.polForPtPol, ptPolPrice, proxy, block.timestamp);
         // write ptPolLpAmount
         _writeSlot(proxy, bytes32(uint256(auxBase) + 2), bytes32(uint256(ptPolLpAmount)));
 
@@ -440,7 +461,11 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function _settleLaunchPreorder(
-        address proxy, uint256 verseId, PoolKey memory poolKey, address uAsset, address memecoin
+        address proxy,
+        uint256 verseId,
+        PoolKey memory poolKey,
+        address uAsset,
+        address memecoin
     ) internal {
         bytes32 preorderBase = _mappingSlot(OFF_PREORDER_STATES, verseId);
         uint256 totalFunds = uint256(_loadSlot(proxy, preorderBase));
@@ -451,17 +476,16 @@ abstract contract MemeverseLauncherTestHelper is Test {
         uint160 sqrtPriceLimitX96 = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
 
         vm.prank(proxy);
-        BalanceDelta delta = IMemeverseUniswapHook(hookAddress).executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        BalanceDelta delta = IMemeverseUniswapHook(hookAddress)
+            .executeLaunchSettlement(
+                IMemeverseUniswapHook.LaunchSettlementParams({
                 key: poolKey,
                 params: SwapParams({
-                    zeroForOne: zeroForOne,
-                    amountSpecified: -int256(totalFunds),
-                    sqrtPriceLimitX96: sqrtPriceLimitX96
-                }),
+                zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: sqrtPriceLimitX96
+            }),
                 recipient: proxy
             })
-        );
+            );
 
         uint256 settledMemecoin = _deltaAmountForToken(delta, memecoin, poolKey);
         // write settledMemecoin and settlementTimestamp
@@ -470,7 +494,9 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function _deltaAmountForToken(BalanceDelta delta, address token, PoolKey memory poolKey)
-        internal pure returns (uint256 amount)
+        internal
+        pure
+        returns (uint256 amount)
     {
         if (Currency.unwrap(poolKey.currency0) == token) {
             int128 amount0 = delta.amount0();
@@ -484,7 +510,9 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function _buildBootstrapPolPlan(uint256 normalFunds, uint256 totalPOL, uint256 totalLeveragedDebt)
-        internal pure returns (BootstrapPolPlan memory plan)
+        internal
+        pure
+        returns (BootstrapPolPlan memory plan)
     {
         uint256 totalGenesisFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         if (totalGenesisFunds == 0) return plan;
@@ -497,9 +525,12 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function _recordBootstrapResidualClaims(
-        address proxy, uint256 verseId,
-        uint256 residualPOL, uint256 residualPT,
-        uint256 totalLeveragedDebt, uint256 totalGenesisFunds
+        address proxy,
+        uint256 verseId,
+        uint256 residualPOL,
+        uint256 residualPT,
+        uint256 totalLeveragedDebt,
+        uint256 totalGenesisFunds
     ) internal {
         bytes32 claimsBase = _mappingSlot(OFF_BOOTSTRAP_CLAIMS, verseId);
         uint256 leveragedResidualPOL = FullMath.mulDiv(residualPOL, totalLeveragedDebt, totalGenesisFunds);
@@ -511,8 +542,13 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function _handleBootstrapResiduals(
-        address proxy, uint256 verseId, address uAsset, address memecoin,
-        uint256 unusedBootstrapUAsset, uint256 burnedMemecoin, address polendAddr
+        address proxy,
+        uint256 verseId,
+        address uAsset,
+        address memecoin,
+        uint256 unusedBootstrapUAsset,
+        uint256 burnedMemecoin,
+        address polendAddr
     ) internal {
         if (unusedBootstrapUAsset != 0) {
             (uint128 reserveBefore, uint128 maxReserve) = IPOLend(polendAddr).settlementDustStates(uAsset);
@@ -535,7 +571,9 @@ abstract contract MemeverseLauncherTestHelper is Test {
     }
 
     function _checkedTotalGenesisFunds(uint256 normalFunds, uint256 leveragedDebt)
-        internal pure returns (uint256 totalFunds)
+        internal
+        pure
+        returns (uint256 totalFunds)
     {
         totalFunds = normalFunds + leveragedDebt;
         require(totalFunds <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS, "TotalGenesisFundsTooHigh");
@@ -559,14 +597,29 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 contract MemeverseLauncherTestHelperSanityTest is Test, MemeverseLauncherTestHelper {
     function test_slotRoundTrip_preorderState() external {
         MemeverseLauncher impl = new MemeverseLauncher();
-        address proxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                address(this), address(0x1), address(0x2), address(0x3),
-                address(0x4), address(0x5), address(0x6), address(0x7),
-                100, 200000, 200000, 5000, 7 days
-            ))
-        ));
+        address proxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        address(this),
+                        address(0x1),
+                        address(0x2),
+                        address(0x3),
+                        address(0x4),
+                        address(0x5),
+                        address(0x6),
+                        address(0x7),
+                        100,
+                        200000,
+                        200000,
+                        5000,
+                        7 days
+                    )
+                )
+            )
+        );
 
         // write → read round-trip
         setPreorderStateForTest(proxy, 1, 1000 ether, 500 ether, uint40(block.timestamp));

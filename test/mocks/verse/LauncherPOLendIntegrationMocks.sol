@@ -429,7 +429,7 @@ contract MintableTokenForPOLendIntegration is MockERC20 {
     }
 }
 
-contract MockPOLendForTask5 {
+contract MockPOLendForPOLendIntegration {
     MockERC20 internal immutable uAsset;
     uint256 internal totalLeveragedDebt_;
     uint256 internal totalLeveragedInterest_;
@@ -553,7 +553,7 @@ contract MockPOLendForTask5 {
     }
 }
 
-contract MockPOLSplitterForTask5 is IPOLSplitter {
+contract MockPOLSplitterForPOLendIntegration is IPOLSplitter {
     address internal immutable pt;
     address internal immutable yt;
     address internal pol;
