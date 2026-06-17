@@ -16,7 +16,6 @@ library FeeEngineStorageSlots {
     uint256 internal constant AUTHORIZED_HOOK_OFFSET = 2;
 
     // DynamicFeeState field offsets within a dynamicFeeStates[hook][poolId] mapping value.
-    uint256 internal constant DFS_WEIGHTED_VOLUME0 = 0;
     uint256 internal constant DFS_WEIGHTED_PRICE_VOLUME0 = 1;
     uint256 internal constant DFS_EWVWAP_X18 = 2;
     /// @dev Packed slot: volAnchorSqrtPriceX96:160 | volLastMoveTs:40 | volDeviationAccumulator:24 | volCarryAccumulator:24 (248 bits).
