@@ -24,7 +24,7 @@ import {
     MockIntegrationMemecoin,
     MockLauncherIntegrationLzEndpointRegistry,
     MockLauncherIntegrationProxyDeployer
-} from "./MemeverseLauncherPreorderIntegration.t.sol";
+} from "../mocks/verse/LauncherPreorderIntegrationMocks.sol";
 import {MockPoolManagerForRouterTest} from "../swap/MemeverseSwapRouter.t.sol";
 
 contract MockPOLendForPreorderInvariant {
@@ -135,7 +135,6 @@ contract MockPOLSplitterForPreorderInvariant {
         return 0;
     }
 }
-
 
 abstract contract MemeverseLauncherPreorderInvariantBase is Test, MemeverseLauncherTestHelper {
     address internal constant REGISTRAR = address(0xBEEF);
@@ -369,24 +368,29 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
         polend = new MockPOLendForPreorderInvariant();
         splitter = new MockPOLSplitterForPreorderInvariant(address(pt), address(yt));
         MemeverseLauncher impl = new MemeverseLauncher();
-        launcherProxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                address(this),
-                address(0x1111),
-                REGISTRAR,
-                address(0x3333),
-                address(0x4444),
-                address(0x5555),
-                address(polend),
-                address(splitter),
-                25,
-                115_000,
-                135_000,
-                2_500,
-                7 days
-            ))
-        ));
+        launcherProxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        address(this),
+                        address(0x1111),
+                        REGISTRAR,
+                        address(0x3333),
+                        address(0x4444),
+                        address(0x5555),
+                        address(polend),
+                        address(splitter),
+                        25,
+                        115_000,
+                        135_000,
+                        2_500,
+                        7 days
+                    )
+                )
+            )
+        );
         launcher = IMemeverseLauncher(launcherProxy);
         MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(manager)));
         address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
@@ -535,24 +539,29 @@ contract MemeverseLauncherPreorderRefundInvariantTest is StdInvariant, Memeverse
         polend = new MockPOLendForPreorderInvariant();
         splitter = new MockPOLSplitterForPreorderInvariant(address(pt), address(yt));
         MemeverseLauncher impl = new MemeverseLauncher();
-        launcherProxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                address(this),
-                address(0x1111),
-                REGISTRAR,
-                address(0x3333),
-                address(0x4444),
-                address(0x5555),
-                address(polend),
-                address(splitter),
-                25,
-                115_000,
-                135_000,
-                2_500,
-                7 days
-            ))
-        ));
+        launcherProxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        address(this),
+                        address(0x1111),
+                        REGISTRAR,
+                        address(0x3333),
+                        address(0x4444),
+                        address(0x5555),
+                        address(polend),
+                        address(splitter),
+                        25,
+                        115_000,
+                        135_000,
+                        2_500,
+                        7 days
+                    )
+                )
+            )
+        );
         launcher = IMemeverseLauncher(launcherProxy);
 
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));

@@ -2,7 +2,8 @@
 pragma solidity ^0.8.30;
 
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
-import {MemeverseLauncherPOLendIntegrationTest, MockPOLendForTask5} from "./MemeverseLauncherPOLendIntegration.t.sol";
+import {MockPOLendForTask5} from "../mocks/verse/LauncherPOLendIntegrationMocks.sol";
+import {MemeverseLauncherPOLendIntegrationTest} from "./MemeverseLauncherPOLendIntegration.t.sol";
 
 contract MemeverseLauncherGenesisThresholdRegressionTest is MemeverseLauncherPOLendIntegrationTest {
     function testChangeStage_RefundsWhenOnlyCombinedDebtAndNormalFundsMeetThreshold() external {

@@ -8,17 +8,14 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {IPoolManager, ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
-import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
 
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
@@ -28,227 +25,9 @@ import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDy
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
-/// @dev Mock-harness boundary:
-/// - This file's local hook-liquidity manager mock only covers plumbing, local revert surface,
-///   deterministic branch coverage, and rollback witnesses inside the hook-local harness.
-/// - The newer integration tests only cover a narrow direct-manager exact-input subset under a stricter manager
-///   harness. One-for-zero symmetry beyond that subset, launch-settlement swap semantics, and broader fee-side
-///   execution claims are not proven by this file and must not be inferred from this mock manager.
-contract MockPoolManagerForHookLiquidity {
-    using PoolIdLibrary for PoolKey;
-    using CurrencyLibrary for Currency;
-    using BeforeSwapDeltaLibrary for BeforeSwapDelta;
-
-    error ManagerLocked();
-
-    struct Slot0State {
-        uint160 sqrtPriceX96;
-        int24 tick;
-        uint24 protocolFee;
-        uint24 lpFee;
-    }
-
-    bytes internal constant ZERO_BYTES = bytes("");
-    bytes32 internal constant POOLS_SLOT = bytes32(uint256(6));
-    uint256 internal constant LIQUIDITY_OFFSET = 3;
-    uint160 internal constant SQRT_PRICE_LOWER_X96 = 4_310_618_292;
-    uint160 internal constant SQRT_PRICE_UPPER_X96 = 1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535;
-
-    bool internal unlocked;
-    address internal hookAddress;
-    address internal lastTakeRecipient;
-
-    mapping(bytes32 => bytes32) internal extStorage;
-    mapping(PoolId => Slot0State) internal slot0State;
-    mapping(PoolId => uint128) internal liquidityState;
-    mapping(PoolId => uint256) internal nextExactInputPoolInputAmount;
-
-    /// @notice Initializes a mock pool and notifies the hook.
-    /// @dev Seeds slot0 and liquidity-related storage so the hook sees the pool as configured.
-    /// @param key Pool key being initialized.
-    /// @param sqrtPriceX96 Initial sqrt price for the pool.
-    function initialize(PoolKey memory key, uint160 sqrtPriceX96) external {
-        PoolId poolId = key.toId();
-        slot0State[poolId] = Slot0State({sqrtPriceX96: sqrtPriceX96, tick: 0, protocolFee: 0, lpFee: 0});
-        _syncPoolStorage(poolId);
-        hookAddress = address(key.hooks);
-        key.hooks.beforeInitialize(msg.sender, key, sqrtPriceX96);
-    }
-
-    /// @notice Opens a temporary unlock window and forwards the callback payload.
-    /// @dev Mimics the pool-manager unlock pattern expected by router and hook tests.
-    /// @param data Encoded callback payload.
-    /// @return result Callback return data.
-    function unlock(bytes calldata data) external returns (bytes memory result) {
-        unlocked = true;
-        result = IUnlockCallback(msg.sender).unlockCallback(data);
-        unlocked = false;
-    }
-
-    function swapAsUnlocked(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
-        external
-        returns (BalanceDelta delta)
-    {
-        unlocked = true;
-        delta = this.swap(key, params, hookData);
-        unlocked = false;
-    }
-
-    /// @notice Applies a mocked liquidity modification for the pool.
-    /// @dev Returns deterministic deltas while enforcing the unlock-window guard used by the hook.
-    /// @param key Pool key being modified.
-    /// @param params Liquidity change parameters.
-    /// @param hookData Hook payload forwarded by the caller.
-    /// @return delta Principal token delta for the modification.
-    /// @return feesAccrued Fee delta, left empty in this mock.
-    function modifyLiquidity(PoolKey memory key, ModifyLiquidityParams memory params, bytes calldata hookData)
-        external
-        returns (BalanceDelta delta, BalanceDelta feesAccrued)
-    {
-        hookData;
-        if (!unlocked) revert ManagerLocked();
-        uint256 amount0Used;
-        uint256 amount1Used;
-
-        if (params.liquidityDelta > 0) {
-            key.hooks.beforeAddLiquidity(msg.sender, key, params, ZERO_BYTES);
-
-            liquidityState[key.toId()] += uint128(uint256(params.liquidityDelta));
-            _syncPoolStorage(key.toId());
-            (amount0Used, amount1Used) = LiquidityAmounts.getAmountsForLiquidity(
-                slot0State[key.toId()].sqrtPriceX96,
-                SQRT_PRICE_LOWER_X96,
-                SQRT_PRICE_UPPER_X96,
-                uint128(uint256(params.liquidityDelta))
-            );
-            delta = toBalanceDelta(-int128(int256(amount0Used)), -int128(int256(amount1Used)));
-            return (delta, feesAccrued);
-        }
-
-        liquidityState[key.toId()] -= uint128(uint256(-params.liquidityDelta));
-        _syncPoolStorage(key.toId());
-        (amount0Used, amount1Used) = LiquidityAmounts.getAmountsForLiquidity(
-            slot0State[key.toId()].sqrtPriceX96,
-            SQRT_PRICE_LOWER_X96,
-            SQRT_PRICE_UPPER_X96,
-            uint128(uint256(-params.liquidityDelta))
-        );
-        delta = toBalanceDelta(int128(int256(amount0Used)), int128(int256(amount1Used)));
-    }
-
-    /// @notice Executes a mocked swap during hook-controlled unlock callbacks.
-    /// @dev Produces deterministic hook-local branch coverage only; it does not model real swap economics.
-    function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
-        external
-        returns (BalanceDelta delta)
-    {
-        if (!unlocked) revert ManagerLocked();
-
-        (, BeforeSwapDelta beforeSwapDelta,) = key.hooks.beforeSwap(msg.sender, key, params, hookData);
-        int256 amountToSwap = params.amountSpecified + beforeSwapDelta.getSpecifiedDelta();
-
-        if (amountToSwap < 0) {
-            uint256 exactInputAmount = uint256(-amountToSwap);
-            uint256 configuredInputAmount = nextExactInputPoolInputAmount[key.toId()];
-            if (configuredInputAmount != 0) {
-                exactInputAmount = configuredInputAmount;
-                delete nextExactInputPoolInputAmount[key.toId()];
-            }
-            uint256 exactOutputAmount = exactInputAmount / 2;
-            if (params.zeroForOne) {
-                delta = toBalanceDelta(-int128(int256(exactInputAmount)), int128(int256(exactOutputAmount)));
-            } else {
-                delta = toBalanceDelta(int128(int256(exactOutputAmount)), -int128(int256(exactInputAmount)));
-            }
-        } else {
-            uint256 requestedOutputAmount = uint256(amountToSwap);
-            uint256 requiredInputAmount = requestedOutputAmount * 2;
-            if (params.zeroForOne) {
-                delta = toBalanceDelta(-int128(int256(requiredInputAmount)), int128(int256(requestedOutputAmount)));
-            } else {
-                delta = toBalanceDelta(int128(int256(requestedOutputAmount)), -int128(int256(requiredInputAmount)));
-            }
-        }
-
-        key.hooks.afterSwap(msg.sender, key, params, delta, hookData);
-    }
-
-    /// @notice Pays tokens or native currency out of the mock manager.
-    /// @dev Records the recipient so tests can assert router settlement targets.
-    /// @param currency Currency being paid out.
-    /// @param to Recipient address.
-    /// @param amount Amount to transfer.
-    function take(Currency currency, address to, uint256 amount) external {
-        lastTakeRecipient = to;
-        if (currency.isAddressZero()) {
-            (bool success,) = to.call{value: amount}("");
-            require(success, "native take");
-        } else {
-            require(MockERC20(Currency.unwrap(currency)).transfer(to, amount), "erc20 take");
-        }
-    }
-
-    /// @notice Accepts a sync call from the hook test harness.
-    /// @dev This mock treats sync as a no-op while preserving interface compatibility.
-    /// @param currency Currency being synced.
-    function sync(Currency currency) external pure {
-        currency;
-    }
-
-    /// @notice Accepts settlement value from the router or hook.
-    /// @dev Mirrors the real pool-manager settle entry so ETH bookkeeping can be validated.
-    /// @return paidAmount Amount considered settled by the mock.
-    function settle() external payable returns (uint256) {
-        return msg.value;
-    }
-
-    /// @notice Returns extsload.
-    /// @dev Exposes the mock storage slot values used by the hook.
-    /// @param slot slot.
-    /// @return Returned value.
-    function extsload(bytes32 slot) external view returns (bytes32) {
-        return extStorage[slot];
-    }
-
-    /// @notice Returns get slot0.
-    /// @dev Lets tests observe price and fee state returned by the mock manager.
-    /// @param poolId pool id.
-    /// @return Returned value.
-    /// @return Returned value.
-    /// @return Returned value.
-    /// @return Returned value.
-    function getSlot0(PoolId poolId) external view returns (uint160, int24, uint24, uint24) {
-        Slot0State memory state = slot0State[poolId];
-        return (state.sqrtPriceX96, state.tick, state.protocolFee, state.lpFee);
-    }
-
-    /// @notice Returns get liquidity.
-    /// @dev Allows tests to assert pool liquidity matches the hook view.
-    /// @param poolId pool id.
-    /// @return Returned value.
-    function getLiquidity(PoolId poolId) external view returns (uint128) {
-        return liquidityState[poolId];
-    }
-
-    function setNextExactInputPoolInputAmount(PoolId poolId, uint256 inputAmount) external {
-        nextExactInputPoolInputAmount[poolId] = inputAmount;
-    }
-
-    /// @notice Returns last take recipient address.
-    /// @dev Observes which recipient the hook forwarded liquidity outputs to.
-    /// @return Returned value.
-    function lastTakeRecipientAddress() external view returns (address) {
-        return lastTakeRecipient;
-    }
-
-    function _syncPoolStorage(PoolId poolId) internal {
-        bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), POOLS_SLOT));
-        Slot0State memory state = slot0State[poolId];
-
-        extStorage[stateSlot] = bytes32(uint256(state.sqrtPriceX96));
-        extStorage[bytes32(uint256(stateSlot) + LIQUIDITY_OFFSET)] = bytes32(uint256(liquidityState[poolId]));
-    }
-}
+import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
+import {FeeEngineStorageSlots} from "../mocks/swap/FeeEngineStorageSlots.sol";
+import {TestableMemeverseDynamicFeeEngineV2} from "../mocks/upgrade/TestableMemeverseDynamicFeeEngineV2.sol";
 
 contract TestableMemeverseUniswapHook is MemeverseUniswapHook {
     constructor(IPoolManager _manager) MemeverseUniswapHook(_manager) {}
@@ -274,99 +53,12 @@ contract TestableMemeverseUniswapHookV2 is TestableMemeverseUniswapHook {
     }
 }
 
-contract TestableMemeverseDynamicFeeEngineV2 is MemeverseDynamicFeeEngine {
-    bytes32 private constant MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION =
-        0xb7b6769a89985fd739eb1342563b5dbd4d11da8b84d601f10d877057788e0e00;
-    uint256 private constant AUTHORIZED_HOOK_OFFSET = 2;
-
-    constructor(IPoolManager _poolManager) MemeverseDynamicFeeEngine(_poolManager) {}
-
-    function version() external pure returns (uint256) {
-        return 2;
-    }
-
-    function migrateAuthorizedHook(address badAuthorizedHook) external {
-        bytes32 slot = bytes32(uint256(MEMEVERSE_DYNAMIC_FEE_ENGINE_STORAGE_LOCATION) + AUTHORIZED_HOOK_OFFSET);
-        assembly {
-            sstore(slot, badAuthorizedHook)
-        }
-    }
-}
-
-contract ReentrantExitRecipient {
-    IMemeverseUniswapHook internal immutable hook;
-    MockERC20 internal immutable token;
-    Currency internal immutable currency0;
-    Currency internal immutable currency1;
-
-    bool internal hasReentered;
-    bool internal quoteSucceeded;
-
-    constructor(IMemeverseUniswapHook _hook, MockERC20 _token, Currency _currency0, Currency _currency1) {
-        hook = _hook;
-        token = _token;
-        currency0 = _currency0;
-        currency1 = _currency1;
-        token.approve(address(_hook), type(uint256).max);
-    }
-
-    function addLiquidity(uint256 amount0Desired, uint256 amount1Desired) external returns (uint128 liquidity) {
-        (liquidity,) = hook.addLiquidityCore(
-            IMemeverseUniswapHook.AddLiquidityCoreParams({
-                currency0: currency0,
-                currency1: currency1,
-                amount0Desired: amount0Desired,
-                amount1Desired: amount1Desired,
-                to: address(this)
-            })
-        );
-    }
-
-    function removeLiquidity(uint128 liquidity) external {
-        hook.removeLiquidityCore(
-            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
-                currency0: currency0, currency1: currency1, liquidity: liquidity, recipient: address(this)
-            })
-        );
-    }
-
-    function quoteSucceededDuringReceive() external view returns (bool) {
-        return quoteSucceeded;
-    }
-
-    function callbackTriggered() external view returns (bool) {
-        return hasReentered;
-    }
-
-    receive() external payable {
-        if (hasReentered) return;
-        hasReentered = true;
-
-        try hook.quoteSwap(
-            PoolKey({
-                currency0: currency0,
-                currency1: currency1,
-                fee: 0x800000,
-                tickSpacing: 200,
-                hooks: IHooks(address(hook))
-            }),
-            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: 0}),
-            address(this)
-        ) returns (
-            IMemeverseUniswapHook.SwapQuote memory
-        ) {
-            quoteSucceeded = true;
-        } catch {
-            quoteSucceeded = false;
-        }
-    }
-}
-
 /// @dev Test boundary:
 /// - These cases lock hook-side handling under the local hook-liquidity manager mock.
 /// - They do not establish real market execution, partial-fill economics, rollback guarantees,
 ///   or fee-side correctness beyond this deterministic harness.
 contract MemeverseUniswapHookLiquidityTest is Test {
+    using FeeEngineStorageSlots for *;
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint160 internal constant PRICE_MOVE_59_999_UP_POST = 81570347323081481549928488305;
     uint160 internal constant PRICE_MOVE_60_000_UP_POST = 81570385799687631547685037519;
@@ -402,6 +94,13 @@ contract MemeverseUniswapHookLiquidityTest is Test {
     bytes4 internal constant DYNAMIC_FEE_ENGINE_OWNER_MISMATCH_SELECTOR =
         bytes4(keccak256("DynamicFeeEngineOwnerMismatch(address,address,address)"));
     event DynamicFeeEngineUpdated(address oldEngine, address newEngine);
+
+    // ERC7201 namespace base slot of MemeverseDynamicFeeEngine (matches the src constant). The V2 facade
+    // shell does not inherit the engine, so engine-upgrade tests verify fee-state survival via `vm.load`
+    // against these slots instead of V1 getters. `dynamicFeeStates` is the first namespace field (base + 0);
+    // `authorizedHook` is the third field (base + 2). The per-(hook,poolId) DynamicFeeState is a compact
+    // 9-field struct living at the mapping-value slot (see FeeEngineStorageSlots.dynamicFeeStateSlot).
+    bytes32 internal constant FEE_ENGINE_STORAGE_LOCATION = FeeEngineStorageSlots.LOCATION;
 
     MockPoolManagerForHookLiquidity internal mockManager;
     TestableMemeverseUniswapHook internal hook;
@@ -1676,7 +1375,17 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         assertEq(TestableMemeverseDynamicFeeEngineV2(address(currentEngine)).version(), 2, "engine version");
     }
 
-    function testUpgradeDynamicFeeEngineImplementationRevertsWhenMigrationBreaksAuthorizedHook() external {
+    /// @notice Regression: the facade's delegatecall migration runs in the proxy storage context and can overwrite
+    ///         the ERC7201 `authorizedHook` slot.
+    /// @dev This isolates the migration-write mechanism only. It bypasses the hook's post-upgrade re-binding check by
+    ///      calling `upgradeToAndCall` directly as the engine owner (the hook), so the V1 `_authorizeUpgrade` cast-check
+    ///      passes (facade poolManager matches) and the delegatecall `migrateAuthorizedHook` overwrites the slot; a
+    ///      follow-up `vm.load` observes the corrupted value. The hook-level safety guard that catches such corruption
+    ///      when the upgrade goes through the hook path is covered by
+    ///      `testUpgradeDynamicFeeEngineImplementationRevertsWhenMigrationBreaksAuthorizedHook`; the engine's own
+    ///      swap-rejection of a mismatched authorizedHook is V1 hot-path logic, covered by
+    ///      `test_UpgradeEngine_UnauthorizedHook_SwapReverts`.
+    function testEngineUpgradeMigrationDataWritesAuthorizedHookSlot() external {
         MemeverseDynamicFeeEngine currentEngine = MemeverseDynamicFeeEngine(address(hook.dynamicFeeEngine()));
         TestableMemeverseDynamicFeeEngineV2 newImplementation =
             new TestableMemeverseDynamicFeeEngineV2(IPoolManager(address(mockManager)));
@@ -1684,15 +1393,131 @@ contract MemeverseUniswapHookLiquidityTest is Test {
         bytes memory migrationData =
             abi.encodeCall(TestableMemeverseDynamicFeeEngineV2.migrateAuthorizedHook, (badAuthorizedHook));
 
+        // Snapshot the V1-set authorizedHook slot before the migration overwrites it.
+        bytes32 authorizedHookSlot = bytes32(uint256(FEE_ENGINE_STORAGE_LOCATION) + 2);
+        assertEq(
+            address(uint160(uint256(vm.load(address(currentEngine), authorizedHookSlot)))),
+            address(hook),
+            "pre-migration authorized hook"
+        );
+
+        // Engine owner is the hook — upgrade directly so the migration write is observable (not rolled back by
+        // the hook's own post-upgrade re-binding check).
+        vm.prank(address(hook));
+        currentEngine.upgradeToAndCall(address(newImplementation), migrationData);
+
+        // The delegatecall migration wrote the bad hook into the ERC7201 slot. This proves (a) the V1 cast-based
+        // poolManager match check admitted the facade and (b) the facade migration code ran in proxy storage context.
+        assertEq(
+            address(uint160(uint256(vm.load(address(currentEngine), authorizedHookSlot)))),
+            badAuthorizedHook,
+            "post-migration authorized hook corrupted"
+        );
+    }
+
+    /// @notice Regression: when an engine upgrade through the hook path carries a migration payload that corrupts the
+    ///         engine's `authorizedHook` slot, the hook's post-upgrade re-binding check reverts with EngineNotAuthorizedCaller.
+    /// @dev This is the safety-guard counterpart to `testEngineUpgradeMigrationDataWritesAuthorizedHookSlot`. It goes
+    ///      through `hook.upgradeDynamicFeeEngineImplementation` (the real owner-controlled path; the test contract is
+    ///      the hook owner). V1 `_authorizeUpgrade` only-owner + poolManager check passes (facade exposes matching
+    ///      `poolManager`); the delegatecall `migrateAuthorizedHook(0xB0B)` then overwrites the ERC7201 `authorizedHook`
+    ///      slot in the proxy context; finally `_requireEngineBoundToHook` reads `engine.authorizedHook() == 0xB0B != hook`
+    ///      and reverts before the corrupted binding can take effect. If the guard stops firing this test fails instead
+    ///      of silently passing.
+    function testUpgradeDynamicFeeEngineImplementationRevertsWhenMigrationBreaksAuthorizedHook() external {
+        MemeverseDynamicFeeEngine currentEngine = MemeverseDynamicFeeEngine(address(hook.dynamicFeeEngine()));
+        TestableMemeverseDynamicFeeEngineV2 newImplementation =
+            new TestableMemeverseDynamicFeeEngineV2(IPoolManager(address(mockManager)));
+        // Delegatecall target that corrupts the ERC7201 authorizedHook slot in the proxy storage context.
+        bytes memory badMigration =
+            abi.encodeCall(TestableMemeverseDynamicFeeEngineV2.migrateAuthorizedHook, (address(0xB0B)));
+
+        // Engine upgrade goes through the hook (its owner is `address(this)`), then the hook re-checks the binding.
+        // The corrupted authorizedHook (0xB0B) no longer matches the hook, so the post-upgrade guard reverts.
         vm.expectRevert(
             abi.encodeWithSelector(IMemeverseUniswapHook.EngineNotAuthorizedCaller.selector, address(currentEngine))
         );
-        hook.upgradeDynamicFeeEngineImplementation(address(newImplementation), migrationData);
-
-        assertEq(currentEngine.authorizedHook(), address(hook), "authorized hook unchanged");
+        hook.upgradeDynamicFeeEngineImplementation(address(newImplementation), badMigration);
     }
 
     // ── Upgrade regression: real engine swap after upgrade ──────────
+
+    /// @notice Regression: upgrading the bound engine to the V2 facade preserves V1 fee-state storage.
+    /// @dev The facade shell exposes no swap callback logic, so post-upgrade swap execution is not exercised here
+    ///      — swap execution is V1 logic covered by the non-upgrade swap regressions below, and a facade upgrade
+    ///      introduces no new storage layout. Instead this test verifies the upgrade does not perturb the V1
+    ///      ERC7201 fee-state slots: it accumulates real fee state on V1, snapshots the DynamicFeeState and
+    ///      authorizedHook slots via `vm.load`, upgrades the engine proxy to the facade (owner = hook), and
+    ///      asserts the slots are byte-identical afterwards.
+    function test_UpgradeEngineFacade_PreservesFeeStateStorage() external {
+        MemeverseDynamicFeeEngine currentEngine = MemeverseDynamicFeeEngine(address(hook.dynamicFeeEngine()));
+
+        // Accumulate non-trivial fee state on V1 through the bound hook.
+        _addLiquidity();
+        hook.setProtocolFeeCurrency(key.currency0);
+        vm.warp(block.timestamp + 900);
+        mockManager.swapAsUnlocked(
+            key, SwapParams({zeroForOne: true, amountSpecified: -10 ether, sqrtPriceLimitX96: 0}), bytes("")
+        );
+
+        // Empirically confirm the slot math matches the V1 getter decoding, then snapshot the slots. weightedVolume0
+        // is the first DynamicFeeState field; ewVWAPX18 is the third; authorizedHook is the namespace base + 2.
+        bytes32 stateBase = _dynamicFeeStateSlot(address(hook), poolId);
+        IMemeverseDynamicFeeEngine.DynamicFeeState memory v1State =
+            currentEngine.getDynamicFeeState(address(hook), poolId);
+        assertEq(vm.load(address(currentEngine), stateBase), bytes32(v1State.weightedVolume0), "slot math: wv0");
+        assertEq(
+            vm.load(address(currentEngine), bytes32(uint256(stateBase) + 2)),
+            bytes32(v1State.ewVWAPX18),
+            "slot math: ewVWAP"
+        );
+        // shortImpactPpm shares base+4 (packed as the low 24 bits with shortLastTs in the high 40 bits,
+        // since shortImpactPpm is declared before shortLastTs in DynamicFeeState). Cross-check the offset
+        // against the getter-decoded value before snapshotting — a wrong offset reads an empty slot and the
+        // survival assertion silently degenerates to 0 == 0.
+        assertEq(
+            uint24(uint256(vm.load(address(currentEngine), bytes32(uint256(stateBase) + 4)))),
+            v1State.shortImpactPpm,
+            "slot math: shortImpactPpm"
+        );
+
+        bytes32 snapshotWv0 = vm.load(address(currentEngine), stateBase);
+        bytes32 snapshotWeightedPriceVolume0 = vm.load(address(currentEngine), bytes32(uint256(stateBase) + 1));
+        bytes32 snapshotEwVWAP = vm.load(address(currentEngine), bytes32(uint256(stateBase) + 2));
+        // base+3 packed vol slot (volAnchor:160|volLastMoveTs:40|volDeviation:24|volCarry:24). Whole-slot
+        // snapshot+survive — no field unpacking needed to assert the packed slot survives intact.
+        bytes32 snapshotPackedVol = vm.load(address(currentEngine), bytes32(uint256(stateBase) + 3));
+        bytes32 snapshotShortImpact = vm.load(address(currentEngine), bytes32(uint256(stateBase) + 4));
+        bytes32 authorizedHookSlot = bytes32(uint256(FEE_ENGINE_STORAGE_LOCATION) + 2);
+        bytes32 snapshotAuthorizedHook = vm.load(address(currentEngine), authorizedHookSlot);
+
+        // Upgrade the engine proxy to the facade shell. Owner is the hook; the V1 `_authorizeUpgrade` cast-check
+        // passes because the facade exposes a matching `poolManager()`.
+        TestableMemeverseDynamicFeeEngineV2 newImplementation =
+            new TestableMemeverseDynamicFeeEngineV2(IPoolManager(address(mockManager)));
+        vm.prank(address(hook));
+        currentEngine.upgradeToAndCall(address(newImplementation), bytes(""));
+
+        assertEq(TestableMemeverseDynamicFeeEngineV2(address(currentEngine)).version(), 2, "version after upgrade");
+        assertEq(vm.load(address(currentEngine), stateBase), snapshotWv0, "weightedVolume0 survived");
+        assertEq(
+            vm.load(address(currentEngine), bytes32(uint256(stateBase) + 1)),
+            snapshotWeightedPriceVolume0,
+            "weightedPriceVolume0 survived"
+        );
+        assertEq(vm.load(address(currentEngine), bytes32(uint256(stateBase) + 2)), snapshotEwVWAP, "ewVWAP survived");
+        assertEq(
+            vm.load(address(currentEngine), bytes32(uint256(stateBase) + 3)),
+            snapshotPackedVol,
+            "packed vol slot survived"
+        );
+        assertEq(
+            vm.load(address(currentEngine), bytes32(uint256(stateBase) + 4)),
+            snapshotShortImpact,
+            "shortImpactPpm survived"
+        );
+        assertEq(vm.load(address(currentEngine), authorizedHookSlot), snapshotAuthorizedHook, "authorizedHook survived");
+    }
 
     function test_UpgradeEngine_ThenSwap_SucceedsWithRealFeeMath() external {
         MemeverseDynamicFeeEngine newEngine =
@@ -1814,6 +1639,15 @@ contract MemeverseUniswapHookLiquidityTest is Test {
                 to: address(this)
             })
         );
+    }
+
+    /// @dev Computes the base storage slot of DynamicFeeState for (hook, poolId) inside the engine's ERC7201
+    ///      namespace. `dynamicFeeStates` is the first namespace field (base + 0); Solidity derives the
+    ///      mapping-value slot as keccak(abi.encode(poolId, keccak(abi.encode(hook, base)))). PoolId is a
+    ///      bytes32 wrapper and encodes identically to bytes32.
+    function _dynamicFeeStateSlot(address hook_, PoolId poolId_) internal pure returns (bytes32) {
+        bytes32 outer = keccak256(abi.encode(hook_, FEE_ENGINE_STORAGE_LOCATION));
+        return keccak256(abi.encode(poolId_, outer));
     }
 
     /// @notice Constructs the normalized pool key used throughout the tests.

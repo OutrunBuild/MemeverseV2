@@ -7,26 +7,8 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {IGovernanceCycleIncentivizer} from "../../src/governance/interfaces/IGovernanceCycleIncentivizer.sol";
 import {GovernanceCycleIncentivizerUpgradeable} from "../../src/governance/GovernanceCycleIncentivizerUpgradeable.sol";
-
-contract MockIncentivizerGovernor {
-    address public incentivizer;
-    address public lastRewardToken;
-    address public lastRewardTo;
-    uint256 public lastRewardAmount;
-
-    function setIncentivizer(address _incentivizer) external {
-        incentivizer = _incentivizer;
-    }
-
-    function disburseReward(address token, address to, uint256 amount) external {
-        require(msg.sender == incentivizer, "not incentivizer");
-        lastRewardToken = token;
-        lastRewardTo = to;
-        lastRewardAmount = amount;
-        // forge-lint: disable-next-line(erc20-unchecked-transfer)
-        MockERC20(token).transfer(to, amount);
-    }
-}
+import {MockIncentivizerGovernor} from "../mocks/governance/GovernanceMocks.sol";
+import {GovernanceCycleIncentivizerUpgradeableV2} from "../mocks/upgrade/GovernanceCycleIncentivizerUpgradeableV2.sol";
 
 contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     address internal constant OTHER = address(0xBEEF);
@@ -55,11 +37,26 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
         vm.expectRevert(IGovernanceCycleIncentivizer.PermissionDenied.selector);
         governedIncentivizer.upgradeToAndCall(address(newImplementation), bytes(""));
 
+        // V2 shell does not inherit the incentivizer, so currentCycleId is read directly from its erc7201
+        // storage slot. _currentCycleId is the high 128 bits of the first slot of
+        // GovernanceCycleIncentivizerStorage (packed with _rewardRatio in the low 128 bits).
+        bytes32 cycleSlot = bytes32(uint256(0x99c67075de64491849821c50466dd705dae8bfdda77a190b7f78ed5af150e100));
+        bytes32 cycleBefore = vm.load(address(governedIncentivizer), cycleSlot);
+        // _rewardRatio is the low 128 bits of the packed slot (_currentCycleId occupies the high 128 bits);
+        // the initializer seeds it to 5000.
+        uint128 expectedRewardRatio = uint128(uint256(cycleBefore));
+
         vm.prank(OTHER);
         governedIncentivizer.upgradeToAndCall(address(newImplementation), bytes(""));
 
         assertEq(GovernanceCycleIncentivizerUpgradeableV2(address(governedIncentivizer)).upgradeVersion(), 2);
-        assertEq(governedIncentivizer.currentCycleId(), 1);
+        // Storage must survive the upgrade: same slot, same value.
+        assertEq(vm.load(address(governedIncentivizer), cycleSlot), cycleBefore);
+        // _rewardRatio (low 128 bits) survives the upgrade.
+        assertEq(uint128(uint256(vm.load(address(governedIncentivizer), cycleSlot))), expectedRewardRatio);
+        // _currentCycleId is the high 128 bits of the packed slot (_rewardRatio occupies the low 128 bits);
+        // the initializer seeds it to 1.
+        assertEq(uint256(cycleBefore >> 128), 1);
     }
 
     function _deployIncentivizer(address governorAddress, address initialToken)
@@ -468,8 +465,3 @@ contract GovernanceCycleIncentivizerUpgradeableTest is Test {
     }
 }
 
-contract GovernanceCycleIncentivizerUpgradeableV2 is GovernanceCycleIncentivizerUpgradeable {
-    function upgradeVersion() external pure returns (uint256) {
-        return 2;
-    }
-}

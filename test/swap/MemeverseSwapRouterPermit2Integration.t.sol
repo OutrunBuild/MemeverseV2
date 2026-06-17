@@ -6,7 +6,8 @@ import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {BalanceDelta, BalanceDeltaLibrary} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {MockPermit2ForRouterIntegration, RealisticSwapIntegrationBase} from "./helpers/RealisticSwapManagerHarness.sol";
+import {RealisticSwapIntegrationBase} from "./helpers/RealisticSwapManagerHarness.sol";
+import {MockPermit2ForRouterIntegration} from "../mocks/swap/RealisticSwapMocks.sol";
 
 contract MemeverseSwapRouterPermit2IntegrationTest is RealisticSwapIntegrationBase {
     using BalanceDeltaLibrary for BalanceDelta;

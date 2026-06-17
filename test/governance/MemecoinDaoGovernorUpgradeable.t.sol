@@ -12,151 +12,8 @@ import {MemecoinDaoGovernorUpgradeable} from "../../src/governance/MemecoinDaoGo
 import {IMemecoinDaoGovernor} from "../../src/governance/interfaces/IMemecoinDaoGovernor.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MemecoinYieldVault} from "../../src/yield/MemecoinYieldVault.sol";
-
-contract MockGovernorVotesToken is IVotes {
-    mapping(address => uint256) internal votes;
-    uint256 internal totalSupplyVotes = 1_000 ether;
-
-    /// @notice Set votes.
-    /// @param account See implementation.
-    /// @param amount See implementation.
-    function setVotes(address account, uint256 amount) external {
-        votes[account] = amount;
-    }
-
-    /// @notice Get votes.
-    /// @param account See implementation.
-    /// @return See implementation.
-    function getVotes(address account) external view returns (uint256) {
-        return votes[account];
-    }
-
-    /// @notice Get past votes.
-    /// @param account See implementation.
-    /// @param timepoint See implementation.
-    /// @return See implementation.
-    function getPastVotes(address account, uint256 timepoint) external view returns (uint256) {
-        timepoint;
-        return votes[account];
-    }
-
-    /// @notice Get past total supply.
-    /// @param timepoint See implementation.
-    /// @return See implementation.
-    function getPastTotalSupply(uint256 timepoint) external view returns (uint256) {
-        timepoint;
-        return totalSupplyVotes;
-    }
-
-    /// @notice Delegates.
-    /// @param account See implementation.
-    /// @return See implementation.
-    function delegates(address account) external pure returns (address) {
-        return account;
-    }
-
-    /// @notice Delegate.
-    /// @param delegatee See implementation.
-    function delegate(address delegatee) external pure {
-        delegatee;
-    }
-
-    /// @notice Delegate by sig.
-    /// @param delegatee See implementation.
-    /// @param nonce See implementation.
-    /// @param expiry See implementation.
-    /// @param v See implementation.
-    /// @param r See implementation.
-    /// @param s See implementation.
-    function delegateBySig(address delegatee, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s)
-        external
-        pure
-    {
-        delegatee;
-        nonce;
-        expiry;
-        v;
-        r;
-        s;
-    }
-
-    /// @notice Clock.
-    /// @return See implementation.
-    function clock() external view returns (uint48) {
-        return uint48(block.number);
-    }
-
-    /// @notice Clock mode.
-    /// @return See implementation.
-    function CLOCK_MODE() external pure returns (string memory) {
-        return "mode=blocknumber&from=default";
-    }
-}
-
-contract MockGovernorIncentivizer {
-    address public lastReceiveToken;
-    uint256 public lastReceiveAmount;
-    uint256 public lastReceiveGovernorBalance;
-    address public lastSentToken;
-    address public lastSentTo;
-    uint256 public lastSentAmount;
-    uint256 public lastSentGovernorBalance;
-    address public lastVoteAccount;
-    uint256 public lastVoteAmount;
-    address[] public treasuryTokens;
-
-    function setTreasuryTokens(address[] memory tokens) external {
-        treasuryTokens = tokens;
-    }
-
-    function metaData()
-        external
-        view
-        returns (
-            uint128 currentCycleId,
-            uint128 rewardRatio,
-            address governor,
-            address[] memory treasuryTokenList,
-            address[] memory rewardTokenList
-        )
-    {
-        return (0, 0, address(0), treasuryTokens, new address[](0));
-    }
-
-    /// @notice Record treasury income.
-    /// @param token See implementation.
-    /// @param amount See implementation.
-    function recordTreasuryIncome(address token, uint256 amount) external {
-        lastReceiveToken = token;
-        lastReceiveAmount = amount;
-        lastReceiveGovernorBalance = MockERC20(token).balanceOf(msg.sender);
-    }
-
-    /// @notice Record treasury asset spend.
-    /// @param token See implementation.
-    /// @param to See implementation.
-    /// @param amount See implementation.
-    function recordTreasuryAssetSpend(address token, address to, uint256 amount) external {
-        lastSentToken = token;
-        lastSentTo = to;
-        lastSentAmount = amount;
-        lastSentGovernorBalance = MockERC20(token).balanceOf(msg.sender);
-    }
-
-    /// @notice Accum cycle votes.
-    /// @param account See implementation.
-    /// @param votes See implementation.
-    function accumCycleVotes(address account, uint256 votes) external {
-        lastVoteAccount = account;
-        lastVoteAmount = votes;
-    }
-}
-
-contract MemecoinDaoGovernorUpgradeableV2 is MemecoinDaoGovernorUpgradeable {
-    function upgradeVersion() external pure returns (uint256) {
-        return 2;
-    }
-}
+import {MockGovernorIncentivizer, MockGovernorVotesToken} from "../mocks/governance/GovernanceMocks.sol";
+import {MemecoinDaoGovernorUpgradeableV2} from "../mocks/upgrade/MemecoinDaoGovernorUpgradeableV2.sol";
 
 contract MemecoinDaoGovernorUpgradeableTest is Test {
     address internal constant ALICE = address(0xA11CE);
@@ -318,11 +175,19 @@ contract MemecoinDaoGovernorUpgradeableTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorOnlyExecutor.selector, address(this)));
         governor.upgradeToAndCall(address(newImplementation), bytes(""));
 
+        // V2 shell does not inherit the governor, so the incentivizer pointer is read directly from its
+        // erc7201 storage slot (MemecoinDaoGovernorStorage._governanceCycleIncentivizer, offset 0).
+        bytes32 incentivizerSlot = bytes32(uint256(0x268497fe5dd9452fe73d6476bb0f21165f748dafac6b1c2687b0261939d22c00));
+        bytes32 incentivizerBefore = vm.load(address(governor), incentivizerSlot);
+
         vm.prank(address(governor));
         governor.upgradeToAndCall(address(newImplementation), bytes(""));
 
         assertEq(MemecoinDaoGovernorUpgradeableV2(payable(address(governor))).upgradeVersion(), 2);
-        assertEq(governor.governanceCycleIncentivizer(), address(incentivizer));
+        // Storage must survive the upgrade: same slot, same value.
+        assertEq(vm.load(address(governor), incentivizerSlot), incentivizerBefore);
+        // Address is right-aligned (low 160 bits) in the slot.
+        assertEq(address(uint160(uint256(incentivizerBefore))), address(incentivizer));
     }
 
     /// @notice Test propose reverts during bootstrap period.

@@ -4,34 +4,8 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 
 import {TokenHelper} from "../../../src/common/token/TokenHelper.sol";
-
-contract TokenHelperHarness is TokenHelper {
-    function transferInNative(uint256 amount) external payable {
-        _transferIn(NATIVE, msg.sender, amount);
-    }
-
-    function transferOutNative(address to, uint256 amount) external payable {
-        _transferOut(NATIVE, to, amount);
-    }
-
-    function safeApproveToken(address token, address spender, uint256 value) external {
-        _safeApprove(token, spender, value);
-    }
-
-    receive() external payable {}
-}
-
-contract RejectETHReceiver {
-    receive() external payable {
-        revert("no eth");
-    }
-}
-
-contract FalseApproveToken {
-    function approve(address, uint256) external pure returns (bool) {
-        return false;
-    }
-}
+import {FalseApproveToken, RejectETHReceiver} from "../../mocks/common/CommonMocks.sol";
+import {TokenHelperHarness} from "../../mocks/infrastructure/TokenHelperHarness.sol";
 
 contract TokenHelperTest is Test {
     TokenHelperHarness internal harness;

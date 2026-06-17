@@ -8,35 +8,13 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {CurrencySettler} from "../../../src/swap/libraries/CurrencySettler.sol";
 
+import {FalseTransferFromToken, FalseTransferToken, MockPoolManager} from "../../mocks/swap/CurrencySettlerMocks.sol";
+
 contract CurrencySettlerHarness {
     using CurrencySettler for Currency;
 
     function settle(Currency currency, IPoolManager manager, address payer, uint256 amount, bool burn) external {
         currency.settle(manager, payer, amount, burn);
-    }
-}
-
-contract MockPoolManager {
-    function burn(address, uint256, uint256) external {}
-
-    function settle() external payable {}
-
-    function sync(Currency) external {}
-
-    function take(Currency, address, uint256) external {}
-
-    function mint(address, uint256, uint256) external {}
-}
-
-contract FalseTransferFromToken {
-    function transferFrom(address, address, uint256) external pure returns (bool) {
-        return false;
-    }
-}
-
-contract FalseTransferToken {
-    function transfer(address, uint256) external pure returns (bool) {
-        return false;
     }
 }
 

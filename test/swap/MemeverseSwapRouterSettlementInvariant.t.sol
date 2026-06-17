@@ -17,7 +17,8 @@ import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
+import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
+import {TestableMemeverseUniswapHookForRouter} from "./MemeverseSwapRouter.t.sol";
 
 contract RouterSettlementAccountingHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;

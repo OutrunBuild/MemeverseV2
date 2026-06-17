@@ -13,7 +13,8 @@ import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDe
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {MockPoolManagerForHookLiquidity, TestableMemeverseUniswapHook} from "./MemeverseUniswapHookLiquidity.t.sol";
+import {TestableMemeverseUniswapHook} from "./MemeverseUniswapHookLiquidity.t.sol";
+import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
 
 contract MemeverseTransientStateTest is Test {
     using PoolIdLibrary for PoolKey;

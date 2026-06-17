@@ -19,11 +19,8 @@ import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngin
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {
-    MockPermit2ForRouterTest,
-    MockPoolManagerForPermit2RouterTest,
-    TestableMemeverseUniswapHookForPermit2Router
-} from "./MemeverseSwapRouterPermit2.t.sol";
+import {MockPermit2ForRouterTest, MockPoolManagerForPermit2RouterTest} from "../mocks/swap/Permit2Mocks.sol";
+import {TestableMemeverseUniswapHookForPermit2Router} from "./MemeverseSwapRouterPermit2.t.sol";
 
 contract Permit2AccountingHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;

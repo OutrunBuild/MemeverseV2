@@ -5,129 +5,16 @@ import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {
     MessagingFee,
-    MessagingParams,
-    MessagingReceipt
+    MessagingParams
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReceiver.sol";
 import {OFTMsgCodec} from "@layerzerolabs/oft-evm/contracts/libs/OFTMsgCodec.sol";
 import {SendParam} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import {OutrunOFTInit} from "../../../../src/common/omnichain/oft/OutrunOFTInit.sol";
 import {IOFTCompose} from "../../../../src/common/omnichain/oft/IOFTCompose.sol";
+import {MockOFTEndpoint} from "../../../mocks/common/CommonMocks.sol";
+import {OFTHarness} from "../../../mocks/infrastructure/OFTHarness.sol";
 
 error AmountSDOverflowed(uint256 amountSD);
-
-contract MockOFTEndpoint {
-    address public delegate;
-    address public lzToken;
-    uint256 public quoteNativeFee;
-    uint32 public lastDstEid;
-    bytes32 public lastReceiver;
-    bytes public lastMessage;
-    bytes public lastOptions;
-    bool public lastPayInLzToken;
-    address public lastComposeTo;
-    bytes32 public lastComposeGuid;
-    uint16 public lastComposeIndex;
-    bytes public lastComposeMessage;
-
-    /// @notice Set delegate.
-    /// @param delegate_ See implementation.
-    function setDelegate(address delegate_) external {
-        delegate = delegate_;
-    }
-
-    /// @notice Set lz token.
-    /// @param lzToken_ See implementation.
-    function setLzToken(address lzToken_) external {
-        lzToken = lzToken_;
-    }
-
-    /// @notice Set quote native fee.
-    /// @param nativeFee See implementation.
-    function setQuoteNativeFee(uint256 nativeFee) external {
-        quoteNativeFee = nativeFee;
-    }
-
-    /// @notice Quote.
-    /// @param params See implementation.
-    /// @param sender See implementation.
-    /// @return fee See implementation.
-    function quote(MessagingParams calldata params, address sender) external view returns (MessagingFee memory fee) {
-        params;
-        sender;
-        fee = MessagingFee({nativeFee: quoteNativeFee, lzTokenFee: 0});
-    }
-
-    /// @notice Send.
-    /// @param params See implementation.
-    /// @param refundAddress See implementation.
-    /// @return receipt See implementation.
-    function send(MessagingParams calldata params, address refundAddress)
-        external
-        payable
-        returns (MessagingReceipt memory receipt)
-    {
-        refundAddress;
-        lastDstEid = params.dstEid;
-        lastReceiver = params.receiver;
-        lastMessage = params.message;
-        lastOptions = params.options;
-        lastPayInLzToken = params.payInLzToken;
-        receipt = MessagingReceipt({
-            guid: bytes32("guid"), nonce: 1, fee: MessagingFee({nativeFee: msg.value, lzTokenFee: 0})
-        });
-    }
-
-    /// @notice Send compose.
-    /// @param to See implementation.
-    /// @param guid See implementation.
-    /// @param index See implementation.
-    /// @param message See implementation.
-    function sendCompose(address to, bytes32 guid, uint16 index, bytes calldata message) external {
-        lastComposeTo = to;
-        lastComposeGuid = guid;
-        lastComposeIndex = index;
-        lastComposeMessage = message;
-    }
-}
-
-contract OFTHarness is OutrunOFTInit {
-    constructor(address endpoint_) OutrunOFTInit(endpoint_) {}
-
-    /// @notice Initialize.
-    /// @param owner_ See implementation.
-    /// @param name_ See implementation.
-    /// @param symbol_ See implementation.
-    /// @param delegate_ See implementation.
-    function initialize(address owner_, string memory name_, string memory symbol_, address delegate_)
-        external
-        initializer
-    {
-        __OutrunOFT_init(name_, symbol_, delegate_);
-        __OutrunOwnable_init(owner_);
-    }
-
-    /// @notice Mint test.
-    /// @param to See implementation.
-    /// @param amount See implementation.
-    function mintTest(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-
-    /// @notice Seed compose.
-    /// @param guid See implementation.
-    /// @param composer See implementation.
-    /// @param ubo See implementation.
-    /// @param amount See implementation.
-    /// @param executed See implementation.
-    function seedCompose(bytes32 guid, address composer, address ubo, uint256 amount, bool executed) external {
-        ComposeTxStatus storage txStatus = _getOFTCoreStorage().composeTxs[guid];
-        txStatus.composer = composer;
-        txStatus.UBO = ubo;
-        txStatus.amount = amount;
-        txStatus.isExecuted = executed;
-    }
-}
 
 contract OutrunOFTInitTest is Test {
     using Clones for address;

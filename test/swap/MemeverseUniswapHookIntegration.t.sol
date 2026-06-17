@@ -7,7 +7,8 @@ import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
-import {RealisticSwapIntegrationBase, RealisticSwapManagerHarness} from "./helpers/RealisticSwapManagerHarness.sol";
+import {RealisticSwapIntegrationBase} from "./helpers/RealisticSwapManagerHarness.sol";
+import {RealisticSwapManagerHarness} from "../mocks/swap/RealisticSwapMocks.sol";
 
 contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
     using BalanceDeltaLibrary for BalanceDelta;

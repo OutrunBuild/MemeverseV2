@@ -14,32 +14,16 @@ import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
 import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
-
-contract DynamicFeeEngineHarness is MemeverseDynamicFeeEngine {
-    constructor(IPoolManager _poolManager) MemeverseDynamicFeeEngine(_poolManager) {}
-
-    function exposedSpotX18FromSqrtPrice(uint160 sqrtPriceX96) external pure returns (uint256) {
-        return _spotX18FromSqrtPrice(sqrtPriceX96);
-    }
-
-    function exposedPriceMovePpmCapped(uint160 preSqrtPrice, uint160 postSqrtPrice) external pure returns (uint256) {
-        return _priceMovePpmCapped(preSqrtPrice, postSqrtPrice);
-    }
-
-    function exposedVolatilitySqrtFeeBps(uint256 accumulator) external pure returns (uint256) {
-        return _volatilitySqrtFeeBps(accumulator);
-    }
-}
-
-contract DynamicFeeEngineV2 is MemeverseDynamicFeeEngine {
-    constructor(IPoolManager _poolManager) MemeverseDynamicFeeEngine(_poolManager) {}
-
-    function version() external pure returns (uint256) {
-        return 2;
-    }
-}
+import {FeeMath} from "../../src/swap/libraries/FeeMath.sol";
+import {MemeverseDynamicFeeEngineV2} from "../mocks/upgrade/MemeverseDynamicFeeEngineV2.sol";
+import {FeeEngineStorageSlots} from "../mocks/swap/FeeEngineStorageSlots.sol";
 
 contract MemeverseDynamicFeeEngineTest is Test {
+    using FeeEngineStorageSlots for *;
+    // ERC7201 storage-namespace base slot for OwnableUpgradeable._owner (mirrors
+    // openzeppelin.storage.OwnableUpgradeable, which does not expose the constant publicly).
+    bytes32 internal constant OWNABLE_STORAGE_LOCATION =
+        0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
     PoolId internal constant POOL_ID = PoolId.wrap(bytes32(uint256(0x1234)));
     address internal constant AUTHORIZED_HOOK = address(0xA11CE);
     address internal constant TRADER_A = address(0xCAFE);
@@ -70,7 +54,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
     uint256 internal constant BPS_BASE = 10_000;
     uint256 internal constant FEE_BASE_BPS = 100;
 
-    DynamicFeeEngineHarness internal engine;
+    MemeverseDynamicFeeEngine internal engine;
 
     function setUp() external {
         engine = _deployEngineProxy(IPoolManager(address(0x1001)), address(this), AUTHORIZED_HOOK);
@@ -138,7 +122,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
     }
 
     function testEngineInitializeRevertsZeroAddressOwner() external {
-        DynamicFeeEngineHarness impl = new DynamicFeeEngineHarness(IPoolManager(address(0x1001)));
+        MemeverseDynamicFeeEngine impl = new MemeverseDynamicFeeEngine(IPoolManager(address(0x1001)));
         bytes memory zeroOwnerData = abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (address(0), AUTHORIZED_HOOK));
 
         vm.expectRevert(IMemeverseDynamicFeeEngine.ZeroAddress.selector);
@@ -146,7 +130,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
     }
 
     function testEngineInitializeRevertsZeroAddressHook() external {
-        DynamicFeeEngineHarness impl = new DynamicFeeEngineHarness(IPoolManager(address(0x1001)));
+        MemeverseDynamicFeeEngine impl = new MemeverseDynamicFeeEngine(IPoolManager(address(0x1001)));
         bytes memory zeroHookData = abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (address(this), address(0)));
 
         vm.expectRevert(IMemeverseDynamicFeeEngine.ZeroAddress.selector);
@@ -156,7 +140,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
     function testEngineUpgradeRevertsForNonOwner() external {
         IPoolManager poolManager = IPoolManager(address(0x1001));
         MemeverseDynamicFeeEngine initialized = _deployEngineProxy(poolManager, address(this), AUTHORIZED_HOOK);
-        DynamicFeeEngineV2 newImplementation = new DynamicFeeEngineV2(poolManager);
+        MemeverseDynamicFeeEngineV2 newImplementation = new MemeverseDynamicFeeEngineV2(poolManager);
 
         vm.prank(address(0xB0B));
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
@@ -178,6 +162,8 @@ contract MemeverseDynamicFeeEngineTest is Test {
                 postSqrtPriceX96: SQRT_PRICE_UP
             })
         );
+
+        // Precondition: V1 getters confirm state was written before we rely on raw-slot reads.
         IMemeverseDynamicFeeEngine.DynamicFeeState memory beforeUpgrade =
             initialized.getDynamicFeeState(AUTHORIZED_HOOK, POOL_ID);
         IMemeverseDynamicFeeEngine.AddressBatchState memory batchBeforeUpgrade =
@@ -186,25 +172,82 @@ contract MemeverseDynamicFeeEngineTest is Test {
         assertGt(beforeUpgrade.shortImpactPpm, 0, "precondition short");
         assertGt(batchBeforeUpgrade.batchAccumPpm, 0, "precondition batch");
 
-        DynamicFeeEngineV2 newImplementation = new DynamicFeeEngineV2(poolManager);
+        // Snapshot raw storage pre-upgrade. The V2 facade shell exposes no fee-state getters, so post-upgrade
+        // survival must be asserted via vm.load against the same slots. Empirical cross-check: each vm.load value
+        // here must match the V1 getter-derived value (decoded below) before the upgrade — this validates the
+        // slot calculations rather than just asserting equality across the upgrade.
+        bytes32 dynamicFeeStateBaseSlot = FeeEngineStorageSlots.dynamicFeeStateSlot(AUTHORIZED_HOOK, POOL_ID);
+        bytes32 batchStateBaseSlot = FeeEngineStorageSlots.addressBatchStateSlot(AUTHORIZED_HOOK, TRADER_A, POOL_ID);
+        bytes32 authorizedHookSlot = FeeEngineStorageSlots.authorizedHookSlot();
+
+        bytes32 expectedWeightedVolume0 = vm.load(address(initialized), dynamicFeeStateBaseSlot);
+        // shortImpactPpm sits at slot base+4 of DynamicFeeState: fields 3-4
+        // (volAnchorSqrtPriceX96:160 + volLastMoveTs:40 + volDeviationAccumulator:24 + volCarryAccumulator:24 = 248)
+        // pack into base+3, then shortImpactPpm(24) + shortLastTs(40) share base+4.
+        bytes32 expectedShortImpactSlot =
+            bytes32(uint256(dynamicFeeStateBaseSlot) + FeeEngineStorageSlots.DFS_PACKED_SHORT);
+        bytes32 expectedShortImpactPpm = vm.load(address(initialized), expectedShortImpactSlot);
+        // base+1 / base+2: weightedPriceVolume0 / ewVWAPX18 (single-word fields, whole-slot snapshot+survive).
+        bytes32 expectedWeightedPriceVolume0 = vm.load(
+            address(initialized),
+            bytes32(uint256(dynamicFeeStateBaseSlot) + FeeEngineStorageSlots.DFS_WEIGHTED_PRICE_VOLUME0)
+        );
+        bytes32 expectedEwVWAPX18 = vm.load(
+            address(initialized), bytes32(uint256(dynamicFeeStateBaseSlot) + FeeEngineStorageSlots.DFS_EWVWAP_X18)
+        );
+        // base+3: packed vol slot (volAnchor:160|volLastMoveTs:40|volDeviation:24|volCarry:24). Whole-slot
+        // snapshot+survive — no field unpacking needed to assert the packed slot survives intact.
+        bytes32 expectedPackedVolSlot = bytes32(uint256(dynamicFeeStateBaseSlot) + FeeEngineStorageSlots.DFS_PACKED_VOL);
+        bytes32 expectedPackedVol = vm.load(address(initialized), expectedPackedVolSlot);
+        bytes32 expectedBatchSlot = vm.load(address(initialized), batchStateBaseSlot);
+        bytes32 expectedAuthorizedHook = vm.load(address(initialized), authorizedHookSlot);
+        bytes32 expectedOwner = vm.load(address(initialized), OWNABLE_STORAGE_LOCATION);
+
+        // Cross-check that the slot math matches the getter-decoded values (empirical slot validation).
+        assertEq(uint256(expectedWeightedVolume0), beforeUpgrade.weightedVolume0, "slot cross-check volume");
+        assertEq(
+            uint256(uint24(uint256(expectedShortImpactPpm))), beforeUpgrade.shortImpactPpm, "slot cross-check short"
+        );
+        assertEq(
+            uint256(uint192(uint256(expectedBatchSlot))), batchBeforeUpgrade.batchAccumPpm, "slot cross-check batch pif"
+        );
+        assertEq(
+            uint256(uint64(uint256(expectedBatchSlot) >> 192)),
+            batchBeforeUpgrade.batchStartTs,
+            "slot cross-check batch ts"
+        );
+        assertEq(address(uint160(uint256(expectedAuthorizedHook))), AUTHORIZED_HOOK, "slot cross-check authorized hook");
+        assertEq(address(uint160(uint256(expectedOwner))), address(this), "slot cross-check owner");
+
+        MemeverseDynamicFeeEngineV2 newImplementation = new MemeverseDynamicFeeEngineV2(poolManager);
         initialized.upgradeToAndCall(address(newImplementation), bytes(""));
 
-        DynamicFeeEngineV2 upgraded = DynamicFeeEngineV2(address(initialized));
-        IMemeverseDynamicFeeEngine.DynamicFeeState memory afterUpgrade =
-            initialized.getDynamicFeeState(AUTHORIZED_HOOK, POOL_ID);
-        IMemeverseDynamicFeeEngine.AddressBatchState memory batchAfterUpgrade =
-            initialized.getAddressBatchState(AUTHORIZED_HOOK, TRADER_A, POOL_ID);
+        // Post-upgrade: read the same slots. Values must be unchanged — ERC1967 upgrades only swap the
+        // implementation address, not the proxy storage.
+        MemeverseDynamicFeeEngineV2 upgraded = MemeverseDynamicFeeEngineV2(address(initialized));
         assertEq(upgraded.version(), 2, "version");
-        assertEq(initialized.owner(), address(this), "owner");
-        assertEq(address(initialized.poolManager()), address(poolManager), "pool manager");
-        assertEq(afterUpgrade.weightedVolume0, beforeUpgrade.weightedVolume0, "weighted volume");
-        assertEq(afterUpgrade.weightedPriceVolume0, beforeUpgrade.weightedPriceVolume0, "weighted price volume");
-        assertEq(afterUpgrade.ewVWAPX18, beforeUpgrade.ewVWAPX18, "ewvwap");
-        assertEq(afterUpgrade.volAnchorSqrtPriceX96, beforeUpgrade.volAnchorSqrtPriceX96, "vol anchor");
-        assertEq(afterUpgrade.volDeviationAccumulator, beforeUpgrade.volDeviationAccumulator, "volatility");
-        assertEq(afterUpgrade.shortImpactPpm, beforeUpgrade.shortImpactPpm, "short impact");
-        assertEq(batchAfterUpgrade.batchAccumPpm, batchBeforeUpgrade.batchAccumPpm, "batch pif");
-        assertEq(batchAfterUpgrade.batchStartTs, batchBeforeUpgrade.batchStartTs, "batch start");
+        assertEq(address(upgraded.poolManager()), address(poolManager), "pool manager");
+        assertEq(vm.load(address(initialized), dynamicFeeStateBaseSlot), expectedWeightedVolume0, "weighted volume");
+        assertEq(
+            vm.load(
+                address(initialized),
+                bytes32(uint256(dynamicFeeStateBaseSlot) + FeeEngineStorageSlots.DFS_WEIGHTED_PRICE_VOLUME0)
+            ),
+            expectedWeightedPriceVolume0,
+            "weighted price volume"
+        );
+        assertEq(
+            vm.load(
+                address(initialized), bytes32(uint256(dynamicFeeStateBaseSlot) + FeeEngineStorageSlots.DFS_EWVWAP_X18)
+            ),
+            expectedEwVWAPX18,
+            "ewVWAP"
+        );
+        assertEq(vm.load(address(initialized), expectedPackedVolSlot), expectedPackedVol, "packed vol slot survived");
+        assertEq(vm.load(address(initialized), expectedShortImpactSlot), expectedShortImpactPpm, "short impact");
+        assertEq(vm.load(address(initialized), batchStateBaseSlot), expectedBatchSlot, "batch packed slot");
+        assertEq(vm.load(address(initialized), authorizedHookSlot), expectedAuthorizedHook, "authorized hook");
+        assertEq(vm.load(address(initialized), OWNABLE_STORAGE_LOCATION), expectedOwner, "owner");
     }
 
     function testUnauthorizedCallerCannotRefreshBeforeSwap() external {
@@ -252,16 +295,22 @@ contract MemeverseDynamicFeeEngineTest is Test {
     function testAuthorizedHookImmutableAfterInitialize() external {
         assertEq(engine.authorizedHook(), AUTHORIZED_HOOK, "initial authorized hook");
 
-        // Owner upgrade preserves authorizedHook — there is no setter in the contract.
-        IPoolManager poolManager = IPoolManager(address(0x1001));
-        DynamicFeeEngineV2 newImpl = new DynamicFeeEngineV2(poolManager);
-        engine.upgradeToAndCall(address(newImpl), bytes(""));
-        assertEq(engine.authorizedHook(), AUTHORIZED_HOOK, "authorized hook unchanged after upgrade");
-
-        // Re-initialize is blocked by Initializable guard.
+        // Re-initialize is blocked by the V1 Initializable guard while the V1 implementation is still live.
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         engine.initialize(address(this), address(0xBAD));
-        assertEq(engine.authorizedHook(), AUTHORIZED_HOOK, "authorized hook unchanged after rejected re-init");
+
+        // Owner upgrade preserves authorizedHook — there is no setter in the contract. The V2 facade shell
+        // exposes no authorizedHook() getter, so survival is verified via vm.load against the V1 storage slot
+        // (namespace-base + 2 per MemeverseDynamicFeeEngineStorage field order).
+        IPoolManager poolManager = IPoolManager(address(0x1001));
+        MemeverseDynamicFeeEngineV2 newImpl = new MemeverseDynamicFeeEngineV2(poolManager);
+        engine.upgradeToAndCall(address(newImpl), bytes(""));
+        bytes32 authorizedHookSlot = FeeEngineStorageSlots.authorizedHookSlot();
+        assertEq(
+            address(uint160(uint256(vm.load(address(engine), authorizedHookSlot)))),
+            AUTHORIZED_HOOK,
+            "authorized hook unchanged after upgrade"
+        );
     }
 
     function testQuoteUsesExponentialLaunchFeeAtMidDecay() external {
@@ -357,7 +406,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
         vm.warp(1_000);
         IPoolManager poolManager = IPoolManager(address(0x1001));
         address hook = address(0xA110);
-        DynamicFeeEngineHarness quoteEngine = _deployEngineProxy(poolManager, address(this), hook);
+        MemeverseDynamicFeeEngine quoteEngine = _deployEngineProxy(poolManager, address(this), hook);
 
         vm.prank(hook);
         quoteEngine.refreshBeforeSwap(_refreshParams(POOL_ID, SQRT_PRICE_1_1));
@@ -423,17 +472,15 @@ contract MemeverseDynamicFeeEngineTest is Test {
         assertEq(quote.estimatedInputAmount, expectedNetPoolInput, "net pool input");
         assertLt(quote.estimatedOutputAmount, userInputAmount, "not gross-output shortcut");
         assertEq(quote.estimatedOutputAmount, expectedOutputAmount, "net-input output");
-        assertLt(
-            quote.pifPpm, engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, firstPassPostSqrtPrice), "not first pif"
-        );
-        assertEq(quote.pifPpm, engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, expectedPostSqrtPrice), "net pif");
+        assertLt(quote.pifPpm, FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, firstPassPostSqrtPrice), "not first pif");
+        assertEq(quote.pifPpm, FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, expectedPostSqrtPrice), "net pif");
     }
 
     function testQuoteSwapExactOutputInputSideFeeReturnsRequestedOutput() external {
         vm.warp(1_000);
         (
             address hook,
-            DynamicFeeEngineHarness quoteEngine,
+            MemeverseDynamicFeeEngine quoteEngine,
             IMemeverseDynamicFeeEngine.QuoteSwapContext memory context
         ) = _quoteFixture(SQRT_PRICE_1_1, 1_000_000 ether);
 
@@ -452,7 +499,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
         vm.warp(1_000);
         (
             address hook,
-            DynamicFeeEngineHarness quoteEngine,
+            MemeverseDynamicFeeEngine quoteEngine,
             IMemeverseDynamicFeeEngine.QuoteSwapContext memory context
         ) = _quoteFixture(SQRT_PRICE_1_1, 1_000_000 ether);
 
@@ -471,7 +518,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
         vm.warp(1_000);
         (
             address hook,
-            DynamicFeeEngineHarness quoteEngine,
+            MemeverseDynamicFeeEngine quoteEngine,
             IMemeverseDynamicFeeEngine.QuoteSwapContext memory context
         ) = _quoteFixture(SQRT_PRICE_1_1, 1_000_000 ether);
 
@@ -525,53 +572,49 @@ contract MemeverseDynamicFeeEngineTest is Test {
         assertGt(state.weightedVolume0, 0, "ewvwap volume");
     }
 
-    function testSpotConversionHandlesWideSqrtPriceVectors() external view {
-        assertEq(engine.exposedSpotX18FromSqrtPrice(SQRT_PRICE_1_1), 1e18, "one-to-one spot");
+    function testSpotConversionHandlesWideSqrtPriceVectors() external pure {
+        assertEq(FeeMath.spotX18FromSqrtPrice(SQRT_PRICE_1_1), 1e18, "one-to-one spot");
         assertEq(
-            engine.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_128_PLUS_1),
+            FeeMath.spotX18FromSqrtPrice(SPOT_VECTOR_128_PLUS_1),
             _expectedSpotX18(SPOT_VECTOR_128_PLUS_1),
             "wide spot low fractional"
         );
         assertEq(
-            engine.exposedSpotX18FromSqrtPrice(SPOT_VECTOR_128_127_PLUS_1),
+            FeeMath.spotX18FromSqrtPrice(SPOT_VECTOR_128_127_PLUS_1),
             _expectedSpotX18(SPOT_VECTOR_128_127_PLUS_1),
             "wide spot high fractional"
         );
     }
 
-    function testPriceMovePpmReturnsExactBoundaryValues() external view {
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_59_999_UP_POST), 59_999, "up 59_999");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_60_000_UP_POST), 60_000, "up 60_000");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_59_999_DOWN_POST), 59_999, "down 59_999");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_60_000_DOWN_POST), 60_000, "down 60_000");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_149_999_UP_POST), 149_999, "up 149_999");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_150_000_UP_POST), PIF_CAP_PPM, "up cap");
+    function testPriceMovePpmReturnsExactBoundaryValues() external pure {
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_59_999_UP_POST), 59_999, "up 59_999");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_60_000_UP_POST), 60_000, "up 60_000");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_59_999_DOWN_POST), 59_999, "down 59_999");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_60_000_DOWN_POST), 60_000, "down 60_000");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_149_999_UP_POST), 149_999, "up 149_999");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_150_000_UP_POST), PIF_CAP_PPM, "up cap");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_149_999_DOWN_POST), 149_999, "down 149_999");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_150_000_DOWN_POST), PIF_CAP_PPM, "down cap");
         assertEq(
-            engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_149_999_DOWN_POST), 149_999, "down 149_999"
-        );
-        assertEq(
-            engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_150_000_DOWN_POST), PIF_CAP_PPM, "down cap"
-        );
-        assertEq(
-            engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_FALLBACK_OUTSIDE_UP_POST),
+            FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_FALLBACK_OUTSIDE_UP_POST),
             PIF_CAP_PPM,
             "up outside cap"
         );
         assertEq(
-            engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_FALLBACK_OUTSIDE_DOWN_POST),
+            FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_FALLBACK_OUTSIDE_DOWN_POST),
             PIF_CAP_PPM,
             "down outside cap"
         );
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_999_UP_POST), 999, "up 999");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_1000_UP_POST), 1000, "up 1000");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_999_DOWN_POST), 999, "down 999");
-        assertEq(engine.exposedPriceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_1000_DOWN_POST), 1000, "down 1000");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_999_UP_POST), 999, "up 999");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_1000_UP_POST), 1000, "up 1000");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_999_DOWN_POST), 999, "down 999");
+        assertEq(FeeMath.priceMovePpmCapped(SQRT_PRICE_1_1, PRICE_MOVE_1000_DOWN_POST), 1000, "down 1000");
     }
 
     function testVolatilitySqrtFeeAndAccumulatorBoundaries() external {
-        assertEq(engine.exposedVolatilitySqrtFeeBps(0), 0, "zero accumulator");
-        assertEq(engine.exposedVolatilitySqrtFeeBps(VOL_MAX_DEVIATION_ACCUMULATOR / 2), 35, "half accumulator sqrt fee");
-        assertEq(engine.exposedVolatilitySqrtFeeBps(VOL_MAX_DEVIATION_ACCUMULATOR), VOL_MAX_FEE_BPS, "max accumulator");
+        assertEq(FeeMath.volatilitySqrtFeeBps(0), 0, "zero accumulator");
+        assertEq(FeeMath.volatilitySqrtFeeBps(VOL_MAX_DEVIATION_ACCUMULATOR / 2), 35, "half accumulator sqrt fee");
+        assertEq(FeeMath.volatilitySqrtFeeBps(VOL_MAX_DEVIATION_ACCUMULATOR), VOL_MAX_FEE_BPS, "max accumulator");
 
         vm.prank(AUTHORIZED_HOOK);
         engine.refreshBeforeSwap(_refreshParams(POOL_ID, SQRT_PRICE_1_1));
@@ -667,9 +710,11 @@ contract MemeverseDynamicFeeEngineTest is Test {
     }
 
     function testOwnerCannotUpgradeToImplementationWithDifferentPoolManager() external {
-        DynamicFeeEngineHarness proxy =
+        MemeverseDynamicFeeEngine proxy =
             _deployEngineProxy(IPoolManager(address(0x1001)), address(this), AUTHORIZED_HOOK);
-        DynamicFeeEngineHarness newImpl = new DynamicFeeEngineHarness(IPoolManager(address(0xD1F)));
+        // Facade shell with a mismatched immutable poolManager: V1 _authorizeUpgrade casts the new impl to
+        // MemeverseDynamicFeeEngine and compares poolManager() — the facade's matching getter reports 0xD1F.
+        MemeverseDynamicFeeEngineV2 newImpl = new MemeverseDynamicFeeEngineV2(IPoolManager(address(0xD1F)));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -680,21 +725,23 @@ contract MemeverseDynamicFeeEngineTest is Test {
     }
 
     function testOwnerCanUpgradeWithSamePoolManager() external {
-        DynamicFeeEngineHarness proxy =
+        MemeverseDynamicFeeEngine proxy =
             _deployEngineProxy(IPoolManager(address(0x1001)), address(this), AUTHORIZED_HOOK);
-        DynamicFeeEngineHarness newImpl = new DynamicFeeEngineHarness(IPoolManager(address(0x1001)));
+        MemeverseDynamicFeeEngineV2 newImpl = new MemeverseDynamicFeeEngineV2(IPoolManager(address(0x1001)));
 
         proxy.upgradeToAndCall(address(newImpl), bytes(""));
+        // Post-upgrade the proxy delegatecalls the facade's poolManager() view; immutable reads the facade's
+        // constructor value, which matched the V1 immutable, so the reported address is preserved.
         assertEq(address(proxy.poolManager()), address(0x1001), "poolManager preserved");
     }
 
     function _deployEngineProxy(IPoolManager manager_, address owner_, address authorizedHook_)
         internal
-        returns (DynamicFeeEngineHarness deployed)
+        returns (MemeverseDynamicFeeEngine deployed)
     {
-        DynamicFeeEngineHarness impl = new DynamicFeeEngineHarness(manager_);
+        MemeverseDynamicFeeEngine impl = new MemeverseDynamicFeeEngine(manager_);
         bytes memory data = abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (owner_, authorizedHook_));
-        deployed = DynamicFeeEngineHarness(address(new ERC1967Proxy(address(impl), data)));
+        deployed = MemeverseDynamicFeeEngine(address(new ERC1967Proxy(address(impl), data)));
     }
 
     function _refreshParams(PoolId poolId, uint160 sqrtPriceX96)
@@ -731,7 +778,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
         internal
         returns (
             address hook,
-            DynamicFeeEngineHarness quoteEngine,
+            MemeverseDynamicFeeEngine quoteEngine,
             IMemeverseDynamicFeeEngine.QuoteSwapContext memory context
         )
     {
@@ -762,22 +809,10 @@ contract MemeverseDynamicFeeEngineTest is Test {
     }
 
     function _expectedSpotX18(uint160 sqrtPriceX96) internal pure returns (uint256) {
-        (uint256 squareHi, uint256 squareLo) = _squareWide(sqrtPriceX96);
+        (uint256 squareHi, uint256 squareLo) = FeeMath.squareWide(sqrtPriceX96);
         uint256 integerPart = (squareHi << 64) | (squareLo >> 192);
         uint256 fractionalPart = squareLo & (Q192 - 1);
         return integerPart * EWVWAP_PRECISION + FullMath.mulDiv(fractionalPart, EWVWAP_PRECISION, Q192);
-    }
-
-    function _squareWide(uint160 value) internal pure returns (uint256 hi, uint256 lo) {
-        uint256 upper = uint256(value) >> 128;
-        uint256 lower = uint128(value);
-        uint256 lowerSquared = lower * lower;
-        uint256 cross = (lower * upper) << 1;
-        unchecked {
-            lo = lowerSquared + (cross << 128);
-        }
-        hi = (upper * upper) + (cross >> 128);
-        if (lo < lowerSquared) ++hi;
     }
 
     /// @notice Same-block swap must preserve full undecayed short impact.

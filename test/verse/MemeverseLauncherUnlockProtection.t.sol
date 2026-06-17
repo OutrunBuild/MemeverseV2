@@ -32,7 +32,7 @@ import {
     MockLiquidProof,
     MockLaunchSettlementHookForLauncherTest,
     RedeemMemecoinLiquidityReenterer
-} from "./MemeverseLauncherLifecycle.t.sol";
+} from "../mocks/verse/LauncherLifecycleMocks.sol";
 import {MockPoolManagerForRouterTest, TestableMemeverseUniswapHookForRouter} from "../swap/MemeverseSwapRouter.t.sol";
 
 contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHelper {
@@ -93,14 +93,29 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
         splitter = new MockPOLSplitterForLifecycle(address(pt), address(yt));
         registry = new MockLzEndpointRegistry();
         MemeverseLauncher impl = new MemeverseLauncher();
-        launcherProxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                address(this), address(0x1), address(0x2), address(0x3),
-                address(0x4), address(0x5), address(polend), address(splitter),
-                25, 115_000, 135_000, 2_500, 7 days
-            ))
-        ));
+        launcherProxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        address(this),
+                        address(0x1),
+                        address(0x2),
+                        address(0x3),
+                        address(0x4),
+                        address(0x5),
+                        address(polend),
+                        address(splitter),
+                        25,
+                        115_000,
+                        135_000,
+                        2_500,
+                        7 days
+                    )
+                )
+            )
+        );
         launcher = IMemeverseLauncher(launcherProxy);
         router = new MockSwapRouter(address(launcher));
 
@@ -301,11 +316,18 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
     function _setLockedVerseReadyToUnlock(IMemeverseLauncher targetLauncher, uint256 verseId) internal {
         address proxy = address(targetLauncher);
         setMemeverseForTest(
-            proxy, verseId,
-            address(uAsset), address(memecoin), address(liquidProof),
-            address(0xD00D), address(0xCAFE), address(0),
-            0, uint128(block.timestamp - 1),
-            IMemeverseLauncher.Stage.Locked, false
+            proxy,
+            verseId,
+            address(uAsset),
+            address(memecoin),
+            address(liquidProof),
+            address(0xD00D),
+            address(0xCAFE),
+            address(0),
+            0,
+            uint128(block.timestamp - 1),
+            IMemeverseLauncher.Stage.Locked,
+            false
         );
         setOmnichainIdsForTest(proxy, verseId, _array(uint32(block.chainid)));
     }
@@ -362,14 +384,29 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
 
     function _deployLauncherProxy(address polendAddr, address splitterAddr) internal returns (address proxy) {
         MemeverseLauncher impl = new MemeverseLauncher();
-        proxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                address(this), address(0x1), address(0x2), address(0x3),
-                address(0x4), address(0x5), polendAddr, splitterAddr,
-                25, 115_000, 135_000, 2_500, 7 days
-            ))
-        ));
+        proxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        address(this),
+                        address(0x1),
+                        address(0x2),
+                        address(0x3),
+                        address(0x4),
+                        address(0x5),
+                        polendAddr,
+                        splitterAddr,
+                        25,
+                        115_000,
+                        135_000,
+                        2_500,
+                        7 days
+                    )
+                )
+            )
+        );
     }
 
     function _newLauncher(MockPOLendForLifecycle targetPolend, SplitterMemecoinRedeemDuringSettle targetSplitter)

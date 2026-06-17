@@ -8,16 +8,7 @@ import {
     EnforcedOptionParam
 } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
 
-import {OutrunOAppOptionsType3Init} from "../../../../src/common/omnichain/oapp/OutrunOAppOptionsType3Init.sol";
-
-contract OptionsType3Harness is OutrunOAppOptionsType3Init {
-    /// @notice Initialize.
-    /// @param owner_ See implementation.
-    function initialize(address owner_) external initializer {
-        __OutrunOwnable_init(owner_);
-        __OutrunOAppOptionsType3_init();
-    }
-}
+import {OptionsType3Harness} from "../../../mocks/infrastructure/OptionsType3Harness.sol";
 
 contract OutrunOAppOptionsType3InitTest is Test {
     using Clones for address;

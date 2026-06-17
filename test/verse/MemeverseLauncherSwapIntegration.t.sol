@@ -24,109 +24,18 @@ import {
 } from "../swap/helpers/RealisticSwapManagerHarness.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
-import {MockOFTDispatcher} from "./MemeverseLauncherLifecycle.t.sol";
+import {MockOFTDispatcher} from "../mocks/verse/LauncherLifecycleMocks.sol";
 import {
     MockIntegrationLiquidProof,
     MockIntegrationMemecoin,
     MockLauncherIntegrationLzEndpointRegistry,
     MockPOLendForPreorderIntegration,
     MockPOLSplitterForPreorderIntegration
-} from "./MemeverseLauncherPreorderIntegration.t.sol";
-
-contract MockLauncherSwapIntegrationYieldVault {
-    string public name;
-    string public symbol;
-    address public yieldDispatcher;
-    address public asset;
-    uint256 public verseId;
-    uint256 public virtualAssets;
-
-    function initialize(
-        string calldata name_,
-        string calldata symbol_,
-        address yieldDispatcher_,
-        address asset_,
-        uint256 verseId_,
-        uint256 virtualAssets_
-    ) external {
-        name = name_;
-        symbol = symbol_;
-        yieldDispatcher = yieldDispatcher_;
-        asset = asset_;
-        verseId = verseId_;
-        virtualAssets = virtualAssets_;
-    }
-}
-
-contract MockPOLendForSwapIntegration is MockPOLendForPreorderIntegration {
-    function settlementDustStates(address) external pure override returns (uint128 reserve, uint128 maxReserve) {
-        return (0, type(uint128).max);
-    }
-
-    function fundSettlementDustReserve(address, uint256) external override {}
-}
-
-contract MockLauncherSwapIntegrationProxyDeployer {
-    address internal immutable predictedGovernor;
-    address internal immutable predictedIncentivizer;
-
-    constructor(address _predictedGovernor, address _predictedIncentivizer) {
-        predictedGovernor = _predictedGovernor;
-        predictedIncentivizer = _predictedIncentivizer;
-    }
-
-    function deployMemecoin(uint256 uniqueId) external returns (address memecoin) {
-        uniqueId;
-        memecoin = address(new MockIntegrationMemecoin());
-    }
-
-    function deployPOL(uint256 uniqueId) external returns (address pol) {
-        uniqueId;
-        pol = address(new MockIntegrationLiquidProof());
-    }
-
-    function deployYieldVault(uint256 uniqueId) external returns (address yieldVault) {
-        uniqueId;
-        yieldVault = address(new MockLauncherSwapIntegrationYieldVault());
-    }
-
-    function deployGovernorAndIncentivizer(
-        string calldata memecoinName,
-        address uAsset,
-        address memecoin,
-        address pol,
-        address yieldVault,
-        uint256 uniqueId,
-        uint256 proposalThreshold
-    ) external view returns (address governor, address incentivizer) {
-        memecoinName;
-        uAsset;
-        memecoin;
-        pol;
-        yieldVault;
-        uniqueId;
-        proposalThreshold;
-        return (predictedGovernor, predictedIncentivizer);
-    }
-
-    function predictYieldVaultAddress(uint256 uniqueId) external pure returns (address yieldVault) {
-        uniqueId;
-        return address(0);
-    }
-
-    function computeGovernorAndIncentivizerAddress(uint256 uniqueId)
-        external
-        view
-        returns (address governor, address incentivizer)
-    {
-        uniqueId;
-        return (predictedGovernor, predictedIncentivizer);
-    }
-
-    function quorumNumerator() external pure returns (uint256) {
-        return 25;
-    }
-}
+} from "../mocks/verse/LauncherPreorderIntegrationMocks.sol";
+import {
+    MockLauncherSwapIntegrationProxyDeployer,
+    MockPOLendForSwapIntegration
+} from "../mocks/verse/LauncherSwapIntegrationMocks.sol";
 
 contract DirectPoolManagerSwapHelper is IUnlockCallback {
     RealisticSwapManagerHarness internal immutable manager;

@@ -6,120 +6,12 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {
     MessagingFee,
-    MessagingParams,
-    MessagingReceipt
+    MessagingParams
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 
-import {OutrunOAppCoreInit} from "../../../../src/common/omnichain/oapp/OutrunOAppCoreInit.sol";
 import {OutrunOAppSenderInit} from "../../../../src/common/omnichain/oapp/OutrunOAppSenderInit.sol";
-
-contract MockOAppSenderEndpoint {
-    address public delegate;
-    address public lzToken;
-    address public lastRefundAddress;
-    uint256 public lastNativeValue;
-    uint32 public lastDstEid;
-    bytes32 public lastReceiver;
-    bytes public lastMessage;
-    bytes public lastOptions;
-    bool public lastPayInLzToken;
-    uint256 public quoteNativeFee;
-    uint256 public quoteLzTokenFee;
-
-    /// @notice Set delegate.
-    /// @param delegate_ See implementation.
-    function setDelegate(address delegate_) external {
-        delegate = delegate_;
-    }
-
-    /// @notice Set lz token.
-    /// @param lzToken_ See implementation.
-    function setLzToken(address lzToken_) external {
-        lzToken = lzToken_;
-    }
-
-    /// @notice Set quote fee.
-    /// @param nativeFee See implementation.
-    /// @param lzTokenFee See implementation.
-    function setQuoteFee(uint256 nativeFee, uint256 lzTokenFee) external {
-        quoteNativeFee = nativeFee;
-        quoteLzTokenFee = lzTokenFee;
-    }
-
-    /// @notice Quote.
-    /// @param params See implementation.
-    /// @param sender See implementation.
-    /// @return fee See implementation.
-    function quote(MessagingParams calldata params, address sender) external view returns (MessagingFee memory fee) {
-        params;
-        sender;
-        fee = MessagingFee({nativeFee: quoteNativeFee, lzTokenFee: quoteLzTokenFee});
-    }
-
-    /// @notice Send.
-    /// @param params See implementation.
-    /// @param refundAddress See implementation.
-    /// @return receipt See implementation.
-    function send(MessagingParams calldata params, address refundAddress)
-        external
-        payable
-        returns (MessagingReceipt memory receipt)
-    {
-        lastDstEid = params.dstEid;
-        lastReceiver = params.receiver;
-        lastMessage = params.message;
-        lastOptions = params.options;
-        lastPayInLzToken = params.payInLzToken;
-        lastRefundAddress = refundAddress;
-        lastNativeValue = msg.value;
-        receipt = MessagingReceipt({
-            guid: bytes32("guid"), nonce: 1, fee: MessagingFee({nativeFee: quoteNativeFee, lzTokenFee: quoteLzTokenFee})
-        });
-    }
-}
-
-contract OAppSenderHarness is OutrunOAppSenderInit {
-    constructor(address endpoint_) OutrunOAppCoreInit(endpoint_) {}
-
-    /// @notice Initialize.
-    /// @param owner_ See implementation.
-    /// @param delegate_ See implementation.
-    function initialize(address owner_, address delegate_) external initializer {
-        __OutrunOwnable_init(owner_);
-        __OutrunOAppSender_init(delegate_);
-    }
-
-    /// @notice Quote external.
-    /// @param dstEid See implementation.
-    /// @param message See implementation.
-    /// @param options See implementation.
-    /// @param payInLzToken See implementation.
-    /// @return See implementation.
-    function quoteExternal(uint32 dstEid, bytes memory message, bytes memory options, bool payInLzToken)
-        external
-        view
-        returns (MessagingFee memory)
-    {
-        return _quote(dstEid, message, options, payInLzToken);
-    }
-
-    /// @notice Send external.
-    /// @param dstEid See implementation.
-    /// @param message See implementation.
-    /// @param options See implementation.
-    /// @param fee See implementation.
-    /// @param refundAddress See implementation.
-    /// @return See implementation.
-    function sendExternal(
-        uint32 dstEid,
-        bytes memory message,
-        bytes memory options,
-        MessagingFee memory fee,
-        address refundAddress
-    ) external payable returns (MessagingReceipt memory) {
-        return _lzSend(dstEid, message, options, fee, refundAddress);
-    }
-}
+import {MockOAppSenderEndpoint} from "../../../mocks/common/CommonMocks.sol";
+import {OAppSenderHarness} from "../../../mocks/infrastructure/OAppSenderHarness.sol";
 
 contract OutrunOAppSenderInitTest is Test {
     using Clones for address;

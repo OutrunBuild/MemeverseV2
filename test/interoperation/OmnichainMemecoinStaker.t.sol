@@ -5,77 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {OFTComposeMsgCodec} from "@layerzerolabs/oft-evm/contracts/libs/OFTComposeMsgCodec.sol";
 
-import {IOFTCompose} from "../../src/common/omnichain/oft/IOFTCompose.sol";
-import {IBurnable} from "../../src/common/interfaces/IBurnable.sol";
 import {IOmnichainMemecoinStaker} from "../../src/interoperation/interfaces/IOmnichainMemecoinStaker.sol";
 import {OmnichainMemecoinStaker} from "../../src/interoperation/OmnichainMemecoinStaker.sol";
-
-contract MockStakerComposeToken is MockERC20, IOFTCompose, IBurnable {
-    mapping(bytes32 guid => bool executed) internal executedStatus;
-    bytes32 public lastNotifiedGuid;
-
-    constructor() MockERC20("Memecoin", "MEME", 18) {}
-
-    /// @notice Get compose tx executed status.
-    /// @param guid See implementation.
-    /// @return See implementation.
-    function getComposeTxExecutedStatus(bytes32 guid) external view returns (bool) {
-        return executedStatus[guid];
-    }
-
-    /// @notice Notify compose executed.
-    /// @param guid See implementation.
-    function notifyComposeExecuted(bytes32 guid) external {
-        executedStatus[guid] = true;
-        lastNotifiedGuid = guid;
-    }
-
-    /// @notice Withdraw if not executed.
-    /// @param guid See implementation.
-    /// @param account See implementation.
-    /// @return See implementation.
-    function withdrawIfNotExecuted(bytes32 guid, address account) external pure returns (uint256) {
-        guid;
-        account;
-        revert("unused");
-    }
-
-    /// @notice Burn.
-    /// @param amount See implementation.
-    function burn(uint256 amount) external {
-        _burn(msg.sender, amount);
-    }
-
-    /// @notice Set executed.
-    /// @param guid See implementation.
-    /// @param executed See implementation.
-    function setExecuted(bytes32 guid, bool executed) external {
-        executedStatus[guid] = executed;
-    }
-}
-
-contract MockStakerYieldVault {
-    uint256 public lastDepositAmount;
-    address public lastDepositReceiver;
-    bool public shouldRevert;
-
-    /// @notice Set whether deposits should revert.
-    /// @param shouldRevert_ See implementation.
-    function setShouldRevert(bool shouldRevert_) external {
-        shouldRevert = shouldRevert_;
-    }
-
-    /// @notice Deposit.
-    /// @param amount See implementation.
-    /// @param receiver See implementation.
-    /// @return shares See implementation.
-    function deposit(uint256 amount, address receiver) external returns (uint256 shares) {
-        require(!shouldRevert, "deposit failed");
-        lastDepositAmount = amount;
-        lastDepositReceiver = receiver;
-        shares = amount;
-    }
-}
+import {MockStakerComposeToken, MockStakerYieldVault} from "../mocks/interoperation/InteroperationMocks.sol";
 
 contract OmnichainMemecoinStakerTest is Test {
     address internal constant LOCAL_ENDPOINT = address(0x1111);

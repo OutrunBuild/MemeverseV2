@@ -2,183 +2,21 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
-import {
-    IOFT,
-    SendParam,
-    MessagingFee,
-    MessagingReceipt,
-    OFTReceipt,
-    OFTLimit,
-    OFTFeeDetail
-} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {
     IMemeverseOmnichainInteroperation
 } from "../../src/interoperation/interfaces/IMemeverseOmnichainInteroperation.sol";
 import {MemeverseOmnichainInteroperation} from "../../src/interoperation/MemeverseOmnichainInteroperation.sol";
-
-contract MockInteroperationLauncher {
-    IMemeverseLauncher.Memeverse internal verse;
-    address internal registeredMemecoin;
-
-    /// @notice Set memeverse.
-    /// @param memecoin See implementation.
-    /// @param verse_ See implementation.
-    function setMemeverse(address memecoin, IMemeverseLauncher.Memeverse memory verse_) external {
-        registeredMemecoin = memecoin;
-        verse = verse_;
-    }
-
-    /// @notice Get memeverse by memecoin.
-    /// @param memecoin See implementation.
-    /// @return See implementation.
-    function getMemeverseByMemecoin(address memecoin) external view returns (IMemeverseLauncher.Memeverse memory) {
-        if (memecoin != registeredMemecoin) {
-            revert IMemeverseLauncher.InvalidVerseId();
-        }
-        return verse;
-    }
-}
-
-contract MockInteroperationRegistry {
-    mapping(uint32 chainId => uint32 endpointId) public lzEndpointIdOfChain;
-
-    /// @notice Set endpoint.
-    /// @param chainId See implementation.
-    /// @param endpointId See implementation.
-    function setEndpoint(uint32 chainId, uint32 endpointId) external {
-        lzEndpointIdOfChain[chainId] = endpointId;
-    }
-}
-
-contract MockInteroperationYieldVault {
-    uint256 public lastDepositAmount;
-    address public lastDepositReceiver;
-
-    /// @notice Deposit.
-    /// @param amount See implementation.
-    /// @param receiver See implementation.
-    /// @return shares See implementation.
-    function deposit(uint256 amount, address receiver) external returns (uint256 shares) {
-        lastDepositAmount = amount;
-        lastDepositReceiver = receiver;
-        shares = amount;
-    }
-}
-
-contract MockInteroperationOFT is MockERC20, IOFT {
-    using OptionsBuilder for bytes;
-
-    error InvalidQuotedSendFee(
-        uint256 expectedNativeFee,
-        uint256 expectedLzTokenFee,
-        uint256 providedNativeFee,
-        uint256 providedLzTokenFee,
-        uint256 msgValue
-    );
-
-    MessagingFee internal quoteFee;
-    uint32 public lastSendDstEid;
-    bytes32 public lastSendTo;
-    bytes public lastSendComposeMsg;
-    uint256 public lastSendNativeFee;
-    address public lastRefundAddress;
-    uint256 public lastSendValue;
-    bytes32 public nextGuid = bytes32("stake-guid");
-
-    constructor() MockERC20("Memecoin", "MEME", 18) {}
-
-    /// @notice Set quote fee.
-    /// @param nativeFee See implementation.
-    function setQuoteFee(uint256 nativeFee) external {
-        quoteFee = MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
-    }
-
-    /// @notice Oft version.
-    /// @return interfaceId See implementation.
-    /// @return version See implementation.
-    function oftVersion() external pure returns (bytes4 interfaceId, uint64 version) {
-        return (type(IOFT).interfaceId, 1);
-    }
-
-    /// @notice Token.
-    /// @return See implementation.
-    function token() external view returns (address) {
-        return address(this);
-    }
-
-    /// @notice Approval required.
-    /// @return See implementation.
-    function approvalRequired() external pure returns (bool) {
-        return false;
-    }
-
-    /// @notice Shared decimals.
-    /// @return See implementation.
-    function sharedDecimals() external pure returns (uint8) {
-        return 6;
-    }
-
-    /// @notice Quote oft.
-    /// @return See implementation.
-    function quoteOFT(SendParam calldata)
-        external
-        pure
-        returns (OFTLimit memory, OFTFeeDetail[] memory, OFTReceipt memory)
-    {
-        revert("unused");
-    }
-
-    /// @notice Quote send.
-    /// @param sendParam See implementation.
-    /// @param payInLzToken See implementation.
-    /// @return fee See implementation.
-    function quoteSend(SendParam calldata sendParam, bool payInLzToken)
-        external
-        view
-        returns (MessagingFee memory fee)
-    {
-        sendParam;
-        payInLzToken;
-        fee = quoteFee;
-    }
-
-    /// @notice Send.
-    /// @param sendParam See implementation.
-    /// @param fee See implementation.
-    /// @param refundAddress See implementation.
-    /// @return receipt See implementation.
-    /// @return oftReceipt See implementation.
-    function send(SendParam calldata sendParam, MessagingFee calldata fee, address refundAddress)
-        external
-        payable
-        returns (MessagingReceipt memory receipt, OFTReceipt memory oftReceipt)
-    {
-        if (
-            fee.nativeFee != quoteFee.nativeFee || fee.lzTokenFee != quoteFee.lzTokenFee
-                || msg.value != quoteFee.nativeFee
-        ) {
-            revert InvalidQuotedSendFee(
-                quoteFee.nativeFee, quoteFee.lzTokenFee, fee.nativeFee, fee.lzTokenFee, msg.value
-            );
-        }
-
-        lastSendDstEid = sendParam.dstEid;
-        lastSendTo = sendParam.to;
-        lastSendComposeMsg = sendParam.composeMsg;
-        lastSendNativeFee = fee.nativeFee;
-        lastRefundAddress = refundAddress;
-        lastSendValue = msg.value;
-        _burn(msg.sender, sendParam.amountLD);
-
-        receipt = MessagingReceipt({guid: nextGuid, nonce: 1, fee: fee});
-        oftReceipt = OFTReceipt({amountSentLD: sendParam.amountLD, amountReceivedLD: sendParam.amountLD});
-    }
-}
+import {
+    MockInteroperationLauncher,
+    MockInteroperationRegistry,
+    MockInteroperationYieldVault,
+    MockInteroperationOFT
+} from "../mocks/interoperation/InteroperationMocks.sol";
 
 contract MemeverseOmnichainInteroperationTest is Test {
     using OptionsBuilder for bytes;
