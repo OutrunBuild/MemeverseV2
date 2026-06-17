@@ -38,15 +38,6 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     using FeeEngineStorageSlots for *;
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint256 internal constant Q128 = uint256(1) << 128;
-    uint256 internal constant E18 = 1e18;
-    uint256 internal constant PPM_BASE = 1_000_000;
-    uint256 internal constant SHORT_CAP_PPM = 100_000;
-    uint256 internal constant SHORT_FLOOR_PPM = 20_000;
-    uint256 internal constant SHORT_COEFF_BPS = 2_500;
-    uint256 internal constant PIF_CAP_PPM = 150_000;
-    uint256 internal constant FEE_BASE_BPS = 100;
-    uint256 internal constant FEE_DFF_MAX_PPM = 800_000;
-    uint256 internal constant BPS_BASE = 10_000;
     bytes4 internal constant TOTAL_SUPPLY_SELECTOR = bytes4(keccak256("totalSupply()"));
     bytes4 internal constant UNAUTHORIZED_POOL_INITIALIZER_SELECTOR =
         bytes4(keccak256("UnauthorizedPoolInitializer()"));
@@ -1648,40 +1639,4 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
             currency0: currency0, currency1: currency1, fee: 0x800000, tickSpacing: 200, hooks: IHooks(address(hook))
         });
     }
-
-    function _approxRatioMovePpm(uint160 preSqrtPriceX96, uint160 postSqrtPriceX96) internal pure returns (uint256) {
-        uint256 ratioX18 = FullMath.mulDiv(uint256(postSqrtPriceX96), E18, uint256(preSqrtPriceX96));
-        uint256 squaredRatioX18 = FullMath.mulDiv(ratioX18, ratioX18, E18);
-        uint256 movePpm =
-            postSqrtPriceX96 >= preSqrtPriceX96 ? (squaredRatioX18 - E18) / 1e12 : (E18 - squaredRatioX18) / 1e12;
-        return movePpm > SHORT_CAP_PPM ? SHORT_CAP_PPM : movePpm;
-    }
-
-    function _expectedAdverseFeeBps(uint256 pifPpm) internal pure returns (uint256) {
-        uint256 satPpm = FullMath.mulDiv(pifPpm, PPM_BASE, pifPpm + PIF_CAP_PPM);
-        uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
-        uint256 dynamicPpm = FullMath.mulDiv(dffPpm, pifPpm, PPM_BASE);
-        return dynamicPpm / (PPM_BASE / BPS_BASE);
-    }
-
-    function _expectedShortBps(uint256 pifPpm) internal pure returns (uint256) {
-        uint256 projected = pifPpm > SHORT_CAP_PPM ? SHORT_CAP_PPM : pifPpm;
-        uint256 chargeable = projected > SHORT_FLOOR_PPM ? projected - SHORT_FLOOR_PPM : 0;
-        return FullMath.mulDiv(chargeable, SHORT_COEFF_BPS, PPM_BASE);
-    }
-
-    function _expectedFeeBps(uint256 pifPpm) internal pure returns (uint256) {
-        return FEE_BASE_BPS + _expectedAdverseFeeBps(pifPpm) + _expectedShortBps(pifPpm);
-    }
-
-    /// @notice Funds the test account and initializes a native-input pool.
-    /// @dev Ensures the hook can consume native quotes without hitting balance issues.
-    function _dealAndInitializeNativePool(PoolKey memory nativeKey) internal {
-        vm.deal(address(this), 1_000_000 ether);
-        mockManager.initialize(nativeKey, SQRT_PRICE_1_1);
-    }
-
-    /// @notice Allows the test contract to receive native refunds for hook operations.
-    /// @dev Mirrors the payable fallback path the hook might call during tests.
-    receive() external payable {}
 }

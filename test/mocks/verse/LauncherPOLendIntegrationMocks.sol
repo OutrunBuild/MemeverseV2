@@ -195,14 +195,6 @@ contract MockRouterForPOLendIntegration {
         return lpTokens[_pairKey(tokenA, tokenB)];
     }
 
-    function lastAddAmounts(address tokenA, address tokenB) external view returns (uint256 amountA, uint256 amountB) {
-        bytes32 pairKey = _pairKey(tokenA, tokenB);
-        if (tokenA < tokenB) {
-            return (lastAddAmount0ByPair[pairKey], lastAddAmount1ByPair[pairKey]);
-        }
-        return (lastAddAmount1ByPair[pairKey], lastAddAmount0ByPair[pairKey]);
-    }
-
     function lastCreateAmounts(address tokenA, address tokenB)
         external
         view

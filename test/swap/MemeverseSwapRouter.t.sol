@@ -1878,14 +1878,6 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         });
     }
 
-    /// @notice Funds and initializes a native-input pool fixture.
-    /// @dev Controls both caller and manager balances before seeding liquidity.
-    function _dealAndInitializeNativePool(PoolKey memory nativeKey, bool fundManager) internal {
-        vm.deal(address(this), 1_000_000 ether);
-        if (fundManager) vm.deal(address(manager), 1_000_000 ether);
-        manager.initialize(nativeKey, SQRT_PRICE_1_1);
-    }
-
     function _mintAndApproveBootstrapPair(MockERC20 tokenA, uint256 amountA, MockERC20 tokenB, uint256 amountB)
         internal
     {

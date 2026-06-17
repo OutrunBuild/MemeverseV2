@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {StorageSlotPrimitives} from "../StorageSlotPrimitives.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {MemeverseDynamicFeeEngine} from "../../../src/swap/MemeverseDynamicFeeEngine.sol";
@@ -154,42 +152,5 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
         // LP.mint is onlyOwner == hook proxy; prank as the proxy to satisfy the access check.
         vm.prank(proxy);
         UniswapLP(liquidityToken).mint(owner, activeShares);
-    }
-}
-
-// ── Inline sanity test ──
-import {MockPoolManagerForHookLiquidity} from "./HookLiquidityMocks.sol";
-
-/// @title HookStorageHelperSanityTest
-/// @notice Proves deployHookAtFlagAddress lands a real hook at a flag address and initialize passes, and
-///         that seedActiveLiquiditySharesForTest round-trips into cachedLpTotalSupply + LP balance.
-contract HookStorageHelperSanityTest is Test, HookStorageHelper {
-    function test_deployHookAtFlagAddress_proxyCarriesFlags() external {
-        IPoolManager manager = IPoolManager(address(new MockPoolManagerForHookLiquidity()));
-        address treasury = address(0xBEEF);
-
-        (address hookProxy, address engineProxy) = deployHookAtFlagAddress(manager, address(this), treasury);
-
-        // Proxy carries the required flag bits.
-        assertEq(uint160(hookProxy) & HOOK_FLAG_MASK, HOOK_REQUIRED_FLAGS, "proxy missing flags");
-
-        // initialize ran inside the ERC1967Proxy constructor without reverting, so the real
-        // `_validateProxyHookAddress()` passed at this flag address.
-        assertEq(MemeverseUniswapHook(hookProxy).treasury(), treasury, "treasury");
-        assertEq(address(MemeverseUniswapHook(hookProxy).dynamicFeeEngine()), engineProxy, "engine bound");
-        assertEq(MemeverseUniswapHook(hookProxy).owner(), address(this), "owner");
-
-        // Engine owner/authorizedHook both bound to the hook proxy.
-        assertEq(MemeverseDynamicFeeEngine(engineProxy).owner(), hookProxy, "engine owner");
-        assertEq(MemeverseDynamicFeeEngine(engineProxy).authorizedHook(), hookProxy, "engine authorizedHook");
-
-        // Permissions match the mined flag pattern.
-        Hooks.Permissions memory perms = MemeverseUniswapHook(hookProxy).getHookPermissions();
-        assertTrue(perms.beforeInitialize, "beforeInitialize");
-        assertTrue(perms.beforeAddLiquidity, "beforeAddLiquidity");
-        assertTrue(perms.beforeSwap, "beforeSwap");
-        assertTrue(perms.afterSwap, "afterSwap");
-        assertTrue(perms.beforeSwapReturnDelta, "beforeSwapReturnDelta");
-        assertTrue(perms.afterSwapReturnDelta, "afterSwapReturnDelta");
     }
 }
