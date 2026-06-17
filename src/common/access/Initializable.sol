@@ -13,12 +13,13 @@ abstract contract Initializable {
         bool initializing;
     }
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.storage.Initializable")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant INITIALIZABLE_STORAGE_LOCATION =
+        0x364b90b49cc5a06782669778ce5f4dc79d5c3891ab824b5e713b2409af81a500;
+
     function _getInitializableStorage() private pure returns (InitializableStorage storage $) {
         assembly {
-            // erc7201("outrun.storage.Initializable")
-            mstore(0x00, "outrun.storage.Initializable")
-            mstore(0x00, sub(keccak256(0x00, 28), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := INITIALIZABLE_STORAGE_LOCATION
         }
     }
 

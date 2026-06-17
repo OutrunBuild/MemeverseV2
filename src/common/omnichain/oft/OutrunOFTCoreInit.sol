@@ -61,13 +61,13 @@ abstract contract OutrunOFTCoreInit is
     uint16 public constant SEND = 1;
     uint16 public constant SEND_AND_CALL = 2;
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.layerzerov2.storage.OFTCore")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant OFT_CORE_STORAGE_LOCATION =
+        0x1a2846a4be01d927c13a5ab572124918fa6eabc1d9def75fd5d4e3f0617fe600;
+
     function _getOFTCoreStorage() internal pure returns (OFTCoreStorage storage $) {
         assembly {
-            // erc7201("outrun.layerzerov2.storage.OFTCore")
-            mstore(0x00, "outrun.layerzerov2.storage.OFTCo")
-            mstore(0x20, "re")
-            mstore(0x00, sub(keccak256(0x00, 34), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := OFT_CORE_STORAGE_LOCATION
         }
     }
 

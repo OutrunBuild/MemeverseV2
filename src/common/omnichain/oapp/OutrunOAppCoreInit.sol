@@ -17,13 +17,13 @@ abstract contract OutrunOAppCoreInit is IOAppCore, OutrunOwnableInit {
     // The LayerZero endpoint associated with the given OApp
     ILayerZeroEndpointV2 public immutable endpoint;
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.layerzerov2.storage.OAppCore")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant OAPP_CORE_STORAGE_LOCATION =
+        0x7c5e164903b57308a9588eaf98afe7394cf4b3ef4aeeacd4cf0d6c6393897400;
+
     function _getOAppCoreStorage() internal pure returns (OAppCoreStorage storage $) {
         assembly {
-            // erc7201("outrun.layerzerov2.storage.OAppCore")
-            mstore(0x00, "outrun.layerzerov2.storage.OAppC")
-            mstore(0x20, "ore")
-            mstore(0x00, sub(keccak256(0x00, 35), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := OAPP_CORE_STORAGE_LOCATION
         }
     }
 

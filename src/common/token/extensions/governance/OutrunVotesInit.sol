@@ -50,12 +50,13 @@ abstract contract OutrunVotesInit is Context, OutrunEIP712Init, OutrunNoncesInit
         Checkpoints.Trace208 _totalAssetsCheckpoint;
     }
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.storage.Votes")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant VOTES_STORAGE_LOCATION =
+        0x208f5ae36e3aa0934f277adce61242847ae71fe37b1a71ca90478a975291f400;
+
     function _getVotesStorage() private pure returns (VotesStorage storage $) {
         assembly {
-            // erc7201("outrun.storage.Votes")
-            mstore(0x00, "outrun.storage.Votes")
-            mstore(0x00, sub(keccak256(0x00, 20), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := VOTES_STORAGE_LOCATION
         }
     }
 

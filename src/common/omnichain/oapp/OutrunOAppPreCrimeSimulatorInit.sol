@@ -20,13 +20,13 @@ abstract contract OutrunOAppPreCrimeSimulatorInit is IOAppPreCrimeSimulator, Out
         address preCrime;
     }
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.layerzerov2.storage.OAppPreCrimeSimulator")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant OAPP_PRE_CRIME_SIMULATOR_STORAGE_LOCATION =
+        0x64ee1c09e489d82d98a23ae0880bbc36a3637a4a59e3c120b24b8998a504ab00;
+
     function _getOAppPreCrimeSimulatorStorage() internal pure returns (OAppPreCrimeSimulatorStorage storage $) {
         assembly {
-            // erc7201("outrun.layerzerov2.storage.OAppPreCrimeSimulator")
-            mstore(0x00, "outrun.layerzerov2.storage.OAppP")
-            mstore(0x20, "reCrimeSimulator")
-            mstore(0x00, sub(keccak256(0x00, 48), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := OAPP_PRE_CRIME_SIMULATOR_STORAGE_LOCATION
         }
     }
 

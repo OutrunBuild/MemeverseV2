@@ -20,13 +20,13 @@ abstract contract OutrunOAppOptionsType3Init is IOAppOptionsType3, OutrunOwnable
 
     uint16 internal constant OPTION_TYPE_3 = 3;
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.layerzerov2.storage.OAppOptionsType3")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant OAPP_OPTIONS_TYPE_3_STORAGE_LOCATION =
+        0xb8742acedc513ab939c44ee9081fd12ef5e204cfe39a55d50dba0e689496ff00;
+
     function _getOAppOptionsType3Storage() internal pure returns (OAppOptionsType3Storage storage $) {
         assembly {
-            // erc7201("outrun.layerzerov2.storage.OAppOptionsType3")
-            mstore(0x00, "outrun.layerzerov2.storage.OAppO")
-            mstore(0x20, "ptionsType3")
-            mstore(0x00, sub(keccak256(0x00, 43), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := OAPP_OPTIONS_TYPE_3_STORAGE_LOCATION
         }
     }
 

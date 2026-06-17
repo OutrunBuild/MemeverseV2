@@ -44,12 +44,13 @@ abstract contract OutrunEIP712Init is Initializable, IERC5267 {
         string _version;
     }
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.storage.EIP712")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant EIP712_STORAGE_LOCATION =
+        0x7e79860d374ca15b9f2dc8f64cbab9fb5227f3686c569a4bd4e3fd9b9bbbf900;
+
     function _getEIP712Storage() private pure returns (EIP712Storage storage $) {
         assembly {
-            // erc7201("outrun.storage.EIP712")
-            mstore(0x00, "outrun.storage.EIP712")
-            mstore(0x00, sub(keccak256(0x00, 21), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := EIP712_STORAGE_LOCATION
         }
     }
 

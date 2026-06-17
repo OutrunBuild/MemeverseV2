@@ -13,12 +13,13 @@ abstract contract OutrunOwnableInit is Initializable {
         address _owner;
     }
 
+    // keccak256(abi.encode(uint256(keccak256("outrun.storage.Ownable")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant OWNABLE_STORAGE_LOCATION =
+        0x7f241041d6960443a72c6e46e3b41069d0f1a8933ddb434b1da86a3f3cba9f00;
+
     function _getOwnableStorage() private pure returns (OwnableStorage storage $) {
         assembly {
-            // erc7201("outrun.storage.Ownable")
-            mstore(0x00, "outrun.storage.Ownable")
-            mstore(0x00, sub(keccak256(0x00, 22), 1))
-            $.slot := and(keccak256(0x00, 0x20), not(0xff))
+            $.slot := OWNABLE_STORAGE_LOCATION
         }
     }
 
