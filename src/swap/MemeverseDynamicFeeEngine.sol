@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.28;
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -21,32 +20,26 @@ import {FeeMath} from "./libraries/FeeMath.sol";
 ///      `quoteSwapWithContext` is a read-only quote path using the hook-supplied context for the
 ///      explicit hook namespace.
 ///      Upgradeable UUPS proxy; mutable state lives in the ERC7201 namespace.
+///      Pure price/fee math primitives (spot conversion, price-move ppm, volatility fee) live in
+///      the `FeeMath` library; they are `internal pure` and inline into this contract.
 contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable, OwnableUpgradeable, UUPSUpgradeable {
-    uint256 internal constant EWVWAP_PRECISION = 1e18;
-    uint256 internal constant Q192 = uint256(1) << 192;
-    uint256 internal constant Q192_MASK = Q192 - 1;
     uint256 public constant BPS_BASE = FeeMath.BPS_BASE;
-    uint256 public constant PPM_BASE = 1_000_000;
+    uint256 public constant PPM_BASE = FeeMath.PPM_BASE;
     uint24 internal constant FEE_ALPHA = 500_000;
     uint24 internal constant FEE_DFF_MAX_PPM = 800_000;
     int256 internal constant LAUNCH_FEE_EXP_SHAPE_WAD = 4e18;
     uint24 internal constant FEE_BASE_BPS = 100;
     uint24 internal constant FEE_MAX_BPS = 10_000;
-    uint24 internal constant PIF_CAP_PPM = 150_000;
     uint24 internal constant VOL_DEVIATION_STEP_BPS = 1;
     uint24 internal constant VOL_FILTER_PERIOD_SEC = 10;
     uint24 internal constant VOL_DECAY_PERIOD_SEC = 60;
     uint24 internal constant VOL_DECAY_FACTOR_BPS = 5_000;
-    uint24 internal constant VOL_MAX_FEE_BPS = 50;
-    uint24 internal constant VOL_MAX_DEVIATION_ACCUMULATOR = 1_500_000;
     uint24 internal constant SHORT_DECAY_WINDOW_SEC = 15;
     uint24 internal constant SHORT_COEFF_BPS = 2_500;
     uint24 internal constant SHORT_FLOOR_PPM = 20_000;
     uint24 internal constant SHORT_CAP_PPM = 100_000;
     uint24 internal constant VOL_INCREMENT_PER_STEP = 1_000;
     uint256 internal constant ADDRESS_BATCH_WINDOW_SEC = 3;
-    uint256 internal constant UP_SHORT_BUCKET = 1072380529476360830;
-    uint256 internal constant DOWN_SHORT_BUCKET = 921954445729288731;
 
     IPoolManager public immutable override poolManager;
 
@@ -150,7 +143,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
     function updateAfterSwap(UpdateAfterSwapParams calldata params) external override onlyAuthorizedCaller {
         if (params.preSqrtPriceX96 == 0) return;
 
-        uint256 pifPpm = _priceMovePpmCapped(params.preSqrtPriceX96, params.postSqrtPriceX96);
+        uint256 pifPpm = FeeMath.priceMovePpmCapped(params.preSqrtPriceX96, params.postSqrtPriceX96);
         MemeverseDynamicFeeEngineStorage storage $ = _getMemeverseDynamicFeeEngineStorage();
         DynamicFeeState storage state = $.dynamicFeeStates[msg.sender][params.poolId];
         AddressBatchState storage batch = $.addressBatchStates[msg.sender][params.trader][params.poolId];
@@ -168,13 +161,13 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         state.shortImpactPpm = uint24(updatedShortPpm);
         state.shortLastTs = uint40(block.timestamp);
 
-        uint256 spotX18 = _spotX18FromSqrtPrice(params.postSqrtPriceX96);
+        uint256 spotX18 = FeeMath.spotX18FromSqrtPrice(params.postSqrtPriceX96);
         int256 amount0 = params.delta.amount0();
         uint256 volume0 = uint256(amount0 < 0 ? -amount0 : amount0);
         _updateVolatilityDeviationAccumulatorAfterSwap(state, params.postSqrtPriceX96);
         if (volume0 == 0 || spotX18 == 0) return;
 
-        uint256 priceVolume = FullMath.mulDiv(volume0, spotX18, EWVWAP_PRECISION);
+        uint256 priceVolume = FullMath.mulDiv(volume0, spotX18, FeeMath.EWVWAP_PRECISION);
         if (state.weightedVolume0 == 0) {
             state.weightedVolume0 = volume0;
             state.weightedPriceVolume0 = priceVolume;
@@ -190,7 +183,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         state.weightedVolume0 = newWeightedVolume0;
         state.weightedPriceVolume0 = newWeightedPriceVolume0;
         if (newWeightedVolume0 > 0) {
-            state.ewVWAPX18 = FullMath.mulDiv(newWeightedPriceVolume0, EWVWAP_PRECISION, newWeightedVolume0);
+            state.ewVWAPX18 = FullMath.mulDiv(newWeightedPriceVolume0, FeeMath.EWVWAP_PRECISION, newWeightedVolume0);
         }
     }
 
@@ -294,8 +287,8 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         uint256 spotBeforeX18;
         uint256 preVolatilityPartBps;
         uint256 preDecayedShortPpm;
-        spotBeforeX18 = _spotX18FromSqrtPrice(preSqrtPriceX96);
-        preVolatilityPartBps = _volatilitySqrtFeeBps(state.volDeviationAccumulator);
+        spotBeforeX18 = FeeMath.spotX18FromSqrtPrice(preSqrtPriceX96);
+        preVolatilityPartBps = FeeMath.volatilitySqrtFeeBps(state.volDeviationAccumulator);
         preDecayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
 
         for (uint256 i = 0; i < 3; ++i) {
@@ -309,8 +302,8 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
             if (quote.estimatedInputAmount == 0) return quote;
 
             quote.spotBeforeX18 = spotBeforeX18;
-            quote.spotAfterX18 = _spotX18FromSqrtPrice(postSqrtPriceX96);
-            quote.pifPpm = _priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
+            quote.spotAfterX18 = FeeMath.spotX18FromSqrtPrice(postSqrtPriceX96);
+            quote.pifPpm = FeeMath.priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
             _populateDynamicFeeQuoteFromState(quote, state, senderBatchState, preVolatilityPartBps, preDecayedShortPpm);
 
             if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
@@ -361,7 +354,7 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         ) {
             effectivePifPpm = uint256(senderBatchState.batchAccumPpm) + quote.pifPpm;
         }
-        uint256 satPpm = FullMath.mulDiv(effectivePifPpm, PPM_BASE, effectivePifPpm + PIF_CAP_PPM);
+        uint256 satPpm = FullMath.mulDiv(effectivePifPpm, PPM_BASE, effectivePifPpm + FeeMath.PIF_CAP_PPM);
         uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
         uint256 dynamicPpm = FullMath.mulDiv(dffPpm, effectivePifPpm, PPM_BASE);
         quote.adverseImpactPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
@@ -454,14 +447,11 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         uint256 deltaSteps =
             _volatilityDeltaSteps(state.volAnchorSqrtPriceX96, postSqrtPriceX96, VOL_DEVIATION_STEP_BPS);
         uint256 updatedAccumulator = uint256(state.volCarryAccumulator) + deltaSteps * uint256(VOL_INCREMENT_PER_STEP);
-        if (updatedAccumulator > VOL_MAX_DEVIATION_ACCUMULATOR) updatedAccumulator = VOL_MAX_DEVIATION_ACCUMULATOR;
+        if (updatedAccumulator > FeeMath.VOL_MAX_DEVIATION_ACCUMULATOR) {
+            updatedAccumulator = FeeMath.VOL_MAX_DEVIATION_ACCUMULATOR;
+        }
         state.volDeviationAccumulator = uint24(updatedAccumulator);
         if (deltaSteps > 0) state.volLastMoveTs = uint40(block.timestamp);
-    }
-
-    function _volatilitySqrtFeeBps(uint256 accumulator) internal pure returns (uint256) {
-        if (accumulator == 0) return 0;
-        return Math.sqrt(accumulator * uint256(VOL_MAX_FEE_BPS) ** 2 / uint256(VOL_MAX_DEVIATION_ACCUMULATOR));
     }
 
     function _volatilityDeltaSteps(uint160 referenceSqrtPriceX96, uint160 currentSqrtPriceX96, uint256 stepBps)
@@ -473,94 +463,13 @@ contract MemeverseDynamicFeeEngine is IMemeverseDynamicFeeEngine, Initializable,
         (uint256 upper, uint256 lower) = referenceSqrtPriceX96 > currentSqrtPriceX96
             ? (uint256(referenceSqrtPriceX96), uint256(currentSqrtPriceX96))
             : (uint256(currentSqrtPriceX96), uint256(referenceSqrtPriceX96));
-        uint256 sqrtRatioX18 = FullMath.mulDiv(upper, EWVWAP_PRECISION, lower);
-        if (sqrtRatioX18 <= EWVWAP_PRECISION) return 0;
-        return FullMath.mulDiv(sqrtRatioX18 - EWVWAP_PRECISION, BPS_BASE * 2, stepBps * EWVWAP_PRECISION);
-    }
-
-    function _spotX18FromSqrtPrice(uint160 sqrtPriceX96) internal pure returns (uint256) {
-        (uint256 squareHi, uint256 squareLo) = _squareWide(sqrtPriceX96);
-        uint256 integerPart = (squareHi << 64) | (squareLo >> 192);
-        uint256 fractionalPart = squareLo & Q192_MASK;
-        return integerPart * EWVWAP_PRECISION + FullMath.mulDiv(fractionalPart, EWVWAP_PRECISION, Q192);
+        uint256 sqrtRatioX18 = FullMath.mulDiv(upper, FeeMath.EWVWAP_PRECISION, lower);
+        if (sqrtRatioX18 <= FeeMath.EWVWAP_PRECISION) return 0;
+        return
+            FullMath.mulDiv(sqrtRatioX18 - FeeMath.EWVWAP_PRECISION, BPS_BASE * 2, stepBps * FeeMath.EWVWAP_PRECISION);
     }
 
     function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
         return a > b ? a - b : b - a;
-    }
-
-    function _priceMovePpmCapped(uint160 preSqrtPrice, uint160 postSqrtPrice) internal pure returns (uint256) {
-        if (preSqrtPrice == postSqrtPrice) return 0;
-        uint256 sqrtRatioX18 = FullMath.mulDiv(uint256(postSqrtPrice), EWVWAP_PRECISION, uint256(preSqrtPrice));
-        if (postSqrtPrice > preSqrtPrice) {
-            if (sqrtRatioX18 > UP_SHORT_BUCKET) return PIF_CAP_PPM;
-            uint256 upSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
-            uint256 candidate = (upSquaredRatioX18 - EWVWAP_PRECISION) / 1e12;
-            if (
-                candidate < PIF_CAP_PPM
-                    && _wideSquareTimesSmallGte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE + candidate + 1)
-            ) ++candidate;
-            return candidate;
-        }
-        if (sqrtRatioX18 < DOWN_SHORT_BUCKET) return PIF_CAP_PPM;
-        uint256 downSquaredRatioX18 = FullMath.mulDiv(sqrtRatioX18, sqrtRatioX18, EWVWAP_PRECISION);
-        uint256 candidatePpm = (EWVWAP_PRECISION - downSquaredRatioX18) / 1e12;
-        if (
-            candidatePpm != 0
-                && !_wideSquareTimesSmallLte(postSqrtPrice, PPM_BASE, preSqrtPrice, PPM_BASE - candidatePpm)
-        ) --candidatePpm;
-        return candidatePpm;
-    }
-
-    function _squareWide(uint160 value) internal pure returns (uint256 hi, uint256 lo) {
-        uint256 upper = uint256(value) >> 128;
-        uint256 lower = uint128(value);
-        uint256 lowerSquared = lower * lower;
-        uint256 cross = (lower * upper) << 1;
-        unchecked {
-            lo = lowerSquared + (cross << 128);
-        }
-        hi = (upper * upper) + (cross >> 128);
-        if (lo < lowerSquared) ++hi;
-    }
-
-    function _mulWideBySmall(uint256 hi, uint256 lo, uint256 factor)
-        internal
-        pure
-        returns (uint256 outHi, uint256 outLo)
-    {
-        uint256 loLower = uint128(lo);
-        uint256 loUpper = lo >> 128;
-        uint256 lowerProduct = loLower * factor;
-        uint256 upperProduct = loUpper * factor;
-        unchecked {
-            outLo = lowerProduct + (upperProduct << 128);
-        }
-        outHi = (hi * factor) + (upperProduct >> 128);
-        if (outLo < lowerProduct) ++outHi;
-    }
-
-    function _wideSquareTimesSmallGte(uint160 left, uint256 leftFactor, uint160 right, uint256 rightFactor)
-        internal
-        pure
-        returns (bool)
-    {
-        (uint256 leftSquareHi, uint256 leftSquareLo) = _squareWide(left);
-        (uint256 rightSquareHi, uint256 rightSquareLo) = _squareWide(right);
-        (uint256 leftHi, uint256 leftLo) = _mulWideBySmall(leftSquareHi, leftSquareLo, leftFactor);
-        (uint256 rightHi, uint256 rightLo) = _mulWideBySmall(rightSquareHi, rightSquareLo, rightFactor);
-        return leftHi > rightHi || (leftHi == rightHi && leftLo >= rightLo);
-    }
-
-    function _wideSquareTimesSmallLte(uint160 left, uint256 leftFactor, uint160 right, uint256 rightFactor)
-        internal
-        pure
-        returns (bool)
-    {
-        (uint256 leftSquareHi, uint256 leftSquareLo) = _squareWide(left);
-        (uint256 rightSquareHi, uint256 rightSquareLo) = _squareWide(right);
-        (uint256 leftHi, uint256 leftLo) = _mulWideBySmall(leftSquareHi, leftSquareLo, leftFactor);
-        (uint256 rightHi, uint256 rightLo) = _mulWideBySmall(rightSquareHi, rightSquareLo, rightFactor);
-        return leftHi < rightHi || (leftHi == rightHi && leftLo <= rightLo);
     }
 }
