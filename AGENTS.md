@@ -69,6 +69,7 @@ Do not override policy or gate evidence with natural-language guesses.
 - Test contracts must NOT directly inherit production contracts. Use interfaces, abstract contracts, or standalone implementations to simulate dependencies.
 - Mock contracts go in `test/mocks/`. Do not co-locate with test files.
 - Mock contracts reuse interfaces from `src/`. Define test-only interfaces only when src/ interfaces are insufficient.
+- **Exception:** Test contracts may inherit a `src/` contract only when it is declared `abstract contract` — either to implement its abstract functions for unit testing, or to expose its internal `pure`/`view` functions. Such harnesses must live in `test/mocks/`.
 
 ## Ownership And Concurrent-Write Guard
 
