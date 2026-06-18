@@ -145,9 +145,8 @@ contract DeployMemeverseHookProxy is BaseScript {
         } else {
             revert ExistingIntermediateDeploymentNotReusable(hookImpl);
         }
-        address proxy = _deployProxy(
-            outrunDeployer, deployer, proxySalt, selectedProxy, hookImpl, hookOwner, hookTreasury, engine
-        );
+        address proxy =
+            _deployProxy(outrunDeployer, deployer, proxySalt, selectedProxy, hookImpl, hookOwner, hookTreasury, engine);
         _validateExistingDeployment(proxy, hookImpl, engine, hookOwner, hookTreasury, poolManager);
 
         result.engineImplementation = engineImpl;

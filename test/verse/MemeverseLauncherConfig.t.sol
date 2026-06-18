@@ -165,19 +165,26 @@ contract MemeverseLauncherConfigTest is Test {
     /// @return ABI-encoded initialize calldata.
     function _launcherInitDataWithZeroAddr(uint256 zeroIndex) internal pure returns (bytes memory) {
         address[8] memory addrs = [
-            address(0xA1),  // initialOwner
-            address(0x1),   // localLzEndpoint_
-            address(0x2),   // memeverseRegistrar_
-            address(0x3),   // memeverseProxyDeployer_
-            address(0x4),   // yieldDispatcher_
-            address(0x5),   // lzEndpointRegistry_
-            address(0x10),  // polend_
-            address(0x11)   // polSplitter_
+            address(0xA1), // initialOwner
+            address(0x1), // localLzEndpoint_
+            address(0x2), // memeverseRegistrar_
+            address(0x3), // memeverseProxyDeployer_
+            address(0x4), // yieldDispatcher_
+            address(0x5), // lzEndpointRegistry_
+            address(0x10), // polend_
+            address(0x11) // polSplitter_
         ];
         addrs[zeroIndex] = address(0);
         return abi.encodeWithSignature(
             "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
-            addrs[0], addrs[1], addrs[2], addrs[3], addrs[4], addrs[5], addrs[6], addrs[7],
+            addrs[0],
+            addrs[1],
+            addrs[2],
+            addrs[3],
+            addrs[4],
+            addrs[5],
+            addrs[6],
+            addrs[7],
             25,
             115_000,
             135_000,
@@ -213,8 +220,19 @@ contract MemeverseLauncherConfigTest is Test {
             address(impl1),
             abi.encodeWithSignature(
                 "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
-                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
-                address(0x11), 25, uint128(0), 135_000, 2_500, 7 days
+                address(0xA1),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(0x10),
+                address(0x11),
+                25,
+                uint128(0),
+                135_000,
+                2_500,
+                7 days
             )
         );
 
@@ -224,8 +242,19 @@ contract MemeverseLauncherConfigTest is Test {
             address(impl2),
             abi.encodeWithSignature(
                 "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
-                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
-                address(0x11), 25, 115_000, uint128(0), 2_500, 7 days
+                address(0xA1),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(0x10),
+                address(0x11),
+                25,
+                115_000,
+                uint128(0),
+                2_500,
+                7 days
             )
         );
     }
@@ -238,8 +267,19 @@ contract MemeverseLauncherConfigTest is Test {
             address(impl1),
             abi.encodeWithSignature(
                 "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
-                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
-                address(0x11), 25, 115_000, 135_000, 0, 7 days
+                address(0xA1),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(0x10),
+                address(0x11),
+                25,
+                115_000,
+                135_000,
+                0,
+                7 days
             )
         );
 
@@ -249,8 +289,19 @@ contract MemeverseLauncherConfigTest is Test {
             address(impl2),
             abi.encodeWithSignature(
                 "initialize(address,address,address,address,address,address,address,address,uint256,uint128,uint128,uint256,uint256)",
-                address(0xA1), address(0x1), address(0x2), address(0x3), address(0x4), address(0x5), address(0x10),
-                address(0x11), 25, 115_000, 135_000, 2_500, 0
+                address(0xA1),
+                address(0x1),
+                address(0x2),
+                address(0x3),
+                address(0x4),
+                address(0x5),
+                address(0x10),
+                address(0x11),
+                25,
+                115_000,
+                135_000,
+                2_500,
+                0
             )
         );
     }

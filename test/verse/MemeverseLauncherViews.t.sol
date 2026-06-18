@@ -68,7 +68,6 @@ contract MockPOLSplitterForViews {
     }
 }
 
-
 contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     address internal constant REGISTRAR = address(0xBEEF);
     address internal constant ALICE = address(0xA11CE);
@@ -166,11 +165,18 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     /// @dev Destructures the struct into individual fields for setMemeverseForTest.
     function _setVerse(uint256 verseId, IMemeverseLauncher.Memeverse memory verse) internal {
         setMemeverseForTest(
-            launcherProxy, verseId,
-            verse.uAsset, verse.memecoin, verse.pol, verse.yieldVault,
-            verse.governor, verse.incentivizer,
-            verse.endTime, verse.unlockTime,
-            verse.currentStage, verse.flashGenesis
+            launcherProxy,
+            verseId,
+            verse.uAsset,
+            verse.memecoin,
+            verse.pol,
+            verse.yieldVault,
+            verse.governor,
+            verse.incentivizer,
+            verse.endTime,
+            verse.unlockTime,
+            verse.currentStage,
+            verse.flashGenesis
         );
     }
 
@@ -303,9 +309,9 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         verse.governor = GOVERNOR;
         verse.yieldVault = YIELD_VAULT;
         _setVerse(1, verse);
-        setVerseIdByMemecoinForTest(launcherProxy,MEMECOIN, 1);
-        setGenesisFundForTest(launcherProxy,1, 120 ether);
-        setUserGenesisDataForTest(launcherProxy,1, ALICE, 24 ether, false, false);
+        setVerseIdByMemecoinForTest(launcherProxy, MEMECOIN, 1);
+        setGenesisFundForTest(launcherProxy, 1, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, 1, ALICE, 24 ether, false, false);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.getVerseIdByMemecoin(address(0));
@@ -347,7 +353,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     function testPreviewPreorderCapacity_UsesAllNormalFundsAndLeveragedDebtBase() external {
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
-        setGenesisFundForTest(launcherProxy,1, 1000 ether);
+        setGenesisFundForTest(launcherProxy, 1, 1000 ether);
         polend.setTotalLeveragedDebt(500 ether);
         assertEq(launcher.previewPreorderCapacity(1), 262.5 ether, "70 percent base times ratio");
     }
@@ -355,14 +361,14 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testPreviewPreorderCapacity_HandlesLargeBaseWithoutIntermediateOverflow() external {
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
         uint256 baseFunds = type(uint128).max;
-        setGenesisFundForTest(launcherProxy,1, baseFunds);
+        setGenesisFundForTest(launcherProxy, 1, baseFunds);
 
         assertEq(launcher.previewPreorderCapacity(1), _expectedDefaultPreorderCapacity(baseFunds), "capacity");
     }
 
     function testPreviewPreorderCapacity_RevertsWhenTotalGenesisFundsExceedSupportedMaximum() external {
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
-        setGenesisFundForTest(launcherProxy,1, type(uint128).max);
+        setGenesisFundForTest(launcherProxy, 1, type(uint128).max);
         polend.setTotalLeveragedDebt(1);
 
         vm.expectRevert(
@@ -392,8 +398,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         uint40 settlementTimestamp = 1_000;
         uint256 elapsed = 2 days;
 
-        setPreorderStateForTest(launcherProxy,1, totalFunds, settledMemecoin, settlementTimestamp);
-        setUserPreorderDataForTest(launcherProxy,1, ALICE, userFunds, 0, false);
+        setPreorderStateForTest(launcherProxy, 1, totalFunds, settledMemecoin, settlementTimestamp);
+        setUserPreorderDataForTest(launcherProxy, 1, ALICE, userFunds, 0, false);
         vm.warp(uint256(settlementTimestamp) + elapsed);
 
         uint256 purchasedMemecoin = FullMath.mulDiv(settledMemecoin, userFunds, totalFunds);
@@ -405,8 +411,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     function testGetDebtCapBaseByVerseId_ReturnsMinTotalFundWhenNormalFundsAreLower() external {
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
-        setGenesisFundForTest(launcherProxy,1, 5 ether);
-        setFundMetaDataForTest(launcherProxy,address(uAssetToken), 10 ether, 1);
+        setGenesisFundForTest(launcherProxy, 1, 5 ether);
+        setFundMetaDataForTest(launcherProxy, address(uAssetToken), 10 ether, 1);
 
         (bool success, bytes memory data) =
             address(launcher).staticcall(abi.encodeWithSignature("getDebtCapBaseByVerseId(uint256)", 1));
@@ -417,8 +423,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     function testGetDebtCapBaseByVerseId_ReturnsNormalFundsWhenHigher() external {
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Genesis));
-        setGenesisFundForTest(launcherProxy,1, 15 ether);
-        setFundMetaDataForTest(launcherProxy,address(uAssetToken), 10 ether, 1);
+        setGenesisFundForTest(launcherProxy, 1, 15 ether);
+        setFundMetaDataForTest(launcherProxy, address(uAssetToken), 10 ether, 1);
 
         (bool success, bytes memory data) =
             address(launcher).staticcall(abi.encodeWithSignature("getDebtCapBaseByVerseId(uint256)", 1));
@@ -431,8 +437,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         uint256 verseId = 2;
         uint256 largeMinTotalFund = uint256(type(uint128).max) + 1;
         _setVerse(verseId, _baseVerse(IMemeverseLauncher.Stage.Genesis));
-        setGenesisFundForTest(launcherProxy,verseId, 0);
-        setFundMetaDataForTest(launcherProxy,address(uAssetToken), largeMinTotalFund, 1);
+        setGenesisFundForTest(launcherProxy, verseId, 0);
+        setFundMetaDataForTest(launcherProxy, address(uAssetToken), largeMinTotalFund, 1);
 
         assertEq(launcher.getDebtCapBaseByVerseId(verseId), largeMinTotalFund, "large min fund");
     }
@@ -501,14 +507,18 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testGenesis_AllowsAccumulationPastFormerFundBasedAmountCap() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, uint128(MAX_SUPPORTED_FUND_BASED_AMOUNT));
+        setGenesisFundForTest(launcherProxy, 1, uint128(MAX_SUPPORTED_FUND_BASED_AMOUNT));
 
         uAssetToken.mint(address(this), 1 ether);
         uAssetToken.approve(address(launcher), type(uint256).max);
 
         launcher.genesis(1, 1 ether, ALICE);
 
-        assertEq(MemeverseLauncher(launcherProxy).totalNormalFunds(1), MAX_SUPPORTED_FUND_BASED_AMOUNT + 1 ether, "funds increased");
+        assertEq(
+            MemeverseLauncher(launcherProxy).totalNormalFunds(1),
+            MAX_SUPPORTED_FUND_BASED_AMOUNT + 1 ether,
+            "funds increased"
+        );
         (uint256 genesisFund,,) = MemeverseLauncher(launcherProxy).userGenesisData(1, ALICE);
         assertEq(genesisFund, 1 ether, "genesis fund tracked");
     }
@@ -517,14 +527,18 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testGenesis_AllowsTotalNormalFundsAboveFormerSupportedCapBase() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, uint128(MAX_SUPPORTED_FUND_BASED_AMOUNT - 5));
+        setGenesisFundForTest(launcherProxy, 1, uint128(MAX_SUPPORTED_FUND_BASED_AMOUNT - 5));
 
         uAssetToken.mint(address(this), 10);
         uAssetToken.approve(address(launcher), type(uint256).max);
 
         launcher.genesis(1, 10, ALICE);
 
-        assertEq(MemeverseLauncher(launcherProxy).totalNormalFunds(1), MAX_SUPPORTED_FUND_BASED_AMOUNT + 5, "funds crossed old cap");
+        assertEq(
+            MemeverseLauncher(launcherProxy).totalNormalFunds(1),
+            MAX_SUPPORTED_FUND_BASED_AMOUNT + 5,
+            "funds crossed old cap"
+        );
         (uint256 genesisFund,,) = MemeverseLauncher(launcherProxy).userGenesisData(1, ALICE);
         assertEq(genesisFund, 10, "genesis fund recorded");
     }
@@ -532,7 +546,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testGenesis_RevertsWhenAggregateTotalGenesisFundsWouldExceedSupportedMaximum() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, type(uint128).max);
+        setGenesisFundForTest(launcherProxy, 1, type(uint128).max);
         polend.setTotalLeveragedDebt(1);
 
         uAssetToken.mint(address(this), 1);
@@ -553,7 +567,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testRefundSuccessMarksUserAndTransfersNativeFund() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Refund);
         _setVerse(1, verse);
-        setUserGenesisDataForTest(launcherProxy,1, ALICE, 1 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, 1, ALICE, 1 ether, false, false);
         uAssetToken.mint(address(launcher), 1 ether);
 
         vm.prank(ALICE);
@@ -572,9 +586,9 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         verse.pol = POL;
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, 120 ether);
-        setUserGenesisDataForTest(launcherProxy,1, ALICE, 0, false, false);
-        setTotalNormalClaimableYTForTest(launcherProxy,1, 60 ether);
+        setGenesisFundForTest(launcherProxy, 1, 120 ether);
+        setUserGenesisDataForTest(launcherProxy, 1, ALICE, 0, false, false);
+        setTotalNormalClaimableYTForTest(launcherProxy, 1, 60 ether);
 
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseLauncher.InvalidClaim.selector);
@@ -587,7 +601,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
         verse.currentStage = IMemeverseLauncher.Stage.Refund;
         _setVerse(1, verse);
-        setUserGenesisDataForTest(launcherProxy,1, ALICE, 1 ether, false, false);
+        setUserGenesisDataForTest(launcherProxy, 1, ALICE, 1 ether, false, false);
         uAssetToken.mint(address(launcher), 1 ether);
         vm.prank(ALICE);
         assertEq(launcher.refund(1), 1 ether);
@@ -604,7 +618,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
         verse.currentStage = IMemeverseLauncher.Stage.Genesis;
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, 4 ether);
+        setGenesisFundForTest(launcherProxy, 1, 4 ether);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.preorder(1, 0, ALICE);
@@ -619,7 +633,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testPreorderCapacity_IncludesPolFundsInNormalFundBase() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, 10 ether);
+        setGenesisFundForTest(launcherProxy, 1, 10 ether);
 
         uAssetToken.mint(address(this), 1 ether);
         uAssetToken.approve(address(launcher), type(uint256).max);
@@ -636,8 +650,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         uint256 expectedCapacity = _expectedDefaultPreorderCapacity(baseFunds);
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Genesis);
         _setVerse(1, verse);
-        setGenesisFundForTest(launcherProxy,1, baseFunds);
-        setPreorderStateForTest(launcherProxy,1, expectedCapacity - 1, 0, 0);
+        setGenesisFundForTest(launcherProxy, 1, baseFunds);
+        setPreorderStateForTest(launcherProxy, 1, expectedCapacity - 1, 0, 0);
 
         uAssetToken.mint(address(this), 1);
         uAssetToken.approve(address(launcher), type(uint256).max);
@@ -654,8 +668,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     function testClaimablePreorderMemecoin_LinearVestingOverSevenDays() external {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         _setVerse(1, verse);
-        setUserPreorderDataForTest(launcherProxy,1, ALICE, 1 ether, 10 ether, false);
-        setPreorderStateForTest(launcherProxy,1, 1 ether, 70 ether, uint40(block.timestamp));
+        setUserPreorderDataForTest(launcherProxy, 1, ALICE, 1 ether, 10 ether, false);
+        setPreorderStateForTest(launcherProxy, 1, 1 ether, 70 ether, uint40(block.timestamp));
         uAssetToken.mint(address(launcher), 70 ether);
 
         vm.prank(ALICE);
@@ -672,27 +686,27 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     function testClaimablePreorderMemecoinForTest_MatchesProductionWhenPreorderMarkedRefunded() external {
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Locked));
-        setUserPreorderDataForTest(launcherProxy,1, ALICE, 1 ether, 0, true);
-        setPreorderStateForTest(launcherProxy,1, 1 ether, 70 ether, uint40(block.timestamp));
+        setUserPreorderDataForTest(launcherProxy, 1, ALICE, 1 ether, 0, true);
+        setPreorderStateForTest(launcherProxy, 1, 1 ether, 70 ether, uint40(block.timestamp));
         vm.warp(block.timestamp + 7 days);
 
         vm.prank(ALICE);
         uint256 productionClaimable = launcher.claimablePreorderMemecoin(1);
 
-        assertEq(claimablePreorderMemecoinForTest(launcherProxy,1, ALICE), productionClaimable, "helper drift");
+        assertEq(claimablePreorderMemecoinForTest(launcherProxy, 1, ALICE), productionClaimable, "helper drift");
         assertEq(productionClaimable, 70 ether, "production ignores refund flag");
     }
 
     function testClaimablePreorderMemecoinForTest_MatchesProductionBeforeSettlementTime() external {
         uint40 settlementTimestamp = uint40(block.timestamp + 1 days);
         _setVerse(1, _baseVerse(IMemeverseLauncher.Stage.Locked));
-        setUserPreorderDataForTest(launcherProxy,1, ALICE, 1 ether, 0, false);
-        setPreorderStateForTest(launcherProxy,1, 1 ether, 70 ether, settlementTimestamp);
+        setUserPreorderDataForTest(launcherProxy, 1, ALICE, 1 ether, 0, false);
+        setPreorderStateForTest(launcherProxy, 1, 1 ether, 70 ether, settlementTimestamp);
 
         vm.prank(ALICE);
         uint256 productionClaimable = launcher.claimablePreorderMemecoin(1);
 
-        assertEq(claimablePreorderMemecoinForTest(launcherProxy,1, ALICE), productionClaimable, "helper drift");
+        assertEq(claimablePreorderMemecoinForTest(launcherProxy, 1, ALICE), productionClaimable, "helper drift");
         assertEq(productionClaimable, 0, "future settlement has no elapsed vesting");
     }
 
@@ -724,9 +738,11 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Locked);
         _setVerse(1, verse);
-        setUserPreorderDataForTest(launcherProxy,1, ALICE, fundsA, 0, false);
-        setUserPreorderDataForTest(launcherProxy,1, BOB, fundsB, 0, false);
-        setPreorderStateForTest(launcherProxy,1, uint256(fundsA) + uint256(fundsB), settledMemecoin, uint40(block.timestamp));
+        setUserPreorderDataForTest(launcherProxy, 1, ALICE, fundsA, 0, false);
+        setUserPreorderDataForTest(launcherProxy, 1, BOB, fundsB, 0, false);
+        setPreorderStateForTest(
+            launcherProxy, 1, uint256(fundsA) + uint256(fundsB), settledMemecoin, uint40(block.timestamp)
+        );
 
         vm.warp(block.timestamp + elapsed);
 
@@ -759,7 +775,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         IMemeverseLauncher.Memeverse memory verse = _baseVerse(IMemeverseLauncher.Stage.Unlocked);
         verse.governor = GOVERNOR;
         _setVerse(7, verse);
-        setVerseIdByMemecoinForTest(launcherProxy,MEMECOIN, 7);
+        setVerseIdByMemecoinForTest(launcherProxy, MEMECOIN, 7);
 
         IMemeverseLauncher.Memeverse memory stored = launcher.getMemeverseByMemecoin(MEMECOIN);
         assertEq(stored.memecoin, MEMECOIN);

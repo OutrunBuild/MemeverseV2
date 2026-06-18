@@ -142,24 +142,29 @@ contract MemeverseLauncherRegistrationTest is Test, MemeverseLauncherTestHelper 
         memecoin = new MockLauncherRegistrationToken();
         pol = new MockLauncherRegistrationToken();
         MemeverseLauncher impl = new MemeverseLauncher();
-        launcherProxy = address(new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(MemeverseLauncher.initialize, (
-                OWNER,
-                address(0x1),
-                REGISTRAR,
-                address(0x3),
-                address(0x4),
-                address(0x5),
-                address(polend),
-                address(0x1234),
-                25,
-                115_000,
-                135_000,
-                2_500,
-                7 days
-            ))
-        ));
+        launcherProxy = address(
+            new ERC1967Proxy(
+                address(impl),
+                abi.encodeCall(
+                    MemeverseLauncher.initialize,
+                    (
+                        OWNER,
+                        address(0x1),
+                        REGISTRAR,
+                        address(0x3),
+                        address(0x4),
+                        address(0x5),
+                        address(polend),
+                        address(0x1234),
+                        25,
+                        115_000,
+                        135_000,
+                        2_500,
+                        7 days
+                    )
+                )
+            )
+        );
         launcher = IMemeverseLauncher(launcherProxy);
 
         proxyDeployer.setNextDeployments(address(memecoin), address(pol));
@@ -393,11 +398,18 @@ contract MemeverseLauncherRegistrationTest is Test, MemeverseLauncherTestHelper 
         IMemeverseLauncher.Memeverse memory verse = launcher.getMemeverseByVerseId(uniqueId);
         address newGovernor = address(new MockGovernorForExternalInfo());
         setMemeverseForTest(
-            launcherProxy, uniqueId,
-            verse.uAsset, verse.memecoin, verse.pol, verse.yieldVault,
-            newGovernor, verse.incentivizer,
-            verse.endTime, verse.unlockTime,
-            verse.currentStage, verse.flashGenesis
+            launcherProxy,
+            uniqueId,
+            verse.uAsset,
+            verse.memecoin,
+            verse.pol,
+            verse.yieldVault,
+            newGovernor,
+            verse.incentivizer,
+            verse.endTime,
+            verse.unlockTime,
+            verse.currentStage,
+            verse.flashGenesis
         );
 
         vm.prank(newGovernor);
