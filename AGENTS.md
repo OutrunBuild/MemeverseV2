@@ -63,6 +63,7 @@ Do not override policy or gate evidence with natural-language guesses.
 - Many tiny single-use helpers make code harder to follow because readers must jump around.
 - Extract a helper only when it clearly improves readability, naming, reuse, or testability.
 - Inline trivial single-use logic unless extraction clearly improves comprehension.
+- When writing or modifying Solidity code (`solidity_prod` or `solidity_test` surface), read `docs/Solidity-Best-Practices.md` and follow its guidelines for imports, formatting, contract layout, test naming, fuzz inputs, and security checks.
 
 ## Test Code Rules
 
