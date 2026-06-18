@@ -738,11 +738,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         (uint256 amount0Floor, uint256 amount1Floor) =
             _normalizePairAmounts(currency0, currency1, amount0Min, amount1Min);
 
-        delta = hook.removeLiquidityCore(
-            IMemeverseUniswapHook.RemoveLiquidityCoreParams({
-                currency0: key.currency0, currency1: key.currency1, liquidity: liquidity, recipient: address(this)
-            })
-        );
+        delta = _removeLiquidityViaHook(key.currency0, key.currency1, liquidity);
 
         (uint256 amount0Out, uint256 amount1Out) = _receivedLiquidityAmounts(delta);
         if (amount0Out < amount0Floor || amount1Out < amount1Floor) {
@@ -751,6 +747,18 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
         _transferCurrency(key.currency0, to, amount0Out);
         _transferCurrency(key.currency1, to, amount1Out);
+    }
+
+    function _removeLiquidityViaHook(Currency currency0, Currency currency1, uint128 liquidity)
+        internal
+        returns (BalanceDelta delta)
+    {
+        IMemeverseUniswapHook.RemoveLiquidityCoreParams memory params;
+        params.currency0 = currency0;
+        params.currency1 = currency1;
+        params.liquidity = liquidity;
+        params.recipient = address(this);
+        delta = hook.removeLiquidityCore(params);
     }
 
     function _prepareCreatePoolAndAddLiquidityExecution(
@@ -780,15 +788,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address payer
     ) internal returns (uint128 liquidity, uint256 amount0Used, uint256 amount1Used) {
         BalanceDelta delta;
-        (liquidity, delta) = hook.addLiquidityCore(
-            IMemeverseUniswapHook.AddLiquidityCoreParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                amount0Desired: amount0Budget,
-                amount1Desired: amount1Budget,
-                to: to
-            })
-        );
+        (liquidity, delta) = _addLiquidityViaHookCore(key.currency0, key.currency1, amount0Budget, amount1Budget, to);
 
         (amount0Used, amount1Used) = _handleAddLiquiditySettlement(
             key.currency0, key.currency1, delta, amount0Budget, amount1Budget, 0, 0, payer
@@ -805,19 +805,27 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         address payer
     ) internal returns (uint128 liquidity, uint256 amount0Used, uint256 amount1Used) {
         BalanceDelta delta;
-        (liquidity, delta) = hook.addLiquidityCore(
-            IMemeverseUniswapHook.AddLiquidityCoreParams({
-                currency0: key.currency0,
-                currency1: key.currency1,
-                amount0Desired: amount0Desired,
-                amount1Desired: amount1Desired,
-                to: to
-            })
-        );
+        (liquidity, delta) = _addLiquidityViaHookCore(key.currency0, key.currency1, amount0Desired, amount1Desired, to);
 
         (amount0Used, amount1Used) = _handleAddLiquiditySettlement(
             key.currency0, key.currency1, delta, amount0Desired, amount1Desired, amount0Min, amount1Min, payer
         );
+    }
+
+    function _addLiquidityViaHookCore(
+        Currency currency0,
+        Currency currency1,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        address to
+    ) internal returns (uint128 liquidity, BalanceDelta delta) {
+        IMemeverseUniswapHook.AddLiquidityCoreParams memory params;
+        params.currency0 = currency0;
+        params.currency1 = currency1;
+        params.amount0Desired = amount0Desired;
+        params.amount1Desired = amount1Desired;
+        params.to = to;
+        (liquidity, delta) = hook.addLiquidityCore(params);
     }
 
     function _pullAndApproveAddLiquidityBudgets(

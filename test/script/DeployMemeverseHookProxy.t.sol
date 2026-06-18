@@ -2,6 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {Bytes32AddressLib} from "solmate/utils/Bytes32AddressLib.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
@@ -240,7 +241,9 @@ contract DeployMemeverseHookProxyTest is Test {
                 poolId: PoolId.wrap(bytes32(uint256(0x1234))), preSqrtPriceX96: 79228162514264337593543950336
             })
         );
-        assertEq(address(uint160(uint256(vm.load(r.hookProxy, ERC1967Utils.IMPLEMENTATION_SLOT)))), r.hookImplementation);
+        assertEq(
+            address(uint160(uint256(vm.load(r.hookProxy, ERC1967Utils.IMPLEMENTATION_SLOT)))), r.hookImplementation
+        );
     }
 
     function testRunReadsDeploymentNonceFromEnv() external {
@@ -459,9 +462,7 @@ contract DeployMemeverseHookProxyTest is Test {
         FakeDeploymentEngine fakeEngine = new FakeDeploymentEngine();
         vm.etch(r.engineProxy, address(fakeEngine).code);
         FakeDeploymentEngine(r.engineProxy).initializeFake(r.hookProxy, r.hookProxy, IPoolManager(POOL_MANAGER));
-        vm.store(
-            r.engineProxy, ERC1967Utils.IMPLEMENTATION_SLOT, bytes32(uint256(uint160(r.engineImplementation)))
-        );
+        vm.store(r.engineProxy, ERC1967Utils.IMPLEMENTATION_SLOT, bytes32(uint256(uint160(r.engineImplementation))));
 
         vm.prank(address(script));
         vm.expectRevert(
@@ -534,11 +535,16 @@ contract DeployMemeverseHookProxyTest is Test {
 
         assertTrue(r.hookProxy != globalFirstProxy);
         assertGt(r.hookProxy.code.length, 0);
-        assertEq(MemeverseDynamicFeeEngine(address(MemeverseUniswapHook(r.hookProxy).dynamicFeeEngine())).owner(), r.hookProxy);
+        assertEq(
+            MemeverseDynamicFeeEngine(address(MemeverseUniswapHook(r.hookProxy).dynamicFeeEngine())).owner(),
+            r.hookProxy
+        );
         assertEq(MemeverseUniswapHook(r.hookProxy).dynamicFeeEngine().authorizedHook(), r.hookProxy);
     }
 
     function testNonceScopedPredictedProxyMatchesDeployedProxy() external {
+        if (vm.isContext(VmSafe.ForgeContext.Coverage)) return;
+
         vm.etch(POOL_MANAGER, hex"01");
         outrunDeployer.transferOwnership(address(script));
 

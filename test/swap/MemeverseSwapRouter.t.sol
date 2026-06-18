@@ -2,6 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -324,6 +325,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
     /// @notice Verifies the regular ERC20 swap path stays below the current gas ceiling.
     /// @dev This captures the router-only gas cleanup target without changing swap semantics.
     function testSwap_RegularPathGasStaysBelowCeiling() external {
+        if (vm.isContext(VmSafe.ForgeContext.Coverage)) return;
+
         _setProtocolFeeCurrency(key.currency0);
         _matureLaunchWindow();
 
@@ -1794,15 +1797,49 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         assertEq(UniswapLP(liquidityToken).balanceOf(alice), 0, "lp burned");
     }
 
-    /// @notice Verifies reversed removeLiquidity mins are remapped from caller order to canonical pool order.
-    /// @dev Uses skewed pool pricing so canonical deltas are asymmetric and canonical-order mins fail when reversed.
+    /// @notice Verifies reversed removeLiquidity mins accept caller-order amounts on the success path.
+    /// @dev Uses skewed pool pricing so caller-order mins differ from canonical pool-order mins.
     function testRemoveLiquidity_ReversedCurrenciesRemapAsymmetricMinsFromCallerOrder() external {
+        (address liquidityToken, uint128 liquidity, uint256 canonicalAmount0, uint256 canonicalAmount1) =
+            _prepareAsymmetricReversedRemoveLiquidity();
+        uint256 token0Before = token0.balanceOf(alice);
+        uint256 token1Before = token1.balanceOf(alice);
+
+        vm.prank(alice);
+        BalanceDelta delta = router.removeLiquidity(
+            key.currency1, key.currency0, liquidity, canonicalAmount1, canonicalAmount0, alice, block.timestamp
+        );
+
+        assertEq(uint256(uint128(delta.amount0())), canonicalAmount0, "canonical delta0");
+        assertEq(uint256(uint128(delta.amount1())), canonicalAmount1, "canonical delta1");
+        assertEq(token0.balanceOf(alice) - token0Before, canonicalAmount0, "token0 returned");
+        assertEq(token1.balanceOf(alice) - token1Before, canonicalAmount1, "token1 returned");
+        assertEq(UniswapLP(liquidityToken).balanceOf(alice), 0, "lp burned");
+    }
+
+    /// @notice Verifies canonical-order mins still fail when the caller supplies reversed currencies.
+    /// @dev The same asymmetric quote that succeeds in caller order must fail in canonical order.
+    function testRemoveLiquidity_ReversedCurrenciesRejectCanonicalOrderAsCallerMins() external {
+        (, uint128 liquidity, uint256 canonicalAmount0, uint256 canonicalAmount1) =
+            _prepareAsymmetricReversedRemoveLiquidity();
+
+        vm.prank(alice);
+        vm.expectRevert(IMemeverseUniswapHook.TooMuchSlippage.selector);
+        router.removeLiquidity(
+            key.currency1, key.currency0, liquidity, canonicalAmount0, canonicalAmount1, alice, block.timestamp
+        );
+    }
+
+    function _prepareAsymmetricReversedRemoveLiquidity()
+        internal
+        returns (address liquidityToken, uint128 liquidity, uint256 canonicalAmount0, uint256 canonicalAmount1)
+    {
         _initializePoolDirect(key, SQRT_PRICE_1_1 / 2);
 
         vm.prank(alice);
         router.addLiquidity(key.currency0, key.currency1, 100 ether, 100 ether, 0, 0, alice, block.timestamp);
-        (address liquidityToken,,) = hook.poolInfo(poolId);
-        uint128 liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
+        (liquidityToken,,) = hook.poolInfo(poolId);
+        liquidity = uint128(UniswapLP(liquidityToken).balanceOf(alice));
 
         vm.prank(alice);
         UniswapLP(liquidityToken).approve(address(router), type(uint256).max);
@@ -1813,36 +1850,11 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
             router.removeLiquidity(key.currency1, key.currency0, liquidity, 0, 0, alice, block.timestamp);
         vm.revertToState(readyState);
 
-        uint256 canonicalAmount0 = uint256(uint128(quotedDelta.amount0()));
-        uint256 canonicalAmount1 = uint256(uint128(quotedDelta.amount1()));
+        canonicalAmount0 = uint256(uint128(quotedDelta.amount0()));
+        canonicalAmount1 = uint256(uint128(quotedDelta.amount1()));
         assertGt(canonicalAmount0, 0, "canonical amount0");
         assertGt(canonicalAmount1, 0, "canonical amount1");
         assertNotEq(canonicalAmount0, canonicalAmount1, "asymmetric mins");
-
-        uint256 callerAmount0Min = canonicalAmount1;
-        uint256 callerAmount1Min = canonicalAmount0;
-        uint256 successState = vm.snapshotState();
-        uint256 token0Before = token0.balanceOf(alice);
-        uint256 token1Before = token1.balanceOf(alice);
-
-        vm.prank(alice);
-        BalanceDelta delta = router.removeLiquidity(
-            key.currency1, key.currency0, liquidity, callerAmount0Min, callerAmount1Min, alice, block.timestamp
-        );
-
-        assertEq(uint256(uint128(delta.amount0())), canonicalAmount0, "canonical delta0");
-        assertEq(uint256(uint128(delta.amount1())), canonicalAmount1, "canonical delta1");
-        assertEq(token0.balanceOf(alice) - token0Before, canonicalAmount0, "token0 returned");
-        assertEq(token1.balanceOf(alice) - token1Before, canonicalAmount1, "token1 returned");
-        assertEq(UniswapLP(liquidityToken).balanceOf(alice), 0, "lp burned");
-
-        vm.revertToState(successState);
-
-        vm.prank(alice);
-        vm.expectRevert(IMemeverseUniswapHook.TooMuchSlippage.selector);
-        router.removeLiquidity(
-            key.currency1, key.currency0, liquidity, canonicalAmount0, canonicalAmount1, alice, block.timestamp
-        );
     }
 
     /// @notice Verifies pool bootstrap rejects identical token pairs.

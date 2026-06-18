@@ -279,60 +279,88 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         int256 workingAmountSpecified = amountSpecified;
         uint256 userInputAmount = amountSpecified < 0 ? uint256(-amountSpecified) : 0;
         uint256 requestedNetOutputAmount = amountSpecified > 0 ? uint256(amountSpecified) : 0;
-
-        uint256 spotBeforeX18;
-        uint256 preVolatilityPartBps;
-        uint256 preDecayedShortPpm;
-        spotBeforeX18 = FeeMath.spotX18FromSqrtPrice(preSqrtPriceX96);
-        preVolatilityPartBps = FeeMath.volatilitySqrtFeeBps(state.volDeviationAccumulator);
-        preDecayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
+        uint256 spotBeforeX18 = FeeMath.spotX18FromSqrtPrice(preSqrtPriceX96);
 
         for (uint256 i = 0; i < 3; ++i) {
-            uint160 postSqrtPriceX96;
-            (
-                quote.estimatedInputAmount,
-                quote.estimatedOutputAmount,
-                quote.estimatedGrossOutputAmount,
-                postSqrtPriceX96
-            ) = _estimateSwapFlowAndPostPrice(liquidity, preSqrtPriceX96, zeroForOne, workingAmountSpecified);
+            bool converged;
+            (quote, workingAmountSpecified, converged) = _estimateDynamicFeeQuoteIter(
+                quote,
+                state,
+                senderBatchState,
+                liquidity,
+                preSqrtPriceX96,
+                spotBeforeX18,
+                zeroForOne,
+                amountSpecified,
+                workingAmountSpecified,
+                userInputAmount,
+                requestedNetOutputAmount,
+                feeOnInput,
+                launchFeeBps
+            );
             if (quote.estimatedInputAmount == 0) return quote;
-
-            quote.spotBeforeX18 = spotBeforeX18;
-            quote.spotAfterX18 = FeeMath.spotX18FromSqrtPrice(postSqrtPriceX96);
-            quote.pifPpm = FeeMath.priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
-            _populateDynamicFeeQuoteFromState(quote, state, senderBatchState, preVolatilityPartBps, preDecayedShortPpm);
-
-            if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
-
-            if (amountSpecified < 0) {
-                uint256 inputSideFeeBps = feeOnInput ? quote.feeBps : FeeMath.lpFeeBps(quote.feeBps);
-                uint256 inputSideFeeAmount = FullMath.mulDiv(userInputAmount, inputSideFeeBps, BPS_BASE);
-                uint256 netPoolInputAmount =
-                    userInputAmount > inputSideFeeAmount ? userInputAmount - inputSideFeeAmount : 0;
-                if (netPoolInputAmount == quote.estimatedInputAmount) return quote;
-                workingAmountSpecified = -int256(netPoolInputAmount);
-                continue;
-            }
-
-            if (feeOnInput) return quote;
-            uint256 grossedOutputAmount = requestedNetOutputAmount
-                + _grossUpFeeFromNetOutput(requestedNetOutputAmount, FeeMath.protocolFeeBps(quote.feeBps));
-            if (grossedOutputAmount == quote.estimatedGrossOutputAmount) {
-                quote.estimatedOutputAmount = requestedNetOutputAmount;
-                return quote;
-            }
-            workingAmountSpecified = int256(grossedOutputAmount);
+            if (converged) return quote;
         }
 
         if (amountSpecified > 0 && !feeOnInput) quote.estimatedOutputAmount = requestedNetOutputAmount;
     }
 
-    function _populateDynamicFeeQuoteFromState(
+    /// @dev Single iteration of the iterative dynamic fee quote convergence loop.
+    ///      Returns the updated quote, the next `workingAmountSpecified`, and whether the loop has
+    ///      converged (caller should return). A non-converged iteration may still produce a zero
+    ///      next `workingAmountSpecified` (e.g. fee consumes the entire input), so convergence is
+    ///      signaled explicitly via the bool rather than reusing the amount value.
+    function _estimateDynamicFeeQuoteIter(
         PreparedSwapFee memory quote,
         DynamicFeeState memory state,
         AddressBatchState memory senderBatchState,
-        uint256 preVolatilityPartBps,
-        uint256 preDecayedShortPpm
+        uint128 liquidity,
+        uint160 preSqrtPriceX96,
+        uint256 spotBeforeX18,
+        bool zeroForOne,
+        int256 amountSpecified,
+        int256 workingAmountSpecified,
+        uint256 userInputAmount,
+        uint256 requestedNetOutputAmount,
+        bool feeOnInput,
+        uint256 launchFeeBps
+    ) internal view returns (PreparedSwapFee memory, int256 nextWorkingAmount, bool converged) {
+        uint160 postSqrtPriceX96;
+        (quote.estimatedInputAmount, quote.estimatedOutputAmount, quote.estimatedGrossOutputAmount, postSqrtPriceX96) =
+            _estimateSwapFlowAndPostPrice(liquidity, preSqrtPriceX96, zeroForOne, workingAmountSpecified);
+        if (quote.estimatedInputAmount == 0) return (quote, 0, true);
+
+        quote.spotBeforeX18 = spotBeforeX18;
+        quote.spotAfterX18 = FeeMath.spotX18FromSqrtPrice(postSqrtPriceX96);
+        quote.pifPpm = FeeMath.priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
+        _populateDynamicFeeQuoteFromState(quote, state, senderBatchState);
+
+        if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
+
+        if (amountSpecified < 0) {
+            uint256 inputSideFeeBps = feeOnInput ? quote.feeBps : FeeMath.lpFeeBps(quote.feeBps);
+            uint256 inputSideFeeAmount = FullMath.mulDiv(userInputAmount, inputSideFeeBps, BPS_BASE);
+            uint256 netPoolInputAmount = userInputAmount > inputSideFeeAmount ? userInputAmount - inputSideFeeAmount : 0;
+            // Fee fully consuming the input (netPoolInputAmount == 0) is NOT convergence; the loop
+            // must continue so the next iteration estimates with zero input and reports failure.
+            if (netPoolInputAmount == quote.estimatedInputAmount) return (quote, 0, true);
+            return (quote, -int256(netPoolInputAmount), false);
+        }
+
+        if (feeOnInput) return (quote, 0, true);
+        uint256 grossedOutputAmount = requestedNetOutputAmount
+            + _grossUpFeeFromNetOutput(requestedNetOutputAmount, FeeMath.protocolFeeBps(quote.feeBps));
+        if (grossedOutputAmount == quote.estimatedGrossOutputAmount) {
+            quote.estimatedOutputAmount = requestedNetOutputAmount;
+            return (quote, 0, true);
+        }
+        return (quote, int256(grossedOutputAmount), false);
+    }
+
+    function _populateDynamicFeeQuoteFromState(
+        PreparedSwapFee memory quote,
+        DynamicFeeState memory state,
+        AddressBatchState memory senderBatchState
     ) internal view {
         bool hasHistory = state.weightedVolume0 > 0 && state.ewVWAPX18 > 0;
         quote.isAdverse = hasHistory
@@ -354,8 +382,9 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
         uint256 dynamicPpm = FullMath.mulDiv(dffPpm, effectivePifPpm, PPM_BASE);
         quote.adverseImpactPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
-        quote.volatilityPartBps = preVolatilityPartBps;
+        quote.volatilityPartBps = FeeMath.volatilitySqrtFeeBps(state.volDeviationAccumulator);
 
+        uint256 preDecayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
         uint256 projectedShortPpm = preDecayedShortPpm + quote.pifPpm;
         if (projectedShortPpm > SHORT_CAP_PPM) projectedShortPpm = SHORT_CAP_PPM;
         uint256 chargeableShortPpm = projectedShortPpm > SHORT_FLOOR_PPM ? projectedShortPpm - SHORT_FLOOR_PPM : 0;

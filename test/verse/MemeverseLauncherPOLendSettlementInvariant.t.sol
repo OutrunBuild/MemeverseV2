@@ -157,8 +157,7 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLaunch
         IPOLend.LendMarket memory market = polend.getLendMarket(VERSE_ID);
         (uint256 residualUAsset,) = polend.residualStates(VERSE_ID);
         (uint256 accUAssetFee, uint256 accPTFee) = MemeverseLauncher(launcherProxy).normalFeeStates(VERSE_ID);
-        (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) =
-            MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
+        (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) = _auxiliaryLiquidities();
 
         assertEq(uint256(market.state), uint256(IPOLend.MarketState.Settled), "market settled");
         assertEq(globalDebtBeforeSettlement, LEVERAGED_DEBT, "pre settlement global debt");
@@ -208,8 +207,7 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLaunch
 
         IPOLend.LendMarket memory market = polend.getLendMarket(VERSE_ID);
         (uint256 residualUAsset,) = polend.residualStates(VERSE_ID);
-        (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) =
-            MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
+        (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount) = _auxiliaryLiquidities();
 
         assertEq(uint256(market.state), uint256(IPOLend.MarketState.Settled), "market settled");
         assertEq(globalDebtBeforeSettlement, LEVERAGED_DEBT, "pre settlement global debt");
@@ -458,6 +456,14 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLaunch
         vm.prank(launcherProxy);
         pol.approve(address(splitter), type(uint256).max);
     }
+
+    function _auxiliaryLiquidities()
+        internal
+        view
+        returns (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount)
+    {
+        return MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
+    }
 }
 
 contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
@@ -625,8 +631,7 @@ contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
         hook.setClaimQuote(address(pol), address(uAsset), 0, auxiliaryUAssetFee);
 
         uint256 treasuryBefore = uAsset.balanceOf(TREASURY);
-        (initialPolUAssetLp, initialPtUAssetLp, initialPtPolLp) =
-            MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
+        (initialPolUAssetLp, initialPtUAssetLp, initialPtPolLp) = _auxiliaryLiquidities();
 
         uint256 totalFunds = normalFunds + debt;
         uint256 leveragedPolUAssetLp = initialPolUAssetLp * debt / totalFunds;
@@ -682,8 +687,15 @@ contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
         settlementUAssetAfter = splitterSettlementUAsset;
         ptTotalSupplyAfter = MockERC20(ptAfter).totalSupply();
         ptBackingAfter = splitter.previewPTToUAsset(VERSE_ID, ptTotalSupplyAfter);
-        (remainingPolUAssetLp, remainingPtUAssetLp, remainingPtPolLp) =
-            MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
+        (remainingPolUAssetLp, remainingPtUAssetLp, remainingPtPolLp) = _auxiliaryLiquidities();
+    }
+
+    function _auxiliaryLiquidities()
+        internal
+        view
+        returns (uint256 polUAssetLpAmount, uint256 ptUAssetLpAmount, uint256 ptPolLpAmount)
+    {
+        return MemeverseLauncher(launcherProxy).auxiliaryLiquidities(VERSE_ID);
     }
 
     function expectedDeficit() external view returns (uint256) {
