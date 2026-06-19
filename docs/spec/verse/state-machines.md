@@ -102,7 +102,7 @@ bootstrap auxiliary pool creation 的 auxiliary underspend 处置（actual spend
 | --- | --- | --- | --- |
 | `LaunchFeeWindowActive` | `block.timestamp - poolLaunchTimestamp < decayDurationSeconds` | 动态费结果受 launch fee floor 约束（默认 5000 bps 向 100 bps 衰减） | 当前规则（代码已证） |
 | `LaunchFeeWindowMatured` | 超过衰减窗口 | 保留动态费/最小费逻辑 | 当前规则（代码已证） |
-| `LaunchSettlementPath` | Launcher 显式调用 `hook.executeLaunchSettlement(...)` | 固定总费（数值见 [config-matrix.md §3](config-matrix.md)；记账见 [accounting.md §7.4](accounting.md)），仅已绑定 launcher 可触发；不依赖 `hookData` marker | 当前规则（代码已证） |
+| `PreorderSettlementPath` | Launcher 显式调用 `hook.executePreorderSettlement(...)` | 固定总费（数值见 [config-matrix.md §3](config-matrix.md)；记账见 [accounting.md §7.4](accounting.md)），仅已绑定 launcher 可触发；不依赖 `hookData` marker | 当前规则（代码已证） |
 
 ### 4.2 结论
 

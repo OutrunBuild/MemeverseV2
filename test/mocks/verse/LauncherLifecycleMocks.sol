@@ -36,7 +36,7 @@ interface IClaimNormalFeesReentryObserver {
     function onRedeemPTCallback() external;
 }
 
-contract MockLaunchSettlementHookForLauncherTest {
+contract MockPreorderSettlementHookForLauncherTest {
     using PoolIdLibrary for PoolKey;
 
     struct LaunchSwapResult {
@@ -58,11 +58,11 @@ contract MockLaunchSettlementHookForLauncherTest {
     uint160 internal expectedOneForZeroSqrtPriceLimitX96;
     address internal initializer;
     bool internal enforceExpectedSqrtPriceLimitX96;
-    bool internal revertLaunchSettlement;
-    string internal launchSettlementRevertReason;
-    bool internal lastLaunchSettlementZeroForOne;
-    uint160 internal lastLaunchSettlementSqrtPriceLimitX96;
-    uint256 internal launchSettlementCallCount;
+    bool internal revertPreorderSettlement;
+    string internal preorderSettlementRevertReason;
+    bool internal lastPreorderSettlementZeroForOne;
+    uint160 internal lastPreorderSettlementSqrtPriceLimitX96;
+    uint256 internal preorderSettlementCallCount;
 
     constructor(address boundLauncher_, address initializer_) {
         boundLauncher = boundLauncher_;
@@ -139,32 +139,32 @@ contract MockLaunchSettlementHookForLauncherTest {
         enforceExpectedSqrtPriceLimitX96 = true;
     }
 
-    function setLaunchSettlementRevert(string calldata reason) external {
-        revertLaunchSettlement = true;
-        launchSettlementRevertReason = reason;
+    function setPreorderSettlementRevert(string calldata reason) external {
+        revertPreorderSettlement = true;
+        preorderSettlementRevertReason = reason;
     }
 
     function lastSettlementZeroForOne() external view returns (bool zeroForOne) {
-        return lastLaunchSettlementZeroForOne;
+        return lastPreorderSettlementZeroForOne;
     }
 
     function lastSettlementSqrtPriceLimitX96() external view returns (uint160 sqrtPriceLimitX96) {
-        return lastLaunchSettlementSqrtPriceLimitX96;
+        return lastPreorderSettlementSqrtPriceLimitX96;
     }
 
     function settlementCallCount() external view returns (uint256 count) {
-        return launchSettlementCallCount;
+        return preorderSettlementCallCount;
     }
 
-    function executeLaunchSettlement(IMemeverseUniswapHook.LaunchSettlementParams calldata params)
+    function executePreorderSettlement(IMemeverseUniswapHook.PreorderSettlementParams calldata params)
         external
         returns (BalanceDelta delta)
     {
         require(msg.sender == boundLauncher, "unauthorized launcher");
-        if (revertLaunchSettlement) revert(launchSettlementRevertReason);
-        lastLaunchSettlementZeroForOne = params.params.zeroForOne;
-        lastLaunchSettlementSqrtPriceLimitX96 = params.params.sqrtPriceLimitX96;
-        launchSettlementCallCount++;
+        if (revertPreorderSettlement) revert(preorderSettlementRevertReason);
+        lastPreorderSettlementZeroForOne = params.params.zeroForOne;
+        lastPreorderSettlementSqrtPriceLimitX96 = params.params.sqrtPriceLimitX96;
+        preorderSettlementCallCount++;
         if (enforceExpectedSqrtPriceLimitX96) {
             uint160 expectedSqrtPriceLimitX96 =
                 params.params.zeroForOne ? expectedZeroForOneSqrtPriceLimitX96 : expectedOneForZeroSqrtPriceLimitX96;
@@ -242,7 +242,7 @@ contract MockSwapRouter {
     mapping(bytes32 => uint256) internal paddedLiquidityQuoteAmountB;
     mapping(bytes32 => uint256) internal exactLiquidityQuoteAmountA;
     mapping(bytes32 => uint256) internal exactLiquidityQuoteAmountB;
-    MockLaunchSettlementHookForLauncherTest internal immutable settlementHook;
+    MockPreorderSettlementHookForLauncherTest internal immutable settlementHook;
     uint256 internal addLiquidityCallCount_;
     uint256 internal addLiquidityDetailedCallCount_;
     uint256 internal createPoolAndAddLiquidityCallCount_;
@@ -253,11 +253,11 @@ contract MockSwapRouter {
     bool internal revertNextRemoveLiquidity;
 
     constructor(address launcher_) {
-        settlementHook = new MockLaunchSettlementHookForLauncherTest(launcher_, address(this));
+        settlementHook = new MockPreorderSettlementHookForLauncherTest(launcher_, address(this));
     }
 
     /// @notice Exposes the mock hook used by the router.
-    /// @dev Returns the helper hook that supports explicit launch settlement execution.
+    /// @dev Returns the helper hook that supports explicit preorder settlement execution.
     /// @return hookAddress Mock hook address.
     function hook() external view returns (address) {
         return address(settlementHook);
@@ -430,8 +430,8 @@ contract MockSwapRouter {
 
     /// @notice Sets the mocked launch preorder swap result for a pair.
     /// @dev Stores the input budget consumed and the memecoin amount returned to the recipient.
-    /// @param tokenIn Input token used by the launch settlement swap.
-    /// @param tokenOut Output token returned by the launch settlement swap.
+    /// @param tokenIn Input token used by the preorder settlement swap.
+    /// @param tokenOut Output token returned by the preorder settlement swap.
     /// @param amountIn Mock amount of `tokenIn` consumed.
     /// @param amountOut Mock amount of `tokenOut` returned.
     function setLaunchSwapResult(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut) external {

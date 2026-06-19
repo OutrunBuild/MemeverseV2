@@ -165,7 +165,7 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
         directSwapHelper = new DirectPoolManagerSwapHelper(manager);
     }
 
-    function testExecuteLaunchSettlement_RealRouterHookManagerPath_AllowsBootstrapDust() external {
+    function testExecutePreorderSettlement_RealRouterHookManagerPath_AllowsBootstrapDust() external {
         IMemeverseLauncher.Memeverse memory verse = _lockVerseWithLiquidity();
 
         (uint256 totalFunds, uint256 settledMemecoin, uint40 settlementTimestamp) =
@@ -410,7 +410,7 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
         _expectDirectSwapExactInputRevert(address(pt), verse.pol, 0.1 ether, selector);
     }
 
-    function testUnlockedPublicSwaps_RealRouterPath_ExecuteLaunchSettlementSpoofBlockedDuringProtection() external {
+    function testUnlockedPublicSwaps_RealRouterPath_ExecutePreorderSettlementSpoofBlockedDuringProtection() external {
         IMemeverseLauncher.Memeverse memory verse = _lockVerseWithLiquidity();
 
         vm.warp(uint256(verse.unlockTime) + 1);
@@ -422,8 +422,8 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
 
         vm.prank(ALICE);
         vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({
                     zeroForOne: zeroForOne, amountSpecified: -int256(0.1 ether), sqrtPriceLimitX96: sqrtPriceLimitX96

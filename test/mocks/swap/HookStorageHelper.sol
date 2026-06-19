@@ -8,6 +8,10 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {MemeverseDynamicFeeEngine} from "../../../src/swap/MemeverseDynamicFeeEngine.sol";
+import {MemeversePreorderSettlementExecutor} from "../../../src/swap/MemeversePreorderSettlementExecutor.sol";
+import {
+    IMemeversePreorderSettlementExecutor
+} from "../../../src/swap/interfaces/IMemeversePreorderSettlementExecutor.sol";
 import {MemeverseUniswapHook} from "../../../src/swap/MemeverseUniswapHook.sol";
 import {UniswapLP} from "../../../src/swap/tokens/UniswapLP.sol";
 
@@ -77,18 +81,32 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
         internal
         returns (address hookProxy, address engineProxy)
     {
-        // (a) Predict engine proxy address: next CREATE after engine impl.
+        // (a) Predict every CREATE address up front. CREATE order (nonce increments):
+        //     N: LP impl, N+1: preorder executor (HOOK-bound to mined proxy), N+2: engine impl,
+        //     N+3: engine proxy, N+4: hook impl, then CREATE2 hook proxy.
+        // The executor is immutable-bound to the hook PROXY (the msg.sender of execute). Its constructor
+        // needs the proxy address, but the proxy is mined from initCode that only references the executor
+        // ADDRESS (not instance). So predict the executor address first, mine the proxy, then deploy the
+        // executor bound to the mined proxy — breaking the chicken-egg without shifting CREATE nonces.
         uint256 nonceBeforeEngineImpl = vm.getNonce(address(this));
-        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager);
-        address predictedEngineProxy = vm.computeCreateAddress(address(this), nonceBeforeEngineImpl + 1);
+        UniswapLP lpTokenImplementation = new UniswapLP();
+        address predictedExecutor = vm.computeCreateAddress(address(this), nonceBeforeEngineImpl + 1);
+        address predictedEngineProxy = vm.computeCreateAddress(address(this), nonceBeforeEngineImpl + 3);
 
-        // (b) Predict hook impl address: CREATE order is engine impl, engine proxy, hook impl.
-        address predictedHookImpl = vm.computeCreateAddress(address(this), nonceBeforeEngineImpl + 2);
+        // (b) Predict hook impl address.
+        address predictedHookImpl = vm.computeCreateAddress(address(this), nonceBeforeEngineImpl + 4);
 
         // (c) Assemble hook proxy initCode. The engine reference must be the engine PROXY (not impl),
         //     since hook.initialize reads engine.owner/authorizedHook behind the proxy.
         bytes memory hookInitData = abi.encodeCall(
-            MemeverseUniswapHook.initialize, (hookOwner, treasury, MemeverseDynamicFeeEngine(predictedEngineProxy))
+            MemeverseUniswapHook.initialize,
+            (
+                hookOwner,
+                treasury,
+                MemeverseDynamicFeeEngine(predictedEngineProxy),
+                address(lpTokenImplementation),
+                IMemeversePreorderSettlementExecutor(predictedExecutor)
+            )
         );
         bytes memory proxyInitCode =
             abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(predictedHookImpl, hookInitData));
@@ -107,7 +125,13 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
         }
         require(uint160(predictedProxy) & HOOK_FLAG_MASK == HOOK_REQUIRED_FLAGS, "no mined salt");
 
-        // (e) Deploy engine proxy with owner = authorizedHook = predictedProxy. Lands at predictedEngineProxy.
+        // (e) Deploy the preorder executor bound to the mined hook proxy. CREATE address == predictedExecutor.
+        MemeversePreorderSettlementExecutor preorderSettlementExecutor =
+            new MemeversePreorderSettlementExecutor(predictedProxy);
+        require(address(preorderSettlementExecutor) == predictedExecutor, "executor drifted");
+
+        // (f) Deploy engine impl, then engine proxy with owner = authorizedHook = predictedProxy.
+        MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(manager);
         MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
             address(
                 new ERC1967Proxy(
@@ -117,10 +141,10 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
             )
         );
 
-        // (f) Deploy hook implementation (the REAL production contract).
+        // (g) Deploy hook implementation (the REAL production contract).
         MemeverseUniswapHook hookImpl = new MemeverseUniswapHook(manager);
 
-        // (g) CREATE2-deploy hook proxy at the mined predictedProxy address; initialize runs here.
+        // (h) CREATE2-deploy hook proxy at the mined predictedProxy address; initialize runs here.
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(hookImpl), hookInitData);
 
         require(address(proxy) == predictedProxy, "CREATE2 proxy drifted");

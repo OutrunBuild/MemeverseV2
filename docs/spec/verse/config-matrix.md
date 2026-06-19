@@ -30,7 +30,7 @@
 | `MemeverseRegistrarOmnichain` | `registrationGasLimit`（base/local/omnichain） | `setRegistrationGasLimit` | owner-only（数值不做额外边界） | remote registrar -> center 的 quote/send gas 预算 | `[代码已证]` |
 | `MemeverseUniswapHook` | `treasury` | `setTreasury` | 非零 | protocol fee 接收地址 | `[代码已证]` |
 | `MemeverseUniswapHook` | `supportedProtocolFeeCurrencies[currency]` | `setProtocolFeeCurrency` / `setProtocolFeeCurrencySupport` | owner-only | 协议费币种选择（输入侧优先） | `[代码已证]` |
-| `MemeverseUniswapHook` | `launcher` | `setLauncher` | 非零；允许 owner 在部署后 retarget，属于同一 trust boundary 的接受语义 | launch settlement 授权 + pair-based `setPublicSwapResumeTime` 写入权限绑定 | `[代码已证]` |
+| `MemeverseUniswapHook` | `launcher` | `setLauncher` | 非零；允许 owner 在部署后 retarget，属于同一 trust boundary 的接受语义 | preorder settlement 授权 + pair-based `setPublicSwapResumeTime` 写入权限绑定 | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig={start,min,decaySeconds}` | `setDefaultLaunchFeeConfig` | 全部非零；`min<=start<=10000` | 启动窗口费率衰减 | `[代码已证]` |
 | `MemeverseOmnichainInteroperation` | `oftReceiveGasLimit`,`omnichainStakingGasLimit` | `setGasLimits` | 两者 `>0` | memecoin 远端 staking OFT options | `[代码已证]` |
 | `MemeverseProxyDeployer` | `quorumNumerator` | `setQuorumNumerator` | 非零 | 仅影响后续新部署 governor 初始化 | `[代码已证]` |
@@ -72,7 +72,7 @@ canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy
 | `MemeverseRegistrarAtLocal` | unlock 辅助计算 | `365 days` | 本地报价辅助使用固定锁定期，与中心链最终写入语义一致 | `[代码已证]` |
 | `MemeverseUniswapHook` | `PROTOCOL_FEE_RATIO_BPS` | `3000` | `feeBps` 中 protocol fee 占比 30% | `[代码已证]` |
 | `MemeverseUniswapHook` | `TICK_SPACING` | `200` | 只接受该 tick spacing | `[代码已证]` |
-| `MemeverseUniswapHook` | `LAUNCH_SETTLEMENT_FEE_BPS` | `100` | 启动结算固定 1% | `[代码已证]` |
+| `MemeverseUniswapHook` | `PREORDER_SETTLEMENT_FEE_BPS` | `100` | preorder 结算固定 1% | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig` 初始值 | `start=5000,min=100,decay=900s` | proxy `initialize(initialOwner, treasury_)` 初始化；owner 可通过 `setDefaultLaunchFeeConfig(...)` 后续修改 | `[代码已证]` |
 | `MemeverseSwapRouter` | `hook`,`permit2` | 构造注入（immutable） | 外部依赖地址，部署后不可改 | `[代码已证]` |
 | `DeployMemeverseHookProxy` | `DEPLOYMENT_NONCE` | 首次 `0`，每次新部署递增 | 嵌入 CREATE3 salt，决定 engine impl/proxy + hook impl/proxy 四份合约地址；同 nonce 同配置幂等，同 nonce 不同配置 revert，失败后递增 nonce 重试 | `[代码已证]` |
@@ -88,7 +88,7 @@ canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy
 
 | 主题 | 说明 | 当前实现事实 | 结论 |
 | --- | --- | --- | --- |
-| swap 启动保护 | 启动期保护机制 | 当前主路径为 execute-or-revert + launch fee 衰减 + 显式 `Launcher -> Hook.executeLaunchSettlement(...)` | 以当前实现为准 |
+| swap 启动保护 | 启动期保护机制 | 当前主路径为 execute-or-revert + launch fee 衰减 + 显式 `Launcher -> Hook.executePreorderSettlement(...)` | 以当前实现为准 |
 | unlock 后公开 swap 保护 | 公开交易恢复时机 | 公开 swap 恢复时间由 `Locked -> Unlocked` 迁移同交易写入的 pool-level `publicSwapResumeTime` 控制；窗口为固定产品常量，不再有 owner 配置面 | 以当前实现为准 |
 | unlock settlement 执行顺序 | 解锁结算与公开 swap 保护 | 同交易 settlement 顺序与保护窗口写入的不变量口径见 [docs/spec/invariants.md](../invariants.md) INV-07A / INV-12 | 以当前实现为准 |
 | launch fee 时间单位 | launch fee 的时间语义 | 代码使用 `decayDurationSeconds`（秒） | 以秒语义解读 |

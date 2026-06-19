@@ -9,8 +9,11 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {BaseScript} from "./BaseScript.s.sol";
 import {IOutrunDeployer} from "./IOutrunDeployer.sol";
 import {MemeverseDynamicFeeEngine} from "../src/swap/MemeverseDynamicFeeEngine.sol";
+import {MemeversePreorderSettlementExecutor} from "../src/swap/MemeversePreorderSettlementExecutor.sol";
 import {MemeverseUniswapHook} from "../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseDynamicFeeEngine} from "../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
+import {IMemeversePreorderSettlementExecutor} from "../src/swap/interfaces/IMemeversePreorderSettlementExecutor.sol";
+import {UniswapLP} from "../src/swap/tokens/UniswapLP.sol";
 
 /// @title DeployMemeverseHookProxy
 /// @notice Deploys the production Memeverse Uniswap v4 hook implementation and ERC1967 proxy.
@@ -25,6 +28,10 @@ contract DeployMemeverseHookProxy is BaseScript {
         hex"4d656d65766572736544796e616d6963466565456e67696e65496d706c656d656e746174696f6e";
     bytes internal constant HOOK_IMPL_SALT_SEED =
         hex"4d656d657665727365556e6973776170486f6f6b496d706c656d656e746174696f6e";
+    bytes internal constant LP_TOKEN_IMPL_SALT_SEED =
+        hex"4d656d657665727365556e69737761704c50546f6b656e496d706c656d656e746174696f6e";
+    bytes internal constant PREORDER_SETTLEMENT_EXECUTOR_SALT_SEED =
+        hex"4d656d6576657273655072656f72646572536574746c656d656e744578656375746f72";
 
     error PoolManagerCodeNotReady(address poolManager);
     error ProxySaltNotFound(uint256 checkedSalts);
@@ -35,6 +42,8 @@ contract DeployMemeverseHookProxy is BaseScript {
     error EngineImplementationCreate3SaltConsumed(bytes32 salt, address create3Proxy);
     error EngineProxyCreate3SaltConsumed(bytes32 salt, address create3Proxy);
     error HookImplementationCreate3SaltConsumed(bytes32 salt, address create3Proxy);
+    error LPTokenImplementationCreate3SaltConsumed(bytes32 salt, address create3Proxy);
+    error PreorderSettlementExecutorCreate3SaltConsumed(bytes32 salt, address create3Proxy);
     error ExistingIntermediateDeploymentNotReusable(address deployed);
     error ExistingHookOwnerMismatch(address hook, address expectedOwner, address actualOwner);
     error ExistingHookTreasuryMismatch(address hook, address expectedTreasury, address actualTreasury);
@@ -43,6 +52,14 @@ contract DeployMemeverseHookProxy is BaseScript {
         address hook, address expectedImplementation, address actualImplementation
     );
     error ExistingHookEngineMismatch(address hook, address expectedEngine, address actualEngine);
+    error ExistingHookLPTokenImplementationMismatch(
+        address hook, address expectedImplementation, address actualImplementation
+    );
+    error ExistingHookLPTokenImplementationCodeMissing(address implementation);
+    error ExistingHookPreorderSettlementExecutorMismatch(
+        address hook, address expectedExecutor, address actualExecutor
+    );
+    error ExistingHookPreorderSettlementExecutorCodeMissing(address executor);
     error ExistingEngineAuthorizedHookMismatch(address engine, address expectedHook, address actualHook);
     error ExistingEngineOwnerMismatch(address engine, address expectedOwner, address actualOwner);
     error ExistingEnginePoolManagerMismatch(address engine, address expectedPoolManager, address actualPoolManager);
@@ -52,10 +69,18 @@ contract DeployMemeverseHookProxy is BaseScript {
     error ExistingEngineImplementationCodehashMismatch(
         address implementation, bytes32 expectedCodehash, bytes32 currentCodehash
     );
+    error ExistingLPTokenImplementationCodehashMismatch(
+        address implementation, bytes32 expectedCodehash, bytes32 currentCodehash
+    );
+    error ExistingPreorderSettlementExecutorCodehashMismatch(
+        address executor, bytes32 expectedCodehash, bytes32 currentCodehash
+    );
     error ExistingHookProxyCodehashMismatch(address proxy, bytes32 expectedCodehash, bytes32 currentCodehash);
     error ExistingEngineProxyCodehashMismatch(address engine, bytes32 expectedCodehash, bytes32 currentCodehash);
     error ExpectedHookImplementationCodehashNotSet();
     error ExpectedEngineImplementationCodehashNotSet();
+    error ExpectedLPTokenImplementationCodehashNotSet();
+    error ExpectedPreorderSettlementExecutorCodehashNotSet();
     error ZeroAddressNotAllowed();
 
     /// @notice Complete deployment artifacts for the Memeverse hook + engine split.
@@ -64,6 +89,8 @@ contract DeployMemeverseHookProxy is BaseScript {
         address engineProxy;
         address hookImplementation;
         address hookProxy;
+        address lpTokenImplementation;
+        address preorderSettlementExecutor;
     }
 
     /// @notice Executes the deployment using environment-provided production addresses.
@@ -82,12 +109,15 @@ contract DeployMemeverseHookProxy is BaseScript {
     ///      and no zombie contracts remain on-chain.
     ///
     ///      Deployment order (must not be reordered):
-    ///        1. Engine implementation (stateless bytecode, safe to redeploy)
-    ///        2. Engine proxy — initialized immediately with the predicted hook proxy address
+    ///        1. LP token implementation (stateless bytecode, no dependencies)
+    ///        2. Preorder settlement executor (stateless bytecode, no dependencies)
+    ///        3. Engine implementation (stateless bytecode, safe to redeploy)
+    ///        4. Engine proxy — initialized immediately with the predicted hook proxy address
     ///           as owner and authorizedHook. The hook proxy address is known before deployment
     ///           because it is mined from the CREATE3 salt.
-    ///        3. Hook implementation (stateless bytecode, safe to redeploy)
-    ///        4. Hook proxy — initialized with (hookOwner, hookTreasury, engine proxy)
+    ///        5. Hook implementation (stateless bytecode, safe to redeploy)
+    ///        6. Hook proxy — initialized with (hookOwner, hookTreasury, engine proxy,
+    ///           lpTokenImplementation, preorderSettlementExecutor)
     ///
     ///      The engine proxy must be initialized before the hook proxy because the hook's
     ///      initialize() validates engine.authorizedHook() == address(this). The predicted
@@ -124,7 +154,24 @@ contract DeployMemeverseHookProxy is BaseScript {
             result.hookImplementation = _getExistingImplementation(result.hookProxy);
             result.engineProxy = address(MemeverseUniswapHook(result.hookProxy).dynamicFeeEngine());
             result.engineImplementation = _getExistingImplementation(result.engineProxy);
+            result.lpTokenImplementation = MemeverseUniswapHook(result.hookProxy).lpTokenImplementation();
+            result.preorderSettlementExecutor =
+                address(MemeverseUniswapHook(result.hookProxy).preorderSettlementExecutor());
             return result;
+        }
+
+        (, address lpTokenImpl) = _computeLpTokenImpl(outrunDeployer, deployer, nonce);
+        if (lpTokenImpl.code.length == 0) {
+            _deployLpTokenImpl(outrunDeployer, deployer, nonce);
+        } else {
+            revert ExistingIntermediateDeploymentNotReusable(lpTokenImpl);
+        }
+
+        (, address preorderSettlementExecutor) = _computePreorderSettlementExecutor(outrunDeployer, deployer, nonce);
+        if (preorderSettlementExecutor.code.length == 0) {
+            _deployPreorderSettlementExecutor(outrunDeployer, deployer, nonce, selectedProxy);
+        } else {
+            revert ExistingIntermediateDeploymentNotReusable(preorderSettlementExecutor);
         }
 
         (, address engineImpl) = _computeEngineImpl(outrunDeployer, deployer, nonce);
@@ -145,14 +192,28 @@ contract DeployMemeverseHookProxy is BaseScript {
         } else {
             revert ExistingIntermediateDeploymentNotReusable(hookImpl);
         }
-        address proxy =
-            _deployProxy(outrunDeployer, deployer, proxySalt, selectedProxy, hookImpl, hookOwner, hookTreasury, engine);
-        _validateExistingDeployment(proxy, hookImpl, engine, hookOwner, hookTreasury, poolManager);
+        address proxy = _deployProxy(
+            outrunDeployer,
+            deployer,
+            proxySalt,
+            selectedProxy,
+            hookImpl,
+            hookOwner,
+            hookTreasury,
+            engine,
+            lpTokenImpl,
+            preorderSettlementExecutor
+        );
+        _validateExistingDeployment(
+            proxy, hookImpl, engine, lpTokenImpl, preorderSettlementExecutor, hookOwner, hookTreasury, poolManager
+        );
 
         result.engineImplementation = engineImpl;
         result.engineProxy = engine;
         result.hookImplementation = hookImpl;
         result.hookProxy = proxy;
+        result.lpTokenImplementation = lpTokenImpl;
+        result.preorderSettlementExecutor = preorderSettlementExecutor;
     }
 
     /// @notice Deploys the implementation and a mined ERC1967 proxy through OutrunDeployer.
@@ -190,7 +251,25 @@ contract DeployMemeverseHookProxy is BaseScript {
             result.hookImplementation = _getExistingImplementation(result.hookProxy);
             result.engineProxy = address(MemeverseUniswapHook(result.hookProxy).dynamicFeeEngine());
             result.engineImplementation = _getExistingImplementation(result.engineProxy);
+            result.lpTokenImplementation = MemeverseUniswapHook(result.hookProxy).lpTokenImplementation();
+            result.preorderSettlementExecutor =
+                address(MemeverseUniswapHook(result.hookProxy).preorderSettlementExecutor());
             return result;
+        }
+
+        (, address lpTokenImpl) = _computeLpTokenImpl(outrunDeployer, deployerNamespace, nonce);
+        if (lpTokenImpl.code.length == 0) {
+            _deployLpTokenImpl(outrunDeployer, deployerNamespace, nonce);
+        } else {
+            revert ExistingIntermediateDeploymentNotReusable(lpTokenImpl);
+        }
+
+        (, address preorderSettlementExecutor) =
+            _computePreorderSettlementExecutor(outrunDeployer, deployerNamespace, nonce);
+        if (preorderSettlementExecutor.code.length == 0) {
+            _deployPreorderSettlementExecutor(outrunDeployer, deployerNamespace, nonce, selectedProxy);
+        } else {
+            revert ExistingIntermediateDeploymentNotReusable(preorderSettlementExecutor);
         }
 
         (, address engineImpl) = _computeEngineImpl(outrunDeployer, deployerNamespace, nonce);
@@ -212,14 +291,27 @@ contract DeployMemeverseHookProxy is BaseScript {
             revert ExistingIntermediateDeploymentNotReusable(hookImpl);
         }
         address proxy = _deployProxy(
-            outrunDeployer, deployerNamespace, proxySalt, selectedProxy, hookImpl, hookOwner, hookTreasury, engine
+            outrunDeployer,
+            deployerNamespace,
+            proxySalt,
+            selectedProxy,
+            hookImpl,
+            hookOwner,
+            hookTreasury,
+            engine,
+            lpTokenImpl,
+            preorderSettlementExecutor
         );
-        _validateExistingDeployment(proxy, hookImpl, engine, hookOwner, hookTreasury, poolManager);
+        _validateExistingDeployment(
+            proxy, hookImpl, engine, lpTokenImpl, preorderSettlementExecutor, hookOwner, hookTreasury, poolManager
+        );
 
         result.engineImplementation = engineImpl;
         result.engineProxy = engine;
         result.hookImplementation = hookImpl;
         result.hookProxy = proxy;
+        result.lpTokenImplementation = lpTokenImpl;
+        result.preorderSettlementExecutor = preorderSettlementExecutor;
     }
 
     /// @notice Returns the expected Memeverse hook permission flags.
@@ -344,6 +436,9 @@ contract DeployMemeverseHookProxy is BaseScript {
     ) internal view returns (bytes32 salt, address proxy, bool reuseExistingProxy) {
         (, address expectedHookImpl) = _computeHookImpl(outrunDeployer, deployerNamespace, nonce);
         (, address expectedEngine) = _computeEngineProxy(outrunDeployer, deployerNamespace, nonce);
+        (, address expectedLpTokenImpl) = _computeLpTokenImpl(outrunDeployer, deployerNamespace, nonce);
+        (, address expectedPreorderSettlementExecutor) =
+            _computePreorderSettlementExecutor(outrunDeployer, deployerNamespace, nonce);
         for (uint256 i; i < MAX_SALT_SEARCH; ++i) {
             salt = keccak256(abi.encodePacked("MemeverseUniswapHookProxy", nonce, i));
             proxy = outrunDeployer.getDeployed(deployerNamespace, salt);
@@ -356,12 +451,101 @@ contract DeployMemeverseHookProxy is BaseScript {
             if (_getExistingImplementation(proxy) != expectedHookImpl) continue;
             _validateExistingImplementationCodehashes(proxy);
             if (_matchesExistingDeployment(
-                    proxy, expectedHookImpl, expectedEngine, hookOwner, hookTreasury, poolManager
+                    proxy,
+                    expectedHookImpl,
+                    expectedEngine,
+                    expectedLpTokenImpl,
+                    expectedPreorderSettlementExecutor,
+                    hookOwner,
+                    hookTreasury,
+                    poolManager
                 )) return (salt, proxy, true);
-            _validateExistingDeployment(proxy, expectedHookImpl, expectedEngine, hookOwner, hookTreasury, poolManager);
+            _validateExistingDeployment(
+                proxy,
+                expectedHookImpl,
+                expectedEngine,
+                expectedLpTokenImpl,
+                expectedPreorderSettlementExecutor,
+                hookOwner,
+                hookTreasury,
+                poolManager
+            );
         }
 
         revert ProxySaltNotFound(MAX_SALT_SEARCH);
+    }
+
+    // ─────────────────────────── LP Token Implementation ───────────────────────────
+
+    /// @notice Computes the deterministic LP token implementation address.
+    /// @param outrunDeployer CREATE3 deployer used for address prediction.
+    /// @param deployerNamespace Address that will call `OutrunDeployer.deploy`.
+    /// @param nonce Deployment version nonce.
+    /// @return salt The computed salt.
+    /// @return impl The predicted implementation address.
+    function _computeLpTokenImpl(IOutrunDeployer outrunDeployer, address deployerNamespace, uint256 nonce)
+        internal
+        view
+        returns (bytes32 salt, address impl)
+    {
+        salt = keccak256(abi.encodePacked(LP_TOKEN_IMPL_SALT_SEED, nonce));
+        impl = outrunDeployer.getDeployed(deployerNamespace, salt);
+    }
+
+    /// @notice Deploys the LP token implementation via OutrunDeployer if not already deployed.
+    /// @dev The implementation has initializers disabled; hook-managed clones initialize their own storage.
+    /// @param outrunDeployer CREATE3 deployer used for deployment.
+    /// @param deployerNamespace Address that will be the effective msg.sender.
+    /// @param nonce Deployment version nonce.
+    function _deployLpTokenImpl(IOutrunDeployer outrunDeployer, address deployerNamespace, uint256 nonce) internal {
+        (bytes32 salt, address expectedImpl) = _computeLpTokenImpl(outrunDeployer, deployerNamespace, nonce);
+        address create3Proxy = _create3ProxyAddress(outrunDeployer, deployerNamespace, salt);
+        if (create3Proxy.code.length != 0) {
+            revert LPTokenImplementationCreate3SaltConsumed(salt, create3Proxy);
+        }
+        address deployed = outrunDeployer.deploy(salt, type(UniswapLP).creationCode);
+        if (deployed != expectedImpl) revert ProxyDeploymentMismatch(expectedImpl, deployed);
+    }
+
+    // ───────────────────── Preorder Settlement Executor ─────────────────────
+
+    /// @notice Computes the deterministic preorder settlement executor address.
+    /// @param outrunDeployer CREATE3 deployer used for address prediction.
+    /// @param deployerNamespace Address that will call `OutrunDeployer.deploy`.
+    /// @param nonce Deployment version nonce.
+    /// @return salt The computed salt.
+    /// @return executor The predicted executor address.
+    function _computePreorderSettlementExecutor(
+        IOutrunDeployer outrunDeployer,
+        address deployerNamespace,
+        uint256 nonce
+    ) internal view returns (bytes32 salt, address executor) {
+        salt = keccak256(abi.encodePacked(PREORDER_SETTLEMENT_EXECUTOR_SALT_SEED, nonce));
+        executor = outrunDeployer.getDeployed(deployerNamespace, salt);
+    }
+
+    /// @notice Deploys the preorder settlement executor via OutrunDeployer if not already deployed.
+    /// @dev The executor is immutable-bound to a single hook proxy at construction time.
+    /// @param outrunDeployer CREATE3 deployer used for deployment.
+    /// @param deployerNamespace Address that will be the effective msg.sender.
+    /// @param nonce Deployment version nonce.
+    /// @param hookProxy Hook proxy address passed to the executor constructor for immutable binding.
+    function _deployPreorderSettlementExecutor(
+        IOutrunDeployer outrunDeployer,
+        address deployerNamespace,
+        uint256 nonce,
+        address hookProxy
+    ) internal {
+        (bytes32 salt, address expectedExecutor) =
+            _computePreorderSettlementExecutor(outrunDeployer, deployerNamespace, nonce);
+        address create3Proxy = _create3ProxyAddress(outrunDeployer, deployerNamespace, salt);
+        if (create3Proxy.code.length != 0) {
+            revert PreorderSettlementExecutorCreate3SaltConsumed(salt, create3Proxy);
+        }
+        bytes memory creationCode =
+            abi.encodePacked(type(MemeversePreorderSettlementExecutor).creationCode, abi.encode(hookProxy));
+        address deployed = outrunDeployer.deploy(salt, creationCode);
+        if (deployed != expectedExecutor) revert ProxyDeploymentMismatch(expectedExecutor, deployed);
     }
 
     // ─────────────────────────── Engine Implementation ───────────────────────────
@@ -507,7 +691,9 @@ contract DeployMemeverseHookProxy is BaseScript {
         address implementation,
         address hookOwner,
         address hookTreasury,
-        address hookEngine
+        address hookEngine,
+        address lpTokenImplementation,
+        address preorderSettlementExecutor
     ) internal returns (address proxy) {
         // Detect if the CREATE3 minimal proxy was already deployed for this salt
         // (e.g. a previous run's inner CREATE failed). The salt is permanently consumed
@@ -517,7 +703,14 @@ contract DeployMemeverseHookProxy is BaseScript {
         if (create3Proxy.code.length != 0) revert Create3SaltConsumed(salt, create3Proxy);
 
         bytes memory initializeData = abi.encodeCall(
-            MemeverseUniswapHook.initialize, (hookOwner, hookTreasury, IMemeverseDynamicFeeEngine(hookEngine))
+            MemeverseUniswapHook.initialize,
+            (
+                hookOwner,
+                hookTreasury,
+                IMemeverseDynamicFeeEngine(hookEngine),
+                lpTokenImplementation,
+                IMemeversePreorderSettlementExecutor(preorderSettlementExecutor)
+            )
         );
         bytes memory creationCode = proxyCreationCode(implementation, initializeData);
 
@@ -556,6 +749,8 @@ contract DeployMemeverseHookProxy is BaseScript {
         address proxy,
         address expectedHookImplementation,
         address expectedEngine,
+        address expectedLpTokenImplementation,
+        address expectedPreorderSettlementExecutor,
         address expectedHookOwner,
         address expectedHookTreasury,
         IPoolManager expectedPoolManager
@@ -586,6 +781,26 @@ contract DeployMemeverseHookProxy is BaseScript {
             revert ExistingHookEngineMismatch(proxy, expectedEngine, address(engine));
         }
 
+        address actualLpTokenImplementation = hook.lpTokenImplementation();
+        if (actualLpTokenImplementation != expectedLpTokenImplementation) {
+            revert ExistingHookLPTokenImplementationMismatch(
+                proxy, expectedLpTokenImplementation, actualLpTokenImplementation
+            );
+        }
+        if (actualLpTokenImplementation.code.length == 0) {
+            revert ExistingHookLPTokenImplementationCodeMissing(actualLpTokenImplementation);
+        }
+
+        address actualPreorderSettlementExecutor = address(hook.preorderSettlementExecutor());
+        if (actualPreorderSettlementExecutor != expectedPreorderSettlementExecutor) {
+            revert ExistingHookPreorderSettlementExecutorMismatch(
+                proxy, expectedPreorderSettlementExecutor, actualPreorderSettlementExecutor
+            );
+        }
+        if (actualPreorderSettlementExecutor.code.length == 0) {
+            revert ExistingHookPreorderSettlementExecutorCodeMissing(actualPreorderSettlementExecutor);
+        }
+
         address actualAuthorizedHook = engine.authorizedHook();
         if (actualAuthorizedHook != proxy) {
             revert ExistingEngineAuthorizedHookMismatch(address(engine), proxy, actualAuthorizedHook);
@@ -608,11 +823,16 @@ contract DeployMemeverseHookProxy is BaseScript {
         address proxy,
         address expectedHookImplementation,
         address expectedEngine,
+        address expectedLpTokenImplementation,
+        address expectedPreorderSettlementExecutor,
         address expectedHookOwner,
         address expectedHookTreasury,
         IPoolManager expectedPoolManager
     ) internal view returns (bool matchesDeployment) {
-        if (expectedHookImplementation.code.length == 0 || expectedEngine.code.length == 0) return false;
+        if (
+            expectedHookImplementation.code.length == 0 || expectedEngine.code.length == 0
+                || expectedLpTokenImplementation.code.length == 0 || expectedPreorderSettlementExecutor.code.length == 0
+        ) return false;
         if (_getExistingImplementation(proxy) != expectedHookImplementation) return false;
 
         MemeverseUniswapHook hook = MemeverseUniswapHook(proxy);
@@ -631,6 +851,20 @@ contract DeployMemeverseHookProxy is BaseScript {
 
         try hook.poolManager() returns (IPoolManager actualHookPoolManager) {
             if (address(actualHookPoolManager) != address(expectedPoolManager)) return false;
+        } catch {
+            return false;
+        }
+
+        try hook.lpTokenImplementation() returns (address actualLpTokenImplementation) {
+            if (actualLpTokenImplementation != expectedLpTokenImplementation) return false;
+            if (actualLpTokenImplementation.code.length == 0) return false;
+        } catch {
+            return false;
+        }
+
+        try hook.preorderSettlementExecutor() returns (IMemeversePreorderSettlementExecutor actualExecutor) {
+            if (address(actualExecutor) != expectedPreorderSettlementExecutor) return false;
+            if (address(actualExecutor).code.length == 0) return false;
         } catch {
             return false;
         }
@@ -693,6 +927,34 @@ contract DeployMemeverseHookProxy is BaseScript {
         if (currentEngineCodehash != expectedEngineCodehash) {
             revert ExistingEngineImplementationCodehashMismatch(
                 engineImplementation, expectedEngineCodehash, currentEngineCodehash
+            );
+        }
+
+        address lpTokenImplementation = MemeverseUniswapHook(proxy).lpTokenImplementation();
+        bytes32 expectedLpTokenCodehash =
+            vm.envOr(string.concat("EXPECTED_LP_TOKEN_", "IMPLEMENTATION_CODEHASH"), bytes32(0));
+        if (expectedLpTokenCodehash == bytes32(0)) revert ExpectedLPTokenImplementationCodehashNotSet();
+
+        bytes32 currentLpTokenCodehash = lpTokenImplementation.codehash;
+        if (currentLpTokenCodehash != expectedLpTokenCodehash) {
+            revert ExistingLPTokenImplementationCodehashMismatch(
+                lpTokenImplementation, expectedLpTokenCodehash, currentLpTokenCodehash
+            );
+        }
+
+        address preorderSettlementExecutor = address(MemeverseUniswapHook(proxy).preorderSettlementExecutor());
+        bytes32 expectedPreorderSettlementExecutorCodehash =
+            vm.envOr(string.concat("EXPECTED_PREORDER_SETTLEMENT_", "EXECUTOR_CODEHASH"), bytes32(0));
+        if (expectedPreorderSettlementExecutorCodehash == bytes32(0)) {
+            revert ExpectedPreorderSettlementExecutorCodehashNotSet();
+        }
+
+        bytes32 currentPreorderSettlementExecutorCodehash = preorderSettlementExecutor.codehash;
+        if (currentPreorderSettlementExecutorCodehash != expectedPreorderSettlementExecutorCodehash) {
+            revert ExistingPreorderSettlementExecutorCodehashMismatch(
+                preorderSettlementExecutor,
+                expectedPreorderSettlementExecutorCodehash,
+                currentPreorderSettlementExecutorCodehash
             );
         }
     }

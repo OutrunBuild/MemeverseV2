@@ -357,8 +357,8 @@ contract MemeverseLauncherEndToEndInvariantTest is StdInvariant, Test, Memeverse
         );
     }
 
-    /// @notice Test helper for invariant_endToEndLaunchSettlementEitherAbsentOrFullyApplied.
-    function invariant_endToEndLaunchSettlementEitherAbsentOrFullyApplied() external view {
+    /// @notice Test helper for invariant_endToEndPreorderSettlementEitherAbsentOrFullyApplied.
+    function invariant_endToEndPreorderSettlementEitherAbsentOrFullyApplied() external view {
         (uint256 totalFunds,, uint40 settlementTimestamp) = getPreorderStateForTest(launcherProxy, VERSE_ID);
         IMemeverseLauncher.Stage stage = launcher.getStageByVerseId(VERSE_ID);
 

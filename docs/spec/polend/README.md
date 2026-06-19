@@ -26,5 +26,5 @@ POLend 在以下 canonical home 文件中定义其依赖的语义（以下均为
 
 - invariants：[INV-04 / INV-13 / INV-14 / INV-15 / INV-18 / INV-19](../invariants.md)
 - access control：[access-control.md](../access-control.md)
-- accounting §7.4 launch settlement fee：[verse/accounting.md](../verse/accounting.md)
+- accounting §7.4 preorder settlement fee：[verse/accounting.md](../verse/accounting.md)
 - governance-yield §5 / §7：[governance/governance-yield-details.md](../governance/governance-yield-details.md)

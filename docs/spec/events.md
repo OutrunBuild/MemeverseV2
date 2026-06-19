@@ -87,9 +87,11 @@
 
 - Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits` 等
 - RegistrationCenter：`SetSupportedUAsset`、`SetDurationDaysRange`、`SetRegisterGasLimit`
-- Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`LauncherUpdated`、`PoolInitializerUpdated`、`PoolInitializationAuthorized`、`DefaultLaunchFeeConfigUpdated`、`DynamicFeeEngineUpdated`
+- Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`LauncherUpdated`、`PoolInitializerUpdated`、`PoolInitializationAuthorized`、`DefaultLaunchFeeConfigUpdated`、`DynamicFeeEngineUpdated`、`LPTokenImplementationUpdated`、`PreorderSettlementExecutorUpdated`
   - `DynamicFeeEngineUpdated`：在 `upgradeDynamicFeeEngine` 中 emit，标记 engine pointer 替换（非 implementation 升级）。
   - `PoolInitializationAuthorized`：一次性授权消费事件，记录单次池初始化授权。
+  - `LPTokenImplementationUpdated`：LP token clone 模板替换事件；`initialize` 时以 `(address(0), impl)` 触发，`setLpTokenImplementation` 时以 `(old, new)` 触发。
+  - `PreorderSettlementExecutorUpdated`：preorder settlement executor 替换事件，owner-level 安全 retarget；`initialize` 时以 `(address(0), executor)` 触发，`setPreorderSettlementExecutor` 时以 `(old, new)` 触发。
 - Interoperation：`SetGasLimits`
 - ProxyDeployer：`SetQuorumNumerator`
 

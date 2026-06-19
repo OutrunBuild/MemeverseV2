@@ -359,10 +359,10 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
             IMemecoin(memecoin).burn(burnedMemecoin);
         }
 
-        // --- _settleLaunchPreorder ---
+        // --- _settlePreorder ---
         // mainPoolPOLRawAmount = liquidity returned by router (represents POL-equivalent raw amount)
         uint128 mainPoolPOLRawAmount = mainPoolLiquidity;
-        _settleLaunchPreorder(proxy, verseId, poolKey, uAsset, memecoin);
+        _settlePreorder(proxy, verseId, poolKey, uAsset, memecoin);
 
         // --- _buildBootstrapPolPlan ---
         BootstrapPolPlan memory plan = _buildBootstrapPolPlan(normalFunds, mainPoolPOLRawAmount, totalLeveragedDebt);
@@ -459,13 +459,9 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
         _handleBootstrapResiduals(proxy, verseId, uAsset, memecoin, unusedBootstrapUAsset, burnedMemecoin, polendAddr);
     }
 
-    function _settleLaunchPreorder(
-        address proxy,
-        uint256 verseId,
-        PoolKey memory poolKey,
-        address uAsset,
-        address memecoin
-    ) internal {
+    function _settlePreorder(address proxy, uint256 verseId, PoolKey memory poolKey, address uAsset, address memecoin)
+        internal
+    {
         bytes32 preorderBase = _mappingSlot(OFF_PREORDER_STATES, verseId);
         uint256 totalFunds = uint256(_loadSlot(proxy, preorderBase));
         if (totalFunds == 0) return;
@@ -476,8 +472,8 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
 
         vm.prank(proxy);
         BalanceDelta delta = IMemeverseUniswapHook(hookAddress)
-            .executeLaunchSettlement(
-                IMemeverseUniswapHook.LaunchSettlementParams({
+            .executePreorderSettlement(
+                IMemeverseUniswapHook.PreorderSettlementParams({
                 key: poolKey,
                 params: SwapParams({
                 zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: sqrtPriceLimitX96

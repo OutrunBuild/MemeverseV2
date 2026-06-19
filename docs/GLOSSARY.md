@@ -14,7 +14,7 @@
 - **Preorder**：Genesis 内的额外 uAsset 池，进入 Locked 时结算为 memecoin 并线性解锁领取。
 - **aggregate genesis funds**：成功部署资金口径，等于 `totalNormalFunds + totalLeveragedDebt`，不包含 preorder，并受 `type(uint128).max` 上限约束。
 - **leveragedDebtFactor**：POLend 杠杆债务系数；上限为 `uint128.max * 1e18`，这是技术有效上限，不是经济最优值。
-- **launch settlement**：启动结算专用 swap 通道，走显式 `Launcher -> Hook.executeLaunchSettlement(...)` 路径，固定 1% 总费。
+- **preorder settlement**：preorder 结算专用 swap 通道，走显式 `Launcher -> Hook.executePreorderSettlement(...)` 路径，固定 1% 总费。
 - **launch fee window**：池初始化后的费用衰减窗口（默认从 5000 bps 衰减到 100 bps）。
 - **LP token**：Hook 为每个池发行的流动性份额代币。
 - **main pool LP / POL**：`memecoin/uAsset` 主池 LP token，也是 POL。

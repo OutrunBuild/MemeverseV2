@@ -368,7 +368,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param memeverseSwapRouter The new router address.
     function setMemeverseSwapRouter(address memeverseSwapRouter) external;
 
-    /// @notice Exposes the hook configured for launch settlement and unlock-protection writes.
+    /// @notice Exposes the hook configured for preorder settlement and unlock-protection writes.
     /// @dev The launcher stores this explicitly instead of resolving it from the router on each use.
     /// @return memeverseHook The configured hook address.
     function memeverseUniswapHook() external view returns (address memeverseHook);
@@ -449,7 +449,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     error NoPOLAvailable();
 
-    error InvalidLaunchSettlementConfig();
+    error InvalidPreorderSettlementConfig();
 
     error HookAlreadyConfigured();
 

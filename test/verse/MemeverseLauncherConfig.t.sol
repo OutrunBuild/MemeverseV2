@@ -10,7 +10,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
-contract MockLaunchSettlementHookConfig {
+contract MockPreorderSettlementHookConfig {
     address internal boundLauncher;
     address internal initializer;
 
@@ -41,7 +41,7 @@ contract MockLaunchSettlementHookConfig {
     }
 }
 
-contract MockLaunchSettlementRouterConfig {
+contract MockPreorderSettlementRouterConfig {
     address internal hookAddress;
 
     constructor(address hookAddress_) {
@@ -375,26 +375,27 @@ contract MemeverseLauncherConfigTest is Test {
     /// @notice Test swap infra config requires a bound hook and a matching router->hook edge.
     /// @dev The launcher should reject either side of the double binding when the approved wiring is wrong.
     function testSetMemeverseSwapInfra_RequiresMatchingHookAndRouterBindings() external {
-        MockLaunchSettlementHookConfig invalidLauncherHook = new MockLaunchSettlementHookConfig(OTHER);
+        MockPreorderSettlementHookConfig invalidLauncherHook = new MockPreorderSettlementHookConfig(OTHER);
         (bool invalidHookOk, bytes memory invalidHookData) = _setMemeverseUniswapHook(address(invalidLauncherHook));
         assertFalse(invalidHookOk, "hook with wrong launcher should fail");
-        assertEq(bytes4(invalidHookData), IMemeverseLauncher.InvalidLaunchSettlementConfig.selector, "hook revert");
+        assertEq(bytes4(invalidHookData), IMemeverseLauncher.InvalidPreorderSettlementConfig.selector, "hook revert");
 
-        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        MockPreorderSettlementHookConfig configuredHook = new MockPreorderSettlementHookConfig(address(launcher));
         (bool setHookOk, bytes memory setHookData) = _setMemeverseUniswapHook(address(configuredHook));
         assertTrue(setHookOk, string(setHookData));
 
-        MockLaunchSettlementHookConfig mismatchedRouterHook = new MockLaunchSettlementHookConfig(address(launcher));
-        MockLaunchSettlementRouterConfig mismatchedRouter =
-            new MockLaunchSettlementRouterConfig(address(mismatchedRouterHook));
+        MockPreorderSettlementHookConfig mismatchedRouterHook = new MockPreorderSettlementHookConfig(address(launcher));
+        MockPreorderSettlementRouterConfig mismatchedRouter =
+            new MockPreorderSettlementRouterConfig(address(mismatchedRouterHook));
 
-        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidPreorderSettlementConfig.selector);
         launcher.setMemeverseSwapRouter(address(mismatchedRouter));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setMemeverseSwapRouter(address(0));
 
-        MockLaunchSettlementRouterConfig settledRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
+        MockPreorderSettlementRouterConfig settledRouter =
+            new MockPreorderSettlementRouterConfig(address(configuredHook));
         configuredHook.setPoolInitializer(address(settledRouter));
         launcher.setMemeverseSwapRouter(address(settledRouter));
         assertEq(launcher.memeverseSwapRouter(), address(settledRouter));
@@ -405,13 +406,13 @@ contract MemeverseLauncherConfigTest is Test {
     }
 
     function testSetMemeverseSwapRouter_RevertsWhenHookPoolInitializerDiffers() external {
-        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        MockPreorderSettlementHookConfig configuredHook = new MockPreorderSettlementHookConfig(address(launcher));
         (bool setHookOk, bytes memory setHookData) = _setMemeverseUniswapHook(address(configuredHook));
         assertTrue(setHookOk, string(setHookData));
 
-        MockLaunchSettlementRouterConfig router = new MockLaunchSettlementRouterConfig(address(configuredHook));
+        MockPreorderSettlementRouterConfig router = new MockPreorderSettlementRouterConfig(address(configuredHook));
 
-        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidPreorderSettlementConfig.selector);
         launcher.setMemeverseSwapRouter(address(router));
 
         assertEq(launcher.memeverseSwapRouter(), address(0));
@@ -420,8 +421,8 @@ contract MemeverseLauncherConfigTest is Test {
     /// @notice Verifies swap infra can be configured in router-then-hook order when the bindings eventually match.
     /// @dev This keeps admin configuration order-independent while preserving the final double-binding checks.
     function testSetMemeverseSwapInfra_AllowsRouterBeforeHookWhenBindingsMatch() external {
-        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
-        MockLaunchSettlementRouterConfig router = new MockLaunchSettlementRouterConfig(address(configuredHook));
+        MockPreorderSettlementHookConfig configuredHook = new MockPreorderSettlementHookConfig(address(launcher));
+        MockPreorderSettlementRouterConfig router = new MockPreorderSettlementRouterConfig(address(configuredHook));
 
         launcher.setMemeverseSwapRouter(address(router));
         assertEq(launcher.memeverseSwapRouter(), address(router), "router should store before hook");
@@ -437,12 +438,13 @@ contract MemeverseLauncherConfigTest is Test {
     /// @notice Verifies the launcher hook binding is write-once while routers may rebind after hook initializer sync.
     /// @dev This prevents unlock protection from drifting to a different hook namespace after pools already exist.
     function testSetMemeverseSwapInfra_HookIsWriteOnceButRouterCanRebindToSameHook() external {
-        MockLaunchSettlementHookConfig configuredHook = new MockLaunchSettlementHookConfig(address(launcher));
+        MockPreorderSettlementHookConfig configuredHook = new MockPreorderSettlementHookConfig(address(launcher));
         (bool firstSetOk, bytes memory firstSetData) = _setMemeverseUniswapHook(address(configuredHook));
         assertTrue(firstSetOk, string(firstSetData));
 
-        MockLaunchSettlementRouterConfig firstRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
-        MockLaunchSettlementRouterConfig secondRouter = new MockLaunchSettlementRouterConfig(address(configuredHook));
+        MockPreorderSettlementRouterConfig firstRouter = new MockPreorderSettlementRouterConfig(address(configuredHook));
+        MockPreorderSettlementRouterConfig secondRouter =
+            new MockPreorderSettlementRouterConfig(address(configuredHook));
 
         configuredHook.setPoolInitializer(address(firstRouter));
         launcher.setMemeverseSwapRouter(address(firstRouter));

@@ -14,7 +14,7 @@
 
 - 约束：`MemeverseLauncher.registerMemeverse(...)` 只能由 `memeverseRegistrar` 调用；注册中心与 registrar 只能作为上游入口。`[代码已证]`
 - 价值：保证 verse 创建不会被任意地址绕过中心化校验路径。
-- 主要锚点：`src/verse/MemeverseLauncher.sol::registerMemeverse`，`src/verse/registration/MemeverseRegistrarAbstract.sol:31-44`，`src/verse/registration/MemeverseRegistrationCenter.sol:150`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::registerMemeverse`，`src/verse/registration/MemeverseRegistrarAbstract.sol::_registerMemeverse`，`src/verse/registration/MemeverseRegistrationCenter.sol::registration`
 
 ### INV-02 `memecoin -> verseId` 映射在注册时建立且后续不重写
 
@@ -26,18 +26,29 @@
 
 - 约束：launcher 费用分发与 interoperation staking 都把 `omnichainIds[0]` 解释为治理链。`[代码已证]`
 - 价值：避免“治理链”在不同模块使用不同索引。
-- 主要锚点：`src/verse/MemeverseLauncher.sol::quoteDistributionLzFee`，`src/verse/MemeverseLauncher.sol::_deployAndSetupMemeverse`，`src/interoperation/MemeverseOmnichainInteroperation.sol:68`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::quoteDistributionLzFee`，`src/verse/MemeverseLauncher.sol::_deployAndSetupMemeverse`，`src/interoperation/MemeverseOmnichainInteroperation.sol::quoteMemecoinStaking`
 
 ### INV-04 启动结算必须走显式 `Launcher -> Hook` 结算路径
 
 - 约束：
-  - Launcher 在 preorder 结算时直接使用已配置且 write-once 的 `memeverseUniswapHook`，并显式调用 `executeLaunchSettlement(...)`。`[代码已证]`
+  - Launcher 在 preorder 结算时直接使用已配置且 write-once 的 `memeverseUniswapHook`，并显式调用 `executePreorderSettlement(...)`。`[代码已证]`
   - Hook 侧要求 `msg.sender == launcher`，不再依赖 Router 特殊 `hookData` marker 或双调用者兼容接线。`[代码已证]`
+  - Executor 侧要求 `msg.sender == HOOK`（constructor 时 immutable 绑定的 hook proxy 地址），并额外校验入参 `params.key.hooks == HOOK`；不信任 caller-supplied `key.hooks`。`[代码已证]`
   - Launcher 配置 router / hook 时会做 set-time 三重校验：`router.hook() == hook`、`hook.launcher() == launcher`、`hook.poolInitializer() == router`；同时 launcher 侧 hook 绑定是 write-once。`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
   - Launcher bootstrap 四池创建使用 desired budgets 作为计划输入，实际进入主池和辅助池的 token 数量以后续 actual spend 为准。`[代码已证]`
   - bootstrap auxiliary pool creation 以 actual spend 记账，不因 auxiliary underspend 本身触发单独的 bootstrap backing / equality guard，也不依赖单独文档化的 rounding-envelope accept/reject 规则。unused bootstrap `uAsset` 走 settlement dust reserve / treasury excess 路径，unused bootstrap `memecoin` 走 burn。`[目标规范]`
-- 价值：防止任意调用者伪造启动结算路径，并避免 router / hook / launcher 绑定失配或 unlock 保护漂移到错误 hook namespace。
-- 主要锚点：`src/verse/MemeverseLauncher.sol::_validateLaunchSettlementConfig`，`src/swap/MemeverseUniswapHook.sol:572-627`，`src/verse/MemeverseLauncher.sol::_deployLiquidity`
+- 价值：防止任意调用者伪造启动结算路径，并避免 router / hook / launcher 绑定失配或 unlock 保护漂移到错误 hook namespace；同时杜绝任意地址冒充 hook（通过伪造 caller-supplied `key.hooks`）触发 settlement swap 抽走 executor 持有的 `netInput`——回调型 token（ERC-777/1363）作 `currencyIn` 时尤其关键，否则 `executePreorderSettlement` 内的 `transferFrom` 会触发攻击者重入 executor。
+- 主要锚点：`src/verse/MemeverseLauncher.sol::_validatePreorderSettlementConfig`，`src/swap/MemeverseUniswapHook.sol::executePreorderSettlement`，`src/swap/MemeversePreorderSettlementExecutor.sol::execute`、`::HOOK`，`src/verse/MemeverseLauncher.sol::_deployLiquidity`
+- 设计假设：executor 是无状态合约——settlement 外不应持有任何 token 余额；settlement 资金由 launcher 通过 `transferFrom` 注入，结算完成后 executor 余额归零。无 sweep 函数，外部误转入的 token 将永久锁定。
+
+### INV-04A 预购结算 executor 路径完整性保障
+
+- 约束：
+  - transient executor marker 在 `executor.execute()` 调用前通过 `setPreorderSettlementExecutor(address(executor))` 写入，调用后通过 `setPreorderSettlementExecutor(address(0))` 清除；marker 覆盖整个 executor 调用窗口，包括嵌套的 poolManager 回调。`[代码已证]`
+  - `_beforeSwap` 仅在 `sender == isExpectedPreorderSettlementExecutor(sender)` 时跳过 public-swap fee 路径；攻击者通过回调型 token（ERC-777/1363）重入时 `sender` 为攻击者地址，不匹配 marker，走正常收费路径。`[代码已证]`
+  - Hook 从自身 fee rate（`protocolFeeBps`）与 executor 返回的实际 `swapDelta` 重算 output-side protocol fee（`expectedProtocolFeeOutputAmount`），与 executor 自报的 `protocolFeeOutputAmount` 必须严格一致，否则 revert `PreorderSettlementFeeMismatch`。`[代码已证]`
+- 价值：防止 executor 结算路径上的重入攻击与 fee 伪造——transient marker 阻断攻击者重入走 fee-neutral 路径，fee 自洽校验防止 executor 报告虚假 output-side fee。
+- 主要锚点：`src/swap/libraries/MemeverseTransientState.sol::setPreorderSettlementExecutor`、`::isExpectedPreorderSettlementExecutor`，`src/swap/MemeverseUniswapHook.sol::executePreorderSettlement`（marker set/clear + fee mismatch check），`src/swap/MemeverseUniswapHook.sol::_beforeSwap`（sender 门）
 
 ### INV-05 Locked 费用分发恒等式
 
@@ -49,7 +60,7 @@
 
 - 约束：跨链分发与跨链 staking 都不是“至少足额”，而是“严格等于报价”。`[代码已证]`
 - 价值：调用方与脚本必须先 quote，再按精确值提交交易。
-- 主要锚点：`src/verse/MemeverseLauncher.sol::redeemAndDistributeFees`，`src/interoperation/MemeverseOmnichainInteroperation.sol:123`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::redeemAndDistributeFees`，`src/interoperation/MemeverseOmnichainInteroperation.sol::memecoinStaking`
 
 ### INV-07 关键业务动作受阶段机约束
 
@@ -68,25 +79,25 @@
 
 - 约束：Router 构造的池 key 固定 `LPFeeLibrary.DYNAMIC_FEE_FLAG` 与 `tickSpacing=200`；Hook 初始化也要求同样约束。`[代码已证]`
 - 价值：防止同一对资产被错误路由到非预期费率池。
-- 主要锚点：`src/swap/MemeverseSwapRouter.sol:831-843`，`src/swap/MemeverseUniswapHook.sol:323-324`
+- 主要锚点：`src/swap/MemeverseSwapRouter.sol::_hookPoolKey`，`src/swap/MemeverseUniswapHook.sol::_beforeInitialize`
 
 ### INV-09 代币增发权限集中在 Launcher
 
 - 约束：`Memecoin.mint`、`MemePol.mint`、`MemePol.setPoolId` 仅 launcher 可调用。`[代码已证]`
 - 价值：保证发行与 LP 凭证配置只通过 launcher 生命周期执行。
-- 主要锚点：`src/token/Memecoin.sol:41-42`，`src/token/MemePol.sol:22`，`:54`，`:62`
+- 主要锚点：`src/token/Memecoin.sol::mint`，`src/token/MemePol.sol::onlyMemeverseLauncher (modifier)`，`src/token/MemePol.sol::setPoolId`，`src/token/MemePol.sol::mint`
 
 ### INV-10 OFT compose 回调具备 replay 防护
 
 - 约束：`YieldDispatcher` 与 `OmnichainMemecoinStaker` 都在 endpoint 路径下检查 `guid` 未执行，再标记执行。`[代码已证]`
 - 价值：跨链到账处理不可重复记账。
-- 主要锚点：`src/verse/YieldDispatcher.sol:47-48`，`:60`，`src/interoperation/OmnichainMemecoinStaker.sol:40`，`:50`
+- 主要锚点：`src/verse/YieldDispatcher.sol::lzCompose`，`src/interoperation/OmnichainMemecoinStaker.sol::lzCompose`
 
 ### INV-11 注册时间权威值来自注册中心写入
 
 - 约束：launcher 不自行重算 `endTime/unlockTime`，以 registrar 传入值为准；本地报价读取注册中心 `DAY`，中心写入为最终来源，并写入固定 `unlockTime = endTime + FIXED_LOCKUP_DURATION`。`[代码已证]`
 - 价值：链上最终时间语义由中心写入决定，报价仅供参考。
-- 主要锚点：`src/verse/MemeverseLauncher.sol::_storeRegisteredMemeverse`，`src/verse/registration/MemeverseRegistrarAtLocal.sol:12`，`:38-43`，`src/verse/registration/MemeverseRegistrationCenter.sol:22`，`:130`，`:135`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::_storeRegisteredMemeverse`，`src/verse/registration/MemeverseRegistrarAtLocal.sol::FIXED_LOCKUP_DURATION (constant)`，`src/verse/registration/MemeverseRegistrarAtLocal.sol::quoteRegister`，`src/verse/registration/MemeverseRegistrationCenter.sol::DAY (constant)`，`src/verse/registration/MemeverseRegistrationCenter.sol::registration`
 
 ### INV-12 解锁后必须先经过保护窗口，再恢复公开 swap
 
@@ -94,7 +105,7 @@
 - 价值：保证 POL / genesis liquidity 的赎回公平性，并为 POL Lend / PT-YT 语义提供一致的全局结算窗口。
 - 违反后果：先行动者可通过先赎回并抛售底层资产，把损失外部化给后续赎回者，造成用户重大亏损。`[产品安全要求]`
 - 当前实现状态：保护窗口没有单独阶段，而是通过 `Stage.Unlocked + hook 按 pool-level resume time 阻断公开 swap` 落地；赎回路径与公开 swap 可用性由不同模块分离控制。保护窗口为固定产品常量，不再存在 owner 配置面。`[代码已证]`
-- 主要锚点：`src/verse/MemeverseLauncher.sol::UNLOCK_PROTECTION_WINDOW`，`src/verse/MemeverseLauncher.sol::_activatePostUnlockPublicSwapProtection`，`src/swap/MemeverseUniswapHook.sol:309-377`
+- 主要锚点：`src/verse/MemeverseLauncher.sol::UNLOCK_PROTECTION_WINDOW`，`src/verse/MemeverseLauncher.sol::_activatePostUnlockPublicSwapProtection`，`src/swap/MemeverseUniswapHook.sol::_beforeSwap`，`src/swap/MemeverseUniswapHook.sol::_revertIfPublicSwapBlocked`，`src/swap/MemeverseUniswapHook.sol::PublicSwapDisabled (error)`
 
 ### INV-13 POLend 全局结算只能用 bounded reserve 覆盖 dust
 

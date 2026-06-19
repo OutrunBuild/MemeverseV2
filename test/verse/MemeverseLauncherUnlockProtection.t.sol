@@ -29,7 +29,7 @@ import {
     MockPOLSplitterForLifecycle,
     MockLzEndpointRegistry,
     MockLiquidProof,
-    MockLaunchSettlementHookForLauncherTest,
+    MockPreorderSettlementHookForLauncherTest,
     RedeemMemecoinLiquidityReenterer
 } from "../mocks/verse/LauncherLifecycleMocks.sol";
 import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
@@ -334,8 +334,8 @@ contract MemeverseLauncherUnlockProtectionTest is Test, MemeverseLauncherTestHel
     }
 
     function _assertResumeTime(PoolKey memory key, uint40 expectedResumeTime, string memory label) internal view {
-        MockLaunchSettlementHookForLauncherTest hook =
-            MockLaunchSettlementHookForLauncherTest(address(IMemeverseSwapRouter(address(router)).hook()));
+        MockPreorderSettlementHookForLauncherTest hook =
+            MockPreorderSettlementHookForLauncherTest(address(IMemeverseSwapRouter(address(router)).hook()));
         assertEq(hook.publicSwapResumeTime(PoolId.unwrap(key.toId())), expectedResumeTime, label);
     }
 

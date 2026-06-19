@@ -3,6 +3,8 @@ pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
@@ -18,15 +20,78 @@ contract UniswapLPTest is Test {
     address internal immutable OTHER = vm.addr(OTHER_PK);
     address internal constant SPENDER = address(0xBEEF);
 
+    PoolId internal constant TEST_POOL_ID = PoolId.wrap(bytes32(uint256(1)));
+
+    UniswapLP internal implementation;
     UniswapLP internal token;
 
     function setUp() external {
-        token = new UniswapLP("Memeverse LP", "MLP", 18, PoolId.wrap(bytes32(uint256(1))), address(this));
+        implementation = new UniswapLP();
+        token = UniswapLP(Clones.clone(address(implementation)));
+        token.initialize("Memeverse LP", "MLP", 18, TEST_POOL_ID, address(this));
     }
 
-    function testConstructorRevertsWithZeroAddressHook() external {
+    function testInitializeRevertsWithZeroAddressHook() external {
+        UniswapLP freshClone = UniswapLP(Clones.clone(address(implementation)));
+
         vm.expectRevert(UniswapLP.ZeroAddressHook.selector);
-        new UniswapLP("Memeverse LP", "MLP", 18, PoolId.wrap(bytes32(uint256(1))), address(0));
+        freshClone.initialize("Memeverse LP", "MLP", 18, TEST_POOL_ID, address(0));
+    }
+
+    function testInitializeSetsCloneStateAndOwner() external view {
+        assertGt(address(token).code.length, 0, "clone code");
+        assertEq(token.name(), "Memeverse LP", "name");
+        assertEq(token.symbol(), "MLP", "symbol");
+        assertEq(token.decimals(), 18, "decimals");
+        assertEq(PoolId.unwrap(token.poolId()), PoolId.unwrap(TEST_POOL_ID), "pool id");
+        assertEq(token.memeverseUniswapHook(), address(this), "hook");
+        assertEq(token.owner(), address(this), "owner");
+    }
+
+    function testInitializeRevertsOnSecondCall() external {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        token.initialize("Other", "OTHER", 6, PoolId.wrap(bytes32(uint256(2))), address(0xBEEF));
+    }
+
+    function testImplementationCannotBeInitializedByExternalCaller() external {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        implementation.initialize("Implementation", "IMPL", 18, TEST_POOL_ID, address(this));
+    }
+
+    function testMintRevertsForNonOwner() external {
+        vm.prank(OTHER);
+        vm.expectRevert("UNAUTHORIZED");
+        token.mint(OTHER, 1 ether);
+    }
+
+    function testBurnRevertsForNonOwner() external {
+        vm.prank(OTHER);
+        vm.expectRevert("UNAUTHORIZED");
+        token.burn(OWNER, 1 ether);
+    }
+
+    function testOwnerCanMint() external {
+        token.mint(OTHER, 1 ether);
+        assertEq(token.balanceOf(OTHER), 1 ether);
+    }
+
+    function testOwnerCanBurn() external {
+        token.mint(OWNER, 1 ether);
+        assertEq(token.balanceOf(OWNER), 1 ether);
+
+        token.burn(OWNER, 1 ether);
+        assertEq(token.balanceOf(OWNER), 0);
+    }
+
+    function testPermitUsesInitializedCloneDomain() external {
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 digest = _permitDigest(OWNER, SPENDER, 7 ether, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(OWNER_PK, digest);
+
+        token.permit(OWNER, SPENDER, 7 ether, deadline, v, r, s);
+
+        assertEq(token.allowance(OWNER, SPENDER), 7 ether, "allowance");
+        assertEq(token.nonces(OWNER), 1, "nonce");
     }
 
     function testPermitRevertsWithPermitDeadlineExpired() external {

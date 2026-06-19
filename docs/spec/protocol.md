@@ -24,7 +24,7 @@
 | `MemeverseRegistrarAtLocal` / `MemeverseRegistrarOmnichain` | 把注册结果写入 Launcher | 本地/异链注册路径差异 | 当前规则（代码已证） |
 | `MemeverseLauncher` | verse 状态机与资金主编排 | Genesis/Refund/Locked/Unlocked 行为、领取/退款/赎回/分发 | 当前规则（代码已证） |
 | `MemeverseProxyDeployer` | memecoin/POL/vault/governor/incentivizer 部署或地址预测 | Locked 时治理与收益组件是否就绪 | 当前规则（代码已证） |
-| `MemeverseSwapRouter` + `MemeverseUniswapHook` | swap/liquidity 统一入口与费用引擎 | 交易费率、LP 记账、启动期费用曲线、launch settlement 特权路径 | 当前规则（代码已证） |
+| `MemeverseSwapRouter` + `MemeverseUniswapHook` | swap/liquidity 统一入口与费用引擎 | 交易费率、LP 记账、启动期费用曲线、preorder settlement 特权路径 | 当前规则（代码已证） |
 | `Memecoin` / `MemePol` | 发行与销毁权限边界 | 谁可 mint、如何 burn、POL 与 LP 的关系 | 当前规则（代码已证） |
 | `MemecoinYieldVault` | memecoin 收益累积、份额化与延迟赎回 | 质押收益、请求赎回与延迟执行 | 当前规则（代码已证） |
 | `MemecoinDaoGovernorUpgradeable` + `GovernanceCycleIncentivizerUpgradeable` | DAO treasury 与投票激励周期 | 国库收入记录、周期奖励结算 | 当前规则（代码已证） |
@@ -86,7 +86,7 @@
 
 ### 7.1 Swap 的启动期语义
 - `swap` 路径采用 execute-or-revert。
-- 启动期保护语义体现为 `launch fee` 衰减窗口与显式 `launch settlement` 路径（固定费率，见 [accounting.md §7.4](verse/accounting.md)）。
+- 启动期保护语义体现为 `launch fee` 衰减窗口与显式 `preorder settlement` 路径（固定费率，见 [accounting.md §7.4](verse/accounting.md)）。
 - unlock 后的流动性保护则由解锁迁移时写入的 pool-level `publicSwapResumeTime` 与 `hook.beforeSwap` 实现。
 
 ### 7.2 Preorder 能力

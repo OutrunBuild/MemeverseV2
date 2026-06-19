@@ -82,7 +82,7 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 
 - 只在 `Genesis` 期开放
 - 单独以 `uAsset` 记账
-- 进入 `Locked` 时通过 launch settlement 统一结算成 memecoin
+- 进入 `Locked` 时通过 preorder settlement 统一结算成 memecoin
 - 后续按线性解锁领取
 
 因此 preorder 不是普通 Genesis LP 份额，也不是立即可交易资产。
@@ -104,7 +104,7 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 - 部署 memecoin / POL
 - 按治理链位置决定是否部署或预测 `yieldVault / governor / incentivizer`
 - 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池
-- 若存在 preorder，则执行 launch settlement
+- 若存在 preorder，则执行 preorder settlement
 - 上述四池创建采用“Launcher 给出 desired budgets，Router 返回 actual execution”模型。创建是否成功以实际 spend / actual mint 为准，不以 preview/equality 为准。
 - `memecoin/uAsset` 主池只记录实际执行后真正进入主池的资金与实际 mint 出的 `POL`；该结果同时决定 PT backing ratio 的记录口径。
 - 辅助池 bootstrap 的 auxiliary underspend 处置（actual spend 记账、不施加独立 bootstrap backing / equality guard、不依赖独立 rounding-envelope 规则）见 [docs/spec/invariants.md](../invariants.md) INV-04。
@@ -142,7 +142,7 @@ POL raw、PT raw、YT raw 与主池 LP raw 保持 1:1 raw-unit identity；PT 兑
 V2 当前已实现的启动保护是：
 
 - `launch fee window`
-- `launch settlement`
+- `preorder settlement`
 
 它们的作用是保护：
 
@@ -219,7 +219,7 @@ V2 当前已实现的启动保护是：
 ### 9.1 启动保护
 
 - `launch fee window`
-- `launch settlement`
+- `preorder settlement`
 
 保护目标：启动建池与 preorder settlement。
 
