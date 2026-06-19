@@ -18,15 +18,21 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
+import {MemeversePreorderSettlementExecutor} from "../../src/swap/MemeversePreorderSettlementExecutor.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
+import {IMemeversePreorderSettlementExecutor} from "../../src/swap/interfaces/IMemeversePreorderSettlementExecutor.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
 
 import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
+import {PreorderSettlementReenterer} from "../mocks/swap/PreorderSettlementReenterer.sol";
+import {PreorderSettlementTransferFromReenterer} from "../mocks/swap/PreorderSettlementTransferFromReenterer.sol";
+import {FeeMismatchSettlementExecutor} from "../mocks/swap/FeeMismatchSettlementExecutor.sol";
 import {FeeEngineStorageSlots} from "../mocks/swap/FeeEngineStorageSlots.sol";
 import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
+
 import {TestableMemeverseDynamicFeeEngineV2} from "../mocks/upgrade/TestableMemeverseDynamicFeeEngineV2.sol";
 import {MemeverseUniswapHookV2} from "../mocks/upgrade/MemeverseUniswapHookV2.sol";
 
@@ -113,12 +119,12 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     }
 
     function _nextInvalidProductionHookProxyAddress() internal returns (address predictedProxy) {
-        // Hook proxy is 3 CREATEs away: engine impl, engine proxy, hook impl, then hook proxy.
-        predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        // Hook proxy is 5 CREATEs away: LP impl, preorder executor, engine impl, engine proxy, hook impl, then hook proxy.
+        predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 5);
         for (uint256 i = 0; _hasExpectedHookPermissions(predictedProxy); i++) {
             require(i < 256, "ProxyDeploy: max burns exceeded");
             new MockERC20("DUMMY", "DUMMY", 18);
-            predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+            predictedProxy = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 5);
         }
 
         require(!_hasExpectedHookPermissions(predictedProxy), "hook-valid proxy");
@@ -150,6 +156,19 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         hook.authorizePoolInitialization(key, SQRT_PRICE_1_1);
         mockManager.initialize(key, SQRT_PRICE_1_1);
         hook.setPoolInitializer(address(router));
+    }
+
+    function testBeforeInitialize_DeploysInitializedLpClone() external view {
+        (address lpToken,,) = hook.poolInfo(poolId);
+
+        assertGt(lpToken.code.length, 0, "lp code");
+        assertEq(MemeverseUniswapHook(address(hook)).lpTokenImplementation().code.length > 0, true, "impl code");
+        assertEq(UniswapLP(lpToken).owner(), address(hook), "owner");
+        assertEq(PoolId.unwrap(UniswapLP(lpToken).poolId()), PoolId.unwrap(poolId), "pool id");
+        assertEq(UniswapLP(lpToken).memeverseUniswapHook(), address(hook), "hook");
+        assertEq(UniswapLP(lpToken).name(), "Outrun-TK0-TK1-LP", "name");
+        assertEq(UniswapLP(lpToken).symbol(), "Outrun-TK0-TK1-LP", "symbol");
+        assertEq(UniswapLP(lpToken).decimals(), 18, "decimals");
     }
 
     function _initializePoolDirect(PoolKey memory targetKey, uint160 sqrtPriceX96) internal {
@@ -634,8 +653,8 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         hook.setLauncher(address(this));
         token1.mint(address(mockManager), 1_000_000 ether);
 
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)
@@ -933,7 +952,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
 
     /// @notice Covers the local launch-settlement fail-closed branch for exact-input underfills.
     /// @custom:dev-only-harness Uses the hook-liquidity manager mock to witness rollback for balances, fee growth, and dynamic state.
-    function testExecuteLaunchSettlement_RevertsWhenExactInputPartiallyFills() external {
+    function testExecutePreorderSettlement_RevertsWhenExactInputPartiallyFills() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
         hook.setLauncher(address(this));
@@ -948,8 +967,8 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         uint256 hookToken0Before = token0.balanceOf(address(hook));
 
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)
@@ -960,7 +979,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         assertEq(token0.balanceOf(address(hook)), hookToken0Before, "hook token0 unchanged");
     }
 
-    function testExecuteLaunchSettlement_RevertsWhenDynamicFeeEngineUnauthorized() external {
+    function testExecutePreorderSettlement_RevertsWhenDynamicFeeEngineUnauthorized() external {
         _addLiquidity();
         hook.setProtocolFeeCurrency(key.currency0);
         hook.setLauncher(address(this));
@@ -973,8 +992,8 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         vm.store(address(hook), bytes32(uint256(baseSlot) + 11), bytes32(uint256(uint160(address(newEngine)))));
 
         vm.expectRevert(abi.encodeWithSelector(IMemeverseDynamicFeeEngine.UnauthorizedCaller.selector, address(hook)));
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)
@@ -1000,14 +1019,14 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         assertEq(maturedQuote.feeBps, 100, "matured fee");
     }
 
-    /// @notice Verifies launch settlement can only be initiated by the bound launcher.
-    function testExecuteLaunchSettlement_RevertsWhenCallerNotLauncher() external {
+    /// @notice Verifies preorder settlement can only be initiated by the bound launcher.
+    function testExecutePreorderSettlement_RevertsWhenCallerNotLauncher() external {
         hook.setProtocolFeeCurrency(key.currency0);
         hook.setLauncher(address(0xABCD));
 
         vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)
@@ -1015,14 +1034,14 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         );
     }
 
-    function testExecuteLaunchSettlement_RevertsWhenPairUsesNativeCurrency() external {
+    function testExecutePreorderSettlement_RevertsWhenPairUsesNativeCurrency() external {
         PoolKey memory nativeKey = _dynamicPoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(address(token1)));
         hook.setProtocolFeeCurrency(key.currency0);
         hook.setLauncher(address(this));
 
         vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: nativeKey,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)
@@ -1030,8 +1049,8 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         );
     }
 
-    /// @notice Verifies launch settlement requires the pool to be initialized.
-    function testExecuteLaunchSettlement_RevertsWhenPoolNotInitialized() external {
+    /// @notice Verifies preorder settlement requires the pool to be initialized.
+    function testExecutePreorderSettlement_RevertsWhenPoolNotInitialized() external {
         MockPoolManagerForHookLiquidity uninitializedManager = new MockPoolManagerForHookLiquidity();
         MemeverseUniswapHook uninitializedHook =
             _deployHookProxyForManager(IPoolManager(address(uninitializedManager)), address(this), address(this));
@@ -1046,13 +1065,46 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         uninitializedHook.setLauncher(address(this));
 
         vm.expectRevert(IMemeverseUniswapHook.PoolNotInitialized.selector);
-        uninitializedHook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        uninitializedHook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: uninitializedKey,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)
             })
         );
+    }
+
+    /// @notice Verifies preorder settlement output-side protocol fee path.
+    /// @dev When the output currency is the supported protocol fee currency, the executor takes the fee
+    ///      from the output before delivering to the recipient. Covers the executor's `!data.protocolFeeOnInput` branch.
+    function testExecutePreorderSettlement_OutputSideProtocolFee() external {
+        _addLiquidity();
+        // currency1 is the output currency for zeroForOne=true swaps.
+        hook.setProtocolFeeCurrency(key.currency1);
+        hook.setLauncher(address(this));
+        token0.approve(address(hook), type(uint256).max);
+        // Mint output tokens to the mock manager so it can pay out the swap result.
+        token1.mint(address(mockManager), 1_000_000 ether);
+
+        address treasuryAddr = hook.treasury();
+        uint256 treasury1Before = token1.balanceOf(treasuryAddr);
+        uint256 recipient1Before = token1.balanceOf(address(this));
+
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+
+        uint256 treasury1After = token1.balanceOf(treasuryAddr);
+        uint256 recipient1After = token1.balanceOf(address(this));
+
+        // Treasury must receive the output-side protocol fee.
+        assertGt(treasury1After, treasury1Before, "treasury received output-side protocol fee");
+        // Recipient must receive a net positive output.
+        assertGt(recipient1After, recipient1Before, "recipient received output");
     }
 
     /// @notice Verifies owner launch-fee and launcher setters update state and reject invalid inputs.
@@ -1096,6 +1148,291 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         assertEq(decayDurationSeconds, 900, "duration");
     }
 
+    function testOwnerSetter_UpdatesPreorderSettlementExecutor() external {
+        MemeversePreorderSettlementExecutor newExecutor = new MemeversePreorderSettlementExecutor(address(hook));
+
+        vm.expectEmit(true, true, true, true, address(hook));
+        emit IMemeverseUniswapHook.PreorderSettlementExecutorUpdated(
+            address(hook.preorderSettlementExecutor()), address(newExecutor)
+        );
+        hook.setPreorderSettlementExecutor(newExecutor);
+
+        assertEq(address(hook.preorderSettlementExecutor()), address(newExecutor), "executor");
+    }
+
+    function testOwnerSetter_RevertsForZeroAddressOrUnreadyExecutor() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.setPreorderSettlementExecutor(MemeversePreorderSettlementExecutor(address(0)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseUniswapHook.PreorderSettlementExecutorCodeNotReady.selector, address(0xBEEF)
+            )
+        );
+        hook.setPreorderSettlementExecutor(MemeversePreorderSettlementExecutor(address(0xBEEF)));
+    }
+
+    function testOwnerSetter_UpdatesLpTokenImplementation() external {
+        UniswapLP newImpl = new UniswapLP();
+
+        vm.expectEmit(true, true, true, true, address(hook));
+        emit IMemeverseUniswapHook.LPTokenImplementationUpdated(
+            hook.lpTokenImplementation(), address(newImpl)
+        );
+        hook.setLpTokenImplementation(address(newImpl));
+
+        assertEq(hook.lpTokenImplementation(), address(newImpl), "lp impl");
+    }
+
+    function testOwnerSetter_RevertsForZeroOrUnreadyLpImplementation() external {
+        vm.expectRevert(IMemeverseUniswapHook.ZeroAddress.selector);
+        hook.setLpTokenImplementation(address(0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseUniswapHook.LPTokenImplementationCodeNotReady.selector, address(0xBEEF)
+            )
+        );
+        hook.setLpTokenImplementation(address(0xBEEF));
+    }
+
+    /// @notice Verifies the hook reverts when the executor reports a protocol fee that does not
+    ///         match the hook's own derivation from the realized swap output.
+    /// @dev Deploys a mock executor that performs a real swap but inflates the reported fee by 1 wei,
+    ///      exercising the `PreorderSettlementFeeMismatch` guard in `executePreorderSettlement`.
+    function testExecutePreorderSettlement_RevertsOnFeeMismatch() external {
+        _addLiquidity();
+        // Use output-side protocol fee so the mismatch branch is exercised.
+        hook.setProtocolFeeCurrency(key.currency1);
+        hook.setLauncher(address(this));
+        token0.approve(address(hook), type(uint256).max);
+        token1.mint(address(mockManager), 1_000_000 ether);
+
+        FeeMismatchSettlementExecutor mockExec = new FeeMismatchSettlementExecutor(address(hook));
+        hook.setPreorderSettlementExecutor(IMemeversePreorderSettlementExecutor(address(mockExec)));
+
+        vm.expectRevert(IMemeverseUniswapHook.PreorderSettlementFeeMismatch.selector);
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
+                key: key,
+                params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+    }
+
+    function testPreorderSettlementExecutorRejectsDirectCalls() external {
+        MemeversePreorderSettlementExecutor executor =
+            MemeversePreorderSettlementExecutor(address(hook.preorderSettlementExecutor()));
+
+        vm.expectRevert(MemeversePreorderSettlementExecutor.Unauthorized.selector);
+        executor.execute(
+            IMemeversePreorderSettlementExecutor.ExecuteParams({
+                poolManager: IPoolManager(address(mockManager)),
+                recipient: address(this),
+                treasury: address(this),
+                key: key,
+                swapParams: SwapParams({zeroForOne: true, amountSpecified: -int256(1 ether), sqrtPriceLimitX96: 0}),
+                protocolFeeOnInput: true,
+                protocolFeeOutputBps: 0
+            })
+        );
+    }
+
+    /// @dev The setter rejects an executor immutable-bound to a different hook, so a stray executor
+    ///      cannot be wired into this hook's settlement path. `wrongExecutor.HOOK() == address(0xDEAD)`
+    ///      while `address(hook)` is the current hook, so validation reverts HookMismatch.
+    function testSetPreorderSettlementExecutor_RejectsExecutorBoundToOtherHook() external {
+        MemeversePreorderSettlementExecutor wrongExecutor = new MemeversePreorderSettlementExecutor(address(0xDEAD));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseUniswapHook.PreorderSettlementExecutorHookMismatch.selector,
+                address(wrongExecutor),
+                address(hook),
+                address(0xDEAD)
+            )
+        );
+        hook.setPreorderSettlementExecutor(wrongExecutor);
+    }
+
+    /// @dev Proxy initialize runs the same executor-binding check before engine ownership validation, so
+    ///      an executor immutable-bound to the wrong hook aborts initialization outright. The predicted
+    ///      hook-proxy address is computed from the deploy order: executor and lp-token are created before
+    ///      `vm.getNonce` is read, then `_deployEngineProxyForManager` (engine impl + proxy) plus the hook
+    ///      impl plus the hook proxy land the proxy at `getNonce + 3`.
+    function testProxyInitialize_RejectsExecutorBoundToOtherHook() external {
+        UniswapLP lpTokenImplementation = new UniswapLP();
+        MemeversePreorderSettlementExecutor wrongExecutor = new MemeversePreorderSettlementExecutor(address(0xDEAD));
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        MemeverseDynamicFeeEngine engine =
+            _deployEngineProxyForManager(IPoolManager(address(mockManager)), predictedHook, predictedHook);
+        MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseUniswapHook.PreorderSettlementExecutorHookMismatch.selector,
+                address(wrongExecutor),
+                predictedHook,
+                address(0xDEAD)
+            )
+        );
+        new ERC1967Proxy(
+            address(implementation),
+            abi.encodeCall(
+                MemeverseUniswapHook.initialize,
+                (address(this), address(this), engine, address(lpTokenImplementation), wrongExecutor)
+            )
+        );
+    }
+
+    /// @dev The executor is immutable-bound to its hook (`HOOK`) and `execute` rejects
+    ///      any caller with `msg.sender != HOOK` (and any `key.hooks != HOOK`). A forged `key.hooks == caller`
+    ///      therefore cannot impersonate the hook — the forged direct call reverts at the `msg.sender != HOOK`
+    ///      guard before any swap can move funds. Seeds the executor with tokens and asserts a forged direct
+    ///      call leaves its balance (and the manager's) untouched. try/catch tolerates the revert so the
+    ///      no-funds-move invariant is asserted regardless.
+    function testPreorderExecutor_ForgedHookDirectCallCannotDrainExecutor() external {
+        MemeversePreorderSettlementExecutor executor =
+            MemeversePreorderSettlementExecutor(address(hook.preorderSettlementExecutor()));
+        token0.mint(address(executor), 100 ether); // prove even a funded executor cannot be drained
+        uint256 executorBefore = token0.balanceOf(address(executor));
+        uint256 managerBefore = token0.balanceOf(address(mockManager));
+
+        // Attacker forges key.hooks == caller; the `msg.sender != HOOK` guard still rejects it.
+        PoolKey memory forgedKey = _dynamicPoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)));
+        forgedKey.hooks = IHooks(address(this));
+
+        // try/catch tolerates either outcome on purpose: the forged hooks have no beforeSwap so the call
+        // reverts today, but the invariant we lock is "no funds move" regardless. executor.execute is a
+        // single external call, so any mid-execution revert rolls back all of its state changes — the
+        // bidirectional balance assertions below hold whether the forged call reverts or returns.
+        try executor.execute(
+            IMemeversePreorderSettlementExecutor.ExecuteParams({
+                poolManager: IPoolManager(address(mockManager)),
+                recipient: address(this),
+                treasury: address(this),
+                key: forgedKey,
+                swapParams: SwapParams({zeroForOne: true, amountSpecified: -int256(1 ether), sqrtPriceLimitX96: 0}),
+                protocolFeeOnInput: true,
+                protocolFeeOutputBps: 0
+            })
+        ) {}
+            catch {}
+
+        assertEq(token0.balanceOf(address(executor)), executorBefore, "executor drained via forged call");
+        assertEq(token0.balanceOf(address(mockManager)), managerBefore, "manager balance mutated");
+    }
+
+    /// @notice A malicious ERC20 reentering a swap during preorder settlement must NOT hit the fee-neutral bypass.
+    /// @dev While the settlement marker is set, the executor's `settle` fires the input token's `transfer`, which
+    ///      reenters a pool swap. That reentrant swap runs with `sender == token` (not the executor), so it misses
+    ///      the bypass and takes the normal path — here, the public-swap block rejects it. The reenterer swallows
+    ///      that revert so the settlement still completes (its own executor swap did bypass), and the test asserts
+    ///      the reentry both fired and was rejected. This locks the design comment on the executor marker
+    ///      (see MemeverseUniswapHook.executePreorderSettlement).
+    function testExecutePreorderSettlement_ReentrantTokenSwapDoesNotBypassFees() external {
+        // Evil token becomes the settlement input currency. Respect V4 pair ordering; keep it on the input side.
+        PreorderSettlementReenterer evil = new PreorderSettlementReenterer();
+        evil.mint(address(this), 1_000_000 ether);
+        bool evilIsCurrency0 = address(evil) < address(token1);
+        PoolKey memory evilKey = evilIsCurrency0
+            ? _dynamicPoolKey(Currency.wrap(address(evil)), Currency.wrap(address(token1)))
+            : _dynamicPoolKey(Currency.wrap(address(token1)), Currency.wrap(address(evil)));
+        PoolId evilPoolId = evilKey.toId();
+        // Input is currency0 when zeroForOne=true, currency1 otherwise — keep evil as the input either way.
+        bool zeroForOne = evilIsCurrency0;
+
+        // Initialize the evil pool on the hook + mock manager, mirroring setUp's sequence.
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(evilKey, SQRT_PRICE_1_1);
+        mockManager.initialize(evilKey, SQRT_PRICE_1_1);
+
+        // Seed active LP shares so the settlement's liquidity guard passes (mock manager liquidity is irrelevant).
+        seedActiveLiquiditySharesForTest(address(hook), evilPoolId, address(this), 100 ether);
+
+        // Configure the settlement path: evil as the input-side fee currency, this contract as launcher,
+        // and a public-swap-block window so the reentrant swap fails closed and deterministically.
+        hook.setProtocolFeeCurrency(Currency.wrap(address(evil)));
+        hook.setLauncher(address(this));
+        _setPublicSwapResumeTime(address(evil), address(token1), uint40(block.timestamp + 1 hours));
+        evil.approve(address(hook), type(uint256).max);
+        // Fund the output currency so the settlement can complete (the executor's take pays token1 out).
+        token1.mint(address(mockManager), 1_000_000 ether);
+
+        // Arm the evil token to reenter exactly one swap from inside the executor's settle window.
+        evil.arm(
+            mockManager,
+            evilKey,
+            SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(0.01 ether), sqrtPriceLimitX96: 0})
+        );
+
+        // The settlement completes: its own swap runs as sender=executor and takes the bypass, so the
+        // public-swap block does not affect it. (If the bypass check were removed, this would revert
+        // PublicSwapDisabled and fail the test — isolating the reentry as the only blocked swap.)
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
+                key: evilKey,
+                params: SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(10 ether), sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+
+        // The reentrant swap fired from inside settle and was rejected (it hit the public-swap block),
+        // proving it did NOT take the executor bypass despite the marker being set for the whole window.
+        assertTrue(evil.reentryFired(), "reentrant swap fired during executor settle");
+        assertTrue(evil.reentryBlocked(), "reentrant swap rejected - did not bypass fees");
+    }
+
+    /// @notice A callback-token firing `transferFrom` while the hook credits `netInput` to the executor
+    ///         cannot forge the hook to drive its own settlement swap.
+    /// @dev The settlement moves `netInput` to the executor via `transferFrom`; the evil token reenters
+    ///      `executor.execute` AFTER that credit, forging `key.hooks == address(this)` (which would have
+    ///      passed a legacy `msg.sender == key.hooks` guard). The executor's immutable-HOOK guard rejects
+    ///      the reentrant call with `Unauthorized` because `msg.sender == evil token != HOOK`, even though
+    ///      the executor now holds the credited `netInput`. The settlement's own legit executor call
+    ///      (`msg.sender == hook == HOOK`) still completes.
+    function testExecutePreorderSettlement_TransferFromCallbackCannotForgeHook() external {
+        PreorderSettlementTransferFromReenterer evil = new PreorderSettlementTransferFromReenterer();
+        evil.mint(address(this), 1_000_000 ether);
+        bool evilIsCurrency0 = address(evil) < address(token1);
+        PoolKey memory evilKey = evilIsCurrency0
+            ? _dynamicPoolKey(Currency.wrap(address(evil)), Currency.wrap(address(token1)))
+            : _dynamicPoolKey(Currency.wrap(address(token1)), Currency.wrap(address(evil)));
+        PoolId evilPoolId = evilKey.toId();
+        bool zeroForOne = evilIsCurrency0;
+
+        hook.setPoolInitializer(address(this));
+        hook.authorizePoolInitialization(evilKey, SQRT_PRICE_1_1);
+        mockManager.initialize(evilKey, SQRT_PRICE_1_1);
+        seedActiveLiquiditySharesForTest(address(hook), evilPoolId, address(this), 100 ether);
+        hook.setProtocolFeeCurrency(Currency.wrap(address(evil)));
+        hook.setLauncher(address(this));
+        evil.approve(address(hook), type(uint256).max);
+        token1.mint(address(mockManager), 1_000_000 ether);
+
+        evil.arm(
+            hook.preorderSettlementExecutor(),
+            IPoolManager(address(mockManager)),
+            evilKey,
+            SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(0.01 ether), sqrtPriceLimitX96: 0})
+        );
+
+        // Settlement completes: the evil token's transferFrom reenters executor.execute with a forged
+        // key.hooks, but msg.sender (the evil token) != HOOK, so it reverts Unauthorized (swallowed by the
+        // mock). The settlement's own legit executor call (msg.sender == hook == HOOK) still proceeds.
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
+                key: evilKey,
+                params: SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(10 ether), sqrtPriceLimitX96: 0}),
+                recipient: address(this)
+            })
+        );
+
+        assertTrue(evil.reentryFired(), "transferFrom reentry fired during netInput transfer");
+        assertTrue(evil.reentryBlocked(), "forged executor.execute rejected - immutable-HOOK guard held");
+    }
+
     function testImplementationInitializeReverts() external {
         MemeverseDynamicFeeEngine engineImpl = new MemeverseDynamicFeeEngine(IPoolManager(address(mockManager)));
         MemeverseDynamicFeeEngine engine = MemeverseDynamicFeeEngine(
@@ -1107,9 +1444,14 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
             )
         );
         MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
+        UniswapLP lpTokenImplementation = new UniswapLP();
+        MemeversePreorderSettlementExecutor preorderSettlementExecutor =
+            new MemeversePreorderSettlementExecutor(address(implementation));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        implementation.initialize(address(this), address(this), engine);
+        implementation.initialize(
+            address(this), address(this), engine, address(lpTokenImplementation), preorderSettlementExecutor
+        );
     }
 
     function testProxyInitializeSetsOwnerTreasuryAndLaunchFeeConfig() external {
@@ -1129,14 +1471,26 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         MemeverseDynamicFeeEngine engine =
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), predictedProxy, predictedProxy);
         MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
-        bytes memory data = abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine));
+        bytes memory data = abi.encodeCall(
+            MemeverseUniswapHook.initialize,
+            (
+                address(this),
+                address(this),
+                engine,
+                address(new UniswapLP()),
+                new MemeversePreorderSettlementExecutor(predictedProxy)
+            )
+        );
 
         vm.expectRevert(abi.encodeWithSelector(Hooks.HookAddressNotValid.selector, predictedProxy));
         new ERC1967Proxy(address(implementation), data);
     }
 
     function testProxyInitializeRevertsWhenEngineOwnerIsNotHook() external {
-        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        UniswapLP lpTokenImplementation = new UniswapLP();
+        address predictedHook = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 4);
+        MemeversePreorderSettlementExecutor preorderSettlementExecutor =
+            new MemeversePreorderSettlementExecutor(predictedHook);
         MemeverseDynamicFeeEngine engine =
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this), predictedHook);
         MemeverseUniswapHook implementation = new MemeverseUniswapHook(IPoolManager(address(mockManager)));
@@ -1148,7 +1502,10 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         );
         new ERC1967Proxy(
             address(implementation),
-            abi.encodeCall(MemeverseUniswapHook.initialize, (address(this), address(this), engine))
+            abi.encodeCall(
+                MemeverseUniswapHook.initialize,
+                (address(this), address(this), engine, address(lpTokenImplementation), preorderSettlementExecutor)
+            )
         );
     }
 
@@ -1226,9 +1583,14 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     function testProxyInitializeRevertsOnSecondCall() external {
         MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
         IMemeverseDynamicFeeEngine engine = IMemeverseDynamicFeeEngine(address(initialized.dynamicFeeEngine()));
+        UniswapLP lpTokenImplementation = new UniswapLP();
+        MemeversePreorderSettlementExecutor preorderSettlementExecutor =
+            new MemeversePreorderSettlementExecutor(address(initialized));
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        initialized.initialize(address(0xABCD), address(0xBEEF), engine);
+        initialized.initialize(
+            address(0xABCD), address(0xBEEF), engine, address(lpTokenImplementation), preorderSettlementExecutor
+        );
     }
 
     function testUpgradeDynamicFeeEngineRevertsForInvalidEngine() external {

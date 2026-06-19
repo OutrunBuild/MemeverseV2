@@ -79,7 +79,7 @@ contract LaunchFeeQuoteHandler is Test {
     }
 }
 
-contract DirectLaunchSettlementHandler is Test {
+contract DirectPreorderSettlementHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint256 internal constant MAX_SWAP_AMOUNT = 10_000 ether;
     uint256 internal constant PROTOCOL_FEE_BPS = 30;
@@ -156,8 +156,8 @@ contract DirectLaunchSettlementHandler is Test {
         hook.setProtocolFeeCurrencySupport(key.currency1, !useCurrency0AsFeeSide);
         vm.stopPrank();
 
-        BalanceDelta delta = hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        BalanceDelta delta = hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({
                     zeroForOne: zeroForOne,
@@ -287,7 +287,7 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test, 
     }
 }
 
-contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test, HookStorageHelper {
+contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Test, HookStorageHelper {
     using PoolIdLibrary for PoolKey;
 
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
@@ -300,7 +300,7 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
     PoolId internal poolId;
     address internal treasury;
     address internal settlementRecipient;
-    DirectLaunchSettlementHandler internal handler;
+    DirectPreorderSettlementHandler internal handler;
 
     function _deployRouterHookProxy(IPoolManager manager_, address owner_, address treasury_)
         internal
@@ -338,7 +338,7 @@ contract MemeverseUniswapHookLaunchSettlementInvariantTest is StdInvariant, Test
         seedActiveLiquiditySharesForTest(address(hook), poolId, address(this), 1e18);
         hook.setProtocolFeeCurrency(key.currency0);
 
-        handler = new DirectLaunchSettlementHandler(hook, key, token0, token1, address(this), settlementRecipient);
+        handler = new DirectPreorderSettlementHandler(hook, key, token0, token1, address(this), settlementRecipient);
         hook.setLauncher(address(handler));
         token0.mint(address(handler), 1_000_000 ether);
         token1.mint(address(handler), 1_000_000 ether);

@@ -525,17 +525,17 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         assertGt(openDelta.amount1(), 0, "open pool output");
     }
 
-    /// @notice Verifies explicit launch settlement can only be initiated by the configured launcher.
+    /// @notice Verifies explicit preorder settlement can only be initiated by the configured launcher.
     /// @dev Settlement no longer routes through router marker swap mode.
-    function testExecuteLaunchSettlement_RevertsWhenCallerIsNotLauncher() external {
+    function testExecutePreorderSettlement_RevertsWhenCallerIsNotLauncher() external {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         hook.setLauncher(address(this));
 
         vm.prank(alice);
         vm.expectRevert(IMemeverseUniswapHook.Unauthorized.selector);
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
                 recipient: address(this)
@@ -543,9 +543,9 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         );
     }
 
-    /// @notice Verifies explicit launch settlement uses fixed 1% economics.
+    /// @notice Verifies explicit preorder settlement uses fixed 1% economics.
     /// @dev Confirms the treasury receives the 30% protocol slice of the fixed fee.
-    function testExecuteLaunchSettlement_UsesFixedOnePercentFee() external {
+    function testExecutePreorderSettlement_UsesFixedOnePercentFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         uint256 treasury0Before = token0.balanceOf(treasury);
@@ -559,8 +559,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         );
         assertEq(quoteAtLaunch.feeBps, 5000, "public launch fee");
 
-        BalanceDelta delta = hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        BalanceDelta delta = hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
                 recipient: address(this)
@@ -572,9 +572,9 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "fixed 1% protocol fee");
     }
 
-    /// @notice Verifies explicit launch settlement on an output-fee pool only collects the output-side protocol fee once.
+    /// @notice Verifies explicit preorder settlement on an output-fee pool only collects the output-side protocol fee once.
     /// @dev The treasury/output balances should match a single 30 bps output fee on the post-LP-fee swap output.
-    function testExecuteLaunchSettlement_OutputSideProtocolFeeCollectedExactlyOnce() external {
+    function testExecutePreorderSettlement_OutputSideProtocolFeeCollectedExactlyOnce() external {
         _setProtocolFeeCurrency(key.currency1);
         hook.setLauncher(address(this));
         token0.approve(address(hook), type(uint256).max);
@@ -584,8 +584,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         uint256 treasury1Before = token1.balanceOf(treasury);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
 
-        BalanceDelta delta = hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        BalanceDelta delta = hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
                 recipient: address(this)
@@ -601,7 +601,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
 
     /// @notice Verifies changing launch-fee floor does not change explicit settlement pricing.
     /// @dev Settlement remains fixed-fee while public swaps still use launch fee schedule.
-    function testExecuteLaunchSettlement_IgnoresConfigurableLaunchFeeFloor() external {
+    function testExecutePreorderSettlement_IgnoresConfigurableLaunchFeeFloor() external {
         _setProtocolFeeCurrency(key.currency0);
         hook.setDefaultLaunchFeeConfig(
             IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 4000, minFeeBps: 300, decayDurationSeconds: 900})
@@ -612,8 +612,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         uint256 treasury0Before = token0.balanceOf(treasury);
 
-        BalanceDelta delta = hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        BalanceDelta delta = hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
                 recipient: address(this)
@@ -627,7 +627,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
 
     /// @notice Verifies explicit settlement updates dynamic-fee state even though the pool-manager self-call skips hook callbacks.
     /// @dev The immediate follow-up quote should observe carried short/volatility state, not a pristine fee engine.
-    function testExecuteLaunchSettlement_UpdatesDynamicFeeStateAndSubsequentQuote() external {
+    function testExecutePreorderSettlement_UpdatesDynamicFeeStateAndSubsequentQuote() external {
         _setProtocolFeeCurrency(key.currency0);
         hook.setLauncher(address(this));
         hook.setDefaultLaunchFeeConfig(
@@ -638,8 +638,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         uint160 postSettlementPrice = uint160((uint256(SQRT_PRICE_1_1) * 120) / 100);
         manager.setNextSwapSqrtPriceX96(poolId, postSettlementPrice);
 
-        hook.executeLaunchSettlement(
-            IMemeverseUniswapHook.LaunchSettlementParams({
+        hook.executePreorderSettlement(
+            IMemeverseUniswapHook.PreorderSettlementParams({
                 key: key,
                 params: SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
                 recipient: address(this)

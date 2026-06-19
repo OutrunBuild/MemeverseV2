@@ -20,7 +20,7 @@ import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRout
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 
 import {
-    MockLaunchSettlementHookForLauncherTest,
+    MockPreorderSettlementHookForLauncherTest,
     MockSwapRouter,
     MockSwapRouterWithBrokenPoolKey,
     MockLiquidProof,
@@ -762,7 +762,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         assertFalse(splitter.initializePreorderSucceeded(), "preorder reentry");
     }
 
-    function testExecuteLaunchSettlement_SplitsBootstrapResidualPOLAndPTByFundingShare() external {
+    function testExecutePreorderSettlement_SplitsBootstrapResidualPOLAndPTByFundingShare() external {
         uint256 verseId = 33;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
@@ -809,7 +809,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         assertEq(leveragedResidualPT, 0, "leveraged pt cleared");
     }
 
-    function testExecuteLaunchSettlement_FundsUnusedBootstrapUAssetAfterAcceptedBootstrapDust() external {
+    function testExecutePreorderSettlement_FundsUnusedBootstrapUAssetAfterAcceptedBootstrapDust() external {
         uint256 verseId = 34;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
@@ -928,7 +928,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         _assertProtectionWindow(polKey, 0, "POL/uAsset");
     }
 
-    function testChangeStage_WhenLaunchSettlementConfigDrifts_RevertsBeforeCreatingPool() external {
+    function testChangeStage_WhenPreorderSettlementConfigDrifts_RevertsBeforeCreatingPool() external {
         uint256 verseId = 34;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
@@ -936,11 +936,11 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
 
-        MockLaunchSettlementHookForLauncherTest settlementHook =
-            MockLaunchSettlementHookForLauncherTest(address(router.hook()));
+        MockPreorderSettlementHookForLauncherTest settlementHook =
+            MockPreorderSettlementHookForLauncherTest(address(router.hook()));
         settlementHook.setPoolInitializer(address(0xBAD));
 
-        vm.expectRevert(IMemeverseLauncher.InvalidLaunchSettlementConfig.selector);
+        vm.expectRevert(IMemeverseLauncher.InvalidPreorderSettlementConfig.selector);
         launcher.changeStage(verseId);
 
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Genesis), "stage");
@@ -992,8 +992,8 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         bool zeroForOne = address(uAsset) < address(memecoin);
         uint160 expectedLimit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
 
-        MockLaunchSettlementHookForLauncherTest settlementHook =
-            MockLaunchSettlementHookForLauncherTest(address(router.hook()));
+        MockPreorderSettlementHookForLauncherTest settlementHook =
+            MockPreorderSettlementHookForLauncherTest(address(router.hook()));
         settlementHook.setExpectedLaunchSqrtPriceLimit(zeroForOne, expectedLimit);
 
         uAsset.mint(address(this), 10 ether);
@@ -1008,7 +1008,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         assertEq(settlementHook.settlementCallCount(), 1, "settlement calls");
     }
 
-    function testChangeStage_WhenLaunchSettlementReverts_RevertsAtomically() external {
+    function testChangeStage_WhenPreorderSettlementReverts_RevertsAtomically() external {
         uint256 verseId = 25;
         _setGenesisVerse(verseId, true, uint128(block.timestamp + 1 days));
         launcher.setFundMetaData(address(uAsset), 10 ether, 4);
@@ -1016,9 +1016,9 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setAddLiquidityResult(address(memecoin), address(uAsset), 90 ether, 0, 0);
         router.setAddLiquidityResult(address(liquidProof), address(uAsset), 30 ether, 0, 0);
 
-        MockLaunchSettlementHookForLauncherTest settlementHook =
-            MockLaunchSettlementHookForLauncherTest(address(router.hook()));
-        settlementHook.setLaunchSettlementRevert("mock launch settlement revert");
+        MockPreorderSettlementHookForLauncherTest settlementHook =
+            MockPreorderSettlementHookForLauncherTest(address(router.hook()));
+        settlementHook.setPreorderSettlementRevert("mock preorder settlement revert");
 
         uAsset.mint(address(this), 10 ether);
         uAsset.approve(address(launcher), type(uint256).max);
@@ -1030,7 +1030,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         assertEq(settledMemecoinBefore, 0, "settled memecoin before");
         assertEq(settlementTimestampBefore, 0, "settlement timestamp before");
 
-        vm.expectRevert(bytes("mock launch settlement revert"));
+        vm.expectRevert(bytes("mock preorder settlement revert"));
         launcher.changeStage(verseId);
 
         assertEq(uint256(launcher.getStageByVerseId(verseId)), uint256(IMemeverseLauncher.Stage.Genesis), "stage");
@@ -1197,7 +1197,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         PoolKey memory memecoinKey = router.getHookPoolKey(address(memecoin), address(uAsset));
         address sharedHook = address(router.hook());
         MockSwapRouterWithBrokenPoolKey brokenRouter = new MockSwapRouterWithBrokenPoolKey(sharedHook);
-        MockLaunchSettlementHookForLauncherTest(sharedHook).setPoolInitializer(address(brokenRouter));
+        MockPreorderSettlementHookForLauncherTest(sharedHook).setPoolInitializer(address(brokenRouter));
         launcher.setMemeverseSwapRouter(address(brokenRouter));
 
         launcher.changeStage(verseId);

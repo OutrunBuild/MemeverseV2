@@ -13,6 +13,7 @@ import {DeployMemeverseHookProxy} from "../../script/DeployMemeverseHookProxy.s.
 import {IOutrunDeployer} from "../../script/IOutrunDeployer.sol";
 import {OutrunDeployer} from "../../script/deployment/OutrunDeployer.sol";
 import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
+import {IMemeversePreorderSettlementExecutor} from "../../src/swap/interfaces/IMemeversePreorderSettlementExecutor.sol";
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 
@@ -39,6 +40,22 @@ contract DeployMemeverseHookProxyHarness is DeployMemeverseHookProxy {
         returns (bytes32 salt, address impl)
     {
         return _computeHookImpl(outrunDeployer, deployerNamespace, nonce);
+    }
+
+    function exposedComputeLpTokenImpl(IOutrunDeployer outrunDeployer, address deployerNamespace, uint256 nonce)
+        external
+        view
+        returns (bytes32 salt, address impl)
+    {
+        return _computeLpTokenImpl(outrunDeployer, deployerNamespace, nonce);
+    }
+
+    function exposedComputePreorderSettlementExecutor(
+        IOutrunDeployer outrunDeployer,
+        address deployerNamespace,
+        uint256 nonce
+    ) external view returns (bytes32 salt, address executor) {
+        return _computePreorderSettlementExecutor(outrunDeployer, deployerNamespace, nonce);
     }
 
     function exposedDeployEngineImpl(
@@ -68,6 +85,21 @@ contract DeployMemeverseHookProxyHarness is DeployMemeverseHookProxy {
         IPoolManager poolManager
     ) external {
         _deployHookImpl(outrunDeployer, deployerNamespace, nonce, poolManager);
+    }
+
+    function exposedDeployLpTokenImpl(IOutrunDeployer outrunDeployer, address deployerNamespace, uint256 nonce)
+        external
+    {
+        _deployLpTokenImpl(outrunDeployer, deployerNamespace, nonce);
+    }
+
+    function exposedDeployPreorderSettlementExecutor(
+        IOutrunDeployer outrunDeployer,
+        address deployerNamespace,
+        uint256 nonce,
+        address hookProxy
+    ) external {
+        _deployPreorderSettlementExecutor(outrunDeployer, deployerNamespace, nonce, hookProxy);
     }
 
     function exposedSelectProxySalt(
@@ -111,6 +143,8 @@ contract FakeDeploymentHook {
     address internal fakeTreasury;
     IPoolManager internal fakePoolManager;
     IMemeverseDynamicFeeEngine internal fakeEngine;
+    address internal fakeLpTokenImplementation;
+    IMemeversePreorderSettlementExecutor internal fakePreorderSettlementExecutor;
 
     function initializeFake(
         address owner_,
@@ -139,6 +173,14 @@ contract FakeDeploymentHook {
     function dynamicFeeEngine() external view returns (IMemeverseDynamicFeeEngine) {
         return fakeEngine;
     }
+
+    function lpTokenImplementation() external view returns (address) {
+        return fakeLpTokenImplementation;
+    }
+
+    function preorderSettlementExecutor() external view returns (IMemeversePreorderSettlementExecutor) {
+        return fakePreorderSettlementExecutor;
+    }
 }
 
 contract DeployMemeverseHookProxyTest is Test {
@@ -160,6 +202,8 @@ contract DeployMemeverseHookProxyTest is Test {
         script = new DeployMemeverseHookProxyHarness();
         vm.setEnv("EXPECTED_HOOK_IMPLEMENTATION_CODEHASH", vm.toString(bytes32(0)));
         vm.setEnv("EXPECTED_ENGINE_IMPLEMENTATION_CODEHASH", vm.toString(bytes32(0)));
+        vm.setEnv("EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH", vm.toString(bytes32(0)));
+        vm.setEnv("EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH", vm.toString(bytes32(0)));
     }
 
     function testMinesSaltForOutrunDeployerAddressWithExpectedHookFlags() external view {
@@ -227,10 +271,14 @@ contract DeployMemeverseHookProxyTest is Test {
         assertGt(r.hookProxy.code.length, 0);
         assertGt(r.engineImplementation.code.length, 0);
         assertGt(r.engineProxy.code.length, 0);
+        assertGt(r.lpTokenImplementation.code.length, 0);
+        assertGt(r.preorderSettlementExecutor.code.length, 0);
         assertEq(uint160(r.hookProxy) & script.uniswapV4HookFlagMask(), script.memeverseHookFlags());
         assertEq(hook.owner(), HOOK_OWNER);
         assertEq(hook.treasury(), HOOK_TREASURY);
         assertEq(address(hook.poolManager()), POOL_MANAGER);
+        assertEq(hook.lpTokenImplementation(), r.lpTokenImplementation);
+        assertEq(address(hook.preorderSettlementExecutor()), r.preorderSettlementExecutor);
         assertGt(address(hook.dynamicFeeEngine()).code.length, 0);
         assertEq(address(hook.dynamicFeeEngine().poolManager()), POOL_MANAGER);
         IMemeverseDynamicFeeEngine engine = hook.dynamicFeeEngine();
@@ -262,12 +310,25 @@ contract DeployMemeverseHookProxyTest is Test {
 
         (bytes32 expectedHookImplSalt, address expectedHookImpl) =
             script.exposedComputeHookImpl(IOutrunDeployer(address(outrunDeployer)), deploymentSender, deploymentNonce);
+        (bytes32 expectedLpTokenImplSalt, address expectedLpTokenImpl) = script.exposedComputeLpTokenImpl(
+            IOutrunDeployer(address(outrunDeployer)), deploymentSender, deploymentNonce
+        );
+        (bytes32 expectedPreorderSettlementExecutorSalt, address expectedPreorderSettlementExecutor) = script.exposedComputePreorderSettlementExecutor(
+            IOutrunDeployer(address(outrunDeployer)), deploymentSender, deploymentNonce
+        );
 
         DeployMemeverseHookProxy.DeploymentResult memory r = script.run();
 
         assertEq(r.hookImplementation, expectedHookImpl);
+        assertEq(r.lpTokenImplementation, expectedLpTokenImpl);
+        assertEq(r.preorderSettlementExecutor, expectedPreorderSettlementExecutor);
         assertGt(r.hookProxy.code.length, 0);
         assertEq(outrunDeployer.getDeployed(deploymentSender, expectedHookImplSalt), expectedHookImpl);
+        assertEq(outrunDeployer.getDeployed(deploymentSender, expectedLpTokenImplSalt), expectedLpTokenImpl);
+        assertEq(
+            outrunDeployer.getDeployed(deploymentSender, expectedPreorderSettlementExecutorSalt),
+            expectedPreorderSettlementExecutor
+        );
     }
 
     function testDeployProxyRejectsPoolManagerWithoutCode() external {
@@ -298,6 +359,8 @@ contract DeployMemeverseHookProxyTest is Test {
             1
         );
         assertGt(first.engineProxy.code.length, 0);
+        assertGt(first.lpTokenImplementation.code.length, 0);
+        assertGt(first.preorderSettlementExecutor.code.length, 0);
         _setExpectedImplementationCodehashes(first.hookProxy);
 
         // Second deploy with same nonce: idempotent through the already validated hook proxy.
@@ -316,10 +379,17 @@ contract DeployMemeverseHookProxyTest is Test {
         assertEq(second.hookProxy, first.hookProxy);
         assertEq(second.engineImplementation, first.engineImplementation);
         assertEq(second.engineProxy, first.engineProxy);
+        assertEq(second.lpTokenImplementation, first.lpTokenImplementation);
+        assertEq(second.preorderSettlementExecutor, first.preorderSettlementExecutor);
 
         // State is intact: owner, poolManager, and engine authorization unchanged.
         assertEq(MemeverseUniswapHook(second.hookProxy).owner(), HOOK_OWNER);
         assertEq(address(MemeverseUniswapHook(second.hookProxy).poolManager()), POOL_MANAGER);
+        assertEq(MemeverseUniswapHook(second.hookProxy).lpTokenImplementation(), first.lpTokenImplementation);
+        assertEq(
+            address(MemeverseUniswapHook(second.hookProxy).preorderSettlementExecutor()),
+            first.preorderSettlementExecutor
+        );
         assertEq(MemeverseDynamicFeeEngine(first.engineProxy).owner(), first.hookProxy);
         assertEq(address(MemeverseDynamicFeeEngine(first.engineProxy).poolManager()), POOL_MANAGER);
     }
@@ -388,6 +458,45 @@ contract DeployMemeverseHookProxyTest is Test {
             abi.encodeWithSelector(
                 DeployMemeverseHookProxy.ExistingEngineImplementationCodehashMismatch.selector,
                 r.engineImplementation,
+                expectedCodehash,
+                currentCodehash
+            )
+        );
+        script.deployHookProxy(
+            IOutrunDeployer(address(outrunDeployer)),
+            address(script),
+            IPoolManager(POOL_MANAGER),
+            HOOK_OWNER,
+            HOOK_TREASURY,
+            1
+        );
+    }
+
+    function testSameNonceReuseRejectsStaleLPTokenImplementationBytecode() external {
+        vm.etch(POOL_MANAGER, hex"01");
+        outrunDeployer.transferOwnership(address(script));
+
+        vm.prank(address(script));
+        DeployMemeverseHookProxy.DeploymentResult memory r = script.deployHookProxy(
+            IOutrunDeployer(address(outrunDeployer)),
+            address(script),
+            IPoolManager(POOL_MANAGER),
+            HOOK_OWNER,
+            HOOK_TREASURY,
+            1
+        );
+
+        bytes32 expectedCodehash = r.lpTokenImplementation.codehash;
+        _setExpectedImplementationCodehashes(r.hookProxy);
+        FakeDeploymentHook staleImplementation = new FakeDeploymentHook();
+        vm.etch(r.lpTokenImplementation, address(staleImplementation).code);
+        bytes32 currentCodehash = r.lpTokenImplementation.codehash;
+
+        vm.prank(address(script));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployMemeverseHookProxy.ExistingLPTokenImplementationCodehashMismatch.selector,
+                r.lpTokenImplementation,
                 expectedCodehash,
                 currentCodehash
             )
@@ -923,6 +1032,45 @@ contract DeployMemeverseHookProxyTest is Test {
         );
     }
 
+    function testDeployLPTokenImplRejectsConsumedCreate3Salt() external {
+        vm.etch(POOL_MANAGER, hex"01");
+        outrunDeployer.transferOwnership(address(script));
+
+        uint256 nonce = 1;
+        (bytes32 salt,) =
+            script.exposedComputeLpTokenImpl(IOutrunDeployer(address(outrunDeployer)), address(script), nonce);
+        address create3Proxy = _create3ProxyAddress(address(script), salt);
+        vm.etch(create3Proxy, hex"01");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployMemeverseHookProxy.LPTokenImplementationCreate3SaltConsumed.selector, salt, create3Proxy
+            )
+        );
+        script.exposedDeployLpTokenImpl(IOutrunDeployer(address(outrunDeployer)), address(script), nonce);
+    }
+
+    function testDeployPreorderSettlementExecutorRejectsConsumedCreate3Salt() external {
+        vm.etch(POOL_MANAGER, hex"01");
+        outrunDeployer.transferOwnership(address(script));
+
+        uint256 nonce = 1;
+        (bytes32 salt,) = script.exposedComputePreorderSettlementExecutor(
+            IOutrunDeployer(address(outrunDeployer)), address(script), nonce
+        );
+        address create3Proxy = _create3ProxyAddress(address(script), salt);
+        vm.etch(create3Proxy, hex"01");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployMemeverseHookProxy.PreorderSettlementExecutorCreate3SaltConsumed.selector, salt, create3Proxy
+            )
+        );
+        script.exposedDeployPreorderSettlementExecutor(
+            IOutrunDeployer(address(outrunDeployer)), address(script), nonce, address(script)
+        );
+    }
+
     function testDeployEngineProxyRejectsConsumedCreate3Salt() external {
         vm.etch(POOL_MANAGER, hex"01");
         outrunDeployer.transferOwnership(address(script));
@@ -999,5 +1147,9 @@ contract DeployMemeverseHookProxyTest is Test {
         address engineImplementation = address(uint160(uint256(vm.load(engine, ERC1967Utils.IMPLEMENTATION_SLOT))));
         vm.setEnv("EXPECTED_HOOK_IMPLEMENTATION_CODEHASH", vm.toString(hookImplementation.codehash));
         vm.setEnv("EXPECTED_ENGINE_IMPLEMENTATION_CODEHASH", vm.toString(engineImplementation.codehash));
+        address lpTokenImplementation = MemeverseUniswapHook(proxy).lpTokenImplementation();
+        vm.setEnv("EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH", vm.toString(lpTokenImplementation.codehash));
+        address preorderSettlementExecutor = address(MemeverseUniswapHook(proxy).preorderSettlementExecutor());
+        vm.setEnv("EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH", vm.toString(preorderSettlementExecutor.codehash));
     }
 }
