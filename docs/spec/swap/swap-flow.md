@@ -1,6 +1,6 @@
 # Memeverse Swap 流程图
 
-本文档聚焦当前 `swap`、`launch settlement` 与 LP 主路径的执行与资金流，不展开治理、部署与链下流程。
+本文档聚焦当前 `swap`、`preorder settlement` 与 LP 主路径的执行与资金流，不展开治理、部署与链下流程。
 其中资金准备既可来自常规 approve 路径，也可来自 `*WithPermit2(...)`。
 
 相关实现主要位于：
@@ -53,29 +53,36 @@ flowchart TD
 
 ---
 
-## 3. Launch Settlement 显式通道
+## 3. Preorder Settlement 显式通道
 
 ```mermaid
 sequenceDiagram
     participant L as Launcher
     participant H as Hook
+    participant E as Executor
     participant PM as PoolManager
 
-    L->>H: executeLaunchSettlement(params)
+    L->>H: executePreorderSettlement(params)
     H->>H: 校验 msg.sender == launcher
-    H->>H: 计算固定 1% fee
-    H->>PM: unlock(...)
-    PM->>H: unlockCallback(...)
-    H->>PM: swap(..., hookData=ZERO_BYTES)
-    PM-->>H: 返回 BalanceDelta
-    H-->>L: 返回 BalanceDelta
+    H->>H: 计算固定 1% fee, 收取 input 费用
+    H->>E: execute(params)
+    E->>PM: unlock(...)
+    PM->>E: unlockCallback(...)
+    E->>PM: swap(..., hookData=ZERO_BYTES)
+    PM-->>E: 返回 BalanceDelta
+    E->>E: settle + take（含 output-side protocol fee）
+    E-->>H: 返回 ExecuteResult
+    H->>H: 更新动态费引擎状态
+    H-->>L: 返回 adjustedDelta
 ```
 
 说明：
 
 - 这条路径不是普通用户路径。
 - 启动结算不再经过 Router，也不再依赖特殊 `hookData` marker。
+- Hook 将 unlock/swap 逻辑委托给 Executor 合约（constructor 时 immutable 绑定 hook proxy）执行；Executor 持有 unlock 回调上下文，负责 swap、settle、take 与 output-side protocol fee 扣减。
 - 该路径使用固定总费（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）；caller 约束见 [docs/spec/invariants.md](../invariants.md) INV-04。不复用普通动态费结果。
+- **资金与 approve 路径**：Launcher 只需对 Hook 做一次 infinite approve。Hook 作为 `transferFrom` 的 spender，分别拉取 input 费用到自身/treasury 和 netInput 到 Executor；Executor 用自身余额直接 `transfer` 给 PoolManager，不需要任何 approve。详见 [docs/spec/swap/swap-integration.md §5.1](swap-integration.md)。
 
 ---
 
@@ -161,12 +168,13 @@ flowchart TD
     C1 --> D[成功则返回 delta，失败则回退]
     C2 --> D
 
-    E[launch settlement] --> F[Launcher 调 Hook.executeLaunchSettlement]
-    F --> G[Hook 校验 launcher 绑定]
-    G --> H[固定 1% 结算]
+    E[preorder settlement] --> F[Launcher 调 Hook.executePreorderSettlement]
+    F --> G[Hook 校验 launcher 绑定 + 收取 input 费用]
+    G --> H[Executor 执行 unlock/swap/take]
+    H --> I[固定 1% 结算]
 ```
 
 一句话概括：
 
 - 普通 swap：execute-or-revert，启动期靠费率衰减保护
-- 特殊启动结算：显式 `Launcher -> Hook`，固定费率（数值见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）
+- 特殊启动结算：显式 `Launcher -> Hook -> Executor`，固定费率（数值见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）

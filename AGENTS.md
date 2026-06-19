@@ -54,6 +54,16 @@ Do not override policy or gate evidence with natural-language guesses.
 - If `prepare-worktree-libs.sh` fails, report the environment blocker. Do not clone, repair, delete, or overwrite submodules from the worktree.
 - If a task intentionally modifies `.gitmodules` or `lib/**`, stop and get explicit human direction before dependency setup.
 
+## Forge Build Rules
+
+- `via_ir = true`; full rebuild takes 12-15 minutes. Do not use `forge build --force` unless one of:
+  - compiler settings changed (solc version, via_ir, optimizer, evm_version)
+  - library versions updated (`forge update` or `lib/` changes)
+  - build output is suspect (ABI mismatch, unexplained test failures)
+  - CI or pre-release clean build
+  - after `forge clean`
+- For routine code/test edits, use plain `forge build`. When unsure, try without `--force` first.
+
 ## High-Priority Beginner-Readable Code
 
 - This section is high-priority. Optimize for code a beginner can read top to bottom.
@@ -67,10 +77,11 @@ Do not override policy or gate evidence with natural-language guesses.
 
 ## Test Code Rules
 
-- Test contracts must NOT directly inherit production contracts. Use interfaces, abstract contracts, or standalone implementations to simulate dependencies.
+- Test contracts must NOT inherit upgradeable production contracts (those using `Initializable`, proxy patterns, or storage-in-heritage layouts). Use interfaces, abstract contracts, or standalone implementations to simulate dependencies.
+- Test contracts MAY inherit non-upgradeable production contracts (plain contracts without initializer logic or proxy storage risks).
 - Mock contracts go in `test/mocks/`. Do not co-locate with test files.
 - Mock contracts reuse interfaces from `src/`. Define test-only interfaces only when src/ interfaces are insufficient.
-- **Exception:** Test contracts may inherit a `src/` contract only when it is declared `abstract contract` — either to implement its abstract functions for unit testing, or to expose its internal `pure`/`view` functions. Such harnesses must live in `test/mocks/`.
+- **Exception:** Test contracts may inherit an upgradeable `src/` contract only when it is declared `abstract contract` — either to implement its abstract functions for unit testing, or to expose its internal `pure`/`view` functions. Such harnesses must live in `test/mocks/`.
 
 ## Ownership And Concurrent-Write Guard
 

@@ -89,7 +89,7 @@ fee claim 需要单独区分两类能力：
 当前启动期保护语义是：
 
 - 普通路径：`launch fee window` 费率衰减
-- 特殊路径：`MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)` 固定费率（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）
+- 特殊路径：`MemeverseLauncher -> MemeverseUniswapHook.executePreorderSettlement(...)` 固定费率（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）
 
 ---
 
@@ -121,7 +121,7 @@ function swap(
 - `amountInMaximum`：
   - exact-input 时可传 `0`
   - exact-output 时必须传
-- `hookData`：透传给 hook 的额外数据；普通集成路径通常可传空，当前公开 Router 不再为 launch settlement 保留专用 marker
+- `hookData`：透传给 hook 的额外数据；普通集成路径通常可传空，当前公开 Router 不再为 preorder settlement 保留专用 marker
 
 返回值含义：
 
@@ -227,13 +227,23 @@ Permit2 入口是并行路径，不替代现有 approve 路径。集成时应注
 
 ---
 
-## 5. Launch Settlement 集成注意事项
+## 5. Preorder Settlement 集成注意事项
 
 - 这是启动结算专用通道，不是普通用户交易接口。
-- 当前路径是 `MemeverseLauncher` 直接调用 `MemeverseUniswapHook.executeLaunchSettlement(...)`。
+- 当前路径是 `MemeverseLauncher` 直接调用 `MemeverseUniswapHook.executePreorderSettlement(...)`。
 - Hook 侧 caller 约束（`msg.sender == launcher`）见 [docs/spec/invariants.md](../invariants.md) INV-04（权限视角见 [docs/spec/access-control.md §5](../access-control.md)）。
 - 该路径使用固定总费率（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）。
 - `MemeverseLauncher` 接入 Router 时的 set-time 三重校验与 `Genesis -> Locked` launch-time preflight 见 [docs/spec/invariants.md](../invariants.md) INV-04（权限视角见 [docs/spec/access-control.md](../access-control.md) §5）。
+
+### 5.1 资金流与 approve 路径
+
+Preorder settlement 的资金流分三步：
+
+1. **Hook 从 Launcher 拉取 input 费用**：LP fee → hook 自身（记账后分给 LP），protocol fee → treasury。Hook 通过 `transferFrom(launcher, ...)` 拉取。
+2. **Hook 从 Launcher 拉取 netInput 给 Executor**：`transferFrom(launcher, executor, netInputAmount)`。Executor 是 hook constructor 时 immutable 绑定的无状态合约，只有 hook 能调用。
+3. **Executor 用自身余额 settle 给 PoolManager**：`CurrencySettler.settle` 中 `payer == address(this)` 走 `transfer` 分支，不需要 approve。
+
+Launcher 只需对 **Hook 地址**做一次 infinite approve（`_safeApproveInf(uAsset, hookAddress)`）。所有 `transferFrom` 的 spender 都是 hook，to 可以是 hook 自身、treasury 或 executor，不需要额外 approve executor 或 PoolManager。
 
 普通集成方不应自行构造这条路径。
 
@@ -266,7 +276,7 @@ Hook 仍保留：
 把当前 Memeverse Swap 理解成：
 
 - `Router`：统一公开入口、预算与退款管理层
-- `Hook`：动态费、启动期费率、LP 记账、协议收费引擎，以及显式 launch settlement 执行面
-- `launch settlement`：`Launcher -> Hook` 的受限专用结算通道
+- `Hook`：动态费、启动期费率、LP 记账、协议收费引擎，以及显式 preorder settlement 执行面
+- `preorder settlement`：`Launcher -> Hook` 的受限专用结算通道
 
 其中普通交易、启动期费率、LP 记账和结算专用通道都在同一套 Router + Hook 语义下协同完成。

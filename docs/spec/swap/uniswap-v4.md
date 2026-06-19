@@ -34,13 +34,13 @@
 
 `[代码已证]`
 
-### 2.3 Launch settlement 显式结算通道
+### 2.3 Preorder settlement 显式结算通道
 
 - 启动结算不再走 Router 特殊 `hookData` marker 分支。
-- 当前设计是 `MemeverseLauncher -> MemeverseUniswapHook.executeLaunchSettlement(...)`。
+- 当前设计是 `MemeverseLauncher -> MemeverseUniswapHook.executePreorderSettlement(...)`。
 - Launcher bootstrap pool creation 采用集成契约“desired budgets -> actual Router spend -> post-bootstrap accounting”（Router 返回 actual spend）。
 - bootstrap 记账语义、auxiliary underspend 处置见 [docs/spec/verse/accounting.md](../verse/accounting.md) §3.2 与 [docs/spec/invariants.md](../invariants.md) INV-04；unused bootstrap `uAsset` 进入的 settlement dust reserve 结构与处置 home 在 [docs/spec/polend/core.md §6.7](../polend/core.md)。
-- Hook 仅接受已绑定 launcher 的直接调用（caller 约束完整规则见 [docs/spec/invariants.md](../invariants.md) INV-04），并在内部自发起 `PoolManager.unlock/swap` 完成结算。
+- Hook 仅接受已绑定 launcher 的直接调用（caller 约束完整规则见 [docs/spec/invariants.md](../invariants.md) INV-04），并将 `unlock/swap` 委托给无状态的 `MemeversePreorderSettlementExecutor`（constructor 期 immutable 绑定 hook proxy，`execute` 在 `msg.sender == HOOK` 守卫下自发起 unlock/swap/settle/take）完成结算。
 - 该路径使用固定总费率（数值定义见 [docs/spec/verse/accounting.md §7.4](../verse/accounting.md)）。
 - 进入该路径前，Launcher / POLend 的部署资金口径只统计 `totalNormalFunds + totalLeveragedDebt`，不统计 preorder，且该口径必须保持 `<= type(uint128).max`。
 
@@ -58,14 +58,15 @@
 - `PROTOCOL_FEE_RATIO_BPS = 3000`，即 `feeBps` 中 30% 归 protocol、70% 归 LP。
 - 公开 swap 始终使用正常费率路径：`feeBps = max(current launch fee, dynamic fee, FEE_BASE_BPS)`；dynamic fee engine 故障通过升级/修复处理，不提供 bypass mode。
 - native 拒绝（V5）：swap 栈只支持 ERC20/ERC20 pair；`key.currency0` / `key.currency1` 任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`。swap 栈不接受 `msg.value`，Permit2 也不为 native 提供任何兜底路径。
+- 非 standard 余额语义 token（fee-on-transfer / rebasing / 其它使名义 `amount` 与实到余额不一致的 token）不在支持范围内：swap 栈（含 preorder settlement 的 Executor 中转 hop）一律按名义 `amount` 执行 `transferFrom` / `settle` / `take`。FoT token 下 settle 因余额不足而整笔原子回滚，不产生资金损失；准入应排除此类 token，运行时不做 FoT 检测。
 
 `[代码已证]`
 
 ## 4. 启动保护语义
 
 - 当前普通 swap 路径为 execute-or-revert。
-- 启动保护语义体现为 launch fee 衰减窗口与显式 launch settlement 结算通道。
-- launch settlement 只消费 preorder 托管的 `uAsset`，不消费普通 genesis 本金；preorder 容量口径由 launcher 侧 `totalNormalFunds + totalLeveragedDebt` 决定。
+- 启动保护语义体现为 launch fee 衰减窗口与显式 preorder settlement 结算通道。
+- preorder settlement 只消费 preorder 托管的 `uAsset`，不消费普通 genesis 本金；preorder 容量口径由 launcher 侧 `totalNormalFunds + totalLeveragedDebt` 决定。
 - 解锁后的公开 swap 保护由 launcher 在 `Locked -> Unlocked` 迁移的 settlement 调用完成后写入各受保护池的 `publicSwapResumeTime`，再由 `hook.beforeSwap` 执行；hook-side public swap protection 在该写入后生效。
 - `Locked -> Unlocked` 同交易 settlement 顺序与公开 swap 恢复时间写入约束见 [docs/spec/invariants.md](../invariants.md) INV-07A / INV-12（窗口数值见 [docs/spec/verse/config-matrix.md §3](../verse/config-matrix.md)）。
 - swap API 保持单路径结算语义。
@@ -77,7 +78,7 @@
 - swap 路径使用 `_activeLpSupplyForSwap` 作为有效 LP 供应量的业务入口：`cachedLpTotalSupply == 0` 时 fallback 到 `poolManager.getLiquidity(poolId)`。
   - 两者均为 0 → 返回 0，允许零流动性 quote 语义正常执行。
   - 缓存为 0 但 pool liquidity > 0 → revert `NoActiveLiquidityShares`（不一致状态，不应出现）。
-- LP 全部移除后：swap 走零流动性路径不 revert，但 `_collectLaunchSettlementInputFees` 检测到 `effectiveSupply == 0` 时 revert，因为没有 LP 可接收 fee 分配。
+- LP 全部移除后：swap 走零流动性路径不 revert，但 `_collectPreorderSettlementInputFees` 检测到 `effectiveSupply == 0` 时 revert，因为没有 LP 可接收 fee 分配。
 - 此行为与移除 `MINIMUM_LIQUIDITY` 前不同：之前 1000 单位永久锁定保证最小 supply，现在无此保证，零供给由上述 fallback 逻辑显式处理。
 
 `[代码已证]`

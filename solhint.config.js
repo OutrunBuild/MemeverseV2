@@ -18,6 +18,7 @@ module.exports = {
         "max-states-count": "off",
         "no-empty-blocks": "off",
         "no-inline-assembly": "off",
+        "reason-string": "off",
         "use-natspec": "off",
         "var-name-mixedcase": "off"
     }

@@ -188,13 +188,15 @@
             "test/verse/MemeverseLauncherLifecycle.t.sol",
             "test/verse/MemeverseLauncherAssetFlowInvariant.t.sol",
             "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol",
+            "test/verse/MemeverseLauncherUnlockProtection.t.sol"
           ],
           "evidence_tests": [
             "test/verse/MemeverseLauncherLifecycle.t.sol",
             "test/verse/MemeverseLauncherAssetFlowInvariant.t.sol",
             "test/swap/MemeverseSwapRouter.t.sol",
-            "test/swap/MemeverseUniswapHookLiquidity.t.sol"
+            "test/swap/MemeverseUniswapHookLiquidity.t.sol",
+            "test/verse/MemeverseLauncherUnlockProtection.t.sol"
           ],
           "id": "unlock-protection-safety",
           "paths": [
@@ -464,16 +466,6 @@
           "src/common/token/TokenHelper.sol"
         ],
         "status": "partial-targeted-rule"
-      },
-      {
-        "enforcement": "full-review",
-        "id": "unlock-protection-dedicated-tests",
-        "paths": [
-          "src/verse/MemeverseLauncher.sol",
-          "src/swap/MemeverseSwapRouter.sol",
-          "src/swap/MemeverseUniswapHook.sol"
-        ],
-        "status": "missing-dedicated-rule-tests"
       }
     ]
   },

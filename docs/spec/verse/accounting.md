@@ -213,15 +213,15 @@ accounting.md 只保留对 Launcher 侧记账入口的引用：launcher 把 fee/
 - LP fee 按 per-share 累加到 `fee0PerShare / fee1PerShare`，LP 持有人通过 `claimFeesCore` 领取。
 - Protocol fee 发送到 `treasury` 地址。
 
-### 7.4 Launch Settlement 的固定费率
+### 7.4 Preorder Settlement 的固定费率
 
-- Launch settlement swap（preorder 结算）使用独立路径 `executeLaunchSettlement`，不经过 `beforeSwap/afterSwap` 回调。
-- 固定费率 `LAUNCH_SETTLEMENT_FEE_BPS = 100`（1%），不使用动态费也不使用衰减曲线。
+- Preorder settlement swap 使用独立路径 `executePreorderSettlement`，不经过 `beforeSwap/afterSwap` 回调。
+- 固定费率 `PREORDER_SETTLEMENT_FEE_BPS = 100`（1%），不使用动态费也不使用衰减曲线。
 - 分配同样遵循 70/30 拆分：
   - `lpFeeBps = 70`（0.7%）
   - `protocolFeeBps = 30`（0.3%）
 - 输入侧费用在 settlement 入口直接收取：
-  - LP fee 部分：从 `payer` pull ERC20 到 hook，按 per-share 计入 LP 分配；若 `totalSupply == 0` 则只收取不计入。
+  - LP fee 部分：从 `payer` pull ERC20 到 hook，按 per-share 计入 LP 分配；若 `cachedLpTotalSupply == 0`（有效 LP 供应量为零，无 LP 可接收分配）则整笔回退 `NoActiveLiquidityShares`，LP fee 与 protocol fee 均不收取、整笔 settlement 失败（fail-closed，避免费用滞留 hook）。settlement 入口 `_revertIfNoActiveLiquidityShares` 另在「缓存为 0 但 pool liquidity > 0」的不一致状态提前 revert 同一错误。详见 `uniswap-v4.md` §5。
   - Protocol fee 部分：从 `payer` pull ERC20 直接到 `treasury`。
 - 输出侧 protocol fee（当 `!protocolFeeOnInput` 时）在 settlement callback 中从 pool output 扣取后发送到 `treasury`。
 

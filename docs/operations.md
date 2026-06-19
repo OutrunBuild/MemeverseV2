@@ -87,6 +87,7 @@
 ### 3.6 Swap/LP 运维配置
 
 - Hook owner 可改：`treasury`、protocol fee 币种支持、`launcher`、launch fee 衰减参数。
+- Hook owner 可通过 `setLpTokenImplementation` 替换 LP token 克隆模板，但替换仅影响后续新建的 pool。已部署 pool 的 LP token 是 EIP-1167 minimal proxy（clone），实现地址在部署时固化，无法迁移或升级。如果旧 LP 实现被发现漏洞，已部署池的 LP token 永久运行旧代码，只能引导流动性迁移到新池。这是 clone 模式的固有局限性，非 bug。`[代码已证]`
 - 公开 swap 始终使用正常费率路径：`feeBps = max(current launch fee, dynamic fee, FEE_BASE_BPS)`；dynamic fee engine 故障通过升级/修复处理，不提供 bypass mode。`[代码已证]`
 - Launcher owner 配置 router / hook 时，会同时校验 `router.hook()==hook`、`hook.launcher()==launcher`、`hook.poolInitializer()==router`，配置不一致会直接拒绝；其中 `memeverseUniswapHook` 仅允许首次设置。`[代码已证]`
 - Hook owner 在配置完成后仍可 retarget `launcher`；这是接受的同一 trust boundary 内运维能力，不否定 set-time 三重校验的必要性。`[代码已证]`
@@ -110,7 +111,7 @@
 
 ### 3.9 UUPS 升级操作步骤
 
-本节覆盖项目中全部 6 个 UUPS 可升级合约的升级操作规程。升级的本质是让 proxy 指向新的 implementation 合约，proxy 地址不变、storage 数据不变、用户无感知。
+本节覆盖项目中全部 6 个 UUPS 可升级合约的升级操作规程。升级的本质是让 proxy 指向新的 implementation 合约，proxy 地址不变、storage 数据不变、用户无感知。部署记录还必须把不可升级但一等返回的 `lpTokenImplementation` 与 `preorderSettlementExecutor` 作为独立 artifacts 记录。
 
 #### 3.9.1 UUPS 合约汇总
 
@@ -396,16 +397,20 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 
 ### 3.9 Hook + Engine 部署流程
 
-部署脚本 `script/DeployMemeverseHookProxy.s.sol` 通过 OutrunDeployer（CREATE3）按序部署四份合约：
+部署脚本 `script/DeployMemeverseHookProxy.s.sol` 通过 OutrunDeployer（CREATE3）按序部署核心 proxy 与 helper artifacts：
 
-1. Engine 实现（`MemeverseDynamicFeeEngine`）
-2. Engine proxy（`ERC1967Proxy`，initialize 绑定 hook owner + authorized hook）
-3. Hook 实现（`MemeverseUniswapHook`）
-4. Hook proxy（`ERC1967Proxy`，initialize 绑定 owner/treasury/engine）
+1. LP token implementation（`UniswapLP`，无依赖 helper artifact）
+2. Preorder settlement executor（`MemeversePreorderSettlementExecutor`，无依赖 helper artifact）
+3. Engine 实现（`MemeverseDynamicFeeEngine`）
+4. Engine proxy（`ERC1967Proxy`，initialize 绑定 hook owner + authorized hook，均为预测的 hook proxy 地址）
+5. Hook 实现（`MemeverseUniswapHook`）
+6. Hook proxy（`ERC1967Proxy`，initialize 绑定 owner/treasury/engine/lpTokenImplementation/preorderSettlementExecutor）
 
-四份合约地址由 `(deployer, DEPLOYMENT_NONCE)` 唯一确定。同一 nonce 重跑是幂等的：已部署的同配置 proxy 会被复用，中间合约若已存在则 revert。
+这些地址由 `(deployer, DEPLOYMENT_NONCE)` 唯一确定。同一 nonce 重跑是幂等的：已部署的同配置 proxy 与 helper artifact 会被复用，中间合约若已存在则 revert。
 
-**所需环境变量**（见 `.env.example`）：
+**所需环境变量**：
+
+> 下表最后 4 个 `EXPECTED_*_CODEHASH` 仅在 **same-nonce 复用部署**（目标 nonce 的 hook proxy 已存在）时必需，任一未设脚本 `revert`（`Expected*CodehashNotSet`）；fresh 部署可全部省略。其余变量任何部署模式都必需。
 
 | 变量 | 说明 |
 | --- | --- |
@@ -415,19 +420,23 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 | `HOOK_OWNER` | Hook proxy owner |
 | `HOOK_TREASURY` | protocol fee 接收地址 |
 | `DEPLOYMENT_NONCE` | 部署版本号，首次用 `0`，每次新部署递增 |
-| `EXPECTED_HOOK_IMPLEMENTATION_CODEHASH` | 可选，用于同 nonce 复用时校验实现字节码 |
-| `EXPECTED_ENGINE_IMPLEMENTATION_CODEHASH` | 可选，同上 |
+| `EXPECTED_HOOK_IMPLEMENTATION_CODEHASH` | 同 nonce 复用部署时校验 hook 实现字节码 |
+| `EXPECTED_ENGINE_IMPLEMENTATION_CODEHASH` | 同 nonce 复用部署时校验 engine 实现字节码 |
+| `EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH` | 同 nonce 复用部署时校验 `lpTokenImplementation` 字节码 |
+| `EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH` | 同 nonce 复用部署时校验 `preorderSettlementExecutor` 字节码 |
 
 **`DEPLOYMENT_NONCE` 语义**：
 
-- 嵌入所有 CREATE3 salt，决定四份合约的最终地址
+- 嵌入所有 CREATE3 salt，决定 proxy、implementation 与 helper artifacts 的最终地址
 - 同 nonce + 同配置 → 幂等复用
 - 同 nonce + 不同配置 → revert（中间合约不可复用）
 - 不同 nonce → 全新地址集
+- same-nonce 复用验证必须覆盖 `lpTokenImplementation` 与 `preorderSettlementExecutor`。`DeploymentResult.lpTokenImplementation`、`DeploymentResult.preorderSettlementExecutor` 必须等于同 nonce 预测地址，且地址非零、有代码。
+- `lpTokenImplementation` 与 `preorderSettlementExecutor` 的运行期 codehash 都必须等于预期值（分别对应 `EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH` 与 `EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH`）；二者 readiness 只要求 codehash、地址与代码存在性匹配，不包含 pool-manager getter 检查。
 
 **原子性保证**：
 
-`run()` 和 `deployHookProxy()` 在单笔交易中执行全部四步 CREATE3 部署。任一步失败则整笔交易回滚，不会留下中间部署的僵尸合约，CREATE3 salt 也不会被消耗。
+`run()` 和 `deployHookProxy()` 在单笔交易中执行全部 CREATE3 部署。任一步失败则整笔交易回滚，不会留下中间部署的僵尸合约，CREATE3 salt 也不会被消耗。
 
 **⚠️ 禁止拆分部署步骤到多笔交易**。Engine proxy 在部署时立即以预测的 hook proxy 地址初始化（owner 和 authorizedHook 均为 hook proxy 地址）。这是因为 hook 的 `initialize()` 会验证 `engine.authorizedHook() == address(this)`，所以 engine 必须先于 hook 初始化。Hook proxy 地址在部署前已通过 CREATE3 salt 挖矿确定。
 

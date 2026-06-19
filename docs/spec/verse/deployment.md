@@ -20,6 +20,8 @@
 - `YieldDispatcher`：收益 OFT compose 分发器。`[代码已证]`
 - `MemeverseOmnichainInteroperation` + `OmnichainMemecoinStaker`：跨链 staking 路径。`[代码已证]`
 - `MemeverseUniswapHook` + `MemeverseSwapRouter`：swap/liquidity 核心与外围。`[代码已证]`
+- `lpTokenImplementation`：per-pool LP token clone 模板，是部署脚本返回的 first-class deployment artifact。`[代码已证]`
+- `preorderSettlementExecutor`：preorder settlement 外部 helper，是部署脚本返回的 first-class deployment artifact。`[代码已证]`
 
 ### 2.2 实现合约与按 verse 实例化组件
 
@@ -49,7 +51,7 @@
 3. launcher 调用 `POLSplitter.initializeVerse`
 4. launcher 在主池建池后把主池实际 `uAsset` / POL raw 写入 `POLSplitter.recordPTBackingRatio(...)`
 5. launcher 调用 `POLSplitter.split(...)` 产出 PT/YT，并把杠杆侧初始 YT 转给 `POLend`
-6. launcher 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池，必要时通过 `hook.executeLaunchSettlement(...)` 完成 preorder 启动结算
+6. launcher 按 POLend 四池模型创建 `memecoin/uAsset` 主池与 `POL/uAsset`、`PT/uAsset`、`PT/POL` 三个辅助池，必要时通过 `hook.executePreorderSettlement(...)` 完成 preorder 结算
 7. 若治理链是本链：
  - deployer 部署并初始化 `yieldVault/governor/incentivizer`
  - `yieldVault.initialize` 的参数清单与虚拟缓冲 V 的语义见 [docs/spec/governance/governance-yield-details.md](../governance/governance-yield-details.md) §4.1；V 传入路径为 `[目标规范]`，后续 V 落地时以该锚点回填
@@ -94,13 +96,15 @@
 - **双角色部署**（`deployCaller != initialOwner`，如 DevOps 负责部署、multisig 持有 owner）：脚本部署 proxy 并执行 `initialize`，但跳过 `setFundMetaData` 写入。`initialOwner` 必须在单独交易中调用 `launcher.setFundMetaData(...)`，完成后才能通过 readiness check 并打开 registration。脚本在检测到双角色部署时输出 console 警告。`[代码已证]`
 证据：`script/MemeverseScript.s.sol:_deployMemeverseLauncher`（条件跳过 + 警告 log）
 
-Launcher、`POLend`、`POLSplitter` 使用 proxy salt 作为 canonical protocol address：
+Launcher、`POLend`、`POLSplitter`、`lpTokenImplementation`、`preorderSettlementExecutor` 使用同一 `DEPLOYMENT_NONCE` 派生各自 salt；脚本输出的 `DeploymentResult` 必须把这些地址作为 first-class fields 返回，不能只把后两者当作内部临时地址。
 
-| 合约 | Proxy salt label | Implementation salt label | Canonical address |
+| 合约 / artifact | Proxy salt label | Implementation / helper salt label | Canonical address |
 | --- | --- | --- | --- |
 | `MemeverseLauncher` | `MemeverseLauncher` | `MemeverseLauncherImplementation` | `getDeployed(deployCaller, launcherSalt)` 返回的 Launcher proxy |
 | `POLend` | `POLend` | `POLendImplementation` | `getDeployed(deployCaller, polendSalt)` 返回的 `POLend` proxy |
 | `POLSplitter` | `POLSplitter` | `POLSplitterImplementation` | `getDeployed(deployCaller, polSplitterSalt)` 返回的 `POLSplitter` proxy |
+| `lpTokenImplementation` | N/A | `LPTokenImplementation` | `DeploymentResult.lpTokenImplementation` |
+| `preorderSettlementExecutor` | N/A | `PreorderSettlementExecutor` | `DeploymentResult.preorderSettlementExecutor` |
 
 部署顺序：`[代码已证]`
 证据：`script/MemeverseScript.s.sol:_deployPOLend, _deployMemeverseLauncher, _deployPOLSplitter`
@@ -109,7 +113,8 @@ Launcher、`POLend`、`POLSplitter` 使用 proxy salt 作为 canonical protocol 
 2. `_deployPOLend(nonce)`：部署 POLend implementation（salt = `POLendImplementation + nonce`），用预测的 Launcher 和 POLSplitter 地址构建 proxy creation code，部署 POLend proxy（salt = `POLend + nonce`）。
 3. `_deployMemeverseLauncher(nonce)`：部署 Launcher implementation（salt = `MemeverseLauncherImplementation + nonce`），用预测的 POLend 和 POLSplitter 地址构建 proxy creation code，部署 Launcher proxy（salt = `MemeverseLauncher + nonce`）。
 4. `_deployPOLSplitter(nonce)`：部署 POLSplitter implementation（salt = `POLSplitterImplementation + nonce`），用已部署的 Launcher 地址构建 proxy creation code，部署 POLSplitter proxy（salt = `POLSplitter + nonce`）。`POLSplitter.initialize` 内部调用 `launcher.polend()` 获取 POLend 地址，因此 Launcher 必须先部署。
-5. 打开 registration 前执行 readiness checks。fund metadata readiness 取决于部署模式：单角色部署时脚本已在部署中写入 `setFundMetaData`；双角色部署时 `initialOwner` 须在单独交易中调用 `launcher.setFundMetaData(...)`，否则 readiness check 失败。
+5. 部署 `lpTokenImplementation` 与 `preorderSettlementExecutor`，并写入 `DeploymentResult.lpTokenImplementation`、`DeploymentResult.preorderSettlementExecutor`。
+6. 打开 registration 前执行 readiness checks。fund metadata readiness 取决于部署模式：单角色部署时脚本已在部署中写入 `setFundMetaData`；双角色部署时 `initialOwner` 须在单独交易中调用 `launcher.setFundMetaData(...)`，否则 readiness check 失败。
 
 Readiness checks 至少包括：`[代码已证]`
 证据：`script/MemeverseScript.s.sol:_checkMemeverseLauncherDeployment, _checkPOLendDeployment, _checkPOLSplitterDeployment, _requireDeploymentReady`
@@ -123,6 +128,8 @@ Readiness checks 至少包括：`[代码已证]`
 - `launcher.polSplitter() == polSplitterProxy`。
 - `polend.owner() == initialOwner`、`polend.launcher() == launcherProxy`、`polend.splitter() == polSplitterProxy`、`polend.treasury() == POLEND_TREASURY`。
 - `polSplitter.owner() == initialOwner`、`polSplitter.launcher() == launcherProxy`、`polSplitter.polend() == polendProxy`。
+- `DeploymentResult.lpTokenImplementation` 与 `DeploymentResult.preorderSettlementExecutor` 均为非零地址且 `code.length > 0`。
+- 同一 nonce 复用时，`lpTokenImplementation` 与 `preorderSettlementExecutor` 必须和按当前 salt 预测出的地址一致；二者的运行期 codehash 都必须等于预期值（`lpTokenImplementation` 对应 `EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH`，`preorderSettlementExecutor` 对应 `EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH`，见 `script/DeployMemeverseHookProxy.s.sol::_validateExistingImplementationCodehashes`），同时要求地址非零且有代码。
 - 每个支持的 `uAsset` 都有非零 `fundMetaDatas(uAsset).minTotalFund` 与 `fundMetaDatas(uAsset).fundBasedAmount`。
 - `POLend.settlementDustStates(uAsset).maxReserve > 0`。
 

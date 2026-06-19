@@ -79,7 +79,7 @@
 | `unlockTime`（FIXED_LOCKUP_DURATION） | [config-matrix.md §3](verse/config-matrix.md) | 锁定期长度 |
 | `UNLOCK_PROTECTION_WINDOW`（24h） | [config-matrix.md §3](verse/config-matrix.md) | 解锁保护窗口 |
 | `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` | [config-matrix.md §3](verse/config-matrix.md) | 创世总资金聚合上限 |
-| `LAUNCH_SETTLEMENT_FEE_BPS`（1%） | [config-matrix.md §3](verse/config-matrix.md) | 启动结算费率 |
+| `PREORDER_SETTLEMENT_FEE_BPS`（1%） | [config-matrix.md §3](verse/config-matrix.md) | preorder 结算费率 |
 | `tickSpacing` | [config-matrix.md §3](verse/config-matrix.md) | 池固定 tick 间距 |
 
 ### 2.2 不变量群（每条一行）
@@ -113,14 +113,14 @@
 | --- | --- | --- |
 | lzCompose 授权 | [access-control.md §3](access-control.md) | lzCompose 调用授权 |
 | Governor reward path | [access-control.md §4](access-control.md) | Governor 收益路径权限 |
-| launch settlement 权限 | [access-control.md §5](access-control.md) | 启动结算权限边界 |
+| preorder settlement 权限 | [access-control.md §5](access-control.md) | preorder 结算权限边界 |
 
 ### 2.4 记账语义
 
 | 规则/概念 | canonical home | 说明 |
 | --- | --- | --- |
 | actual spend（实际花费） | [accounting.md §3.2](verse/accounting.md) | 实际花费记账语义 |
-| launch settlement fee（启动结算费） | [accounting.md §7.4](verse/accounting.md) | 启动结算费记账 |
+| preorder settlement fee | [accounting.md §7.4](verse/accounting.md) | preorder 结算费记账 |
 
 ### 2.5 swap 边界
 
