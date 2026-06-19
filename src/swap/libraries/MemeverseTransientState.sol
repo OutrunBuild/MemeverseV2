@@ -11,6 +11,7 @@ library MemeverseTransientState {
     bytes32 private constant SWAP_CONTEXT_FEE_TAG = keccak256("mv.ts.swap.fee");
     bytes32 private constant SWAP_CONTEXT_PRICE_TAG = keccak256("mv.ts.swap.price");
     bytes32 private constant SWAP_CONTEXT_EXACT_OUTPUT_PROTOCOL_FEE_TAG = keccak256("mv.ts.swap.eo.protocolFee");
+    bytes32 private constant PREORDER_SETTLEMENT_EXECUTOR_TAG = keccak256("mv.ts.preorder.executor");
 
     function pushSwapContext(PoolId poolId, uint256 feeBps, uint160 preSqrtPriceX96) internal returns (uint256 depth) {
         depth = _incrementSwapContextDepth();
@@ -59,6 +60,20 @@ library MemeverseTransientState {
         }
     }
 
+    function setPreorderSettlementExecutor(address executor) internal {
+        bytes32 executorSlot = _preorderSettlementExecutorSlot();
+        assembly {
+            tstore(executorSlot, executor)
+        }
+    }
+
+    function isExpectedPreorderSettlementExecutor(address sender) internal view returns (bool expected) {
+        bytes32 executorSlot = _preorderSettlementExecutorSlot();
+        assembly {
+            expected := eq(tload(executorSlot), sender)
+        }
+    }
+
     function _loadSwapContextDepth() private view returns (uint256 depth) {
         bytes32 depthSlot = _swapContextDepthSlot();
         assembly {
@@ -76,6 +91,10 @@ library MemeverseTransientState {
 
     function _swapContextDepthSlot() private pure returns (bytes32) {
         return bytes32(uint256(SWAP_CONTEXT_DEPTH_TAG) - 1);
+    }
+
+    function _preorderSettlementExecutorSlot() private pure returns (bytes32) {
+        return bytes32(uint256(PREORDER_SETTLEMENT_EXECUTOR_TAG) - 1);
     }
 
     function _swapContextFieldSlot(bytes32 tag, PoolId poolId, uint256 depth) private pure returns (bytes32) {

@@ -802,7 +802,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         address swapRouter = memeverseLauncherStorage.memeverseSwapRouter;
         address hookAddress = memeverseLauncherStorage.memeverseUniswapHook;
 
-        _validateLaunchSettlementConfig(swapRouter, hookAddress);
+        _validatePreorderSettlementConfig(swapRouter, hookAddress);
         _safeApprove(uAsset, swapRouter, totalGenesisFunds);
         _safeApprove(
             memecoin, swapRouter, mainPoolUAssetBudget * memeverseLauncherStorage.fundMetaDatas[uAsset].fundBasedAmount
@@ -847,7 +847,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         (mainPoolPOLRawAmount, poolKey, mainPoolUAssetUsed, burnedMemecoin) =
             _createMainBootstrapPool(memecoin, uAsset, mainPoolUAssetBudget, swapRouter);
 
-        _settleLaunchPreorder(verseId, poolKey, uAsset, memecoin);
+        _settlePreorder(verseId, poolKey, uAsset, memecoin);
         BootstrapPolPlan memory plan = _buildBootstrapPolPlan(normalFunds, mainPoolPOLRawAmount, totalLeveragedDebt);
 
         address yt;
@@ -1129,17 +1129,17 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         claims.normalResidualPT = residualPT - leveragedResidualPT;
     }
 
-    function _settleLaunchPreorder(uint256 verseId, PoolKey memory poolKey, address uAsset, address memecoin) internal {
+    function _settlePreorder(uint256 verseId, PoolKey memory poolKey, address uAsset, address memecoin) internal {
         PreorderState storage preorderState = memeverseLauncherStorage.preorderStates[verseId];
         uint256 totalFunds = preorderState.totalFunds;
         if (totalFunds == 0) return;
 
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == uAsset;
         uint160 sqrtPriceLimitX96 = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
-        // Settlement goes through the hook's dedicated launch path so preorder accounting stays isolated from public swap flow.
+        // Settlement goes through the hook's dedicated preorder-settlement path so preorder accounting stays isolated from public swap flow.
         BalanceDelta delta = IMemeverseUniswapHook(memeverseLauncherStorage.memeverseUniswapHook)
-            .executeLaunchSettlement(
-                IMemeverseUniswapHook.LaunchSettlementParams({
+            .executePreorderSettlement(
+                IMemeverseUniswapHook.PreorderSettlementParams({
                 key: poolKey,
                 params: SwapParams({
                 zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: sqrtPriceLimitX96
@@ -1917,7 +1917,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         require(_memeverseSwapRouter != address(0), ZeroInput());
         address hookAddress = memeverseLauncherStorage.memeverseUniswapHook;
         if (hookAddress != address(0)) {
-            _validateLaunchSettlementConfig(_memeverseSwapRouter, hookAddress);
+            _validatePreorderSettlementConfig(_memeverseSwapRouter, hookAddress);
         }
 
         memeverseLauncherStorage.memeverseSwapRouter = _memeverseSwapRouter;
@@ -1933,10 +1933,10 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         if (memeverseLauncherStorage.memeverseUniswapHook != address(0)) revert HookAlreadyConfigured();
         address routerAddress = memeverseLauncherStorage.memeverseSwapRouter;
         if (routerAddress != address(0)) {
-            _validateLaunchSettlementConfig(routerAddress, _memeverseUniswapHook);
+            _validatePreorderSettlementConfig(routerAddress, _memeverseUniswapHook);
         } else {
             address boundLauncher = IMemeverseUniswapHook(_memeverseUniswapHook).launcher();
-            require(boundLauncher == address(this), InvalidLaunchSettlementConfig());
+            require(boundLauncher == address(this), InvalidPreorderSettlementConfig());
         }
 
         memeverseLauncherStorage.memeverseUniswapHook = _memeverseUniswapHook;
@@ -1944,8 +1944,8 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         emit SetMemeverseUniswapHook(_memeverseUniswapHook);
     }
 
-    function _validateLaunchSettlementConfig(address routerAddress, address hookAddress) internal view {
-        require(routerAddress != address(0) && hookAddress != address(0), InvalidLaunchSettlementConfig());
+    function _validatePreorderSettlementConfig(address routerAddress, address hookAddress) internal view {
+        require(routerAddress != address(0) && hookAddress != address(0), InvalidPreorderSettlementConfig());
         IMemeverseSwapRouter router = IMemeverseSwapRouter(routerAddress);
         IMemeverseUniswapHook hook = IMemeverseUniswapHook(hookAddress);
         address routerHookAddress = address(router.hook());
@@ -1953,7 +1953,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         address poolInitializer = hook.poolInitializer();
         require(
             routerHookAddress == hookAddress && boundLauncher == address(this) && poolInitializer == routerAddress,
-            InvalidLaunchSettlementConfig()
+            InvalidPreorderSettlementConfig()
         );
     }
 

@@ -4,6 +4,7 @@ pragma solidity ^0.8.35;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
@@ -11,7 +12,7 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {IPoolManager, SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
@@ -31,6 +32,7 @@ import {FeeMath} from "./libraries/FeeMath.sol";
 import {UniswapLP} from "./tokens/UniswapLP.sol";
 import {ReentrancyGuard} from "../common/access/ReentrancyGuard.sol";
 import {IMemeverseDynamicFeeEngine} from "./interfaces/IMemeverseDynamicFeeEngine.sol";
+import {IMemeversePreorderSettlementExecutor} from "./interfaces/IMemeversePreorderSettlementExecutor.sol";
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 
 /// @notice Minimal admin surface required for hook-owned dynamic fee engine proxies.
@@ -96,24 +98,14 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     uint256 public constant PROTOCOL_FEE_RATIO_BPS = FeeMath.PROTOCOL_FEE_SHARE_BPS;
     uint256 public constant BPS_BASE = FeeMath.BPS_BASE;
     uint24 internal constant FEE_BASE_BPS = 100; // Minimum fee in bps.
-    uint24 internal constant LAUNCH_SETTLEMENT_FEE_BPS = 100; // Fixed fee for preorder settlement swaps.
+    uint24 internal constant PREORDER_SETTLEMENT_FEE_BPS = 100; // Fixed fee for preorder settlement swaps.
     // Reuse the existing transient fee word so afterSwap can recover the fee side without another storage lookup.
     uint256 internal constant SWAP_CONTEXT_PROTOCOL_FEE_ON_INPUT_FLAG = 1 << 255;
-    uint8 internal constant UNLOCK_ACTION_MODIFY_LIQUIDITY = 0;
-    uint8 internal constant UNLOCK_ACTION_LAUNCH_SETTLEMENT = 1;
 
     struct ModifyLiquidityCallbackData {
         address sender;
         PoolKey key;
         ModifyLiquidityParams params;
-    }
-
-    struct LaunchSettlementCallbackData {
-        address payer;
-        address recipient;
-        PoolKey key;
-        SwapParams params;
-        bool protocolFeeOnInput;
     }
 
     struct PoolInitializationAuth {
@@ -143,6 +135,8 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         address poolInitializer;
         mapping(PoolId => PoolInitializationAuth) poolInitializationAuth;
         IMemeverseDynamicFeeEngine dynamicFeeEngine;
+        address lpTokenImplementation;
+        IMemeversePreorderSettlementExecutor preorderSettlementExecutor;
     }
 
     MemeverseUniswapHookStorage private memeverseUniswapHookStorage;
@@ -159,13 +153,23 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     /// @param initialOwner Initial owner authorized to configure and upgrade the hook.
     /// @param treasury_ Treasury receiving protocol fees.
     /// @param dynamicFeeEngine_ Engine proxy address for dynamic fee state.
-    function initialize(address initialOwner, address treasury_, IMemeverseDynamicFeeEngine dynamicFeeEngine_)
-        external
-        initializer
-    {
-        if (initialOwner == address(0) || treasury_ == address(0) || address(dynamicFeeEngine_) == address(0)) {
+    /// @param lpTokenImplementation_ Clone implementation used for pool LP tokens.
+    /// @param preorderSettlementExecutor_ Stateless helper for preorder settlement calculations.
+    function initialize(
+        address initialOwner,
+        address treasury_,
+        IMemeverseDynamicFeeEngine dynamicFeeEngine_,
+        address lpTokenImplementation_,
+        IMemeversePreorderSettlementExecutor preorderSettlementExecutor_
+    ) external initializer {
+        if (
+            initialOwner == address(0) || treasury_ == address(0) || address(dynamicFeeEngine_) == address(0)
+                || lpTokenImplementation_ == address(0) || address(preorderSettlementExecutor_) == address(0)
+        ) {
             revert ZeroAddress();
         }
+        if (lpTokenImplementation_.code.length == 0) revert LPTokenImplementationCodeNotReady(lpTokenImplementation_);
+        _validatePreorderSettlementExecutor(preorderSettlementExecutor_);
         address enginePoolManager = address(dynamicFeeEngine_.poolManager());
         if (enginePoolManager != address(poolManager)) {
             revert DynamicFeeEnginePoolManagerMismatch(address(poolManager), enginePoolManager);
@@ -179,7 +183,11 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
         memeverseUniswapHookStorage.treasury = treasury_;
         memeverseUniswapHookStorage.dynamicFeeEngine = dynamicFeeEngine_;
+        memeverseUniswapHookStorage.lpTokenImplementation = lpTokenImplementation_;
+        memeverseUniswapHookStorage.preorderSettlementExecutor = preorderSettlementExecutor_;
         emit TreasuryUpdated(address(0), treasury_);
+        emit LPTokenImplementationUpdated(address(0), lpTokenImplementation_);
+        emit PreorderSettlementExecutorUpdated(address(0), address(preorderSettlementExecutor_));
         memeverseUniswapHookStorage.defaultLaunchFeeConfig = IMemeverseDynamicFeeEngine.LaunchFeeConfig({
             startFeeBps: 5000, minFeeBps: FEE_BASE_BPS, decayDurationSeconds: 900
         });
@@ -212,8 +220,24 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return memeverseUniswapHookStorage.dynamicFeeEngine;
     }
 
+    /// @notice Returns the LP token implementation cloned for each initialized pool.
+    /// @return Implementation contract used by `Clones.clone` during pool initialization.
+    function lpTokenImplementation() external view override returns (address) {
+        return memeverseUniswapHookStorage.lpTokenImplementation;
+    }
+
+    /// @notice Returns the preorder settlement executor bound to this hook.
+    /// @return The stateless helper contract used to assemble preorder settlement swap parameters.
+    function preorderSettlementExecutor() external view override returns (IMemeversePreorderSettlementExecutor) {
+        return memeverseUniswapHookStorage.preorderSettlementExecutor;
+    }
+
     function _dynamicFeeEngine() internal view returns (IMemeverseDynamicFeeEngine) {
         return memeverseUniswapHookStorage.dynamicFeeEngine;
+    }
+
+    function _preorderSettlementExecutor() internal view returns (IMemeversePreorderSettlementExecutor) {
+        return memeverseUniswapHookStorage.preorderSettlementExecutor;
     }
 
     function _boundDynamicFeeEngine() internal view returns (IMemeverseDynamicFeeEngine engine) {
@@ -272,6 +296,17 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         address enginePoolManager = address(engine.poolManager());
         if (enginePoolManager != address(poolManager)) {
             revert DynamicFeeEnginePoolManagerMismatch(address(poolManager), enginePoolManager);
+        }
+    }
+
+    function _validatePreorderSettlementExecutor(IMemeversePreorderSettlementExecutor executor) internal view {
+        address executorAddress = address(executor);
+        if (executorAddress.code.length == 0) revert PreorderSettlementExecutorCodeNotReady(executorAddress);
+        // The executor is immutable-bound to a single hook; reject a misconfigured executor bound to
+        // a different hook before the owner can wire it in (it would reject every settlement swap).
+        address hookAddr = executor.HOOK();
+        if (hookAddr != address(this)) {
+            revert PreorderSettlementExecutorHookMismatch(executorAddress, address(this), hookAddr);
         }
     }
 
@@ -531,7 +566,9 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         string memory tokenSymbol = string(
             abi.encodePacked("Outrun", "-", _currencySymbol(key.currency0), "-", _currencySymbol(key.currency1), "-LP")
         );
-        address liquidityToken = address(new UniswapLP(tokenSymbol, tokenSymbol, 18, poolId, address(this)));
+        address liquidityToken = Clones.clone(memeverseUniswapHookStorage.lpTokenImplementation);
+        // Initialize immediately so the clone cannot be claimed and LP mint/burn authority stays with this hook.
+        UniswapLP(liquidityToken).initialize(tokenSymbol, tokenSymbol, 18, poolId, address(this));
 
         memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken = liquidityToken;
         memeverseUniswapHookStorage.poolLaunchTimestamp[poolId] = uint40(block.timestamp);
@@ -549,9 +586,10 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         PoolId poolId = key.toId();
-        // Launch settlement executes via `executeLaunchSettlement(...)` and self-initiates pool swaps.
-        // If a non-standard pool manager mock still routes self-swaps through callbacks, keep this branch fee-neutral.
-        if (sender == address(this)) {
+        // Preorder settlement delegates the pool swap to the dedicated executor contract, so the swap callback
+        // `sender` is the executor address — detected via the transient marker set in `executePreorderSettlement`.
+        // Skip the public-swap fee path for those self-initiated swaps.
+        if (MemeverseTransientState.isExpectedPreorderSettlementExecutor(sender)) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
         _revertIfPublicSwapBlocked(poolId);
@@ -646,7 +684,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         BalanceDelta delta,
         bytes calldata
     ) internal override returns (bytes4, int128) {
-        if (sender == address(this)) {
+        if (MemeverseTransientState.isExpectedPreorderSettlementExecutor(sender)) {
             return (IHooks.afterSwap.selector, 0);
         }
 
@@ -862,12 +900,12 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return _claimFees(params.key, msg.sender, params.recipient);
     }
 
-    /// @notice Execute launch preorder settlement through a dedicated hook path.
+    /// @notice Execute preorder settlement through a dedicated hook path.
     /// @dev Callable only by the configured launcher. Uses fixed 1% settlement economics and does not rely on
     /// `beforeSwap/afterSwap` marker branches.
-    /// @param params Launch settlement request.
+    /// @param params Preorder settlement request.
     /// @return delta Net settlement delta consumed by the launcher accounting path.
-    function executeLaunchSettlement(LaunchSettlementParams calldata params)
+    function executePreorderSettlement(PreorderSettlementParams calldata params)
         external
         override
         nonReentrant
@@ -884,48 +922,92 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
         _revertIfNoActiveLiquidityShares(poolId, params.params.amountSpecified);
 
+        // Settlement executes in three phases:
+        // 1) Charge fees up front — LP fee pulled from the launcher and credited to LPs, plus the
+        //    input-side protocol fee to the treasury when applicable. The remainder (netInputAmount)
+        //    is what actually enters the pool.
+        // 2) Fund and delegate the swap — move netInput to the executor, set the transient marker so
+        //    the executor's own swap skips the public-swap fee path in _beforeSwap/_afterSwap, call
+        //    executor.execute() to swap inside a PoolManager unlock, then clear the marker.
+        // 3) Reconcile — refresh the fee engine with the realized delta and re-derive the output-side
+        //    protocol fee from the hook's own fee rate; revert if it differs from the executor's report.
+
         uint256 grossInputAmount = uint256(-params.params.amountSpecified);
         if (grossInputAmount == 0) revert ZeroValue();
         SwapFeeContext memory feeContext = _resolveSwapFeeContext(params.key, params.params.zeroForOne);
-        // Vendored Uniswap v4 `Hooks.beforeSwap/afterSwap` short-circuit self-calls when `msg.sender == address(self)`.
-        // Explicit settlement therefore bypasses hook callbacks on the real pool manager, so refresh the volatility
-        // anchor here and replay the dynamic-state bookkeeping in the settlement callback using a pre-swap price
-        // captured immediately before the actual self-swap executes.
-        // Settlement bypasses normal hook callbacks; refresh pre-swap dynamic-fee state explicitly.
         _dynamicFeeEngine()
             .refreshBeforeSwap(
                 IMemeverseDynamicFeeEngine.RefreshBeforeSwapParams({poolId: poolId, preSqrtPriceX96: sqrtPriceX96})
             );
-        (uint256 lpFeeBps, uint256 protocolFeeBps) = FeeMath.splitFeeBps(LAUNCH_SETTLEMENT_FEE_BPS);
+
+        (uint256 lpFeeBps, uint256 protocolFeeBps) = FeeMath.splitFeeBps(PREORDER_SETTLEMENT_FEE_BPS);
         uint256 lpFeeInputAmount = FullMath.mulDiv(grossInputAmount, lpFeeBps, BPS_BASE);
         uint256 protocolFeeInputAmount =
             feeContext.protocolFeeOnInput ? FullMath.mulDiv(grossInputAmount, protocolFeeBps, BPS_BASE) : 0;
         uint256 netInputAmount = grossInputAmount - lpFeeInputAmount - protocolFeeInputAmount;
         if (netInputAmount == 0) revert ZeroValue();
 
-        // Regular hook callbacks are bypassed for this launcher-owned path, so settlement collects input fees explicitly here.
-        _collectLaunchSettlementInputFees(msg.sender, poolId, feeContext, lpFeeInputAmount, protocolFeeInputAmount);
+        _collectPreorderSettlementInputFees(msg.sender, poolId, feeContext, lpFeeInputAmount, protocolFeeInputAmount);
 
         SwapParams memory settlementParams = params.params;
         settlementParams.amountSpecified = -int256(netInputAmount);
-
-        delta = abi.decode(
-            poolManager.unlock(
-                abi.encode(
-                    UNLOCK_ACTION_LAUNCH_SETTLEMENT,
-                    abi.encode(
-                        LaunchSettlementCallbackData({
-                            payer: msg.sender,
-                            recipient: params.recipient,
-                            key: params.key,
-                            params: settlementParams,
-                            protocolFeeOnInput: feeContext.protocolFeeOnInput
-                        })
-                    )
-                )
-            ),
-            (BalanceDelta)
+        IMemeversePreorderSettlementExecutor executor = _preorderSettlementExecutor();
+        if (!IERC20Minimal(Currency.unwrap(feeContext.currencyIn))
+                .transferFrom(msg.sender, address(executor), netInputAmount)) {
+            revert ERC20TransferFailed();
+        }
+        // Bypass intentionally stays set for the whole executor.execute() window, including any nested pool
+        // callbacks (e.g. a malicious ERC20 transfer reentering during the executor's settle/take). The fee-neutral
+        // branch in _beforeSwap/_afterSwap only fires when `sender == executor`, and the executor issues exactly one
+        // swap with hook-supplied params — a reentrant swap from a token callback has `sender == attacker`, so it
+        // misses the branch and pays normal fees. Do not loosen that sender check.
+        MemeverseTransientState.setPreorderSettlementExecutor(address(executor));
+        IMemeversePreorderSettlementExecutor.ExecuteResult memory result = executor.execute(
+            IMemeversePreorderSettlementExecutor.ExecuteParams({
+                poolManager: poolManager,
+                recipient: params.recipient,
+                treasury: memeverseUniswapHookStorage.treasury,
+                key: params.key,
+                swapParams: settlementParams,
+                protocolFeeOnInput: feeContext.protocolFeeOnInput,
+                protocolFeeOutputBps: feeContext.protocolFeeOnInput ? 0 : protocolFeeBps
+            })
         );
+        MemeverseTransientState.setPreorderSettlementExecutor(address(0));
+
+        _dynamicFeeEngine()
+            .updateAfterSwap(
+                IMemeverseDynamicFeeEngine.UpdateAfterSwapParams({
+                poolId: poolId,
+                delta: result.swapDelta,
+                trader: msg.sender,
+                preSqrtPriceX96: result.preSwapSqrtPriceX96,
+                postSqrtPriceX96: result.postSwapSqrtPriceX96
+            })
+            );
+        // Output-side protocol fee is derived by the hook from its own fee rate and the realized swap output,
+        // not trusted from the executor's self-reported amount. `swapDelta` mirrors the executor's
+        // poolManager.swap() return, so this is a self-consistency check on the self-report — it catches an
+        // inconsistent report, not a forged struct (a forged return struct is bounded by the onlyOwner
+        // executor-replacement trust model). Input-side charging resolves to 0 here.
+        uint256 expectedProtocolFeeOutputAmount = feeContext.protocolFeeOnInput
+            ? 0
+            : FullMath.mulDiv(_actualOutputAmount(result.swapDelta, params.params.zeroForOne), protocolFeeBps, BPS_BASE);
+        if (result.protocolFeeOutputAmount != expectedProtocolFeeOutputAmount) {
+            revert PreorderSettlementFeeMismatch();
+        }
+        if (expectedProtocolFeeOutputAmount > 0) {
+            Currency outputCurrency = params.params.zeroForOne ? params.key.currency1 : params.key.currency0;
+            emit ProtocolFeeCollected(
+                poolId,
+                outputCurrency,
+                memeverseUniswapHookStorage.treasury,
+                expectedProtocolFeeOutputAmount,
+                block.number
+            );
+        }
+
+        delta = result.adjustedDelta;
         if (_actualInputAmount(delta, params.params.zeroForOne) != netInputAmount) revert ExactInputPartialFill();
     }
 
@@ -934,12 +1016,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         returns (BalanceDelta delta)
     {
         delta = abi.decode(
-            poolManager.unlock(
-                abi.encode(
-                    UNLOCK_ACTION_MODIFY_LIQUIDITY,
-                    abi.encode(ModifyLiquidityCallbackData({sender: sender, key: key, params: params}))
-                )
-            ),
+            poolManager.unlock(abi.encode(ModifyLiquidityCallbackData({sender: sender, key: key, params: params}))),
             (BalanceDelta)
         );
     }
@@ -949,89 +1026,15 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     /// @param rawData Encoded liquidity callback payload produced by `_modifyLiquidity`.
     /// @return result Encoded `BalanceDelta` returned back to the pool manager.
     function unlockCallback(bytes calldata rawData) external override onlyPoolManager returns (bytes memory) {
-        (uint8 action, bytes memory payload) = abi.decode(rawData, (uint8, bytes));
-        if (action == UNLOCK_ACTION_MODIFY_LIQUIDITY) {
-            return _handleModifyLiquidityCallback(payload);
-        }
-        if (action == UNLOCK_ACTION_LAUNCH_SETTLEMENT) {
-            return _handleLaunchSettlementCallback(payload);
-        }
-        revert Unauthorized();
-    }
-
-    function _handleModifyLiquidityCallback(bytes memory payload) internal returns (bytes memory) {
-        ModifyLiquidityCallbackData memory data = abi.decode(payload, (ModifyLiquidityCallbackData));
-
+        ModifyLiquidityCallbackData memory data = abi.decode(rawData, (ModifyLiquidityCallbackData));
         BalanceDelta delta;
         (delta,) = poolManager.modifyLiquidity(data.key, data.params, ZERO_BYTES);
-
         if (data.params.liquidityDelta < 0) {
             _takeDeltas(data.sender, data.key, delta);
         } else {
             _settleDeltas(data.sender, data.key, delta);
         }
-
         return abi.encode(delta);
-    }
-
-    function _handleLaunchSettlementCallback(bytes memory payload) internal returns (bytes memory) {
-        LaunchSettlementCallbackData memory data = abi.decode(payload, (LaunchSettlementCallbackData));
-        PoolId poolId = data.key.toId();
-        uint256 protocolFeeBps = FeeMath.protocolFeeBps(LAUNCH_SETTLEMENT_FEE_BPS);
-        (uint160 preSwapSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-
-        BalanceDelta swapDelta = poolManager.swap(data.key, data.params, ZERO_BYTES);
-        (uint160 postSwapSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        // Settlement bypasses `afterSwap`, so replay the realized dynamic-fee state update here.
-        _dynamicFeeEngine()
-            .updateAfterSwap(
-                IMemeverseDynamicFeeEngine.UpdateAfterSwapParams({
-                poolId: poolId,
-                delta: swapDelta,
-                trader: data.payer,
-                preSqrtPriceX96: preSwapSqrtPriceX96,
-                postSqrtPriceX96: postSwapSqrtPriceX96
-            })
-            );
-        int128 amount0 = swapDelta.amount0();
-        int128 amount1 = swapDelta.amount1();
-
-        if (amount0 < 0) {
-            data.key.currency0.settle(poolManager, data.payer, uint256((-amount0).toUint128()), false);
-        }
-        if (amount1 < 0) {
-            data.key.currency1.settle(poolManager, data.payer, uint256((-amount1).toUint128()), false);
-        }
-
-        uint256 protocolFeeOutputAmount = 0;
-        if (!data.protocolFeeOnInput) {
-            // When protocol fee is charged on output, the pool pays gross proceeds first and the hook skims treasury share before forwarding.
-            uint256 grossOutputAmount = _actualOutputAmount(swapDelta, data.params.zeroForOne);
-            protocolFeeOutputAmount = FullMath.mulDiv(grossOutputAmount, protocolFeeBps, BPS_BASE);
-            Currency outputCurrency = data.params.zeroForOne ? data.key.currency1 : data.key.currency0;
-            _collectProtocolFee(poolId, outputCurrency, protocolFeeOutputAmount);
-        }
-
-        uint256 takeAmount0 = amount0 > 0 ? uint256(amount0.toUint128()) : 0;
-        uint256 takeAmount1 = amount1 > 0 ? uint256(amount1.toUint128()) : 0;
-        if (protocolFeeOutputAmount > 0) {
-            if (data.params.zeroForOne) {
-                takeAmount1 -= protocolFeeOutputAmount;
-            } else {
-                takeAmount0 -= protocolFeeOutputAmount;
-            }
-        }
-
-        if (takeAmount0 > 0) {
-            poolManager.take(data.key.currency0, data.recipient, takeAmount0);
-        }
-        if (takeAmount1 > 0) {
-            poolManager.take(data.key.currency1, data.recipient, takeAmount1);
-        }
-
-        int128 adjustedAmount0 = amount0 > 0 ? int128(int256(takeAmount0)) : amount0;
-        int128 adjustedAmount1 = amount1 > 0 ? int128(int256(takeAmount1)) : amount1;
-        return abi.encode(toBalanceDelta(adjustedAmount0, adjustedAmount1));
     }
 
     /// @dev Transfers `amount` of `currency` to `to`.
@@ -1152,7 +1155,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         _creditLpFee(poolId, feeCurrency, feeCurrencyIsCurrency0, lpFeeAmount, effectiveSupply);
     }
 
-    function _collectLaunchSettlementInputFees(
+    function _collectPreorderSettlementInputFees(
         address payer,
         PoolId poolId,
         SwapFeeContext memory ctx,
@@ -1162,7 +1165,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         if (lpFeeInputAmount > 0) {
             uint256 effectiveSupply = memeverseUniswapHookStorage.cachedLpTotalSupply[poolId];
             if (effectiveSupply == 0) revert NoActiveLiquidityShares();
-            // Launcher settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
+            // Preorder settlement pulls ERC20 fees directly from the payer because there is no public-swap callback collection step.
             if (!IERC20Minimal(Currency.unwrap(ctx.currencyIn)).transferFrom(payer, address(this), lpFeeInputAmount)) {
                 revert ERC20TransferFailed();
             }
@@ -1325,6 +1328,31 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         address oldInitializer = memeverseUniswapHookStorage.poolInitializer;
         memeverseUniswapHookStorage.poolInitializer = initializer;
         emit PoolInitializerUpdated(oldInitializer, initializer);
+    }
+
+    /// @notice Sets the stateless helper used to assemble preorder settlement parameters.
+    /// @dev Only callable by the owner. The helper is replaced atomically and must have deployed code.
+    /// @param executor The new preorder settlement executor.
+    function setPreorderSettlementExecutor(IMemeversePreorderSettlementExecutor executor) external onlyOwner {
+        address executorAddress = address(executor);
+        if (executorAddress == address(0)) revert ZeroAddress();
+        _validatePreorderSettlementExecutor(executor);
+
+        IMemeversePreorderSettlementExecutor oldExecutor = memeverseUniswapHookStorage.preorderSettlementExecutor;
+        memeverseUniswapHookStorage.preorderSettlementExecutor = executor;
+        emit PreorderSettlementExecutorUpdated(address(oldExecutor), executorAddress);
+    }
+
+    /// @notice Updates the clone template used to deploy LP tokens for new pools.
+    /// @dev Only callable by the owner. Existing LP clones are unaffected — they are independent contracts.
+    /// @param implementation_ The new LP token clone implementation.
+    function setLpTokenImplementation(address implementation_) external onlyOwner {
+        if (implementation_ == address(0)) revert ZeroAddress();
+        if (implementation_.code.length == 0) revert LPTokenImplementationCodeNotReady(implementation_);
+
+        address old = memeverseUniswapHookStorage.lpTokenImplementation;
+        memeverseUniswapHookStorage.lpTokenImplementation = implementation_;
+        emit LPTokenImplementationUpdated(old, implementation_);
     }
 
     /// @notice Authorizes the configured pool initializer to initialize one pool at one exact start price.

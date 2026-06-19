@@ -7,6 +7,7 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IMemeverseDynamicFeeEngine} from "./IMemeverseDynamicFeeEngine.sol";
+import {IMemeversePreorderSettlementExecutor} from "./IMemeversePreorderSettlementExecutor.sol";
 
 /**
  * @title IMemeverseUniswapHook
@@ -59,7 +60,7 @@ interface IMemeverseUniswapHook {
         address recipient;
     }
 
-    struct LaunchSettlementParams {
+    struct PreorderSettlementParams {
         PoolKey key;
         SwapParams params;
         address recipient;
@@ -94,6 +95,14 @@ interface IMemeverseUniswapHook {
     ///      UUPS upgrades of the hook itself do not affect the engine pointer — it lives in hook storage.
     /// @return Engine used for dynamic fee quotes and realized swap state.
     function dynamicFeeEngine() external view returns (IMemeverseDynamicFeeEngine);
+
+    /// @notice Exposes the LP token implementation cloned for newly initialized pools.
+    /// @return Implementation contract used as the source for pool LP clones.
+    function lpTokenImplementation() external view returns (address);
+
+    /// @notice Exposes the stateless helper used for preorder settlement calculations.
+    /// @return Executor contract currently used by the hook.
+    function preorderSettlementExecutor() external view returns (IMemeversePreorderSettlementExecutor);
 
     /// @notice Exposes the launcher consulted for post-unlock public-swap protection.
     /// @dev Returns the explicit launcher binding used by hook implementations for launch-state checks.
@@ -253,12 +262,12 @@ interface IMemeverseUniswapHook {
         returns (uint256 fee0Amount, uint256 fee1Amount);
 
     /**
-     * @notice Execute the launch preorder settlement swap through the hook's dedicated settlement path.
+     * @notice Execute the preorder settlement swap through the hook's dedicated settlement path.
      * @dev Callable only by the configured launcher.
-     * @param params Launch settlement payload.
+     * @param params Preorder settlement payload.
      * @return delta Balance delta describing the net token movement after applying fixed 1% settlement economics.
      */
-    function executeLaunchSettlement(LaunchSettlementParams calldata params) external returns (BalanceDelta delta);
+    function executePreorderSettlement(PreorderSettlementParams calldata params) external returns (BalanceDelta delta);
 
     /**
      * @notice Internal accounting helper for LP fee snapshots.
@@ -371,7 +380,7 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when an exact-output swap underdelivers the expected pool-side output.
     error ExactOutputPartialFill();
 
-    /// @notice Reverts when the launch settlement caller is zero.
+    /// @notice Reverts when a zero address is supplied where a non-zero address is required.
     error ZeroAddress();
 
     /// @notice Reverts when a hook-managed pool or protocol config uses native currency.
@@ -416,6 +425,18 @@ interface IMemeverseUniswapHook {
     /// @notice Reverts when the dynamic fee engine owner is not the hook proxy itself.
     error DynamicFeeEngineOwnerMismatch(address engine, address expectedOwner, address actualOwner);
 
+    /// @notice Reverts when the LP token implementation address has no deployed code.
+    error LPTokenImplementationCodeNotReady(address implementation);
+
+    /// @notice Reverts when the preorder settlement executor address has no deployed code.
+    error PreorderSettlementExecutorCodeNotReady(address executor);
+
+    /// @notice Reverts when the executor is immutable-bound to a hook other than this hook proxy.
+    error PreorderSettlementExecutorHookMismatch(address executor, address expectedHook, address actualHook);
+
+    /// @notice Reverts when the executor-reported output-side protocol fee does not match the hook-derived amount.
+    error PreorderSettlementFeeMismatch();
+
     /// @notice Migrates the hook to a new dynamic fee engine proxy.
     /// @dev `newEngine` must be an initialized engine proxy owned by this hook proxy and authorized for this hook.
     ///      Do not pass an implementation address here; use `upgradeDynamicFeeEngineImplementation` to upgrade the
@@ -428,6 +449,22 @@ interface IMemeverseUniswapHook {
     /// @param data Optional initialization or migration calldata forwarded to the engine upgrade.
     function upgradeDynamicFeeEngineImplementation(address newImplementation, bytes calldata data) external;
 
+    /// @notice Replaces the stateless preorder settlement executor.
+    /// @param executor New executor implementation with deployed code.
+    function setPreorderSettlementExecutor(IMemeversePreorderSettlementExecutor executor) external;
+
+    /// @notice Updates the clone template used to deploy LP tokens for new pools.
+    /// @dev Implementations are expected to restrict this to an admin or owner role.
+    ///      Existing LP clones are unaffected — they are independent contracts.
+    /// @param implementation_ The new LP token clone implementation.
+    function setLpTokenImplementation(address implementation_) external;
+
     /// @notice Emitted when the dynamic fee engine pointer is updated.
     event DynamicFeeEngineUpdated(address oldEngine, address newEngine);
+
+    /// @notice Emitted when the LP token implementation pointer is initialized or updated.
+    event LPTokenImplementationUpdated(address oldImplementation, address newImplementation);
+
+    /// @notice Emitted when the preorder settlement executor pointer is initialized or updated.
+    event PreorderSettlementExecutorUpdated(address oldExecutor, address newExecutor);
 }

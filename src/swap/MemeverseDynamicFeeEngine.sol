@@ -137,6 +137,10 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
     }
 
     /// @inheritdoc IMemeverseDynamicFeeEngine
+    /// @dev Design invariant: this function MUST depend only on `params` fields
+    ///      (delta, price snapshots, trader). It MUST NOT read PoolManager unsettled
+    ///      balances or perform settle/take — the caller controls call timing relative
+    ///      to settlement, and balance-dependent logic would create ordering coupling.
     function updateAfterSwap(UpdateAfterSwapParams calldata params) external override onlyAuthorizedCaller {
         if (params.preSqrtPriceX96 == 0) return;
 
@@ -280,7 +284,17 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         uint256 userInputAmount = amountSpecified < 0 ? uint256(-amountSpecified) : 0;
         uint256 requestedNetOutputAmount = amountSpecified > 0 ? uint256(amountSpecified) : 0;
         uint256 spotBeforeX18 = FeeMath.spotX18FromSqrtPrice(preSqrtPriceX96);
+        // preVolatilityPartBps and preDecayedShortPpm are loop-invariant (state.volDeviationAccumulator /
+        // state.shortImpactPpm are unchanged inside the loop); precompute once to avoid per-iteration recomputation.
+        uint256 preVolatilityPartBps = FeeMath.volatilitySqrtFeeBps(state.volDeviationAccumulator);
+        uint256 preDecayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
 
+        // Fixed-point iteration: fee and swap amount are mutually dependent — fee reduces the
+        // net amount reaching the pool (input path) or requires grossing up the requested output
+        // (output path). Each iteration re-estimates the swap with the fee-adjusted amount until
+        // the pool's actual I/O matches what the fee was computed from. Typically converges in
+        // 1–2 rounds; 3 is a safety cap. If still divergent after 3 rounds, the last estimate
+        // is returned (the fallback after the loop handles the output-specified case).
         for (uint256 i = 0; i < 3; ++i) {
             bool converged;
             (quote, workingAmountSpecified, converged) = _estimateDynamicFeeQuoteIter(
@@ -290,6 +304,8 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
                 liquidity,
                 preSqrtPriceX96,
                 spotBeforeX18,
+                preVolatilityPartBps,
+                preDecayedShortPpm,
                 zeroForOne,
                 amountSpecified,
                 workingAmountSpecified,
@@ -317,6 +333,8 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         uint128 liquidity,
         uint160 preSqrtPriceX96,
         uint256 spotBeforeX18,
+        uint256 preVolatilityPartBps,
+        uint256 preDecayedShortPpm,
         bool zeroForOne,
         int256 amountSpecified,
         int256 workingAmountSpecified,
@@ -333,7 +351,7 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         quote.spotBeforeX18 = spotBeforeX18;
         quote.spotAfterX18 = FeeMath.spotX18FromSqrtPrice(postSqrtPriceX96);
         quote.pifPpm = FeeMath.priceMovePpmCapped(preSqrtPriceX96, postSqrtPriceX96);
-        _populateDynamicFeeQuoteFromState(quote, state, senderBatchState);
+        _populateDynamicFeeQuoteFromState(quote, state, senderBatchState, preVolatilityPartBps, preDecayedShortPpm);
 
         if (launchFeeBps > quote.feeBps) quote.feeBps = launchFeeBps;
 
@@ -357,10 +375,15 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         return (quote, int256(grossedOutputAmount), false);
     }
 
+    /// @dev `preVolatilityPartBps` and `preDecayedShortPpm` are loop-invariant: they depend only on
+    ///      `state.volDeviationAccumulator` and `state.shortImpactPpm`, which are unchanged inside the
+    ///      convergence loop. Callers precompute them once to avoid redundant recomputation per iteration.
     function _populateDynamicFeeQuoteFromState(
         PreparedSwapFee memory quote,
         DynamicFeeState memory state,
-        AddressBatchState memory senderBatchState
+        AddressBatchState memory senderBatchState,
+        uint256 preVolatilityPartBps,
+        uint256 preDecayedShortPpm
     ) internal view {
         bool hasHistory = state.weightedVolume0 > 0 && state.ewVWAPX18 > 0;
         quote.isAdverse = hasHistory
@@ -382,9 +405,8 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         uint256 dffPpm = FullMath.mulDiv(FEE_DFF_MAX_PPM, satPpm, PPM_BASE);
         uint256 dynamicPpm = FullMath.mulDiv(dffPpm, effectivePifPpm, PPM_BASE);
         quote.adverseImpactPartBps = dynamicPpm / (PPM_BASE / BPS_BASE);
-        quote.volatilityPartBps = FeeMath.volatilitySqrtFeeBps(state.volDeviationAccumulator);
+        quote.volatilityPartBps = preVolatilityPartBps;
 
-        uint256 preDecayedShortPpm = _decayLinearPpm(state.shortImpactPpm, state.shortLastTs, SHORT_DECAY_WINDOW_SEC);
         uint256 projectedShortPpm = preDecayedShortPpm + quote.pifPpm;
         if (projectedShortPpm > SHORT_CAP_PPM) projectedShortPpm = SHORT_CAP_PPM;
         uint256 chargeableShortPpm = projectedShortPpm > SHORT_FLOOR_PPM ? projectedShortPpm - SHORT_FLOOR_PPM : 0;

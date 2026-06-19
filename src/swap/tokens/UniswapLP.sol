@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.35;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Owned} from "solmate/auth/Owned.sol";
 
 import {IMemeverseUniswapHook, PoolId} from "../interfaces/IMemeverseUniswapHook.sol";
 
 /// @notice LP Token For MemeverseUniswapHook
-contract UniswapLP is Owned {
+contract UniswapLP is Owned, Initializable {
     error PermitDeadlineExpired(uint256 deadline);
     error InvalidSigner(address recoveredAddress, address owner);
     error ZeroAddressHook();
@@ -14,35 +15,51 @@ contract UniswapLP is Owned {
 
     string public name;
     string public symbol;
-    uint8 public immutable decimals;
+    uint8 public decimals;
 
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    uint256 internal immutable INITIAL_CHAIN_ID;
-    bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
+    uint256 internal INITIAL_CHAIN_ID;
+    bytes32 internal INITIAL_DOMAIN_SEPARATOR;
     mapping(address => uint256) public nonces;
 
-    PoolId public immutable poolId;
-    address public immutable memeverseUniswapHook;
+    PoolId public poolId;
+    address public memeverseUniswapHook;
 
-    constructor(
-        string memory _name,
-        string memory _symbol,
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() Owned(address(1)) {
+        _disableInitializers();
+    }
+
+    /// @notice Initializes a pool-specific LP clone.
+    /// @dev The hook becomes the token owner so mint/burn permissions stay hook-only. The EIP-712 domain is
+    ///      written after clone state is set because permit signatures must bind to the clone's name and address.
+    /// @param _name ERC20 name for the LP clone.
+    /// @param _symbol ERC20 symbol for the LP clone.
+    /// @param _decimals ERC20 decimals for the LP clone.
+    /// @param _poolId Hook-managed pool id represented by this LP clone.
+    /// @param _memeverseUniswapHook Hook that owns this LP clone and receives transfer snapshot callbacks.
+    function initialize(
+        string calldata _name,
+        string calldata _symbol,
         uint8 _decimals,
         PoolId _poolId,
         address _memeverseUniswapHook
-    ) Owned(msg.sender) {
+    ) external initializer {
         if (_memeverseUniswapHook == address(0)) revert ZeroAddressHook();
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
         poolId = _poolId;
         memeverseUniswapHook = _memeverseUniswapHook;
+        owner = _memeverseUniswapHook;
 
         INITIAL_CHAIN_ID = block.chainid;
         INITIAL_DOMAIN_SEPARATOR = computeDomainSeparator();
+
+        emit OwnershipTransferred(address(0), _memeverseUniswapHook);
     }
 
     /// @notice Approves `spender` to spend LP tokens on behalf of the caller.
