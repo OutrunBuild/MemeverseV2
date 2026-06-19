@@ -1176,9 +1176,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         UniswapLP newImpl = new UniswapLP();
 
         vm.expectEmit(true, true, true, true, address(hook));
-        emit IMemeverseUniswapHook.LPTokenImplementationUpdated(
-            hook.lpTokenImplementation(), address(newImpl)
-        );
+        emit IMemeverseUniswapHook.LPTokenImplementationUpdated(hook.lpTokenImplementation(), address(newImpl));
         hook.setLpTokenImplementation(address(newImpl));
 
         assertEq(hook.lpTokenImplementation(), address(newImpl), "lp impl");
@@ -1189,9 +1187,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         hook.setLpTokenImplementation(address(0));
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IMemeverseUniswapHook.LPTokenImplementationCodeNotReady.selector, address(0xBEEF)
-            )
+            abi.encodeWithSelector(IMemeverseUniswapHook.LPTokenImplementationCodeNotReady.selector, address(0xBEEF))
         );
         hook.setLpTokenImplementation(address(0xBEEF));
     }

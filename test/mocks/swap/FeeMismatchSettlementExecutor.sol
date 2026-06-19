@@ -12,7 +12,9 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 
 import {CurrencySettler} from "../../../src/swap/libraries/CurrencySettler.sol";
 import {SafeCast} from "../../../src/swap/libraries/SafeCast.sol";
-import {IMemeversePreorderSettlementExecutor} from "../../../src/swap/interfaces/IMemeversePreorderSettlementExecutor.sol";
+import {
+    IMemeversePreorderSettlementExecutor
+} from "../../../src/swap/interfaces/IMemeversePreorderSettlementExecutor.sol";
 
 /// @notice Test-only executor that performs a real swap but inflates the reported protocol fee.
 /// @dev Used to verify the hook's `PreorderSettlementFeeMismatch` guard catches inconsistent fee reports.
@@ -35,19 +37,20 @@ contract FeeMismatchSettlementExecutor is IMemeversePreorderSettlementExecutor, 
         if (msg.sender != HOOK) revert Unauthorized();
         if (address(params.key.hooks) != HOOK) revert Unauthorized();
         return abi.decode(
-            params.poolManager.unlock(
-                abi.encode(
-                    params.poolManager,
-                    CallbackData({
-                        recipient: params.recipient,
-                        treasury: params.treasury,
-                        key: params.key,
-                        swapParams: params.swapParams,
-                        protocolFeeOnInput: params.protocolFeeOnInput,
-                        protocolFeeOutputBps: params.protocolFeeOutputBps
-                    })
-                )
-            ),
+            params.poolManager
+                .unlock(
+                    abi.encode(
+                        params.poolManager,
+                        CallbackData({
+                            recipient: params.recipient,
+                            treasury: params.treasury,
+                            key: params.key,
+                            swapParams: params.swapParams,
+                            protocolFeeOnInput: params.protocolFeeOnInput,
+                            protocolFeeOutputBps: params.protocolFeeOutputBps
+                        })
+                    )
+                ),
             (ExecuteResult)
         );
     }
