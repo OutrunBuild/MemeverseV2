@@ -124,18 +124,20 @@ contract MemeverseLauncherConfigTest is Test {
     function testProxyInitializeStoresOwnerAndConfiguration() external view {
         assertEq(launcher.owner(), address(this));
         assertFalse(launcher.paused());
-        assertEq(launcher.localLzEndpoint(), address(0x1));
-        assertEq(launcher.memeverseRegistrar(), address(0x2));
-        assertEq(launcher.memeverseProxyDeployer(), address(0x3));
-        assertEq(launcher.yieldDispatcher(), address(0x4));
-        assertEq(launcher.lzEndpointRegistry(), address(0x5));
+        IMemeverseLauncher.LauncherContracts memory contracts = launcher.getLauncherContracts();
+        assertEq(contracts.localLzEndpoint, address(0x1));
+        assertEq(contracts.memeverseRegistrar, address(0x2));
+        assertEq(contracts.memeverseProxyDeployer, address(0x3));
+        assertEq(contracts.yieldDispatcher, address(0x4));
+        assertEq(contracts.lzEndpointRegistry, address(0x5));
+        assertEq(contracts.polSplitter, address(0x11));
         assertEq(launcher.polend(), address(0x10));
-        assertEq(launcher.polSplitter(), address(0x11));
-        assertEq(launcher.executorRewardRate(), 25);
-        assertEq(launcher.oftReceiveGasLimit(), 115_000);
-        assertEq(launcher.yieldDispatcherGasLimit(), 135_000);
-        assertEq(launcher.preorderCapRatio(), 2_500);
-        assertEq(launcher.preorderVestingDuration(), 7 days);
+        IMemeverseLauncher.LauncherParameters memory parameters = launcher.getLauncherParameters();
+        assertEq(parameters.executorRewardRate, 25);
+        assertEq(parameters.oftReceiveGasLimit, 115_000);
+        assertEq(parameters.yieldDispatcherGasLimit, 135_000);
+        assertEq(parameters.preorderCapRatio, 2_500);
+        assertEq(parameters.preorderVestingDuration, 7 days);
     }
 
     function testImplementationInitializeIsDisabled() external {
@@ -398,7 +400,7 @@ contract MemeverseLauncherConfigTest is Test {
             new MockPreorderSettlementRouterConfig(address(configuredHook));
         configuredHook.setPoolInitializer(address(settledRouter));
         launcher.setMemeverseSwapRouter(address(settledRouter));
-        assertEq(launcher.memeverseSwapRouter(), address(settledRouter));
+        assertEq(launcher.getLauncherContracts().memeverseSwapRouter, address(settledRouter));
 
         (bool readHookOk, address storedHook) = _readMemeverseUniswapHook();
         assertTrue(readHookOk, "hook getter missing");
@@ -415,7 +417,7 @@ contract MemeverseLauncherConfigTest is Test {
         vm.expectRevert(IMemeverseLauncher.InvalidPreorderSettlementConfig.selector);
         launcher.setMemeverseSwapRouter(address(router));
 
-        assertEq(launcher.memeverseSwapRouter(), address(0));
+        assertEq(launcher.getLauncherContracts().memeverseSwapRouter, address(0));
     }
 
     /// @notice Verifies swap infra can be configured in router-then-hook order when the bindings eventually match.
@@ -425,7 +427,9 @@ contract MemeverseLauncherConfigTest is Test {
         MockPreorderSettlementRouterConfig router = new MockPreorderSettlementRouterConfig(address(configuredHook));
 
         launcher.setMemeverseSwapRouter(address(router));
-        assertEq(launcher.memeverseSwapRouter(), address(router), "router should store before hook");
+        assertEq(
+            launcher.getLauncherContracts().memeverseSwapRouter, address(router), "router should store before hook"
+        );
 
         configuredHook.setPoolInitializer(address(router));
         launcher.setMemeverseUniswapHook(address(configuredHook));
@@ -450,7 +454,7 @@ contract MemeverseLauncherConfigTest is Test {
         launcher.setMemeverseSwapRouter(address(firstRouter));
         configuredHook.setPoolInitializer(address(secondRouter));
         launcher.setMemeverseSwapRouter(address(secondRouter));
-        assertEq(launcher.memeverseSwapRouter(), address(secondRouter), "router should rebind");
+        assertEq(launcher.getLauncherContracts().memeverseSwapRouter, address(secondRouter), "router should rebind");
 
         vm.expectRevert();
         launcher.setMemeverseUniswapHook(address(configuredHook));
@@ -460,7 +464,7 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Asserts the registry setter complains about zero addresses.
     function testSetLzEndpointRegistryStoresAddressAndRejectsZero() external {
         launcher.setLzEndpointRegistry(address(0xBEEF));
-        assertEq(launcher.lzEndpointRegistry(), address(0xBEEF));
+        assertEq(launcher.getLauncherContracts().lzEndpointRegistry, address(0xBEEF));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setLzEndpointRegistry(address(0));
@@ -470,7 +474,7 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Ensures the registrar setter rejects zero and persists valid values.
     function testSetMemeverseRegistrarStoresAddressAndRejectsZero() external {
         launcher.setMemeverseRegistrar(address(0xBEEF));
-        assertEq(launcher.memeverseRegistrar(), address(0xBEEF));
+        assertEq(launcher.getLauncherContracts().memeverseRegistrar, address(0xBEEF));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setMemeverseRegistrar(address(0));
@@ -480,7 +484,7 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Checks the proxy deployer setter enforces non-zero input.
     function testSetMemeverseProxyDeployerStoresAddressAndRejectsZero() external {
         launcher.setMemeverseProxyDeployer(address(0xBEEF));
-        assertEq(launcher.memeverseProxyDeployer(), address(0xBEEF));
+        assertEq(launcher.getLauncherContracts().memeverseProxyDeployer, address(0xBEEF));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setMemeverseProxyDeployer(address(0));
@@ -490,7 +494,7 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Guards the OFT dispatcher setter against zero inputs.
     function testSetYieldDispatcherStoresAddressAndRejectsZero() external {
         launcher.setYieldDispatcher(address(0xBEEF));
-        assertEq(launcher.yieldDispatcher(), address(0xBEEF));
+        assertEq(launcher.getLauncherContracts().yieldDispatcher, address(0xBEEF));
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setYieldDispatcher(address(0));
@@ -529,7 +533,7 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Asserts the fee rate setter guards against overflow values.
     function testSetExecutorRewardRateStoresValueAndRejectsOverflow() external {
         launcher.setExecutorRewardRate(9999);
-        assertEq(launcher.executorRewardRate(), 9999);
+        assertEq(launcher.getLauncherParameters().executorRewardRate, 9999);
 
         vm.expectRevert(IMemeverseLauncher.FeeRateOverFlow.selector);
         launcher.setExecutorRewardRate(10_000);
@@ -539,8 +543,8 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Confirms the preorder setter enforces non-zero caps and valid ranges.
     function testSetPreorderConfigStoresValuesAndRejectsZero() external {
         launcher.setPreorderConfig(2_000, 14 days);
-        assertEq(launcher.preorderCapRatio(), 2_000);
-        assertEq(launcher.preorderVestingDuration(), 14 days);
+        assertEq(launcher.getLauncherParameters().preorderCapRatio, 2_000);
+        assertEq(launcher.getLauncherParameters().preorderVestingDuration, 14 days);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setPreorderConfig(0, 14 days);
@@ -556,8 +560,8 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Makes sure each gas-limit setter requires a non-zero throttle.
     function testSetGasLimitsStoresValuesAndRejectsZero() external {
         launcher.setGasLimits(1, 2);
-        assertEq(launcher.oftReceiveGasLimit(), 1);
-        assertEq(launcher.yieldDispatcherGasLimit(), 2);
+        assertEq(launcher.getLauncherParameters().oftReceiveGasLimit, 1);
+        assertEq(launcher.getLauncherParameters().yieldDispatcherGasLimit, 2);
 
         vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
         launcher.setGasLimits(0, 1);

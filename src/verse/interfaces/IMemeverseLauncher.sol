@@ -125,6 +125,36 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         uint256 auxiliaryGovPTFee;
     }
 
+    /// @notice Bundle of launcher-configured contract addresses returned by `getLauncherContracts`.
+    struct LauncherContracts {
+        address localLzEndpoint;
+        address lzEndpointRegistry;
+        address yieldDispatcher;
+        address memeverseRegistrar;
+        address memeverseProxyDeployer;
+        address memeverseSwapRouter;
+        address polSplitter;
+    }
+
+    /// @notice Bundle of launcher-configured numeric parameters returned by `getLauncherParameters`.
+    struct LauncherParameters {
+        uint256 executorRewardRate;
+        uint256 preorderCapRatio;
+        uint256 preorderVestingDuration;
+        uint128 oftReceiveGasLimit;
+        uint128 yieldDispatcherGasLimit;
+    }
+
+    /// @notice Returns all launcher-configured contract addresses in a single call.
+    /// @dev Aggregates the previously separate address getters; intended for off-chain readers.
+    /// @return contracts Launcher contract address bundle.
+    function getLauncherContracts() external view returns (LauncherContracts memory contracts);
+
+    /// @notice Returns all launcher-configured numeric parameters in a single call.
+    /// @dev Aggregates the previously separate numeric getters; intended for off-chain readers.
+    /// @return parameters Launcher numeric parameter bundle.
+    function getLauncherParameters() external view returns (LauncherParameters memory parameters);
+
     /// @notice Returns the configured POLend contract.
     /// @return polend The POLend contract address.
     function polend() external view returns (address polend);

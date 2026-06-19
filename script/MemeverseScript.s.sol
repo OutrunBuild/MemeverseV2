@@ -694,9 +694,15 @@ contract MemeverseScript is BaseScript {
         bool checkFundMetaData
     ) internal view {
         require(MemeverseLauncher(address(launcher)).owner() == initialOwner, "LAUNCHER_OWNER_MISMATCH");
-        require(MemeverseLauncher(address(launcher)).localLzEndpoint() == localEndpoint, "LAUNCHER_ENDPOINT_MISMATCH");
+        require(
+            MemeverseLauncher(address(launcher)).getLauncherContracts().localLzEndpoint == localEndpoint,
+            "LAUNCHER_ENDPOINT_MISMATCH"
+        );
         require(MemeverseLauncher(address(launcher)).polend() == polendProxy, "LAUNCHER_POLEND_MISMATCH");
-        require(MemeverseLauncher(address(launcher)).polSplitter() == polSplitterProxy, "LAUNCHER_SPLITTER_MISMATCH");
+        require(
+            MemeverseLauncher(address(launcher)).getLauncherContracts().polSplitter == polSplitterProxy,
+            "LAUNCHER_SPLITTER_MISMATCH"
+        );
 
         if (checkFundMetaData) {
             (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = launcher.fundMetaDatas(UETH);

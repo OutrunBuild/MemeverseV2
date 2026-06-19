@@ -192,28 +192,22 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
 
     function _authorizeUpgrade(address) internal view override onlyOwner {}
 
-    function localLzEndpoint() external view returns (address) {
-        return memeverseLauncherStorage.localLzEndpoint;
+    function getLauncherContracts() external view returns (LauncherContracts memory contracts) {
+        contracts.localLzEndpoint = memeverseLauncherStorage.localLzEndpoint;
+        contracts.lzEndpointRegistry = memeverseLauncherStorage.lzEndpointRegistry;
+        contracts.yieldDispatcher = memeverseLauncherStorage.yieldDispatcher;
+        contracts.memeverseRegistrar = memeverseLauncherStorage.memeverseRegistrar;
+        contracts.memeverseProxyDeployer = memeverseLauncherStorage.memeverseProxyDeployer;
+        contracts.memeverseSwapRouter = memeverseLauncherStorage.memeverseSwapRouter;
+        contracts.polSplitter = memeverseLauncherStorage.polSplitter;
     }
 
-    function lzEndpointRegistry() external view returns (address) {
-        return memeverseLauncherStorage.lzEndpointRegistry;
-    }
-
-    function yieldDispatcher() external view returns (address) {
-        return memeverseLauncherStorage.yieldDispatcher;
-    }
-
-    function memeverseRegistrar() external view returns (address) {
-        return memeverseLauncherStorage.memeverseRegistrar;
-    }
-
-    function memeverseProxyDeployer() external view returns (address) {
-        return memeverseLauncherStorage.memeverseProxyDeployer;
-    }
-
-    function memeverseSwapRouter() external view returns (address) {
-        return memeverseLauncherStorage.memeverseSwapRouter;
+    function getLauncherParameters() external view returns (LauncherParameters memory parameters) {
+        parameters.executorRewardRate = memeverseLauncherStorage.executorRewardRate;
+        parameters.preorderCapRatio = memeverseLauncherStorage.preorderCapRatio;
+        parameters.preorderVestingDuration = memeverseLauncherStorage.preorderVestingDuration;
+        parameters.oftReceiveGasLimit = memeverseLauncherStorage.oftReceiveGasLimit;
+        parameters.yieldDispatcherGasLimit = memeverseLauncherStorage.yieldDispatcherGasLimit;
     }
 
     function memeverseUniswapHook() external view returns (address) {
@@ -222,30 +216,6 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
 
     function polend() external view override returns (address) {
         return memeverseLauncherStorage.polend;
-    }
-
-    function polSplitter() external view returns (address) {
-        return memeverseLauncherStorage.polSplitter;
-    }
-
-    function executorRewardRate() external view returns (uint256) {
-        return memeverseLauncherStorage.executorRewardRate;
-    }
-
-    function preorderCapRatio() external view returns (uint256) {
-        return memeverseLauncherStorage.preorderCapRatio;
-    }
-
-    function preorderVestingDuration() external view returns (uint256) {
-        return memeverseLauncherStorage.preorderVestingDuration;
-    }
-
-    function oftReceiveGasLimit() external view returns (uint128) {
-        return memeverseLauncherStorage.oftReceiveGasLimit;
-    }
-
-    function yieldDispatcherGasLimit() external view returns (uint128) {
-        return memeverseLauncherStorage.yieldDispatcherGasLimit;
     }
 
     function fundMetaDatas(address uAsset) external view override returns (uint256, uint256) {

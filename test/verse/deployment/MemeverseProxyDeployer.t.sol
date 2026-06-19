@@ -11,6 +11,7 @@ import {IMemeverseProxyDeployer} from "../../../src/verse/interfaces/IMemeverseP
 import {IOutrunDeployer} from "../../../script/IOutrunDeployer.sol";
 import {MemeverseScript} from "../../../script/MemeverseScript.s.sol";
 import {MemeverseLauncher} from "../../../src/verse/MemeverseLauncher.sol";
+import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract MockDeployerCloneable {
     uint256 public marker;
@@ -592,18 +593,20 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         assertNotEq(proxy, implementation);
         assertGt(implementation.code.length, 0);
         assertEq(deployedLauncher.owner(), initialOwner);
-        assertEq(deployedLauncher.localLzEndpoint(), LOCAL_ENDPOINT);
-        assertEq(deployedLauncher.memeverseRegistrar(), REGISTRAR);
-        assertEq(deployedLauncher.memeverseProxyDeployer(), PROXY_DEPLOYER);
-        assertEq(deployedLauncher.yieldDispatcher(), YIELD_DISPATCHER);
-        assertEq(deployedLauncher.lzEndpointRegistry(), LZ_ENDPOINT_REGISTRY);
+        IMemeverseLauncher.LauncherContracts memory contracts = deployedLauncher.getLauncherContracts();
+        IMemeverseLauncher.LauncherParameters memory parameters = deployedLauncher.getLauncherParameters();
+        assertEq(contracts.localLzEndpoint, LOCAL_ENDPOINT);
+        assertEq(contracts.memeverseRegistrar, REGISTRAR);
+        assertEq(contracts.memeverseProxyDeployer, PROXY_DEPLOYER);
+        assertEq(contracts.yieldDispatcher, YIELD_DISPATCHER);
+        assertEq(contracts.lzEndpointRegistry, LZ_ENDPOINT_REGISTRY);
         assertEq(deployedLauncher.polend(), predictedPolend);
-        assertEq(deployedLauncher.polSplitter(), predictedPolSplitter);
-        assertEq(deployedLauncher.executorRewardRate(), 25);
-        assertEq(deployedLauncher.oftReceiveGasLimit(), 115000);
-        assertEq(deployedLauncher.yieldDispatcherGasLimit(), 135000);
-        assertEq(deployedLauncher.preorderCapRatio(), 2500);
-        assertEq(deployedLauncher.preorderVestingDuration(), 7 days);
+        assertEq(contracts.polSplitter, predictedPolSplitter);
+        assertEq(parameters.executorRewardRate, 25);
+        assertEq(parameters.oftReceiveGasLimit, 115000);
+        assertEq(parameters.yieldDispatcherGasLimit, 135000);
+        assertEq(parameters.preorderCapRatio, 2500);
+        assertEq(parameters.preorderVestingDuration, 7 days);
 
         (uint256 uethMinTotalFund, uint256 uethFundBasedAmount) = deployedLauncher.fundMetaDatas(UETH);
         (uint256 uusdMinTotalFund, uint256 uusdFundBasedAmount) = deployedLauncher.fundMetaDatas(UUSD);
@@ -617,8 +620,8 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         // Direct calls on the implementation (not through the proxy) should return default values.
         MemeverseLauncher impl = MemeverseLauncher(implementation);
         assertEq(impl.owner(), address(0), "impl owner should be zero");
-        assertEq(impl.executorRewardRate(), 0, "impl reward rate should be zero");
-        assertEq(impl.preorderCapRatio(), 0, "impl preorder cap should be zero");
+        assertEq(impl.getLauncherParameters().executorRewardRate, 0, "impl reward rate should be zero");
+        assertEq(impl.getLauncherParameters().preorderCapRatio, 0, "impl preorder cap should be zero");
     }
 
     function testDeployMemeverseLauncherKeepsDeployNamespaceWhenInitialOwnerDiffers() external {
@@ -655,7 +658,7 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         assertEq(proxy, predictedProxy);
         assertEq(deployedLauncher.owner(), initialOwner);
         assertEq(deployedLauncher.polend(), predictedPolend);
-        assertEq(deployedLauncher.polSplitter(), predictedPolSplitter);
+        assertEq(deployedLauncher.getLauncherContracts().polSplitter, predictedPolSplitter);
         // fund metadata remains zero: _setMemeverseLauncherFundMetaData is skipped when deployCaller != initialOwner
         assertEq(uethMinTotalFund, 0);
         assertEq(uethFundBasedAmount, 0);
@@ -823,7 +826,7 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
 
         bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
         address proxy = outrunDeployer.deployments(deployCaller, launcherSalt);
-        assertEq(MemeverseLauncher(proxy).polSplitter(), expectedPolSplitter);
+        assertEq(MemeverseLauncher(proxy).getLauncherContracts().polSplitter, expectedPolSplitter);
     }
 
     function testRequireDeploymentReadyChecksLauncherBoundDependencies() external {
