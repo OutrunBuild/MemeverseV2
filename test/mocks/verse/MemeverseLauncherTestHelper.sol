@@ -309,7 +309,7 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
         address polendAddr,
         address polSplitterAddr
     ) internal {
-        require(polendAddr != address(0) && polSplitterAddr != address(0));
+        require(polendAddr != address(0) && polSplitterAddr != address(0), "Missing POLend or splitter");
 
         // Read storage
         uint256 normalFunds = uint256(_loadSlot(proxy, _mappingSlot(OFF_TOTAL_NORMAL_FUNDS, verseId)));
@@ -317,7 +317,7 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
         uint256 mainPoolUAssetBudget = FullMath.mulDiv(totalGenesisFunds, 7, 10);
         address swapRouter = address(uint160(uint256(_loadSlot(proxy, bytes32(uint256(LAUNCHER_SLOT) + 5)))));
         address hookAddress = address(uint160(uint256(_loadSlot(proxy, bytes32(uint256(LAUNCHER_SLOT) + 6)))));
-        require(swapRouter != address(0) && hookAddress != address(0));
+        require(swapRouter != address(0) && hookAddress != address(0), "Missing router or hook");
 
         uint256 fundBasedAmount =
             uint256(_loadSlot(proxy, bytes32(uint256(_mappingAddrSlot(OFF_FUND_META_DATAS, uAsset)) + 1)));
@@ -448,7 +448,7 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
         // --- transfer leveraged YT to polend ---
         if (plan.leveragedPolToSplit != 0) {
             vm.prank(proxy);
-            IERC20(yt).transfer(polendAddr, plan.leveragedPolToSplit);
+            require(IERC20(yt).transfer(polendAddr, plan.leveragedPolToSplit), "YT transfer failed");
             vm.prank(proxy);
             IPOLend(polendAddr).recordLeveragedYT(verseId, yt, plan.leveragedPolToSplit);
         }

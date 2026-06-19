@@ -378,14 +378,14 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
     function _callForceDeployLiquidity(
         address proxy,
         uint256 verseId,
-        address uAsset,
-        address memecoin,
-        address pol,
+        address uAsset_,
+        address memecoin_,
+        address pol_,
         uint256 totalLeveragedDebt,
         address polendAddr,
         address polSplitterAddr
     ) external {
-        forceDeployLiquidity(proxy, verseId, uAsset, memecoin, pol, totalLeveragedDebt, polendAddr, polSplitterAddr);
+        forceDeployLiquidity(proxy, verseId, uAsset_, memecoin_, pol_, totalLeveragedDebt, polendAddr, polSplitterAddr);
     }
 
     function testChangeStage_FinalizesAndInitializesWhenLeveragedInterestMeetsThreshold() external {

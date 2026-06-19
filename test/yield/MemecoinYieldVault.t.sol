@@ -530,7 +530,7 @@ contract MemecoinYieldVaultTest is Test {
 
         // Real ERC20 share transfer: ATTACKER sends 3 shares to VICTIM.
         vm.prank(ATTACKER);
-        vault.transfer(VICTIM, 3 ether);
+        assertTrue(vault.transfer(VICTIM, 3 ether));
 
         uint256 totalAfter = vault.getVotes(ATTACKER) + vault.getVotes(VICTIM);
         uint256 victimAfter = vault.getVotes(VICTIM);
@@ -575,7 +575,7 @@ contract MemecoinYieldVaultTest is Test {
         uint256 votesBefore = vault.getVotes(ATTACKER);
 
         vm.prank(ATTACKER);
-        asset.transfer(address(vault), 100 ether);
+        assertTrue(asset.transfer(address(vault), 100 ether));
 
         assertEq(vault.getVotes(ATTACKER), votesBefore, "votes unchanged by raw transfer");
 

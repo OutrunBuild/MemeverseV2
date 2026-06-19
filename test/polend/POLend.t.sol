@@ -10,6 +10,14 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {POLend} from "../../src/polend/POLend.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {
+    MockPOLForPOLend,
+    MintableToken,
+    BurnableMockERC20,
+    HookedBurnableMockERC20,
+    ReentrantClaimMockERC20
+} from "../mocks/polend/POLendMocks.sol";
+import {POLendStorageHelper} from "../mocks/polend/POLendStorageHelper.sol";
 
 contract MockLauncherForPOLend {
     mapping(uint256 verseId => uint256 totalNormalFunds) internal normalFunds;
@@ -185,15 +193,6 @@ contract MockSplitterForPOLend {
         return (pol, memecoin);
     }
 }
-
-import {
-    MockPOLForPOLend,
-    MintableToken,
-    BurnableMockERC20,
-    HookedBurnableMockERC20,
-    ReentrantClaimMockERC20
-} from "../mocks/polend/POLendMocks.sol";
-import {POLendStorageHelper} from "../mocks/polend/POLendStorageHelper.sol";
 
 contract POLendTest is Test, POLendStorageHelper {
     uint256 internal constant VERSE_ID = 1;
