@@ -3,7 +3,6 @@ pragma solidity ^0.8.35;
 
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
@@ -11,6 +10,7 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
+import {FeeMath} from "./libraries/FeeMath.sol";
 import {SafeCast} from "./libraries/SafeCast.sol";
 import {IMemeversePreorderSettlementExecutor} from "./interfaces/IMemeversePreorderSettlementExecutor.sol";
 
@@ -22,7 +22,6 @@ contract MemeversePreorderSettlementExecutor is IMemeversePreorderSettlementExec
     using StateLibrary for IPoolManager;
 
     bytes internal constant ZERO_BYTES = bytes("");
-    uint256 internal constant BPS_BASE = 10_000;
 
     error Unauthorized();
     error HookAddressZero();
@@ -102,15 +101,15 @@ contract MemeversePreorderSettlementExecutor is IMemeversePreorderSettlementExec
         uint256 protocolFeeOutputAmount;
         if (!data.protocolFeeOnInput) {
             uint256 grossOutputAmount = _actualOutputAmount(swapDelta, data.swapParams.zeroForOne);
-            protocolFeeOutputAmount = FullMath.mulDiv(grossOutputAmount, data.protocolFeeOutputBps, BPS_BASE);
+            protocolFeeOutputAmount = FeeMath.feeOnAmount(grossOutputAmount, data.protocolFeeOutputBps);
             Currency outputCurrency = data.swapParams.zeroForOne ? data.key.currency1 : data.key.currency0;
             poolManager.take(outputCurrency, data.treasury, protocolFeeOutputAmount);
         }
 
         uint256 takeAmount0 = amount0 > 0 ? uint256(amount0.toUint128()) : 0;
         uint256 takeAmount1 = amount1 > 0 ? uint256(amount1.toUint128()) : 0;
-        // No underflow: `protocolFeeOutputAmount = grossOutputAmount * bps / BPS_BASE` where the
-        // hook-supplied `bps` is a fixed const <= BPS_BASE, and the output-leg `takeAmount` below
+        // No underflow: `protocolFeeOutputAmount = grossOutputAmount * bps / 10_000` where the
+        // hook-supplied `bps` is a fixed const <= 10_000, and the output-leg `takeAmount` below
         // equals `grossOutputAmount` (same swapDelta leg). So fee <= gross = takeAmount; the input
         // leg is never subtracted here.
         if (protocolFeeOutputAmount > 0) {

@@ -13,6 +13,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
@@ -65,7 +66,7 @@ contract RouterSettlementAccountingHandler is Test {
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
 
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("regular"));
@@ -89,7 +90,7 @@ contract RouterSettlementAccountingHandler is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("public-swap"));
@@ -151,7 +152,7 @@ contract RouterSettlementSpoofHandler is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         try router.swap(key, params, address(this), block.timestamp, 0, amount, bytes("public-swap")) returns (
@@ -221,7 +222,10 @@ contract MemeverseSwapRouterSettlementInvariantTest is StdInvariant, Test, HookS
 
         accountingHandler = new RouterSettlementAccountingHandler(hook, token0, treasury, key);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(manager))),
+            IPermit2(address(0xBEEF))
         );
         hook.setPoolInitializer(address(router));
         accountingHandler.setRouter(router);

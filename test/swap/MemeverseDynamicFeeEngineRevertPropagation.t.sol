@@ -103,7 +103,7 @@ contract MemeverseDynamicFeeEngineRevertPropagationTest is RealisticSwapIntegrat
         _swapToUnauthorizedEngine();
 
         vm.expectRevert(_unauthorizedCallerRevert());
-        hook.quoteSwap(key, _swapParams(true, -100 ether), address(this));
+        router.quoteSwap(key, _swapParams(true, -100 ether), address(this));
     }
 
     // ── Test 4: Engine revert leaves no corrupt state ───────────────

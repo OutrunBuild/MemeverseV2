@@ -18,8 +18,10 @@ import {LiquidityAmounts} from "../../src/swap/libraries/LiquidityAmounts.sol";
 import {LiquidityQuote} from "../../src/swap/libraries/LiquidityQuote.sol";
 
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
+import {IMemeverseUniswapHookLens} from "../../src/swap/interfaces/IMemeverseUniswapHookLens.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {UniswapLP} from "../../src/swap/tokens/UniswapLP.sol";
@@ -61,6 +63,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
 
     MockPoolManagerForRouterTest internal manager;
     MemeverseUniswapHook internal hook;
+    MemeverseUniswapHookLens internal lens;
     MemeverseSwapRouter internal router;
     MockERC20 internal token0;
     MockERC20 internal token1;
@@ -106,8 +109,12 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
         hook = _deployHookProxyForManager(IPoolManager(address(manager)), address(this), treasury);
+        lens = new MemeverseUniswapHookLens(IPoolManager(address(manager)));
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IMemeverseUniswapHookLens(address(lens)),
+            IPermit2(address(0xBEEF))
         );
 
         MockERC20 tokenA = new MockERC20("Token0", "TK0", 18);
@@ -150,6 +157,52 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
     /// @dev Helper invoked by tests before swaps to keep protocol-fee context consistent.
     function _setProtocolFeeCurrency(Currency feeCurrency) internal {
         hook.setProtocolFeeCurrency(feeCurrency);
+    }
+
+    /// @notice Verifies router quotes are delegated through the configured hook lens.
+    function testQuoteSwap_UsesConfiguredHookLens() external {
+        _setProtocolFeeCurrency(key.currency0);
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0});
+
+        IMemeverseUniswapHook.SwapQuote memory routerQuote = router.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory lensQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
+
+        assertEq(routerQuote.feeBps, lensQuote.feeBps, "fee bps");
+        assertEq(routerQuote.estimatedUserInputAmount, lensQuote.estimatedUserInputAmount, "user input");
+        assertEq(routerQuote.estimatedUserOutputAmount, lensQuote.estimatedUserOutputAmount, "user output");
+        assertEq(routerQuote.estimatedProtocolFeeAmount, lensQuote.estimatedProtocolFeeAmount, "protocol fee");
+        assertEq(routerQuote.estimatedLpFeeAmount, lensQuote.estimatedLpFeeAmount, "lp fee");
+        assertEq(routerQuote.protocolFeeOnInput, lensQuote.protocolFeeOnInput, "fee side");
+    }
+
+    /// @notice Verifies the router constructor rejects a lens address with no deployed code.
+    function testConstructor_RevertsWhenLensHasNoCode() external {
+        vm.expectRevert(abi.encodeWithSelector(IMemeverseSwapRouter.HookLensCodeNotReady.selector, address(0xCAFE)));
+        new MemeverseSwapRouter(
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IMemeverseUniswapHookLens(address(0xCAFE)),
+            IPermit2(address(0xBEEF))
+        );
+    }
+
+    /// @notice Verifies the router constructor rejects a lens bound to a different PoolManager.
+    function testConstructor_RevertsWhenLensUsesDifferentPoolManager() external {
+        MockPoolManagerForRouterTest wrongManager = new MockPoolManagerForRouterTest();
+        MemeverseUniswapHookLens wrongLens = new MemeverseUniswapHookLens(IPoolManager(address(wrongManager)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMemeverseSwapRouter.HookLensPoolManagerMismatch.selector, address(manager), address(wrongManager)
+            )
+        );
+        new MemeverseSwapRouter(
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            IMemeverseUniswapHookLens(address(wrongLens)),
+            IPermit2(address(0xBEEF))
+        );
     }
 
     /// @notice Progresses the block timestamp past the launch window.
@@ -384,6 +437,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(guardedManager))),
             IPermit2(address(0xBEEF))
         );
         PoolKey memory guardedKey = _dynamicPoolKeyForHook(
@@ -463,6 +517,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(guardedManager))),
             IPermit2(address(0xBEEF))
         );
         MockERC20 otherToken = new MockERC20("Token2", "TK2", 18);
@@ -552,7 +607,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         hook.setLauncher(address(this));
         token0.approve(address(hook), type(uint256).max);
 
-        IMemeverseUniswapHook.SwapQuote memory quoteAtLaunch = hook.quoteSwap(
+        IMemeverseUniswapHook.SwapQuote memory quoteAtLaunch = router.quoteSwap(
             key,
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: priceLimit}),
             address(this)
@@ -652,7 +707,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
             uint256 ewVWAPX18,,,
             uint24 volDeviationAccumulator,,
             uint24 shortImpactPpm,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
 
         assertGt(weightedVolume0, 0, "weighted volume");
         assertGt(weightedPriceVolume0, 0, "weighted price volume");
@@ -674,12 +729,14 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         pristineHook.setDefaultLaunchFeeConfig(
             IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 100, minFeeBps: 100, decayDurationSeconds: 1})
         );
+        MemeverseUniswapHookLens pristineLens = new MemeverseUniswapHookLens(IPoolManager(address(pristineManager)));
 
         SwapParams memory followUpParams =
             SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0});
-        IMemeverseUniswapHook.SwapQuote memory settledQuote = hook.quoteSwap(key, followUpParams, address(this));
-        IMemeverseUniswapHook.SwapQuote memory pristineQuote =
-            pristineHook.quoteSwap(pristineKey, followUpParams, address(this));
+        IMemeverseUniswapHook.SwapQuote memory settledQuote = router.quoteSwap(key, followUpParams, address(this));
+        IMemeverseUniswapHook.SwapQuote memory pristineQuote = pristineLens.quoteSwap(
+            IMemeverseUniswapHook(address(pristineHook)), pristineKey, followUpParams, address(this)
+        );
 
         assertGt(settledQuote.feeBps, pristineQuote.feeBps, "settlement quote should carry dynamic state");
     }
@@ -693,6 +750,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(guardedManager))),
             IPermit2(address(0xBEEF))
         );
         PoolKey memory guardedKey = _dynamicPoolKeyForHook(
@@ -928,7 +986,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         });
         _setProtocolFeeCurrency(key.currency1);
         manager.setQuoteAlignedSwapMath(true);
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
@@ -1101,7 +1159,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
                 uint160 volAnchorBefore,,
                 uint24 volDevBefore,,
                 uint24 shortImpactBefore,
-            ) = hook.poolDynamicFeeState(poolId);
+            ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
 
             manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
             vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -1121,7 +1179,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
                 uint160 volAnchorAfter,,
                 uint24 volDevAfter,,
                 uint24 shortImpactAfter,
-            ) = hook.poolDynamicFeeState(poolId);
+            ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
             assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
             assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
             assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
@@ -1185,7 +1243,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
                 uint160 volAnchorBefore,,
                 uint24 volDevBefore,,
                 uint24 shortImpactBefore,
-            ) = hook.poolDynamicFeeState(poolId);
+            ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
 
             manager.setNextExactInputPoolInputAmount(poolId, 98 ether);
             vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -1205,7 +1263,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
                 uint160 volAnchorAfter,,
                 uint24 volDevAfter,,
                 uint24 shortImpactAfter,
-            ) = hook.poolDynamicFeeState(poolId);
+            ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
             assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
             assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
             assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
@@ -1218,7 +1276,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
     /// @dev Covers quote semantics for exact-output swaps.
     function testPreviewSwap_ExactOutputInputSideIncludesFeeInUserInput() external {
         _setProtocolFeeCurrency(key.currency0);
-        IMemeverseUniswapHook.SwapQuote memory preview = hook.quoteSwap(
+        IMemeverseUniswapHook.SwapQuote memory preview = router.quoteSwap(
             key, SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0}), address(this)
         );
 
@@ -1233,21 +1291,22 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         );
     }
 
-    /// @notice Verifies router quotes proxy directly to the hook quote logic.
-    /// @dev Covers the router quote passthrough surface.
-    function testRouterQuoteSwap_ProxiesHookQuote() external {
+    /// @notice Verifies router quotes delegate to the configured hook lens.
+    /// @dev Covers the router quote passthrough to the stateless lens.
+    function testRouterQuoteSwap_DelegatesToConfiguredLens() external {
         _setProtocolFeeCurrency(key.currency0);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: 100 ether, sqrtPriceLimitX96: 0});
 
-        IMemeverseUniswapHook.SwapQuote memory hookQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory lensQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
         IMemeverseUniswapHook.SwapQuote memory routerQuote = router.quoteSwap(key, params, address(this));
 
-        assertEq(routerQuote.feeBps, hookQuote.feeBps, "feeBps");
-        assertEq(routerQuote.estimatedUserInputAmount, hookQuote.estimatedUserInputAmount, "user input");
-        assertEq(routerQuote.estimatedUserOutputAmount, hookQuote.estimatedUserOutputAmount, "user output");
-        assertEq(routerQuote.estimatedProtocolFeeAmount, hookQuote.estimatedProtocolFeeAmount, "protocol fee");
-        assertEq(routerQuote.estimatedLpFeeAmount, hookQuote.estimatedLpFeeAmount, "lp fee");
-        assertEq(routerQuote.protocolFeeOnInput, hookQuote.protocolFeeOnInput, "fee side");
+        assertEq(routerQuote.feeBps, lensQuote.feeBps, "feeBps");
+        assertEq(routerQuote.estimatedUserInputAmount, lensQuote.estimatedUserInputAmount, "user input");
+        assertEq(routerQuote.estimatedUserOutputAmount, lensQuote.estimatedUserOutputAmount, "user output");
+        assertEq(routerQuote.estimatedProtocolFeeAmount, lensQuote.estimatedProtocolFeeAmount, "protocol fee");
+        assertEq(routerQuote.estimatedLpFeeAmount, lensQuote.estimatedLpFeeAmount, "lp fee");
+        assertEq(routerQuote.protocolFeeOnInput, lensQuote.protocolFeeOnInput, "fee side");
     }
 
     /// @notice Verifies native-input native-pair swaps fail before router prefunding.
@@ -1366,7 +1425,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         (uint256 fee0OffsetBefore, uint256 fee1OffsetBefore, uint256 pendingFee0Before, uint256 pendingFee1Before) =
             hook.userFeeState(poolId, alice);
 
-        (uint256 previewFee0, uint256 previewFee1) = hook.claimableFees(key, alice);
+        (uint256 previewFee0, uint256 previewFee1) =
+            lens.claimableFees(IMemeverseUniswapHook(address(hook)), key, alice);
 
         (uint256 fee0OffsetAfter, uint256 fee1OffsetAfter, uint256 pendingFee0After, uint256 pendingFee1After) =
             hook.userFeeState(poolId, alice);
@@ -1428,7 +1488,8 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         );
 
         PoolKey memory routerKey = router.getHookPoolKey(address(token0), address(token1));
-        (uint256 hookFee0, uint256 hookFee1) = hook.claimableFees(routerKey, alice);
+        (uint256 hookFee0, uint256 hookFee1) =
+            lens.claimableFees(IMemeverseUniswapHook(address(hook)), routerKey, alice);
         (uint256 routerFee0, uint256 routerFee1) = router.previewClaimableFees(address(token0), address(token1), alice);
 
         assertEq(routerFee0, hookFee0, "fee0");

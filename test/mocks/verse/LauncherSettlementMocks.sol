@@ -185,6 +185,21 @@ contract RouterForPOLendSettlementInvariant {
         return lpTokens[_pairKey(tokenA, tokenB)];
     }
 
+    function previewClaimableFees(address tokenA, address tokenB, address owner)
+        external
+        view
+        returns (uint256 fee0Amount, uint256 fee1Amount)
+    {
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(tokenA < tokenB ? tokenA : tokenB),
+            currency1: Currency.wrap(tokenA < tokenB ? tokenB : tokenA),
+            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            tickSpacing: 200,
+            hooks: IHooks(hookAddress)
+        });
+        return HookForPOLendSettlementInvariant(hookAddress).claimableFees(key, owner);
+    }
+
     function setPairOutputPerLp(address tokenA, address tokenB, uint256 tokenAOutPerLp, uint256 tokenBOutPerLp)
         external
     {

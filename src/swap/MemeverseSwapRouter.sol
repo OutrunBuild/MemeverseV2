@@ -15,6 +15,7 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {OutrunSafeERC20} from "../yield/libraries/OutrunSafeERC20.sol";
+import {IMemeverseUniswapHookLens} from "./interfaces/IMemeverseUniswapHookLens.sol";
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "./interfaces/IMemeverseSwapRouter.sol";
 import {LiquidityQuote} from "./libraries/LiquidityQuote.sol";
@@ -49,6 +50,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
     IMemeverseUniswapHook public immutable override hook;
     IPermit2 public immutable override permit2;
+    IMemeverseUniswapHookLens public immutable override hookLens;
     /* solhint-disable gas-small-strings */
     bytes32 internal constant SWAP_WITNESS_TYPEHASH = keccak256(
         "MemeverseSwapWitness(bytes32 poolId,bool zeroForOne,int256 amountSpecified,uint160 sqrtPriceLimitX96,address recipient,uint256 deadline,uint256 amountOutMinimum,uint256 amountInMaximum,bytes32 hookDataHash)"
@@ -70,9 +72,17 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
     /// @param _manager The Uniswap v4 pool manager.
     /// @param _hook The Memeverse hook that owns launch-fee and LP accounting for routed swaps.
+    /// @param _hookLens Stateless read-only calculator for hook quote and preview APIs.
     /// @param _permit2 The Permit2 entrypoint used for signature-based ERC20 pulls.
-    constructor(IPoolManager _manager, IMemeverseUniswapHook _hook, IPermit2 _permit2) SafeCallback(_manager) {
+    constructor(
+        IPoolManager _manager,
+        IMemeverseUniswapHook _hook,
+        IMemeverseUniswapHookLens _hookLens,
+        IPermit2 _permit2
+    ) SafeCallback(_manager) {
         hook = _hook;
+        _validateHookLens(_hookLens);
+        hookLens = _hookLens;
         permit2 = _permit2;
     }
 
@@ -108,7 +118,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         override
         returns (IMemeverseUniswapHook.SwapQuote memory quote)
     {
-        return hook.quoteSwap(key, params, trader);
+        return hookLens.quoteSwap(hook, key, params, trader);
     }
 
     /// @notice Derive the hook-managed pool key that corresponds to a given token pair.
@@ -128,7 +138,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     }
 
     /// @notice Preview how much LP fee an owner can claim for a token pair.
-    /// @dev Resolves the hook pool key from token addresses before delegating to `hook.claimableFees`.
+    /// @dev Resolves the hook pool key from token addresses before delegating to `hookLens.claimableFees`.
     /// @param tokenA One side of the pair.
     /// @param tokenB The other side of the pair.
     /// @param owner The owner address whose LP fees are previewed.
@@ -141,7 +151,7 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
         returns (uint256 fee0, uint256 fee1)
     {
         PoolKey memory key = getHookPoolKey(tokenA, tokenB);
-        return hook.claimableFees(key, owner);
+        return hookLens.claimableFees(hook, key, owner);
     }
 
     /// @notice Return the LP token contract for the hook-managed pair formed by the given tokens.
@@ -906,6 +916,19 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
 
     function _inputCurrency(PoolKey calldata key, bool zeroForOne) internal pure returns (Currency) {
         return zeroForOne ? key.currency0 : key.currency1;
+    }
+
+    /// @dev Validates that the lens has deployed code and reads from the same PoolManager as the router.
+    function _validateHookLens(IMemeverseUniswapHookLens newLens) internal view {
+        address newLensAddress = address(newLens);
+        if (newLensAddress.code.length == 0) revert HookLensCodeNotReady(newLensAddress);
+
+        address expectedPoolManager = address(poolManager);
+        address actualPoolManager = address(newLens.poolManager());
+        // Quotes must read slot0 and liquidity from the same PoolManager used for routed swaps.
+        if (actualPoolManager != expectedPoolManager) {
+            revert HookLensPoolManagerMismatch(expectedPoolManager, actualPoolManager);
+        }
     }
 
     function _sortedCurrencies(address tokenA, address tokenB)

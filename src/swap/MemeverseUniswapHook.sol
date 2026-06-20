@@ -196,6 +196,11 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
     function validateHookAddress(BaseHook) internal pure virtual override {}
 
+    /// @inheritdoc IMemeverseUniswapHook
+    function owner() public view override(OwnableUpgradeable, IMemeverseUniswapHook) returns (address) {
+        return super.owner();
+    }
+
     /// @dev Only test subclasses may override this to skip hook-address validation.
     /// Production deployments must not override — the proxy address must carry the correct flags.
     function _validateProxyHookAddress() internal view virtual {
@@ -332,6 +337,10 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return (info.liquidityToken, info.fee0PerShare, info.fee1PerShare);
     }
 
+    function cachedLpTotalSupply(PoolId poolId) external view override returns (uint256 supply) {
+        return memeverseUniswapHookStorage.cachedLpTotalSupply[poolId];
+    }
+
     function poolLaunchTimestamp(PoolId poolId) external view override returns (uint40) {
         return memeverseUniswapHookStorage.poolLaunchTimestamp[poolId];
     }
@@ -359,39 +368,45 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return (config.startFeeBps, config.minFeeBps, config.decayDurationSeconds);
     }
 
-    function poolInitializer() external view override returns (address) {
-        return memeverseUniswapHookStorage.poolInitializer;
+    /// @notice Quotes only the dynamic-fee engine portion of a public swap.
+    /// @dev Keeps lens quotes authorized without giving the lens direct engine authorization.
+    /// @param poolId Pool being quoted.
+    /// @param params Swap parameters used for the quote.
+    /// @param trader Trader address used by the fee engine context.
+    /// @param preSqrtPriceX96 Pool price before the quoted swap.
+    /// @param liquidity Current pool liquidity.
+    /// @param protocolFeeOnInput Whether the protocol fee is charged from the input currency.
+    /// @return quote Prepared fee data returned by the dynamic fee engine.
+    function quoteSwapFeeWithContext(
+        PoolId poolId,
+        SwapParams calldata params,
+        address trader,
+        uint160 preSqrtPriceX96,
+        uint128 liquidity,
+        bool protocolFeeOnInput
+    ) external view override returns (IMemeverseDynamicFeeEngine.PreparedSwapFee memory quote) {
+        IMemeverseDynamicFeeEngine.LaunchFeeConfig memory launchConfig =
+        memeverseUniswapHookStorage.defaultLaunchFeeConfig;
+
+        // The hook is the engine-authorized caller; the lens supplies PoolManager-derived read-only context.
+        return _dynamicFeeEngine()
+            .quoteSwapWithContext(
+                address(this),
+                IMemeverseDynamicFeeEngine.QuoteSwapContext({
+                poolId: poolId,
+                swapParams: params,
+                trader: trader,
+                preSqrtPriceX96: preSqrtPriceX96,
+                liquidity: liquidity,
+                protocolFeeOnInput: protocolFeeOnInput,
+                launchFeeConfig: launchConfig,
+                launchTimestamp: memeverseUniswapHookStorage.poolLaunchTimestamp[poolId]
+            })
+            );
     }
 
-    function poolDynamicFeeState(PoolId poolId)
-        external
-        view
-        override
-        returns (
-            uint256 weightedVolume0,
-            uint256 weightedPriceVolume0,
-            uint256 ewVWAPX18,
-            uint160 volAnchorSqrtPriceX96,
-            uint40 volLastMoveTs,
-            uint24 volDeviationAccumulator,
-            uint24 volCarryAccumulator,
-            uint24 shortImpactPpm,
-            uint40 shortLastTs
-        )
-    {
-        IMemeverseDynamicFeeEngine.DynamicFeeState memory params =
-            _dynamicFeeEngine().getDynamicFeeState(address(this), poolId);
-        return (
-            params.weightedVolume0,
-            params.weightedPriceVolume0,
-            params.ewVWAPX18,
-            params.volAnchorSqrtPriceX96,
-            params.volLastMoveTs,
-            params.volDeviationAccumulator,
-            params.volCarryAccumulator,
-            params.shortImpactPpm,
-            params.shortLastTs
-        );
+    function poolInitializer() external view override returns (address) {
+        return memeverseUniswapHookStorage.poolInitializer;
     }
 
     modifier onlyLauncher() {
@@ -426,77 +441,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         });
     }
 
-    /// @notice Quote the hook's current swap fee preview, including LP and protocol slices plus user-facing amounts.
-    /// @dev The preview separates LP-fee and protocol-fee amounts because they may settle in different currencies:
-    /// LP fees always accrue in the input currency, while protocol fees settle in the supported fee currency selected
-    /// for this swap path (input side preferred, otherwise output side). For exact-output swaps, `estimatedUserInputAmount`
-    /// is the intended router-side guardrail candidate for `amountInMaximum`.
-    /// @param key The pool key being quoted.
-    /// @param params The swap parameters being quoted.
-    /// @param trader Address whose per-address batch state determines the adverse fee component.
-    /// @return quote The projected fee side, user flows, and fee split.
-    function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
-        external
-        view
-        override
-        erc20Pair(key.currency0, key.currency1)
-        returns (SwapQuote memory quote)
-    {
-        if (address(key.hooks) != address(this)) revert HookAddressMismatch();
-        PoolId poolId = key.toId();
-        _revertIfNoActiveLiquidityShares(poolId, params.amountSpecified);
-        _revertIfPublicSwapBlocked(poolId);
-        SwapFeeContext memory ctx = _resolveSwapFeeContext(key, params.zeroForOne);
-
-        IMemeverseDynamicFeeEngine engine = _dynamicFeeEngine();
-        (uint160 preSqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        uint128 liquidity = poolManager.getLiquidity(poolId);
-        IMemeverseDynamicFeeEngine.PreparedSwapFee memory feeQuote = engine.quoteSwapWithContext(
-            address(this),
-            IMemeverseDynamicFeeEngine.QuoteSwapContext({
-                poolId: poolId,
-                swapParams: params,
-                trader: trader,
-                preSqrtPriceX96: preSqrtPriceX96,
-                liquidity: liquidity,
-                protocolFeeOnInput: ctx.protocolFeeOnInput,
-                launchFeeConfig: memeverseUniswapHookStorage.defaultLaunchFeeConfig,
-                launchTimestamp: memeverseUniswapHookStorage.poolLaunchTimestamp[poolId]
-            })
-        );
-        (uint256 lpFeeBps, uint256 protocolFeeBps) = FeeMath.splitFeeBps(feeQuote.feeBps);
-
-        quote.feeBps = feeQuote.feeBps;
-        quote.protocolFeeOnInput = ctx.protocolFeeOnInput;
-
-        if (params.amountSpecified < 0) {
-            uint256 userInputAmount = uint256(-params.amountSpecified);
-            quote.estimatedUserInputAmount = userInputAmount;
-            quote.estimatedLpFeeAmount = FullMath.mulDiv(userInputAmount, lpFeeBps, BPS_BASE);
-            if (ctx.protocolFeeOnInput) {
-                quote.estimatedProtocolFeeAmount = FullMath.mulDiv(userInputAmount, protocolFeeBps, BPS_BASE);
-                quote.estimatedUserOutputAmount = feeQuote.estimatedOutputAmount;
-            } else {
-                quote.estimatedProtocolFeeAmount =
-                    FullMath.mulDiv(feeQuote.estimatedGrossOutputAmount, protocolFeeBps, BPS_BASE);
-                quote.estimatedUserOutputAmount = feeQuote.estimatedGrossOutputAmount - quote.estimatedProtocolFeeAmount;
-            }
-        } else {
-            uint256 requestedOutputAmount = uint256(params.amountSpecified);
-            quote.estimatedUserOutputAmount = requestedOutputAmount;
-            quote.estimatedLpFeeAmount = FullMath.mulDiv(feeQuote.estimatedInputAmount, lpFeeBps, BPS_BASE);
-            if (ctx.protocolFeeOnInput) {
-                quote.estimatedProtocolFeeAmount =
-                    FullMath.mulDiv(feeQuote.estimatedInputAmount, protocolFeeBps, BPS_BASE);
-                quote.estimatedUserInputAmount =
-                    feeQuote.estimatedInputAmount + quote.estimatedLpFeeAmount + quote.estimatedProtocolFeeAmount;
-            } else {
-                quote.estimatedProtocolFeeAmount = feeQuote.estimatedGrossOutputAmount - requestedOutputAmount;
-                quote.estimatedUserInputAmount = feeQuote.estimatedInputAmount + quote.estimatedLpFeeAmount;
-            }
-        }
-    }
-
     /// @notice Return the LP token address for a hook-managed pool key, or `address(0)` when the pool is not initialized.
     /// @dev Convenience helper for integrators that already operate with `PoolKey`.
     /// @param key The pool key to query.
@@ -509,40 +453,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         returns (address liquidityToken)
     {
         return memeverseUniswapHookStorage.poolInfo[key.toId()].liquidityToken;
-    }
-
-    /// @notice Preview the current claimable LP fees for an owner without mutating accounting state.
-    /// @dev Mirrors the same fee accrual math used by `updateUserSnapshot` and `claimFeesCore`, but keeps storage
-    /// unchanged so routers and frontends can safely preview claim results.
-    /// @param key The pool key whose fee accounting is queried.
-    /// @param owner The owner address for the fee preview.
-    /// @return fee0Amount The preview claimable amount in currency0.
-    /// @return fee1Amount The preview claimable amount in currency1.
-    function claimableFees(PoolKey calldata key, address owner)
-        external
-        view
-        override
-        erc20Pair(key.currency0, key.currency1)
-        returns (uint256 fee0Amount, uint256 fee1Amount)
-    {
-        PoolId poolId = key.toId();
-
-        PoolInfo storage pool = memeverseUniswapHookStorage.poolInfo[poolId];
-        if (pool.liquidityToken == address(0) || owner == address(0)) return (0, 0);
-
-        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[poolId][owner];
-        fee0Amount = state.pendingFee0;
-        fee1Amount = state.pendingFee1;
-
-        uint256 balance = UniswapLP(pool.liquidityToken).balanceOf(owner);
-        if (balance == 0) return (fee0Amount, fee1Amount);
-
-        if (pool.fee0PerShare > state.fee0Offset) {
-            fee0Amount += FullMath.mulDiv(balance, pool.fee0PerShare - state.fee0Offset, FEE_GROWTH_Q128);
-        }
-        if (pool.fee1PerShare > state.fee1Offset) {
-            fee1Amount += FullMath.mulDiv(balance, pool.fee1PerShare - state.fee1Offset, FEE_GROWTH_Q128);
-        }
     }
 
     function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
@@ -627,9 +537,9 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         if (params.amountSpecified < 0) {
             // Exact-input swaps can charge input-side fees immediately because the user's budget is already known up front.
             // Fee amounts below are mirrored in _afterSwap exact-input branch — keep in sync.
-            lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
+            lpFeeInputAmount = FeeMath.feeOnAmount(absSpecified, lpFeeBps);
             if (ctx.protocolFeeOnInput) {
-                protocolFeeInputAmount = FullMath.mulDiv(absSpecified, protocolFeeBps, BPS_BASE);
+                protocolFeeInputAmount = FeeMath.feeOnAmount(absSpecified, protocolFeeBps);
             }
         }
 
@@ -717,16 +627,16 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         if (params.amountSpecified < 0) {
             uint256 absSpecified = uint256(-params.amountSpecified);
             // These must match the _beforeSwap computation for the partial-fill guard to work.
-            uint256 lpFeeInputAmount = FullMath.mulDiv(absSpecified, lpFeeBps, BPS_BASE);
+            uint256 lpFeeInputAmount = FeeMath.feeOnAmount(absSpecified, lpFeeBps);
             uint256 protocolFeeInputAmount =
-                ctx.protocolFeeOnInput ? FullMath.mulDiv(absSpecified, protocolFeeBps, BPS_BASE) : 0;
+                ctx.protocolFeeOnInput ? FeeMath.feeOnAmount(absSpecified, protocolFeeBps) : 0;
             uint256 expectedPoolInput = absSpecified - lpFeeInputAmount - protocolFeeInputAmount;
             uint256 actualPoolInput = _actualInputAmount(delta, params.zeroForOne);
             if (actualPoolInput != expectedPoolInput) revert ExactInputPartialFill();
 
             if (!ctx.protocolFeeOnInput) {
                 uint256 actualOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
-                uint256 exactInputProtocolFeeOutputAmount = FullMath.mulDiv(actualOutputAbs, protocolFeeBps, BPS_BASE);
+                uint256 exactInputProtocolFeeOutputAmount = FeeMath.feeOnAmount(actualOutputAbs, protocolFeeBps);
                 if (exactInputProtocolFeeOutputAmount > 0) {
                     _collectProtocolFee(poolId, ctx.currencyOut, exactInputProtocolFeeOutputAmount);
                 }
@@ -752,7 +662,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
             uint256 actualInputAbs = _actualInputAmount(delta, params.zeroForOne);
 
-            uint256 exactOutputLpFeeInputAmount = FullMath.mulDiv(actualInputAbs, lpFeeBps, BPS_BASE);
+            uint256 exactOutputLpFeeInputAmount = FeeMath.feeOnAmount(actualInputAbs, lpFeeBps);
             if (exactOutputLpFeeInputAmount > 0) {
                 uint256 effectiveSupply = memeverseUniswapHookStorage.cachedLpTotalSupply[poolId];
                 _collectLpFee(
@@ -762,7 +672,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
             uint256 unspecifiedDelta;
             if (ctx.protocolFeeOnInput) {
-                uint256 exactOutputProtocolFeeInputAmount = FullMath.mulDiv(actualInputAbs, protocolFeeBps, BPS_BASE);
+                uint256 exactOutputProtocolFeeInputAmount = FeeMath.feeOnAmount(actualInputAbs, protocolFeeBps);
                 if (exactOutputProtocolFeeInputAmount > 0) {
                     _collectProtocolFee(poolId, ctx.currencyIn, exactOutputProtocolFeeInputAmount);
                 }
@@ -941,9 +851,9 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
             );
 
         (uint256 lpFeeBps, uint256 protocolFeeBps) = FeeMath.splitFeeBps(PREORDER_SETTLEMENT_FEE_BPS);
-        uint256 lpFeeInputAmount = FullMath.mulDiv(grossInputAmount, lpFeeBps, BPS_BASE);
+        uint256 lpFeeInputAmount = FeeMath.feeOnAmount(grossInputAmount, lpFeeBps);
         uint256 protocolFeeInputAmount =
-            feeContext.protocolFeeOnInput ? FullMath.mulDiv(grossInputAmount, protocolFeeBps, BPS_BASE) : 0;
+            feeContext.protocolFeeOnInput ? FeeMath.feeOnAmount(grossInputAmount, protocolFeeBps) : 0;
         uint256 netInputAmount = grossInputAmount - lpFeeInputAmount - protocolFeeInputAmount;
         if (netInputAmount == 0) revert ZeroValue();
 
@@ -992,7 +902,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         // executor-replacement trust model). Input-side charging resolves to 0 here.
         uint256 expectedProtocolFeeOutputAmount = feeContext.protocolFeeOnInput
             ? 0
-            : FullMath.mulDiv(_actualOutputAmount(result.swapDelta, params.params.zeroForOne), protocolFeeBps, BPS_BASE);
+            : FeeMath.feeOnAmount(_actualOutputAmount(result.swapDelta, params.params.zeroForOne), protocolFeeBps);
         if (result.protocolFeeOutputAmount != expectedProtocolFeeOutputAmount) {
             revert PreorderSettlementFeeMismatch();
         }
@@ -1054,7 +964,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         poolManager.take(key.currency1, recipient, uint256(delta.amount1().toUint128()));
     }
 
-    function _claimFees(PoolKey memory key, address owner, address recipient)
+    function _claimFees(PoolKey memory key, address feeOwner, address recipient)
         internal
         erc20Pair(key.currency0, key.currency1)
         returns (uint256 fee0Amount, uint256 fee1Amount)
@@ -1063,9 +973,9 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
         if (memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken == address(0)) revert PoolNotInitialized();
 
-        updateUserSnapshot(poolId, owner);
+        updateUserSnapshot(poolId, feeOwner);
 
-        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[poolId][owner];
+        UserFeeState storage state = memeverseUniswapHookStorage.userFeeState[poolId][feeOwner];
         fee0Amount = state.pendingFee0;
         fee1Amount = state.pendingFee1;
 
@@ -1079,7 +989,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         }
 
         if (fee0Amount > 0 || fee1Amount > 0) {
-            emit FeesClaimed(poolId, owner, key.currency0, key.currency1, fee0Amount, fee1Amount);
+            emit FeesClaimed(poolId, feeOwner, key.currency0, key.currency1, fee0Amount, fee1Amount);
         }
     }
 

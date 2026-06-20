@@ -75,19 +75,9 @@ interface IMemeverseUniswapHook {
         bool protocolFeeOnInput;
     }
 
-    /**
-     * @notice Core quote API for the hook's latest swap state.
-     * @dev Official integrations should prefer `MemeverseSwapRouter.quoteSwap(...)`. This low-level quote remains
-     * available for custom routers, aggregators, and other advanced on-chain integrations.
-     * @param key The pool key being quoted.
-     * @param params The swap parameters being quoted.
-     * @param trader The address whose per-address batch state determines the adverse fee component.
-     * @return quote The projected fee amounts, side, and estimated user/pool flows.
-     */
-    function quoteSwap(PoolKey calldata key, SwapParams calldata params, address trader)
-        external
-        view
-        returns (SwapQuote memory quote);
+    /// @notice Returns the current hook owner.
+    /// @return owner_ Address authorized for hook-owned configuration.
+    function owner() external view returns (address owner_);
 
     /// @notice Exposes the dynamic fee engine bound to this hook implementation.
     /// @dev The engine address is owner-upgradeable via `upgradeDynamicFeeEngine`. After replacement,
@@ -117,42 +107,15 @@ interface IMemeverseUniswapHook {
 
     /// @notice Exposes when a hook-managed pool was initialized.
     /// @dev The launch timestamp anchors the launch-fee decay schedule.
-    ///      UPGRADE INVARIANT: Hook.quoteSwap() reads this getter to assemble QuoteSwapContext for the engine.
+    ///      UPGRADE INVARIANT: `quoteSwapFeeWithContext()` reads this getter for MemeverseUniswapHookLens.quoteSwap().
     ///      Hook UUPS upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
     /// @param poolId Pool being queried.
     /// @return Recorded launch timestamp.
     function poolLaunchTimestamp(PoolId poolId) external view returns (uint40);
 
-    /// @notice Returns the current dynamic fee state for a pool, sourced from the bound engine.
-    /// @dev The underlying state lives in the dynamic fee engine and is namespaced by hook address.
-    /// @param poolId Pool being queried.
-    /// @return weightedVolume0 Exponentially weighted token0 volume.
-    /// @return weightedPriceVolume0 Exponentially weighted (price * token0 volume) at 1e18 spot precision.
-    /// @return ewVWAPX18 Exponentially weighted VWAP spot in X18 precision.
-    /// @return volAnchorSqrtPriceX96 Anchor sqrt price used to measure reference-price deviation.
-    /// @return volLastMoveTs Last timestamp when the volatility deviation accumulator observed a non-zero move.
-    /// @return volDeviationAccumulator Accumulated reference-price deviation state.
-    /// @return volCarryAccumulator Carried-over accumulator after filter/decay handling.
-    /// @return shortImpactPpm Short-term cumulative impact accumulator (decay applied on read/update).
-    /// @return shortLastTs Last timestamp for short-term impact decay.
-    function poolDynamicFeeState(PoolId poolId)
-        external
-        view
-        returns (
-            uint256 weightedVolume0,
-            uint256 weightedPriceVolume0,
-            uint256 ewVWAPX18,
-            uint160 volAnchorSqrtPriceX96,
-            uint40 volLastMoveTs,
-            uint24 volDeviationAccumulator,
-            uint24 volCarryAccumulator,
-            uint24 shortImpactPpm,
-            uint40 shortLastTs
-        );
-
     /// @notice Exposes the default launch-fee decay schedule.
     /// @dev New pools use this configuration unless a future implementation introduces pool-specific overrides.
-    ///      UPGRADE INVARIANT: Hook.quoteSwap() reads this getter to assemble QuoteSwapContext for the engine.
+    ///      UPGRADE INVARIANT: `quoteSwapFeeWithContext()` reads this getter for MemeverseUniswapHookLens.quoteSwap().
     ///      Hook UUPS upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
     /// @return startFeeBps Launch fee applied immediately after pool initialization.
     /// @return minFeeBps Floor fee reached after decay completes.
@@ -161,6 +124,24 @@ interface IMemeverseUniswapHook {
         external
         view
         returns (uint24 startFeeBps, uint24 minFeeBps, uint32 decayDurationSeconds);
+
+    /// @notice Quotes only the dynamic-fee engine portion of a public swap.
+    /// @dev Lens callers use this bridge so the hook remains the authorized engine caller.
+    /// @param poolId Pool being quoted.
+    /// @param params Swap parameters used for the quote.
+    /// @param trader Trader address used by the fee engine context.
+    /// @param preSqrtPriceX96 Pool price before the quoted swap.
+    /// @param liquidity Current pool liquidity.
+    /// @param protocolFeeOnInput Whether the protocol fee is charged from the input currency.
+    /// @return quote Prepared fee data returned by the dynamic fee engine.
+    function quoteSwapFeeWithContext(
+        PoolId poolId,
+        SwapParams calldata params,
+        address trader,
+        uint160 preSqrtPriceX96,
+        uint128 liquidity,
+        bool protocolFeeOnInput
+    ) external view returns (IMemeverseDynamicFeeEngine.PreparedSwapFee memory quote);
 
     /// @notice Exposes the router authorized to initialize hook-managed pools.
     /// @return Router address allowed to authorize and trigger pool initialization.
@@ -208,6 +189,32 @@ interface IMemeverseUniswapHook {
         view
         returns (address liquidityToken, uint256 fee0PerShare, uint256 fee1PerShare);
 
+    /// @notice Returns the cached LP supply used by swap fee accounting.
+    /// @param poolId Pool being queried.
+    /// @return supply Cached total LP share supply.
+    function cachedLpTotalSupply(PoolId poolId) external view returns (uint256 supply);
+
+    /// @notice Returns one owner's fee accounting snapshot for a pool.
+    /// @param poolId Pool being queried.
+    /// @param user Owner whose accounting state is queried.
+    /// @return fee0Offset Last currency0 fee-per-share snapshot.
+    /// @return fee1Offset Last currency1 fee-per-share snapshot.
+    /// @return pendingFee0 Pending currency0 fees.
+    /// @return pendingFee1 Pending currency1 fees.
+    function userFeeState(PoolId poolId, address user)
+        external
+        view
+        returns (uint256 fee0Offset, uint256 fee1Offset, uint256 pendingFee0, uint256 pendingFee1);
+
+    /// @notice Returns the treasury receiving protocol fees.
+    /// @return treasury_ Current treasury address.
+    function treasury() external view returns (address treasury_);
+
+    /// @notice Returns whether a currency can receive protocol fees.
+    /// @param currency Currency address being queried.
+    /// @return supported True when protocol fees may be collected in this currency.
+    function supportedProtocolFeeCurrencies(address currency) external view returns (bool supported);
+
     /**
      * @notice Return the LP token address for a hook-managed pool key, or `address(0)` when the pool is not initialized.
      * @dev This is a convenience view over `poolInfo(key.toId()).liquidityToken`.
@@ -215,19 +222,6 @@ interface IMemeverseUniswapHook {
      * @return liquidityToken The LP token contract address, or `address(0)` when the pool is not initialized.
      */
     function lpToken(PoolKey calldata key) external view returns (address liquidityToken);
-
-    /**
-     * @notice Preview the current claimable LP fees for an owner without mutating state.
-     * @dev Includes both already-pending fees and fees implied by the latest per-share values and owner LP balance.
-     * @param key The pool key whose fee accounting is queried.
-     * @param owner The owner address for the fee preview.
-     * @return fee0Amount The preview claimable amount in currency0.
-     * @return fee1Amount The preview claimable amount in currency1.
-     */
-    function claimableFees(PoolKey calldata key, address owner)
-        external
-        view
-        returns (uint256 fee0Amount, uint256 fee1Amount);
 
     /// @notice Low-level liquidity execution API.
     /// @dev Adds full-range liquidity using the caller as payer and mints LP shares to `params.to`.

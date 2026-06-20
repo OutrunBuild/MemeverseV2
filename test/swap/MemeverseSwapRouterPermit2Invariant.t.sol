@@ -14,6 +14,7 @@ import {ISignatureTransfer} from "lib/v4-periphery/lib/permit2/src/interfaces/IS
 import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
@@ -73,7 +74,7 @@ contract Permit2AccountingHandler is Test {
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         BalanceDelta delta = router.swapWithPermit2(
@@ -99,7 +100,7 @@ contract Permit2AccountingHandler is Test {
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
@@ -192,7 +193,7 @@ contract Permit2SpoofHandler is Test {
         IMemeverseSwapRouter.Permit2SingleParams memory permitParams = _singlePermit(amount);
         SwapParams memory params =
             SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: priceLimit});
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote = router.quoteSwap(key, params, address(this));
         uint256 treasuryBefore = token0.balanceOf(treasury);
 
         try router.swapWithPermit2(
@@ -283,7 +284,10 @@ contract MemeverseSwapRouterPermit2InvariantTest is StdInvariant, Test, HookStor
 
         accountingHandler = new Permit2AccountingHandler(hook, permit2, token0, treasury, key);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(permit2))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(manager))),
+            IPermit2(address(permit2))
         );
         hook.setPoolInitializer(address(router));
         accountingHandler.setRouter(router);

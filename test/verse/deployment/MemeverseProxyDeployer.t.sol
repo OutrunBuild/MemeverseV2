@@ -10,6 +10,8 @@ import {MemeverseProxyDeployer} from "../../../src/verse/deployment/MemeversePro
 import {IMemeverseProxyDeployer} from "../../../src/verse/interfaces/IMemeverseProxyDeployer.sol";
 import {IOutrunDeployer} from "../../../script/IOutrunDeployer.sol";
 import {MemeverseScript} from "../../../script/MemeverseScript.s.sol";
+import {MemeverseUniswapHookLens} from "../../../src/swap/MemeverseUniswapHookLens.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {MemeverseLauncher} from "../../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
 
@@ -235,13 +237,21 @@ contract MockReadinessPOLSplitter {
 
 contract MockReadinessRouter {
     address public hook;
+    address public hookLens;
+    address public poolManager;
 
-    constructor(address hook_) {
+    constructor(address hook_, address hookLens_, address poolManager_) {
         hook = hook_;
+        hookLens = hookLens_;
+        poolManager = poolManager_;
     }
 
     function setHook(address hook_) external {
         hook = hook_;
+    }
+
+    function setHookLens(address lens_) external {
+        hookLens = lens_;
     }
 }
 
@@ -915,7 +925,12 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         launcher.setFundMetaData(UETH, 1, 1);
         launcher.setFundMetaData(UUSD, 1, 1);
 
-        MockReadinessRouter router = new MockReadinessRouter(address(0));
+        address poolManager = address(uint160(0x4631));
+        MockReadinessRouter router = new MockReadinessRouter(
+            address(0),
+            address(new MemeverseUniswapHookLens(IPoolManager(poolManager))),
+            poolManager
+        );
         MockReadinessHook hookImpl = new MockReadinessHook();
         readySwapHook = address(uint160(0x28cc));
         vm.etch(readySwapHook, address(hookImpl).code);
@@ -923,7 +938,6 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         vm.mockCall(readySwapHook, abi.encodeWithSignature("poolInitializer()"), abi.encode(address(router)));
 
         MockReadinessEngine engine = new MockReadinessEngine();
-        address poolManager = address(uint160(0x4631));
         vm.mockCall(readySwapHook, abi.encodeWithSignature("dynamicFeeEngine()"), abi.encode(address(engine)));
         vm.mockCall(readySwapHook, abi.encodeWithSignature("poolManager()"), abi.encode(poolManager));
         vm.mockCall(address(engine), abi.encodeWithSignature("authorizedHook()"), abi.encode(readySwapHook));

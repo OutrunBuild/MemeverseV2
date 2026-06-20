@@ -8,6 +8,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 
+import {IMemeverseUniswapHookLens} from "./IMemeverseUniswapHookLens.sol";
 import {IMemeverseUniswapHook} from "./IMemeverseUniswapHook.sol";
 
 /// @title IMemeverseSwapRouter
@@ -58,6 +59,15 @@ interface IMemeverseSwapRouter {
     /// @notice Reverts when a launcher-only bootstrap function is called by any other account.
     error UnauthorizedLauncher();
 
+    /// @notice Reverts when a lens address has no deployed bytecode.
+    /// @param lens Address that failed the code check.
+    error HookLensCodeNotReady(address lens);
+
+    /// @notice Reverts when a lens reads pool state from a different PoolManager than the router.
+    /// @param expectedPoolManager PoolManager bound to the router.
+    /// @param actualPoolManager PoolManager bound to the lens.
+    error HookLensPoolManagerMismatch(address expectedPoolManager, address actualPoolManager);
+
     /// @notice Exposes the Memeverse hook wired into this router.
     /// @dev Integrations can use this to confirm they are quoting and routing against the expected deployment.
     /// @return memeverseHook Hook that owns fee logic and LP accounting.
@@ -67,6 +77,10 @@ interface IMemeverseSwapRouter {
     /// @dev Exposed so frontends can build signatures against the exact Permit2 deployment the router expects.
     /// @return permit2Contract Permit2 entrypoint used by this router.
     function permit2() external view returns (IPermit2 permit2Contract);
+
+    /// @notice Exposes the read-only hook lens used by quote and preview APIs.
+    /// @return lens Current lens contract.
+    function hookLens() external view returns (IMemeverseUniswapHookLens lens);
 
     /// @notice Request the hook's current swap quote so integrations can preview fees, side, and expected flows.
     /// @dev This router-first facade keeps quote logic centralized while reusing the hook's internal math.

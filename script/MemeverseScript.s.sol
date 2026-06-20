@@ -811,6 +811,14 @@ contract MemeverseScript is BaseScript {
             _readAddress(engine, "poolManager()") == _readAddress(hook, "poolManager()"),
             "ENGINE_POOL_MANAGER_NOT_READY"
         );
+
+        // HookLens must exist and read from the same PoolManager as the Router.
+        address lens = _readAddress(swapRouter, "hookLens()");
+        _requireContractCode(lens, "LENS_CODE_NOT_READY");
+        require(
+            _readAddress(lens, "poolManager()") == _readAddress(swapRouter, "poolManager()"),
+            "LENS_POOL_MANAGER_NOT_READY"
+        );
     }
 
     function _hookFlags(address hook) internal pure returns (uint160) {

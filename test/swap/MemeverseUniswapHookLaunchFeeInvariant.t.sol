@@ -14,6 +14,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForHookLiquidity} from "../mocks/swap/HookLiquidityMocks.sol";
 import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
@@ -23,11 +24,13 @@ contract LaunchFeeQuoteHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
 
     MemeverseUniswapHook internal immutable hook;
+    MemeverseUniswapHookLens internal immutable lens;
     PoolKey internal key;
     uint256 public lastObservedFeeBps;
 
-    constructor(MemeverseUniswapHook _hook, PoolKey memory _key) {
+    constructor(MemeverseUniswapHook _hook, MemeverseUniswapHookLens _lens, PoolKey memory _key) {
         hook = _hook;
+        lens = _lens;
         key = _key;
         lastObservedFeeBps = _currentQuoteFee();
     }
@@ -48,18 +51,26 @@ contract LaunchFeeQuoteHandler is Test {
         uint256 amount = bound(amountSeed, 1 ether, 10_000 ether);
         uint256 expectedFee = _currentQuoteFee();
 
-        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactInput = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: 0}), address(this)
+        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactInput = lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -int256(amount), sqrtPriceLimitX96: 0}),
+            address(this)
         );
-        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactOutput = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: int256(amount), sqrtPriceLimitX96: 0}), address(this)
+        IMemeverseUniswapHook.SwapQuote memory zeroForOneExactOutput = lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: int256(amount), sqrtPriceLimitX96: 0}),
+            address(this)
         );
-        IMemeverseUniswapHook.SwapQuote memory oneForZeroExactInput = hook.quoteSwap(
+        IMemeverseUniswapHook.SwapQuote memory oneForZeroExactInput = lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
             key,
             SwapParams({zeroForOne: false, amountSpecified: -int256(amount), sqrtPriceLimitX96: SQRT_PRICE_1_1}),
             address(this)
         );
-        IMemeverseUniswapHook.SwapQuote memory oneForZeroExactOutput = hook.quoteSwap(
+        IMemeverseUniswapHook.SwapQuote memory oneForZeroExactOutput = lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
             key,
             SwapParams({zeroForOne: false, amountSpecified: int256(amount), sqrtPriceLimitX96: SQRT_PRICE_1_1}),
             address(this)
@@ -72,8 +83,11 @@ contract LaunchFeeQuoteHandler is Test {
     }
 
     function _currentQuoteFee() internal view returns (uint256 feeBps) {
-        return hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        return lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this)
         )
         .feeBps;
     }
@@ -215,6 +229,7 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test, 
 
     MockPoolManagerForHookLiquidity internal manager;
     MemeverseUniswapHook internal hook;
+    MemeverseUniswapHookLens internal lens;
     MockERC20 internal token0;
     MockERC20 internal token1;
     PoolKey internal key;
@@ -237,6 +252,7 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test, 
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
         hook = _deployHookProxy(IPoolManager(address(manager)), address(this), address(this));
+        lens = new MemeverseUniswapHookLens(IPoolManager(address(manager)));
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -252,7 +268,7 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test, 
         manager.initialize(key, SQRT_PRICE_1_1);
         hook.setProtocolFeeCurrency(key.currency0);
 
-        handler = new LaunchFeeQuoteHandler(hook, key);
+        handler = new LaunchFeeQuoteHandler(hook, lens, key);
         targetContract(address(handler));
     }
 
@@ -260,8 +276,11 @@ contract MemeverseUniswapHookLaunchFeeQuoteInvariantTest is StdInvariant, Test, 
     function invariant_quoteFeeMatchesLaunchDecayFormula() external view {
         uint256 expectedFee = _expectedLaunchFee();
 
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        IMemeverseUniswapHook.SwapQuote memory quote = lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this)
         );
 
         assertEq(quote.feeBps, expectedFee, "launch quote mismatch");
@@ -294,6 +313,7 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
 
     MockPoolManagerForRouterTest internal manager;
     MemeverseUniswapHook internal hook;
+    MemeverseUniswapHookLens internal lens;
     MockERC20 internal token0;
     MockERC20 internal token1;
     PoolKey internal key;
@@ -320,6 +340,7 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
         token0 = new MockERC20("Token0", "TK0", 18);
         token1 = new MockERC20("Token1", "TK1", 18);
         hook = _deployRouterHookProxy(IPoolManager(address(manager)), address(this), treasury);
+        lens = new MemeverseUniswapHookLens(IPoolManager(address(manager)));
 
         key = PoolKey({
             currency0: Currency.wrap(address(token0)),
@@ -444,8 +465,11 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
 
     /// @notice Test helper for invariant_directSettlementNeverBreaksPublicQuoteFloor.
     function invariant_directSettlementNeverBreaksPublicQuoteFloor() external view {
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(
-            key, SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}), address(this)
+        IMemeverseUniswapHook.SwapQuote memory quote = lens.quoteSwap(
+            IMemeverseUniswapHook(address(hook)),
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: 0}),
+            address(this)
         );
         assertGe(quote.feeBps, 100, "public fee floor");
     }

@@ -18,6 +18,7 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 
 import {MemeverseSwapRouter} from "../../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHookLens} from "../../../src/swap/MemeverseUniswapHookLens.sol";
 import {MemeverseUniswapHook} from "../../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseSwapRouter} from "../../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../../src/swap/interfaces/IMemeverseUniswapHook.sol";
@@ -167,6 +168,7 @@ abstract contract RealisticSwapIntegrationBase is Test, HookStorageHelper {
 
     RealisticSwapManagerHarness internal manager;
     MemeverseUniswapHook internal hook;
+    MemeverseUniswapHookLens internal lens;
     MemeverseSwapRouter internal router;
     UnlockSwapIntegrator internal integrator;
     RawTransferSwapIntegrator internal rawTransferIntegrator;
@@ -194,7 +196,10 @@ abstract contract RealisticSwapIntegrationBase is Test, HookStorageHelper {
         // hookOwner = address(this), treasury = treasury, engine bound to the hook proxy.
         (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), treasury);
         hook = MemeverseUniswapHook(hookProxy);
-        router = new MemeverseSwapRouter(IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), permit2_);
+        lens = new MemeverseUniswapHookLens(IPoolManager(address(manager)));
+        router = new MemeverseSwapRouter(
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), lens, permit2_
+        );
         integrator = new UnlockSwapIntegrator(manager);
         rawTransferIntegrator = new RawTransferSwapIntegrator(manager);
 
@@ -254,7 +259,7 @@ abstract contract RealisticSwapIntegrationBase is Test, HookStorageHelper {
             snapshot.volAnchorSqrtPriceX96,,
             snapshot.volDeviationAccumulator,,
             snapshot.shortImpactPpm,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
     }
 
     function _assertRollback(address payer, RollbackSnapshot memory before_) internal view {
@@ -273,7 +278,7 @@ abstract contract RealisticSwapIntegrationBase is Test, HookStorageHelper {
             uint160 volAnchorSqrtPriceX96After,,
             uint24 volDeviationAccumulatorAfter,,
             uint24 shortImpactPpmAfter,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
         assertEq(weightedVolume0After, before_.weightedVolume0, "weightedVolume0 rollback");
         assertEq(ewVWAPX18After, before_.ewVWAPX18, "ewvwap rollback");
         assertEq(volAnchorSqrtPriceX96After, before_.volAnchorSqrtPriceX96, "vol anchor rollback");

@@ -16,6 +16,7 @@ import {IPermit2} from "lib/v4-periphery/lib/permit2/src/interfaces/IPermit2.sol
 
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 
@@ -79,6 +80,7 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
 
     MockPoolManagerForPermit2RouterTest internal manager;
     MemeverseUniswapHook internal hook;
+    MemeverseUniswapHookLens internal lens;
     MockPermit2ForRouterTest internal mockPermit2;
     SignatureVerifyingPermit2ForRouterTest internal realPermit2;
     MemeverseSwapRouter internal router;
@@ -116,13 +118,14 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
         treasury = makeAddr("treasury");
         alice = vm.addr(ALICE_PK);
         hook = _deployHookProxyForManager(IPoolManager(address(manager)), address(this), treasury);
+        lens = new MemeverseUniswapHookLens(IPoolManager(address(manager)));
         mockPermit2 = new MockPermit2ForRouterTest();
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(mockPermit2))
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), lens, IPermit2(address(mockPermit2))
         );
         realPermit2 = new SignatureVerifyingPermit2ForRouterTest();
         realPermit2Router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(realPermit2))
+            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), lens, IPermit2(address(realPermit2))
         );
 
         MockERC20 tokenA = new MockERC20("Token0", "TK0", 18);
@@ -224,6 +227,7 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
         MemeverseSwapRouter guardedRouter = new MemeverseSwapRouter(
             IPoolManager(address(guardedManager)),
             IMemeverseUniswapHook(address(guardedHook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(guardedManager))),
             IPermit2(address(mockPermit2))
         );
         PoolKey memory guardedKey = _dynamicPoolKeyForHook(
@@ -356,7 +360,7 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
             uint160 volAnchorBefore,,
             uint24 volDevBefore,,
             uint24 shortImpactBefore,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
 
         vm.prank(alice);
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -385,7 +389,7 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
             uint160 volAnchorAfter,,
             uint24 volDevAfter,,
             uint24 shortImpactAfter,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
         assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
         assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
         assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");
@@ -427,7 +431,7 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
             uint160 volAnchorBefore,,
             uint24 volDevBefore,,
             uint24 shortImpactBefore,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
 
         vm.prank(alice);
         vm.expectRevert(IMemeverseUniswapHook.ExactInputPartialFill.selector);
@@ -456,7 +460,7 @@ contract MemeverseSwapRouterPermit2Test is Test, HookStorageHelper {
             uint160 volAnchorAfter,,
             uint24 volDevAfter,,
             uint24 shortImpactAfter,
-        ) = hook.poolDynamicFeeState(poolId);
+        ) = lens.poolDynamicFeeState(IMemeverseUniswapHook(address(hook)), poolId);
         assertEq(wv0After, wv0Before, "ewvwap weightedVolume0 unchanged");
         assertEq(ewVWAPAfter, ewVWAPBefore, "ewvwap unchanged");
         assertEq(volAnchorAfter, volAnchorBefore, "vol anchor unchanged");

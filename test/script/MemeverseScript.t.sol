@@ -2,8 +2,10 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {MemeverseScript} from "../../script/MemeverseScript.s.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 
 contract MockScriptLauncher {
     address public owner;
@@ -136,9 +138,13 @@ contract MockScriptHook {
 
 contract MockScriptRouter {
     address public hook;
+    address public hookLens;
+    address public poolManager;
 
-    constructor(address hook_) {
+    constructor(address hook_, address hookLens_, address poolManager_) {
         hook = hook_;
+        hookLens = hookLens_;
+        poolManager = poolManager_;
     }
 }
 
@@ -199,8 +205,10 @@ contract MemeverseScriptHarness is MemeverseScript {
 contract MemeverseScriptTest is Test {
     address internal constant UETH = address(0x1001);
     address internal constant UUSD = address(0x1002);
+    address internal constant MOCK_POOL_MANAGER = address(0x4631);
 
     MemeverseScriptHarness internal script;
+    MemeverseUniswapHookLens internal lens;
     MockScriptLauncher internal launcher;
     MockScriptRegistrar internal registrar;
     MockScriptProxyDeployer internal proxyDeployer;
@@ -210,6 +218,7 @@ contract MemeverseScriptTest is Test {
 
     function setUp() external {
         script = new MemeverseScriptHarness();
+        lens = new MemeverseUniswapHookLens(IPoolManager(MOCK_POOL_MANAGER));
         launcher = new MockScriptLauncher();
         registrar = new MockScriptRegistrar(address(launcher));
         proxyDeployer = new MockScriptProxyDeployer(address(launcher));
@@ -249,8 +258,8 @@ contract MemeverseScriptTest is Test {
         address badHook = address(uint160(0x28cd));
         address goodHook = address(uint160(0x28cc));
 
-        MockScriptRouter badRouter = new MockScriptRouter(badHook);
-        MockScriptRouter goodRouter = new MockScriptRouter(goodHook);
+        MockScriptRouter badRouter = new MockScriptRouter(badHook, address(lens), MOCK_POOL_MANAGER);
+        MockScriptRouter goodRouter = new MockScriptRouter(goodHook, address(lens), MOCK_POOL_MANAGER);
         MockScriptHook hookImpl = new MockScriptHook(address(launcher), address(goodRouter));
 
         vm.etch(badHook, address(hookImpl).code);
@@ -375,7 +384,7 @@ contract MemeverseScriptTest is Test {
 
     function _configureReadySwap() internal returns (address readyRouter, address readyHook) {
         readyHook = address(uint160(0x28cc));
-        MockScriptRouter router = new MockScriptRouter(readyHook);
+        MockScriptRouter router = new MockScriptRouter(readyHook, address(lens), MOCK_POOL_MANAGER);
         MockScriptHook hookImpl = new MockScriptHook(address(launcher), address(router));
         vm.etch(readyHook, address(hookImpl).code);
         vm.mockCall(readyHook, abi.encodeWithSignature("launcher()"), abi.encode(address(launcher)));

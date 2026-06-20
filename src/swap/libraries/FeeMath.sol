@@ -57,6 +57,15 @@ library FeeMath {
         }
     }
 
+    /// @notice Scales `amount` by a basis-points fee rate, rounding down toward the payer.
+    /// @dev Single source of truth for fee rounding across hook settlement, lens quotes, the engine, and the executor.
+    /// @param amount Base amount to apply the fee rate to.
+    /// @param feeBps Fee rate in basis points (1 bps = 0.01%).
+    /// @return Fee amount rounded down.
+    function feeOnAmount(uint256 amount, uint256 feeBps) internal pure returns (uint256) {
+        return FullMath.mulDiv(amount, feeBps, BPS_BASE);
+    }
+
     /// @notice Converts a Uniswap v4 sqrtPriceX96 into a spot price scaled to 1e18 (X18).
     /// @dev Squares the 256-bit sqrt price without overflow via `_squareWide`, then extracts the integer part
     ///      (top bits) and fractional part (Q192 mask) and scales both to 1e18.

@@ -12,6 +12,7 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
 import {MockPoolManagerForRouterTest} from "../mocks/swap/SwapRouterMocks.sol";
@@ -79,7 +80,10 @@ contract MemeverseLauncherPreorderIntegrationTest is Test, HookStorageHelper {
         (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), address(this));
         hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(manager))),
+            IPermit2(address(0xBEEF))
         );
         hook.setLauncher(address(launcher));
         hook.setPoolInitializer(address(router));

@@ -357,7 +357,7 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
 
         if (amountSpecified < 0) {
             uint256 inputSideFeeBps = feeOnInput ? quote.feeBps : FeeMath.lpFeeBps(quote.feeBps);
-            uint256 inputSideFeeAmount = FullMath.mulDiv(userInputAmount, inputSideFeeBps, BPS_BASE);
+            uint256 inputSideFeeAmount = FeeMath.feeOnAmount(userInputAmount, inputSideFeeBps);
             uint256 netPoolInputAmount = userInputAmount > inputSideFeeAmount ? userInputAmount - inputSideFeeAmount : 0;
             // Fee fully consuming the input (netPoolInputAmount == 0) is NOT convergence; the loop
             // must continue so the next iteration estimates with zero input and reports failure.

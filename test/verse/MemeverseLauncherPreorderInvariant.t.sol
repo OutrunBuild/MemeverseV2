@@ -15,6 +15,7 @@ import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestH
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
+import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
 import {POLendInvariantStub, POLSplitterInvariantStub} from "../mocks/verse/LauncherInvariantStubs.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {IMemeverseUniswapHook} from "../../src/swap/interfaces/IMemeverseUniswapHook.sol";
@@ -293,7 +294,10 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
         (address hookProxy,) = deployHookAtFlagAddress(IPoolManager(address(manager)), address(this), address(this));
         hook = MemeverseUniswapHook(hookProxy);
         router = new MemeverseSwapRouter(
-            IPoolManager(address(manager)), IMemeverseUniswapHook(address(hook)), IPermit2(address(0xBEEF))
+            IPoolManager(address(manager)),
+            IMemeverseUniswapHook(address(hook)),
+            new MemeverseUniswapHookLens(IPoolManager(address(manager))),
+            IPermit2(address(0xBEEF))
         );
         hook.setLauncher(address(launcher));
         hook.setPoolInitializer(address(router));

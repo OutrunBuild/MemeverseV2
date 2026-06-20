@@ -52,7 +52,8 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         SwapParams memory params = SwapParams({
             zeroForOne: true, amountSpecified: -100 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
         });
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
         uint256 payer0Before = token0.balanceOf(address(this));
         uint256 payer1Before = token1.balanceOf(address(this));
         uint256 treasury1Before = token1.balanceOf(treasury);
@@ -102,7 +103,8 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         SwapParams memory params = SwapParams({
             zeroForOne: true, amountSpecified: 10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
         });
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
         manager.setNextExactOutputAmount(poolId, quote.estimatedUserOutputAmount + quote.estimatedProtocolFeeAmount - 1);
         RollbackSnapshot memory before_ = _rollbackSnapshot(address(this));
 
@@ -119,7 +121,8 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         SwapParams memory params = SwapParams({
             zeroForOne: true, amountSpecified: 10 ether, sqrtPriceLimitX96: _validExecutionPriceLimit(true)
         });
-        IMemeverseUniswapHook.SwapQuote memory quote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory quote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
         uint256 surplus = 1 ether;
         manager.setNextExactOutputAmount(
             poolId, quote.estimatedUserOutputAmount + quote.estimatedProtocolFeeAmount + surplus
@@ -191,7 +194,8 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         // Do NOT mature the launch window — pool was just initialized, so launch fee is active.
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
 
-        IMemeverseUniswapHook.SwapQuote memory launchQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory launchQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         // Launch fee should be above the minimum (100 bps) because we're within the decay window.
         assertGt(launchQuote.feeBps, 100, "launch fee above base during decay window");
@@ -203,13 +207,15 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         hook.setProtocolFeeCurrency(key.currency0);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
 
-        IMemeverseUniswapHook.SwapQuote memory defaultQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory defaultQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         // Set a config with a much higher start fee.
         hook.setDefaultLaunchFeeConfig(
             IMemeverseDynamicFeeEngine.LaunchFeeConfig({startFeeBps: 9000, minFeeBps: 100, decayDurationSeconds: 900})
         );
-        IMemeverseUniswapHook.SwapQuote memory highStartQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory highStartQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         assertGt(highStartQuote.feeBps, defaultQuote.feeBps, "higher start fee config increases quote");
     }
@@ -231,11 +237,13 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         );
 
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
-        IMemeverseUniswapHook.SwapQuote memory lowLiqQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory lowLiqQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         // Add more liquidity — this increases poolManager.getLiquidity(poolId).
         _addLiquidity(address(this));
-        IMemeverseUniswapHook.SwapQuote memory highLiqQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory highLiqQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         assertLe(highLiqQuote.feeBps, lowLiqQuote.feeBps, "more liquidity reduces dynamic fee");
     }
@@ -250,13 +258,15 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
 
         // Input side: currency0 is the input for zeroForOne.
         hook.setProtocolFeeCurrency(key.currency0);
-        IMemeverseUniswapHook.SwapQuote memory inputSideQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory inputSideQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
         assertTrue(inputSideQuote.protocolFeeOnInput, "fee on input when input currency supported");
 
         // Output side: disable input currency, enable output currency only.
         hook.setProtocolFeeCurrencySupport(key.currency0, false);
         hook.setProtocolFeeCurrency(key.currency1);
-        IMemeverseUniswapHook.SwapQuote memory outputSideQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory outputSideQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
         assertFalse(outputSideQuote.protocolFeeOnInput, "fee on output when only output currency supported");
     }
 
@@ -268,7 +278,8 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
         _matureLaunchWindow();
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -10_000 ether, sqrtPriceLimitX96: 0});
 
-        IMemeverseUniswapHook.SwapQuote memory beforeQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory beforeQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         // Execute a swap to move the price.
         integrator.swap(
@@ -280,7 +291,8 @@ contract MemeverseUniswapHookIntegrationTest is RealisticSwapIntegrationBase {
             bytes("")
         );
 
-        IMemeverseUniswapHook.SwapQuote memory afterQuote = hook.quoteSwap(key, params, address(this));
+        IMemeverseUniswapHook.SwapQuote memory afterQuote =
+            lens.quoteSwap(IMemeverseUniswapHook(address(hook)), key, params, address(this));
 
         // After a zeroForOne swap the price moves down. The dynamic fee should differ
         // because the engine now sees a different preSqrtPriceX96.

@@ -471,11 +471,10 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         Memeverse storage verse = memeverseLauncherStorage.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
-        address _hook = memeverseLauncherStorage.memeverseUniswapHook;
-        (memecoinFee, uAssetFee) = _previewPairFees(verse.memecoin, verse.uAsset, _hook);
+        (memecoinFee, uAssetFee) = _previewPairFees(verse.memecoin, verse.uAsset);
         address _polSplitter = memeverseLauncherStorage.polSplitter;
         address pt = IPOLSplitter(_polSplitter).getPT(verseId);
-        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt, _hook);
+        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt);
         uAssetFee += govUAssetFee + govPTFee;
     }
 
@@ -495,13 +494,12 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         if (govChainId == block.chainid) return 0;
 
         address uAsset = verse.uAsset;
-        address _hook = memeverseLauncherStorage.memeverseUniswapHook;
-        (uint256 memecoinFee, uint256 mainUAssetFee) = _previewPairFees(verse.memecoin, uAsset, _hook);
+        (uint256 memecoinFee, uint256 mainUAssetFee) = _previewPairFees(verse.memecoin, uAsset);
         (uint256 govFee,) = _splitExecutorReward(mainUAssetFee);
 
         address _polSplitter = memeverseLauncherStorage.polSplitter;
         address pt = IPOLSplitter(_polSplitter).getPT(verseId);
-        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt, _hook);
+        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt);
         govFee += govUAssetFee + govPTFee;
 
         uint32 govEndpointId =
@@ -2329,18 +2327,18 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         pendingGovFeeState.pendingPTFee += govPTFee;
     }
 
-    function _previewAuxiliaryGovFees(uint256 verseId, Memeverse storage verse, address pt, address _hook)
+    function _previewAuxiliaryGovFees(uint256 verseId, Memeverse storage verse, address pt)
         internal
         view
         returns (uint256 govUAssetFee, uint256 govPTFee)
     {
-        (, uint256 polUAssetUAssetFee) = _previewPairFees(verse.pol, verse.uAsset, _hook);
+        (, uint256 polUAssetUAssetFee) = _previewPairFees(verse.pol, verse.uAsset);
         uint256 totalAuxiliaryUAssetFee = polUAssetUAssetFee;
         uint256 totalPTFee;
 
         if (pt != address(0)) {
-            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _previewPairFees(pt, verse.uAsset, _hook);
-            (uint256 ptPolPTFee,) = _previewPairFees(pt, verse.pol, _hook);
+            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _previewPairFees(pt, verse.uAsset);
+            (uint256 ptPolPTFee,) = _previewPairFees(pt, verse.pol);
             totalAuxiliaryUAssetFee += ptUAssetUAssetFee;
             totalPTFee = ptUAssetPTFee + ptPolPTFee;
         }
@@ -2352,7 +2350,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
     ///      Returns both components already converted to uAsset denomination so callers can sum directly.
     ///      Used by previewGenesisMakerFees and quoteDistributionLzFee to avoid duplicating the
     ///      pending-read → auxiliary-preview → PT-to-uAsset conversion → merge pattern.
-    function _previewGovFeeWithPending(uint256 verseId, Memeverse storage verse, address pt, address _hook)
+    function _previewGovFeeWithPending(uint256 verseId, Memeverse storage verse, address pt)
         internal
         view
         returns (uint256 govUAssetFee, uint256 govPTFee)
@@ -2361,7 +2359,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
             memeverseLauncherStorage.pendingAuxiliaryGovFeeStates[verseId];
 
         // Preview live auxiliary fees from POL/uAsset and PT/uAsset pools
-        (uint256 auxUAssetFee, uint256 auxPTFee) = _previewAuxiliaryGovFees(verseId, verse, pt, _hook);
+        (uint256 auxUAssetFee, uint256 auxPTFee) = _previewAuxiliaryGovFees(verseId, verse, pt);
 
         // Merge pending accumulated fees with live preview
         govUAssetFee = pendingGovFeeState.pendingUAssetFee + auxUAssetFee;
@@ -2438,13 +2436,13 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         }
     }
 
-    function _previewPairFees(address tokenA, address tokenB, address _hook)
+    function _previewPairFees(address tokenA, address tokenB)
         internal
         view
         returns (uint256 tokenAFee, uint256 tokenBFee)
     {
-        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, _hook);
-        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(_hook).claimableFees(key, address(this));
+        (uint256 fee0, uint256 fee1) = IMemeverseSwapRouter(memeverseLauncherStorage.memeverseSwapRouter)
+            .previewClaimableFees(tokenA, tokenB, address(this));
         return _mapPairFees(tokenA, tokenB, fee0, fee1);
     }
 

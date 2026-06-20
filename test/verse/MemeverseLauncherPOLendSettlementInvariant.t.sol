@@ -5,10 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {POLend} from "../../src/polend/POLend.sol";
@@ -711,16 +707,7 @@ contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
     }
 
     function hookUAssetFee(address tokenA, address tokenB) internal view returns (uint256 fee) {
-        (uint256 fee0, uint256 fee1) = hook.claimableFees(
-            PoolKey({
-                currency0: Currency.wrap(tokenA < tokenB ? tokenA : tokenB),
-                currency1: Currency.wrap(tokenA < tokenB ? tokenB : tokenA),
-                fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-                tickSpacing: 200,
-                hooks: IHooks(address(hook))
-            }),
-            address(launcher)
-        );
+        (uint256 fee0, uint256 fee1) = router.previewClaimableFees(tokenA, tokenB, address(launcher));
         fee = tokenA < tokenB ? fee1 : fee0;
     }
 
