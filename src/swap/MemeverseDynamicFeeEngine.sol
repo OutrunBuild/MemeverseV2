@@ -2,7 +2,6 @@
 pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
@@ -12,6 +11,7 @@ import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
 import {IMemeverseDynamicFeeEngine} from "./interfaces/IMemeverseDynamicFeeEngine.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
+import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
 
 /// @title MemeverseDynamicFeeEngine
 /// @notice Owns Memeverse dynamic fee state, quote math, and realized swap state updates.
@@ -27,7 +27,7 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
     is
     IMemeverseDynamicFeeEngine,
     Initializable,
-    OwnableUpgradeable,
+    OutrunOwnableUpgradeable,
     UUPSUpgradeable
 {
     uint256 public constant BPS_BASE = FeeMath.BPS_BASE;
@@ -75,21 +75,9 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
     /// @param initialOwner Owner authorized to upgrade the engine.
     /// @param authorizedHook_ Hook address authorized to call mutating engine APIs. Must be non-zero.
     function initialize(address initialOwner, address authorizedHook_) external initializer {
-        if (initialOwner == address(0) || authorizedHook_ == address(0)) revert ZeroAddress();
-        __Ownable_init(initialOwner);
+        if (authorizedHook_ == address(0)) revert ZeroAddress();
+        __OutrunOwnable_init(initialOwner);
         memeverseDynamicFeeEngineStorage.authorizedHook = authorizedHook_;
-    }
-
-    /// @notice Engine ownership is managed through the Hook contract.
-    ///         To change the engine, deploy a new one and call Hook.upgradeDynamicFeeEngine().
-    function transferOwnership(address) public pure override {
-        revert EngineOwnershipManagedByHook();
-    }
-
-    /// @notice Engine ownership cannot be renounced.
-    ///         To decommission the engine, replace it via Hook.upgradeDynamicFeeEngine().
-    function renounceOwnership() public pure override {
-        revert EngineOwnershipManagedByHook();
     }
 
     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {

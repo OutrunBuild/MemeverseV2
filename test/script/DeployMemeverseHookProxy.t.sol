@@ -935,8 +935,8 @@ contract DeployMemeverseHookProxyTest is Test {
 
         address engine = address(MemeverseUniswapHook(r.hookProxy).dynamicFeeEngine());
         _setExpectedImplementationCodehashes(r.hookProxy);
-        bytes32 ownableOwnerSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
-        vm.store(engine, ownableOwnerSlot, bytes32(uint256(uint160(HOOK_OWNER))));
+        bytes32 outrunOwnableOwnerSlot = 0x7f241041d6960443a72c6e46e3b41069d0f1a8933ddb434b1da86a3f3cba9f00;
+        vm.store(engine, outrunOwnableOwnerSlot, bytes32(uint256(uint160(HOOK_OWNER))));
 
         vm.prank(address(script));
         vm.expectRevert(
@@ -969,8 +969,8 @@ contract DeployMemeverseHookProxyTest is Test {
         );
 
         address engine = address(MemeverseUniswapHook(first.hookProxy).dynamicFeeEngine());
-        bytes32 ownableOwnerSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
-        vm.store(engine, ownableOwnerSlot, bytes32(uint256(uint160(HOOK_OWNER))));
+        bytes32 outrunOwnableOwnerSlot = 0x7f241041d6960443a72c6e46e3b41069d0f1a8933ddb434b1da86a3f3cba9f00;
+        vm.store(engine, outrunOwnableOwnerSlot, bytes32(uint256(uint160(HOOK_OWNER))));
 
         uint256 nextNonce = 2;
         (, address nextEngineImpl) =

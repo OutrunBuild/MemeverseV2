@@ -2,11 +2,11 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+import {OutrunOwnableUpgradeable} from "../../src/common/access/OutrunOwnableUpgradeable.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
@@ -197,12 +197,12 @@ contract MemeverseLauncherConfigTest is Test {
 
     /// @notice Verifies initialize reverts for each zero-valued address parameter.
     /// @dev Each address is zeroed individually; index 0 (initialOwner) triggers OwnableInvalidOwner
-    ///      before ZeroInput because __Ownable_init runs first.
+    ///      before ZeroInput because ownership initialization runs first.
     function testInitializeRevertsZeroAddressParams() external {
-        // index 0: initialOwner → __Ownable_init reverts first
+        // index 0: initialOwner -> ownership initialization reverts first
         {
             MemeverseLauncher impl = new MemeverseLauncher();
-            vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
+            vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
             new ERC1967Proxy(address(impl), _launcherInitDataWithZeroAddr(0));
         }
 
@@ -312,7 +312,7 @@ contract MemeverseLauncherConfigTest is Test {
         MemeverseLauncher newImplementation = new MemeverseLauncher();
 
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.upgradeToAndCall(address(newImplementation), "");
 
         launcher.upgradeToAndCall(address(newImplementation), "");
@@ -336,14 +336,14 @@ contract MemeverseLauncherConfigTest is Test {
 
     function testConfigSetterRevertsForNonOwner() external {
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.setLzEndpointRegistry(address(0xBEEF));
     }
 
     /// @notice Verifies onlyOwner enforcement on config setters works through the proxy.
     function testSetExecutorRewardRate_RevertsWhenNotOwner() external {
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.setExecutorRewardRate(500);
     }
 
@@ -360,14 +360,14 @@ contract MemeverseLauncherConfigTest is Test {
     /// @dev Verifies only the owner can toggle the paused state.
     function testPauseAndUnpauseAreOwnerOnly() external {
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.pause();
 
         launcher.pause();
         assertTrue(launcher.paused());
 
         vm.prank(OTHER);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, OTHER));
         launcher.unpause();
 
         launcher.unpause();

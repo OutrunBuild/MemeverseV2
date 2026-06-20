@@ -2,7 +2,6 @@
 pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -31,6 +30,7 @@ import {IMemeverseUniswapHook} from "../swap/interfaces/IMemeverseUniswapHook.so
 import {MemeversePoolKeyLib} from "../swap/libraries/MemeversePoolKeyLib.sol";
 import {IPOLend} from "../polend/interfaces/IPOLend.sol";
 import {IPOLSplitter} from "../polend/interfaces/IPOLSplitter.sol";
+import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
 
 /**
  * @title Trapping into the memeverse
@@ -45,7 +45,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
     is
     IMemeverseLauncher,
     Initializable,
-    OwnableUpgradeable,
+    OutrunOwnableUpgradeable,
     PausableUpgradeable,
     UUPSUpgradeable,
     TokenHelper
@@ -133,7 +133,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         uint256 preorderCapRatio_,
         uint256 preorderVestingDuration_
     ) external initializer {
-        __Ownable_init(initialOwner);
+        __OutrunOwnable_init(initialOwner);
         __Pausable_init();
         require(
             localLzEndpoint_ != address(0) && memeverseRegistrar_ != address(0) && memeverseProxyDeployer_ != address(0)

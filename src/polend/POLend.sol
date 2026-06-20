@@ -3,7 +3,6 @@ pragma solidity ^0.8.35;
 
 import {IERC20} from "../common/token/OutrunERC20Init.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -14,11 +13,12 @@ import {IPOLend} from "./interfaces/IPOLend.sol";
 import {IPOLSplitter} from "./interfaces/IPOLSplitter.sol";
 import {IUniversalAssets} from "./interfaces/IUniversalAssets.sol";
 import {IMemeverseLauncher} from "../verse/interfaces/IMemeverseLauncher.sol";
+import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
 
 contract POLend layout at erc7201("outrun.storage.POLend")
     is
     Initializable,
-    OwnableUpgradeable,
+    OutrunOwnableUpgradeable,
     UUPSUpgradeable,
     PausableUpgradeable,
     ReentrancyGuard,
@@ -78,7 +78,7 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         if (treasury_ == address(0) || launcher_ == address(0) || splitter_ == address(0)) revert ZeroInput();
         _validateLeverageConfig(interestRate_, leveragedDebtFactor_);
 
-        __Ownable_init(initialOwner);
+        __OutrunOwnable_init(initialOwner);
         __Pausable_init();
 
         polendStorage.defaultInterestRate = interestRate_;

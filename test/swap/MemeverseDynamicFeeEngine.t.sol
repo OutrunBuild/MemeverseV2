@@ -3,7 +3,6 @@ pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
@@ -14,16 +13,16 @@ import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
 import {IMemeverseDynamicFeeEngine} from "../../src/swap/interfaces/IMemeverseDynamicFeeEngine.sol";
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
+import {OutrunOwnableUpgradeable} from "../../src/common/access/OutrunOwnableUpgradeable.sol";
 import {FeeMath} from "../../src/swap/libraries/FeeMath.sol";
 import {MemeverseDynamicFeeEngineV2} from "../mocks/upgrade/MemeverseDynamicFeeEngineV2.sol";
 import {FeeEngineStorageSlots} from "../mocks/swap/FeeEngineStorageSlots.sol";
 
 contract MemeverseDynamicFeeEngineTest is Test {
     using FeeEngineStorageSlots for *;
-    // ERC7201 storage-namespace base slot for OwnableUpgradeable._owner (mirrors
-    // openzeppelin.storage.OwnableUpgradeable, which does not expose the constant publicly).
+    // ERC7201 storage-namespace base slot for OutrunOwnableUpgradeable._owner.
     bytes32 internal constant OWNABLE_STORAGE_LOCATION =
-        0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
+        0x7f241041d6960443a72c6e46e3b41069d0f1a8933ddb434b1da86a3f3cba9f00;
     PoolId internal constant POOL_ID = PoolId.wrap(bytes32(uint256(0x1234)));
     address internal constant AUTHORIZED_HOOK = address(0xA11CE);
     address internal constant TRADER_A = address(0xCAFE);
@@ -125,7 +124,7 @@ contract MemeverseDynamicFeeEngineTest is Test {
         MemeverseDynamicFeeEngine impl = new MemeverseDynamicFeeEngine(IPoolManager(address(0x1001)));
         bytes memory zeroOwnerData = abi.encodeCall(MemeverseDynamicFeeEngine.initialize, (address(0), AUTHORIZED_HOOK));
 
-        vm.expectRevert(IMemeverseDynamicFeeEngine.ZeroAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
         new ERC1967Proxy(address(impl), zeroOwnerData);
     }
 
@@ -143,7 +142,9 @@ contract MemeverseDynamicFeeEngineTest is Test {
         MemeverseDynamicFeeEngineV2 newImplementation = new MemeverseDynamicFeeEngineV2(poolManager);
 
         vm.prank(address(0xB0B));
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
+        vm.expectRevert(
+            abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B))
+        );
         initialized.upgradeToAndCall(address(newImplementation), bytes(""));
     }
 
@@ -886,13 +887,15 @@ contract MemeverseDynamicFeeEngineTest is Test {
         assertEq(batch.batchStartTs, 0, "batch start ts stays zero");
     }
 
-    function testTransferOwnershipReverts() external {
-        vm.expectRevert(IMemeverseDynamicFeeEngine.EngineOwnershipManagedByHook.selector);
+    function testTransferOwnershipUsesInheritedOnlyOwnerGuard() external {
+        vm.prank(AUTHORIZED_HOOK);
+        vm.expectRevert(
+            abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, AUTHORIZED_HOOK)
+        );
         engine.transferOwnership(address(0xBEEF));
-    }
 
-    function testRenounceOwnershipReverts() external {
-        vm.expectRevert(IMemeverseDynamicFeeEngine.EngineOwnershipManagedByHook.selector);
-        engine.renounceOwnership();
+        engine.transferOwnership(address(0xBEEF));
+
+        assertEq(engine.owner(), address(0xBEEF), "engine owner");
     }
 }

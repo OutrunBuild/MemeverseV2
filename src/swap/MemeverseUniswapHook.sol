@@ -2,7 +2,6 @@
 pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
@@ -32,6 +31,7 @@ import {ReentrancyGuard} from "../common/access/ReentrancyGuard.sol";
 import {IMemeverseDynamicFeeEngine} from "./interfaces/IMemeverseDynamicFeeEngine.sol";
 import {IMemeversePreorderSettlementExecutor} from "./interfaces/IMemeversePreorderSettlementExecutor.sol";
 import {IMemeverseUniswapHook} from "./interfaces/IMemeverseUniswapHook.sol";
+import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
 
 /// @notice Minimal admin surface required for hook-owned dynamic fee engine proxies.
 /// @dev Kept local so the fee engine business interface does not expose upgrade ownership controls.
@@ -75,7 +75,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     BaseHook,
     ReentrancyGuard,
     Initializable,
-    OwnableUpgradeable
+    OutrunOwnableUpgradeable
 {
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -158,8 +158,8 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         IMemeversePreorderSettlementExecutor preorderSettlementExecutor_
     ) external initializer {
         if (
-            initialOwner == address(0) || treasury_ == address(0) || address(dynamicFeeEngine_) == address(0)
-                || lpTokenImplementation_ == address(0) || address(preorderSettlementExecutor_) == address(0)
+            treasury_ == address(0) || address(dynamicFeeEngine_) == address(0) || lpTokenImplementation_ == address(0)
+                || address(preorderSettlementExecutor_) == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -174,7 +174,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         }
         _requireEngineOwnedByHook(dynamicFeeEngine_);
         _validateProxyHookAddress();
-        __Ownable_init(initialOwner);
+        __OutrunOwnable_init(initialOwner);
 
         memeverseUniswapHookStorage.treasury = treasury_;
         memeverseUniswapHookStorage.dynamicFeeEngine = dynamicFeeEngine_;
@@ -192,7 +192,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     function validateHookAddress(BaseHook) internal pure virtual override {}
 
     /// @inheritdoc IMemeverseUniswapHook
-    function owner() public view override(OwnableUpgradeable, IMemeverseUniswapHook) returns (address) {
+    function owner() public view override(OutrunOwnableUpgradeable, IMemeverseUniswapHook) returns (address) {
         return super.owner();
     }
 

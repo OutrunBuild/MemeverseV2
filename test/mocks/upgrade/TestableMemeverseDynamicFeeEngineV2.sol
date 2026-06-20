@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.35;
 
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
+import {OutrunOwnableUpgradeable} from "../../../src/common/access/OutrunOwnableUpgradeable.sol";
 import {FeeEngineStorageSlots} from "../swap/FeeEngineStorageSlots.sol";
 
 /**
@@ -12,9 +12,9 @@ import {FeeEngineStorageSlots} from "../swap/FeeEngineStorageSlots.sol";
  * @notice Facade upgrade-target shell for the HookLiquidity engine-upgrade tests. Does NOT inherit
  *         the production MemeverseDynamicFeeEngine — direct test inheritance of upgradable prod
  *         contracts is forbidden by the repo test rules.
- * @dev After the upgrade, the proxy storage still carries the V1-era `OwnableUpgradeable` owner (the hook)
- *      at the shared ERC7201 `openzeppelin.storage.Ownable` slot, because V1 initialized it via
- *      `__Ownable_init`. Inheriting `OwnableUpgradeable` here makes the facade's `owner()` read that same
+ * @dev After the upgrade, the proxy storage still carries the V1-era `OutrunOwnableUpgradeable` owner (the hook)
+ *      at the shared ERC7201 `outrun.storage.Ownable` slot, because V1 initialized it via
+ *      `__OutrunOwnable_init`. Inheriting `OutrunOwnableUpgradeable` here makes the facade's `owner()` read that same
  *      slot, so the hook's post-upgrade `_requireEngineBoundToHook` (which calls `owner()` on the engine)
  *      observes the hook as owner. The facade never re-initializes Ownable; it relies on the persisted slot.
  *      `_authorizeUpgrade` mirrors V1's `onlyOwner` guard.
@@ -27,7 +27,7 @@ import {FeeEngineStorageSlots} from "../swap/FeeEngineStorageSlots.sol";
  *      post-upgrade swap execution is not exercised here — those upgrade tests assert storage survival via
  *      `vm.load` instead.
  */
-contract TestableMemeverseDynamicFeeEngineV2 is UUPSUpgradeable, OwnableUpgradeable {
+contract TestableMemeverseDynamicFeeEngineV2 is UUPSUpgradeable, OutrunOwnableUpgradeable {
     /// @notice PoolManager the V1 engine was constructed with. Compared by V1 `_authorizeUpgrade`.
     IPoolManager public immutable poolManager;
 

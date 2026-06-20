@@ -4,7 +4,6 @@ pragma solidity ^0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
@@ -23,6 +22,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseDynamicFeeEngine} from "../../src/swap/MemeverseDynamicFeeEngine.sol";
+import {OutrunOwnableUpgradeable} from "../../src/common/access/OutrunOwnableUpgradeable.sol";
 import {MemeversePreorderSettlementExecutor} from "../../src/swap/MemeversePreorderSettlementExecutor.sol";
 import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
@@ -1555,7 +1555,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     ///         poolInitializer).
     /// @dev Mirrors the #9 engine facade upgrade test: the facade shell does not inherit MemeverseUniswapHook, so
     ///      it exposes no V1 getters and post-upgrade storage is read via `vm.load` against the V1 storage slots
-    ///      (OwnableUpgradeable owner slot + the hook ERC7201 namespace struct field offsets). Transparent proxy
+    ///      (OutrunOwnableUpgradeable owner slot + the hook ERC7201 namespace struct field offsets). Transparent proxy
     ///      upgrade authorization lives on ProxyAdmin, so implementation runtime does not carry an upgrade guard.
     function testOwnerCanUpgradeAndPreserveStorage() external {
         MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
@@ -1563,7 +1563,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         initialized.setPoolInitializer(address(0xBEEF));
 
         // Snapshot the V1-set storage through the V1 getters while V1 is still live.
-        bytes32 ownableSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
+        bytes32 ownableSlot = 0x7f241041d6960443a72c6e46e3b41069d0f1a8933ddb434b1da86a3f3cba9f00;
         bytes32 snapshotOwner = vm.load(address(initialized), ownableSlot);
         bytes32 snapshotTreasury = vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_TREASURY));
         bytes32 snapshotLauncher = vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_LAUNCHER));
@@ -1653,7 +1653,9 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
             _deployEngineProxyForManager(IPoolManager(address(mockManager)), address(this));
 
         vm.prank(address(0xB0B));
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
+        vm.expectRevert(
+            abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B))
+        );
         hook.upgradeDynamicFeeEngine(newEngine);
     }
 
@@ -1738,7 +1740,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
 
         hook.transferOwnership(newOwner);
 
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, oldOwner));
+        vm.expectRevert(abi.encodeWithSelector(OutrunOwnableUpgradeable.OwnableUnauthorizedAccount.selector, oldOwner));
         currentEngine.upgradeToAndCall(address(newImplementation), bytes(""));
 
         (bool oldOwnerHookUpgradeSucceeded, bytes memory oldOwnerHookUpgradeData) = address(hook)

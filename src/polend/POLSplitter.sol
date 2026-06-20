@@ -5,7 +5,6 @@ import {IERC20} from "../common/token/OutrunERC20Init.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
@@ -16,11 +15,12 @@ import {IPOLSplitter} from "./interfaces/IPOLSplitter.sol";
 import {PrincipalToken} from "./tokens/PrincipalToken.sol";
 import {YieldToken} from "./tokens/YieldToken.sol";
 import {IMemeverseLauncher} from "../verse/interfaces/IMemeverseLauncher.sol";
+import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
 
 contract POLSplitter layout at erc7201("outrun.storage.POLSplitter")
     is
     Initializable,
-    OwnableUpgradeable,
+    OutrunOwnableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuard,
     IPOLSplitter
@@ -149,7 +149,7 @@ contract POLSplitter layout at erc7201("outrun.storage.POLSplitter")
     function initialize(address initialOwner, address _launcher) external initializer {
         if (_launcher == address(0)) revert ZeroInput();
 
-        __Ownable_init(initialOwner);
+        __OutrunOwnable_init(initialOwner);
 
         polSplitterStorage.launcher = _launcher;
         polSplitterStorage.polend = IMemeverseLauncher(_launcher).polend();

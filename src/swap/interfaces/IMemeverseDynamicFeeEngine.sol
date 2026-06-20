@@ -142,10 +142,6 @@ interface IMemeverseDynamicFeeEngine {
         view
         returns (AddressBatchState memory state);
 
-    /// @notice Reverts when attempting to transfer or renounce engine ownership directly.
-    ///         Engine ownership is managed through the Hook's upgradeDynamicFeeEngine flow.
-    error EngineOwnershipManagedByHook();
-
     /// @notice Reverts when a required address parameter is the zero address.
     error ZeroAddress();
 

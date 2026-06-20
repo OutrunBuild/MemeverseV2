@@ -873,7 +873,7 @@ contract MemecoinYieldVaultTest is Test {
     // ──────────────────────────────────────────────────────────────────────────────
 
     /// @notice initialize stores the supplied virtual buffer verbatim and exposes it via the getter.
-    function testInitializeStoresVirtualAssets() external {
+    function testInitializeStoresVirtualAssets() external view {
         assertEq(vault.virtualAssets(), VIRTUAL_ASSETS, "virtualAssets stored from initialize");
     }
 
