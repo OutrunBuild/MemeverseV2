@@ -1,11 +1,10 @@
-// SPDX-License-Identifier: MIT
-// OpenZeppelin Contracts (last updated v5.0.0) (access/Ownable.sol)
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.35;
 
 import {Initializable} from "./Initializable.sol";
 
 /**
- * @dev Outrun's minimal-proxy-friendly Ownable implementation, adapted from OpenZeppelin.
+ * @dev Outrun's Ownable implementation.
  */
 abstract contract OutrunOwnableInit is Initializable {
     /// @custom:storage-location erc7201:outrun.storage.Ownable
@@ -39,21 +38,17 @@ abstract contract OutrunOwnableInit is Initializable {
      * @dev Initializes the contract setting the address provided by the deployer as the initial owner.
      */
     function __OutrunOwnable_init(address initialOwner) internal onlyInitializing {
-        __OutrunOwnable_init_unchained(initialOwner);
-    }
-
-    function __OutrunOwnable_init_unchained(address initialOwner) internal onlyInitializing {
-        if (initialOwner == address(0)) {
-            revert OwnableInvalidOwner(address(0));
-        }
-        _transferOwnership(initialOwner);
+        require(initialOwner != address(0), OwnableInvalidOwner(address(0)));
+        OwnableStorage storage $ = _getOwnableStorage();
+        $._owner = initialOwner;
+        emit OwnershipTransferred(address(0), initialOwner);
     }
 
     /**
      * @dev Throws if called by any account other than the owner.
      */
     modifier onlyOwner() {
-        _checkOwner();
+        require(owner() == msg.sender, OwnableUnauthorizedAccount(msg.sender));
         _;
     }
 
@@ -65,39 +60,13 @@ abstract contract OutrunOwnableInit is Initializable {
         return $._owner;
     }
 
-    /**
-     * @dev Throws if the sender is not the owner.
-     */
-    function _checkOwner() internal view virtual {
-        if (owner() != msg.sender) {
-            revert OwnableUnauthorizedAccount(msg.sender);
-        }
-    }
-
-    /// @notice Renounces ownership of the contract.
-    /// @dev Sets owner to `address(0)`, disabling `onlyOwner` operations.
-    function renounceOwnership() public virtual onlyOwner {
-        _transferOwnership(address(0));
-    }
-
     /// @notice Transfers ownership to `newOwner`.
     /// @dev Reverts when `newOwner` is the zero address.
     /// @param newOwner Address that will become the next owner.
     function transferOwnership(address newOwner) public virtual onlyOwner {
-        if (newOwner == address(0)) {
-            revert OwnableInvalidOwner(address(0));
-        }
-        _transferOwnership(newOwner);
-    }
-
-    /**
-     * @dev Transfers ownership of the contract to a new account (`newOwner`).
-     * Internal function without access restriction.
-     */
-    function _transferOwnership(address newOwner) internal virtual {
+        require(newOwner != address(0), OwnableInvalidOwner(address(0)));
         OwnableStorage storage $ = _getOwnableStorage();
-        address oldOwner = $._owner;
         $._owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
+        emit OwnershipTransferred(msg.sender, newOwner);
     }
 }
