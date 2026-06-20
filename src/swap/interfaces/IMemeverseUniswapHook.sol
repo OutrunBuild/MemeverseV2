@@ -82,7 +82,7 @@ interface IMemeverseUniswapHook {
     /// @notice Exposes the dynamic fee engine bound to this hook implementation.
     /// @dev The engine address is owner-upgradeable via `upgradeDynamicFeeEngine`. After replacement,
     ///      the new engine starts from zero dynamic-fee state (EWVWAP, volatility, short-impact all reset).
-    ///      UUPS upgrades of the hook itself do not affect the engine pointer — it lives in hook storage.
+    ///      Hook proxy implementation upgrades do not affect the engine pointer — it lives in hook proxy storage.
     /// @return Engine used for dynamic fee quotes and realized swap state.
     function dynamicFeeEngine() external view returns (IMemeverseDynamicFeeEngine);
 
@@ -108,7 +108,7 @@ interface IMemeverseUniswapHook {
     /// @notice Exposes when a hook-managed pool was initialized.
     /// @dev The launch timestamp anchors the launch-fee decay schedule.
     ///      UPGRADE INVARIANT: `quoteSwapFeeWithContext()` reads this getter for MemeverseUniswapHookLens.quoteSwap().
-    ///      Hook UUPS upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
+    ///      Hook proxy implementation upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
     /// @param poolId Pool being queried.
     /// @return Recorded launch timestamp.
     function poolLaunchTimestamp(PoolId poolId) external view returns (uint40);
@@ -116,7 +116,7 @@ interface IMemeverseUniswapHook {
     /// @notice Exposes the default launch-fee decay schedule.
     /// @dev New pools use this configuration unless a future implementation introduces pool-specific overrides.
     ///      UPGRADE INVARIANT: `quoteSwapFeeWithContext()` reads this getter for MemeverseUniswapHookLens.quoteSwap().
-    ///      Hook UUPS upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
+    ///      Hook proxy implementation upgrades MUST preserve this function signature; a selector break silently disables off-chain quoting.
     /// @return startFeeBps Launch fee applied immediately after pool initialization.
     /// @return minFeeBps Floor fee reached after decay completes.
     /// @return decayDurationSeconds Time required for the launch fee to decay to its floor.
@@ -214,14 +214,6 @@ interface IMemeverseUniswapHook {
     /// @param currency Currency address being queried.
     /// @return supported True when protocol fees may be collected in this currency.
     function supportedProtocolFeeCurrencies(address currency) external view returns (bool supported);
-
-    /**
-     * @notice Return the LP token address for a hook-managed pool key, or `address(0)` when the pool is not initialized.
-     * @dev This is a convenience view over `poolInfo(key.toId()).liquidityToken`.
-     * @param key The pool key to query.
-     * @return liquidityToken The LP token contract address, or `address(0)` when the pool is not initialized.
-     */
-    function lpToken(PoolKey calldata key) external view returns (address liquidityToken);
 
     /// @notice Low-level liquidity execution API.
     /// @dev Adds full-range liquidity using the caller as payer and mints LP shares to `params.to`.
@@ -406,9 +398,6 @@ interface IMemeverseUniswapHook {
 
     /// @notice Reverts when an ERC20 transfer returns false.
     error ERC20TransferFailed();
-
-    /// @notice Reverts when a pool-manager upgrade target does not match the current manager.
-    error UpgradePoolManagerMismatch(address currentPoolManager, address newPoolManager);
 
     /// @notice Reverts when the hook and engine are constructed with different PoolManager addresses.
     error DynamicFeeEnginePoolManagerMismatch(address hookPoolManager, address enginePoolManager);

@@ -155,13 +155,13 @@ contract MemeverseSwapRouter is SafeCallback, IMemeverseSwapRouter {
     }
 
     /// @notice Return the LP token contract for the hook-managed pair formed by the given tokens.
-    /// @dev Resolves the hook pool key from token addresses before delegating to `hook.lpToken`.
+    /// @dev Resolves the hook pool key from token addresses and reads the hook pool information.
     /// @param tokenA One side of the pair.
     /// @param tokenB The other side of the pair.
     /// @return liquidityToken The LP token contract for the pair.
     function lpToken(address tokenA, address tokenB) external view override returns (address liquidityToken) {
         PoolKey memory key = getHookPoolKey(tokenA, tokenB);
-        return hook.lpToken(key);
+        (liquidityToken,,) = hook.poolInfo(key.toId());
     }
 
     /// @notice Quote how much of each pool token the router would spend to mint a desired liquidity amount.

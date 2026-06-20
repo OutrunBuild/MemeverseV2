@@ -71,7 +71,7 @@
   - `polend`：注册时 `registerLendMarket`，部署时 `finalizeLeveragedGenesis`，Locked governor PT fee 预兑付时 `preRedeemPTFee`，unlock settlement 时按需 `executeGlobalSettlement`
   - `polSplitter`：部署时 `initializeVerse`、`recordPTBackingRatio`、`split`，normal/gov PT fee preview 时 `previewPTToUAsset`，settled 后 PT 兑现时 `redeemPT`，unlock settlement 时 `settle`
 - Hook owner 在部署后仍可 retarget `launcher`；该能力属于与 launcher owner 同一 trust boundary 的配置权，当前产品语义接受这一点。`[代码已证]`
-- Launcher 与所有继承 `ReentrancyGuard` 的合约（`POLend`、`POLSplitter`、`MemeverseUniswapHook`）依赖 EIP-1153 transient storage（`tload`/`tstore` 操作码），编译目标 `evm_version = "prague"`。部署链必须支持 Cancun 或更新硬分叉，否则 `nonReentrant` 修饰符将导致 `invalid opcode` 回退。见 [docs/operations.md](../../operations.md#7-evm-兼容性要求)。`[代码已证]`
+- Launcher 与所有继承 `ReentrancyGuard` 的合约（`POLend`、`POLSplitter`、`MemeverseUniswapHook`）依赖 EIP-1153 transient storage（`tload`/`tstore` 操作码），编译目标 `evm_version = "prague"`。部署链必须支持 Cancun 或更新硬分叉，否则 `nonReentrant` 修饰符将导致 `invalid opcode` 回退。见 [docs/operations.md](../../operations.md#6-evm-兼容性要求)。`[代码已证]`
 - 跨链分发与 staking 的 gas 参数来自 launcher/interoperation 的可配置 gas limits。`[代码已证]`
 - `MemeverseProxyDeployer.quorumNumerator` 仅影响后续新部署 governor 初始化，不回溯既有实例。`[代码已证]`
 

@@ -109,18 +109,18 @@
 - 当前实现已把这套窗口语义落在“解锁迁移时写入 pool-level `publicSwapResumeTime` + `hook.beforeSwap` 阻断”
 - 因此现阶段仍不能把”`unlockTime` 到达”误解为”产品上已经安全进入完全开放交易阶段”；是否恢复公开 swap 还要看实际 `changeStage()` 时间点加上固定 `24 hours` 保护窗口
 
-### 3.9 UUPS 升级操作步骤
+### 3.9 Proxy 升级操作步骤
 
-本节覆盖项目中全部 6 个 UUPS 可升级合约的升级操作规程。升级的本质是让 proxy 指向新的 implementation 合约，proxy 地址不变、storage 数据不变、用户无感知。部署记录还必须把不可升级但一等返回的 `lpTokenImplementation` 与 `preorderSettlementExecutor` 作为独立 artifacts 记录。
+本节覆盖 UUPS 可升级合约和 `TransparentUpgradeableProxy` Hook 的升级操作规程。升级的本质是让 proxy 指向新的 implementation 合约，proxy 地址不变、storage 数据不变、用户无感知。部署记录还必须把不可升级但一等返回的 `lpTokenImplementation` 与 `preorderSettlementExecutor` 作为独立 artifacts 记录。
 
-#### 3.9.1 UUPS 合约汇总
+#### 3.9.1 可升级合约汇总
 
 | 合约 | proxy 来源 / proxy salt label | implementation 部署来源 | 当前可证 implementation salt label | 授权门控 | 特殊约束 |
 | --- | --- | --- | --- | --- | --- |
 | `MemeverseLauncher` | `MemeverseScript._deployMemeverseLauncher`; proxy salt = `MemeverseLauncher + nonce` | `MemeverseScript._deployMemeverseLauncher` 内部署 | `MemeverseLauncherImplementation + nonce` | `onlyOwner` | 存储 `polend`/`polSplitter` proxy 地址，不可运行时替换 |
 | `POLend` | `MemeverseScript._deployPOLend`; proxy salt = `POLend + nonce` | `MemeverseScript._deployPOLend` 内部署 | `POLendImplementation + nonce` | `onlyOwner` | 存储 `launcher`/`splitter` 地址；`leveragedDebtFactor` 技术上限 `uint128.max * 1e18` |
 | `POLSplitter` | `MemeverseScript._deployPOLSplitter`; proxy salt = `POLSplitter + nonce` | `MemeverseScript._deployPOLSplitter` 内部署 | `POLSplitterImplementation + nonce` | `onlyOwner` | 存储 `launcher`/`polend` 地址；初始化时读 `launcher.polend()` |
-| `MemeverseUniswapHook` | `DeployMemeverseHookProxy.mineProxySalt(...)` 挖出的 proxy salt | `DeployMemeverseHookProxy` 通过 `new MemeverseUniswapHook(poolManager)` 部署 | `N/A` | `onlyOwner` + poolManager guardrail | `poolManager` 不在 proxy storage 中，是字节码级绑定 |
+| `MemeverseUniswapHook` | `DeployMemeverseHookProxy.getPredictedProxy(..., nonce, hookOwner, hookTreasury, poolManager)`；内部 `_selectProxySalt` 使用 `keccak256(abi.encodePacked("MemeverseUniswapHookProxy", nonce, i))` 选择 nonce-scoped hook-flag proxy salt | `DeployMemeverseHookProxy` 通过 `new MemeverseUniswapHook(poolManager)` 部署 | `N/A` | Hook proxy admin slot 指向的 `ProxyAdmin.owner()` | `poolManager` 不在 proxy storage 中，是字节码级绑定；poolManager 匹配是 operator-side pre-check |
 | `MemecoinDaoGovernorUpgradeable` | `MemeverseProxyDeployer.deployGovernorAndIncentivizer`; proxy salt = `keccak256(abi.encode(uniqueId))` | `MemeverseScript._deployMemecoinGovernorImplementation` | `MemecoinDaoGovernorImplementation + nonce` | `onlyGovernance` | 需走 OZ Governor 提案流程；`_authorizeUpgrade` 由 Governor 合约内部 `_governanceCall` 放行 |
 | `GovernanceCycleIncentivizerUpgradeable` | `MemeverseProxyDeployer.deployGovernorAndIncentivizer`; proxy salt = `keccak256(abi.encode(uniqueId))` | `MemeverseScript._deployImplementation` | `GovernanceCycleIncentivizerImplementation + nonce` | `onlyGovernance` | 实际校验 `msg.sender == _governor`（即 Governor proxy 地址） |
 
@@ -178,7 +178,7 @@ forge build
    - `MemeverseUniswapHook`：只复用 `DeployMemeverseHookProxy` 的 implementation 部署逻辑，不重跑 proxy 部署分支；必须传入与当前 proxy 一致的 `POOL_MANAGER`。
    - `POLend`：使用 `MemeverseScript._deployPOLend` 中的 implementation 部署逻辑，salt label 为 `POLendImplementation + nonce`。
    - `POLSplitter`：使用 `MemeverseScript._deployPOLSplitter` 中的 implementation 部署逻辑，salt label 为 `POLSplitterImplementation + nonce`。
-3. 记录新 implementation 地址。后续 `upgradeToAndCall` 会把 proxy 指向这个地址。
+3. 记录新 implementation 地址。后续 UUPS `upgradeToAndCall` 或 Hook `ProxyAdmin.upgradeAndCall(...)` 会把 proxy 指向这个地址。
 
 **新 implementation 记录模板：**
 
@@ -195,7 +195,7 @@ codeHash:
 deploymentTx:
 ```
 
-- `contract`：被升级的 UUPS 合约名。
+- `contract`：被升级的合约名。
 - `proxy`：用户和其它合约继续访问的 proxy 地址。
 - `oldImplementation`：升级前 proxy 指向的 implementation 地址。
 - `newImplementation`：本次准备切换到的新 implementation 地址，即 `$NEW_IMPL`。
@@ -208,15 +208,15 @@ deploymentTx:
 
 `[代码已证]`
 
-#### 3.9.4 执行升级（`upgradeToAndCall`）
+#### 3.9.4 执行升级
 
-`upgradeToAndCall(address newImplementation, bytes memory data)` 是 UUPS 标准函数（ERC-1822）。它做两件事：
+UUPS 合约通过 `upgradeToAndCall(address newImplementation, bytes memory data)` 升级。它做两件事：
 - 把 proxy 的 implementation 指针改成 `newImplementation`
 - 可选：在新 implementation 上执行一段初始化调用，编码在 `data` 参数里
 
-**当前项目中，所有 6 个合约都没有 `reinitialize` 函数，也没有 `__gap` 存储预留模式（ERC7201 不需要）。** 因此大多数升级场景下 `data` 传空 bytes 即可。
+**当前项目中，可升级合约没有 `reinitialize` 函数，也没有 `__gap` 存储预留模式（ERC7201 不需要）。** 因此大多数升级场景下 `data` 传空 bytes 即可。
 
-**调用方式：**
+**UUPS 调用方式：**
 
 ```bash
 # data 为空（最常见的升级场景，不需要额外初始化）
@@ -231,38 +231,68 @@ cast send $PROXY "upgradeToAndCall(address,bytes)" \
 
 **按授权门控分类：**
 
-- `onlyOwner` 合约（Launcher, POLend, POLSplitter, Hook）：owner 地址（通常是多签）直接发起交易。
+- `onlyOwner` UUPS 合约（Launcher, POLend, POLSplitter）：owner 地址（通常是多签）直接发起交易。
 - `onlyGovernance` 合约（Governor, Incentivizer）：当前 Governor 没有 Timelock extension，OZ base `queue` 没有实现；升级必须通过 `propose` -> vote -> `execute`，把 `upgradeToAndCall` 的 calldata 包装成治理提案执行。如果未来增加 Timelock extension，`queue` 才放在成功投票和 `execute` 之间。owner 或多签直接调用不能通过 `onlyGovernance` UUPS 升级授权。
+- `MemeverseUniswapHook` 透明代理：读取 Hook proxy ERC1967 admin slot 得到 `ProxyAdmin`，由 `ProxyAdmin.owner()` 调用 `ProxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(hookProxy), newImplementation, data)`。
 
-`[代码已证]`
+```bash
+# ERC1967 admin slot = bytes32(uint256(keccak256("eip1967.proxy.admin")) - 1)
+HOOK_ADMIN_SLOT=0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
 
-#### 3.9.5 MemeverseUniswapHook 的 poolManager Guardrail
+cast storage $HOOK_PROXY $HOOK_ADMIN_SLOT --rpc-url $RPC
+# 返回值低 20 bytes 应解析为 ProxyAdmin 地址：$HOOK_PROXY_ADMIN
 
-Hook 的 `_authorizeUpgrade` 在放行前会额外执行一次检查：
+cast call $HOOK_PROXY_ADMIN "owner()(address)" --rpc-url $RPC
+# 应等于预期 Hook admin owner
 
-```solidity
-// src/swap/MemeverseUniswapHook.sol::_authorizeUpgrade
-function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
-    address currentPoolManager = address(poolManager);
-    address newPoolManager = address(MemeverseUniswapHook(newImplementation).poolManager());
-    if (newPoolManager != currentPoolManager) {
-        revert UpgradePoolManagerMismatch(currentPoolManager, newPoolManager);
-    }
-}
+cast send $HOOK_PROXY_ADMIN "upgradeAndCall(address,address,bytes)" \
+  $HOOK_PROXY $NEW_IMPL "$DATA" \
+  --private-key $PROXY_ADMIN_OWNER_KEY --rpc-url $RPC
 ```
 
-**这个检查在做什么：** `poolManager` 地址不在 proxy storage 中，它是字节码级绑定（在 implementation constructor 中设置的 immutable 或 constructor 参数）。升级后 proxy 通过 `delegatecall` 使用新 implementation 的代码，如果新 implementation 指向了错误的 PoolManager，所有 swap 和流动性操作会永久失效。
-
-**这个检查不是安全边界**（注释原文：”Operational guardrail, not a security boundary”）。它调用新 implementation 自己暴露的 `poolManager()` getter，信任新 implementation 诚实报告。恶意 owner 可以部署一个自定义 getter 返回正确地址的 implementation 来绕过。这个检查保护的是**诚实升级时的手滑**——比如 constructor 参数传错了。
-
-**升级时如果看到 revert `UpgradePoolManagerMismatch(currentPoolManager, newPoolManager)`：**
-
-1. 错误参数含义：`(currentPoolManager, newPoolManager)` —— 当前 proxy 使用的 PoolManager 地址 vs 新 implementation 报告的 PoolManager 地址
-2. 原因：新 implementation 的 constructor 参数传入了错误的 PoolManager 地址
-3. 修复：重新部署 implementation，确保 constructor 传入正确的 PoolManager 地址
-4. 验证：部署后用 `cast call $NEW_IMPL "poolManager()(address)" --rpc-url $RPC` 确认返回值与当前 proxy 的 PoolManager 一致
-
 `[代码已证]`
+
+#### 3.9.5 MemeverseUniswapHook 透明代理升级检查
+
+Hook implementation 不提供 UUPS 升级入口。`poolManager` 一致性检查是 off-chain / operator-side pre-check，不是 Hook on-chain `_authorizeUpgrade`。
+
+**Pre-check：**
+
+```bash
+cast call $HOOK_PROXY "poolManager()(address)" --rpc-url $RPC
+# 记录当前 Hook proxy PoolManager
+
+cast call $NEW_IMPL "poolManager()(address)" --rpc-url $RPC
+# 必须等于当前 Hook proxy poolManager()
+```
+
+`poolManager` 地址不在 proxy storage 中，它是字节码级绑定（在 implementation constructor 中设置的 immutable 或 constructor 参数）。升级后 proxy 通过 `delegatecall` 使用新 implementation 的代码，如果新 implementation 指向了错误的 PoolManager，所有 swap 和流动性操作会永久失效。
+
+**Post-check：**
+
+```bash
+cast call $HOOK_PROXY "poolManager()(address)" --rpc-url $RPC
+# 应仍等于预期 PoolManager
+
+cast call $HOOK_PROXY "dynamicFeeEngine()(address)" --rpc-url $RPC
+# 应等于 Engine proxy 地址
+
+cast call $ENGINE_PROXY "authorizedHook()(address)" --rpc-url $RPC
+# 应等于 Hook proxy 地址
+
+cast call $ENGINE_PROXY "owner()(address)" --rpc-url $RPC
+# 应等于 Hook proxy 地址
+
+cast call $HOOK_PROXY "lpTokenImplementation()(address)" --rpc-url $RPC
+# 应等于记录的 LP token implementation
+
+cast call $HOOK_PROXY "preorderSettlementExecutor()(address)" --rpc-url $RPC
+# 应等于记录的 preorder settlement executor
+```
+
+完成后执行 swap / liquidity smoke tests，覆盖至少一次 swap 路径和一次 add/remove liquidity 路径。
+
+Hook ownership transfer 必须同步 transfer ProxyAdmin ownership，保持 Hook `owner()` 与 `ProxyAdmin.owner()` 对齐；否则部署脚本 same-nonce / existing reuse validation 会拒绝 split-control 状态。
 
 #### 3.9.6 POLSplitter 升级顺序约束
 
@@ -333,6 +363,14 @@ cast call $HOOK_PROXY "launcher()(address)" --rpc-url $RPC
 
 cast call $HOOK_PROXY "owner()(address)" --rpc-url $RPC
 # 应等于预期 owner 地址
+
+cast storage $HOOK_PROXY \
+  0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103 \
+  --rpc-url $RPC
+# 返回值低 20 bytes 应解析为 ProxyAdmin 地址
+
+cast call $HOOK_PROXY_ADMIN "owner()(address)" --rpc-url $RPC
+# 应等于 Hook owner 地址
 ```
 
 **POLend：**
@@ -395,7 +433,7 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 
 `[代码已证]`
 
-### 3.9 Hook + Engine 部署流程
+### 3.10 Hook + Engine 部署流程
 
 部署脚本 `script/DeployMemeverseHookProxy.s.sol` 通过 OutrunDeployer（CREATE3）按序部署核心 proxy 与 helper artifacts：
 
@@ -404,13 +442,13 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 3. Engine 实现（`MemeverseDynamicFeeEngine`）
 4. Engine proxy（`ERC1967Proxy`，initialize 绑定 hook owner + authorized hook，均为预测的 hook proxy 地址）
 5. Hook 实现（`MemeverseUniswapHook`）
-6. Hook proxy（`ERC1967Proxy`，initialize 绑定 owner/treasury/engine/lpTokenImplementation/preorderSettlementExecutor）
+6. Hook proxy（`TransparentUpgradeableProxy`，initialize 绑定 owner/treasury/engine/lpTokenImplementation/preorderSettlementExecutor）
 
 这些地址由 `(deployer, DEPLOYMENT_NONCE)` 唯一确定。同一 nonce 重跑是幂等的：已部署的同配置 proxy 与 helper artifact 会被复用，中间合约若已存在则 revert。
 
 **所需环境变量**：
 
-> 下表最后 4 个 `EXPECTED_*_CODEHASH` 仅在 **same-nonce 复用部署**（目标 nonce 的 hook proxy 已存在）时必需，任一未设脚本 `revert`（`Expected*CodehashNotSet`）；fresh 部署可全部省略。其余变量任何部署模式都必需。
+> 下表最后 5 个 `EXPECTED_*_CODEHASH` 仅在 **same-nonce 复用部署**（目标 nonce 的 hook proxy 已存在）时必需，任一未设脚本 `revert`（`Expected*CodehashNotSet`）；fresh 部署可全部省略。其余变量任何部署模式都必需。
 
 | 变量 | 说明 |
 | --- | --- |
@@ -420,6 +458,7 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 | `HOOK_OWNER` | Hook proxy owner |
 | `HOOK_TREASURY` | protocol fee 接收地址 |
 | `DEPLOYMENT_NONCE` | 部署版本号，首次用 `0`，每次新部署递增 |
+| `EXPECTED_HOOK_PROXY_CODEHASH` | 同 nonce 复用部署时校验 Hook proxy runtime 字节码 |
 | `EXPECTED_HOOK_IMPLEMENTATION_CODEHASH` | 同 nonce 复用部署时校验 hook 实现字节码 |
 | `EXPECTED_ENGINE_IMPLEMENTATION_CODEHASH` | 同 nonce 复用部署时校验 engine 实现字节码 |
 | `EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH` | 同 nonce 复用部署时校验 `lpTokenImplementation` 字节码 |
@@ -461,7 +500,7 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 - 配置变更：Launcher/Hook/RegistrationCenter 的 `Set*` 事件
 - unlock 后保护：当前缺少专用事件，需结合 stage、时间与 swap/赎回行为联合判断
 
-## 7. EVM 兼容性要求
+## 6. EVM 兼容性要求
 
 - 部署链必须支持 **Cancun 硬分叉（EIP-1153 transient storage）** 或更新版本（Prague）。`[代码已证]`
 - 编译目标：`foundry.toml` 中 `evm_version = "prague"`，`pragma solidity ^0.8.28`。编译器对 `transient` 关键字生成 `tload`/`tstore` 操作码，部署到 pre-Cancun 链上将导致所有涉及 `nonReentrant` 修饰符的函数直接 `invalid opcode` 回退。`[代码已证]`
@@ -475,6 +514,6 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 - 行业对齐：OpenZeppelin v5.5+ 的 `ReentrancyGuardTransient` 同样声明 "This variant only works on networks where EIP-1153 is available"，v6.0 将把 transient 实现作为唯一 `ReentrancyGuard` 实现。本项目的自研 `ReentrancyGuard` 与 OZ 方向一致。`[代码已证]`
 - `[未知]` 不在此文档范围内的目标链 Cancun 支持状态，需由部署方在部署前确认。
 
-## 8. 确定性边界
+## 7. 确定性边界
 
 - `[未知]`：生产环境 keeper 调度频率、告警阈值、重试策略、密钥托管方案，不在仓库代码内。

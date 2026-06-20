@@ -3,9 +3,7 @@ pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -77,8 +75,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     BaseHook,
     ReentrancyGuard,
     Initializable,
-    OwnableUpgradeable,
-    UUPSUpgradeable
+    OwnableUpgradeable
 {
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -95,8 +92,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     int24 internal constant TICK_SPACING = 200;
     uint256 internal constant FEE_GROWTH_Q128 = uint256(1) << 128;
 
-    uint256 public constant PROTOCOL_FEE_RATIO_BPS = FeeMath.PROTOCOL_FEE_SHARE_BPS;
-    uint256 public constant BPS_BASE = FeeMath.BPS_BASE;
     uint24 internal constant FEE_BASE_BPS = 100; // Minimum fee in bps.
     uint24 internal constant PREORDER_SETTLEMENT_FEE_BPS = 100; // Fixed fee for preorder settlement swaps.
     // Reuse the existing transient fee word so afterSwap can recover the fee side without another storage lookup.
@@ -148,7 +143,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         _disableInitializers();
     }
 
-    /// @notice Initializes owner-controlled hook state for an ERC1967 proxy.
+    /// @notice Initializes owner-controlled hook state for an upgradeable proxy.
     /// @dev The proxy address is the real Uniswap hook address, so hook permission flags are validated here.
     /// @param initialOwner Initial owner authorized to configure and upgrade the hook.
     /// @param treasury_ Treasury receiving protocol fees.
@@ -205,18 +200,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     /// Production deployments must not override — the proxy address must carry the correct flags.
     function _validateProxyHookAddress() internal view virtual {
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
-    }
-
-    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
-        address currentPoolManager = address(poolManager);
-        address newPoolManager = address(MemeverseUniswapHook(newImplementation).poolManager());
-        // Operational guardrail, not a security boundary: the external poolManager() call trusts the new
-        // implementation to self-report honestly. A malicious owner can bypass this by deploying an
-        // implementation with a custom poolManager() getter that returns the expected address. This check
-        // protects against accidental mismatches (wrong PoolManager constructor arg) during honest upgrades.
-        if (newPoolManager != currentPoolManager) {
-            revert UpgradePoolManagerMismatch(currentPoolManager, newPoolManager);
-        }
     }
 
     /// @notice Returns the dynamic fee engine bound to this hook.
@@ -325,6 +308,14 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
     function supportedProtocolFeeCurrencies(address currency) external view returns (bool) {
         return memeverseUniswapHookStorage.supportedProtocolFeeCurrencies[currency];
+    }
+
+    function PROTOCOL_FEE_RATIO_BPS() external pure returns (uint256) {
+        return FeeMath.PROTOCOL_FEE_SHARE_BPS;
+    }
+
+    function BPS_BASE() external pure returns (uint256) {
+        return FeeMath.BPS_BASE;
     }
 
     function poolInfo(PoolId poolId)
@@ -441,20 +432,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         });
     }
 
-    /// @notice Return the LP token address for a hook-managed pool key, or `address(0)` when the pool is not initialized.
-    /// @dev Convenience helper for integrators that already operate with `PoolKey`.
-    /// @param key The pool key to query.
-    /// @return liquidityToken The deployed LP token, or `address(0)` when the pool is not initialized.
-    function lpToken(PoolKey calldata key)
-        external
-        view
-        override
-        erc20Pair(key.currency0, key.currency1)
-        returns (address liquidityToken)
-    {
-        return memeverseUniswapHookStorage.poolInfo[key.toId()].liquidityToken;
-    }
-
     function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
         internal
         override
@@ -473,12 +450,9 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         if (auth.startPriceX96 != sqrtPriceX96) revert InvalidInitialPrice();
         delete memeverseUniswapHookStorage.poolInitializationAuth[poolId];
 
-        string memory tokenSymbol = string(
-            abi.encodePacked("Outrun", "-", _currencySymbol(key.currency0), "-", _currencySymbol(key.currency1), "-LP")
-        );
         address liquidityToken = Clones.clone(memeverseUniswapHookStorage.lpTokenImplementation);
         // Initialize immediately so the clone cannot be claimed and LP mint/burn authority stays with this hook.
-        UniswapLP(liquidityToken).initialize(tokenSymbol, tokenSymbol, 18, poolId, address(this));
+        UniswapLP(liquidityToken).initialize("Memeverse LP", "MLP", 18, poolId, address(this));
 
         memeverseUniswapHookStorage.poolInfo[poolId].liquidityToken = liquidityToken;
         memeverseUniswapHookStorage.poolLaunchTimestamp[poolId] = uint40(block.timestamp);
@@ -1302,7 +1276,10 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     /// @param config The new default launch fee configuration.
     function setDefaultLaunchFeeConfig(IMemeverseDynamicFeeEngine.LaunchFeeConfig calldata config) external onlyOwner {
         if (config.startFeeBps == 0 || config.minFeeBps == 0 || config.decayDurationSeconds == 0) revert ZeroValue();
-        if (config.startFeeBps > BPS_BASE || config.minFeeBps > BPS_BASE || config.minFeeBps > config.startFeeBps) {
+        if (
+            config.startFeeBps > FeeMath.BPS_BASE || config.minFeeBps > FeeMath.BPS_BASE
+                || config.minFeeBps > config.startFeeBps
+        ) {
             revert ZeroValue();
         }
 
@@ -1316,10 +1293,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
             config.minFeeBps,
             config.decayDurationSeconds
         );
-    }
-
-    function _currencySymbol(Currency currency) internal view returns (string memory) {
-        return IERC20Metadata(Currency.unwrap(currency)).symbol();
     }
 
     function _revertIfNativeCurrencyUnsupported(Currency currency0, Currency currency1) internal pure {

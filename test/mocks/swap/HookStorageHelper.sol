@@ -3,6 +3,7 @@ pragma solidity ^0.8.35;
 
 import {StorageSlotPrimitives} from "../StorageSlotPrimitives.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -17,7 +18,7 @@ import {UniswapLP} from "../../../src/swap/tokens/UniswapLP.sol";
 
 /// @notice Standalone white-box helper for MemeverseUniswapHook proxy storage and flag-address deployment.
 /// @dev Does NOT inherit MemeverseUniswapHook; only inherits Test. Two responsibilities:
-///      1. `deployHookAtFlagAddress`: deploys a REAL MemeverseUniswapHook behind a CREATE2-mined ERC1967Proxy
+///      1. `deployHookAtFlagAddress`: deploys a REAL MemeverseUniswapHook behind a CREATE2-mined transparent proxy
 ///         whose address carries the v4 hook permission flags (low 14 bits == 0x28CC). This lets tests drop
 ///         the `Testable*` hook subclasses that previously disabled address validation.
 ///      2. `seedActiveLiquiditySharesForTest`: seeds `cachedLpTotalSupply[poolId]` and mints the matching LP
@@ -66,7 +67,7 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
 
     // ── Flag-address deployment ──
 
-    /// @notice Deploys a REAL MemeverseUniswapHook behind a CREATE2-mined ERC1967Proxy whose low 14 bits
+    /// @notice Deploys a REAL MemeverseUniswapHook behind a CREATE2-mined transparent proxy whose low 14 bits
     ///         equal 0x28CC, so the production `_validateProxyHookAddress()` passes at `initialize`.
     /// @dev Verbatim copy of the validated HookAddressFlagPoC deployment sequence. Chicken-egg resolution:
     ///      predicted hook proxy address is mined against (deployer, salt, proxyInitCode) where proxyInitCode
@@ -108,8 +109,9 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
                 IMemeversePreorderSettlementExecutor(predictedExecutor)
             )
         );
-        bytes memory proxyInitCode =
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(predictedHookImpl, hookInitData));
+        bytes memory proxyInitCode = abi.encodePacked(
+            type(TransparentUpgradeableProxy).creationCode, abi.encode(predictedHookImpl, hookOwner, hookInitData)
+        );
 
         // (d) Mine CREATE2 salt so the hook proxy lands at an address whose low 14 bits == 0x28CC.
         bytes32 salt;
@@ -145,7 +147,8 @@ abstract contract HookStorageHelper is StorageSlotPrimitives {
         MemeverseUniswapHook hookImpl = new MemeverseUniswapHook(manager);
 
         // (h) CREATE2-deploy hook proxy at the mined predictedProxy address; initialize runs here.
-        ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(address(hookImpl), hookInitData);
+        TransparentUpgradeableProxy proxy =
+            new TransparentUpgradeableProxy{salt: salt}(address(hookImpl), hookOwner, hookInitData);
 
         require(address(proxy) == predictedProxy, "CREATE2 proxy drifted");
         require(address(engine) == predictedEngineProxy, "engine proxy drifted");

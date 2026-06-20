@@ -14,6 +14,7 @@
 
 - `MemeverseSwapRouter` 负责对外 `quote/swap/addLiquidity/removeLiquidity` 与可选 Permit2 拉资（swap 与流动性操作）。
 - Router 的 `previewClaimableFees(...)` 仅是只读 preview-only helper，不执行 fee claim。
+- Router 的 quote/preview 只读路径委托给构造绑定的 `MemeverseUniswapHookLens`；Lens 必须有代码，且 Lens `poolManager` 必须与 Router 构造注入的 PoolManager 一致。
 - Router 的 ERC20 payout helper 对 `recipient == address(0)` fail-close；remove-liquidity 出款不会把资产发送到零地址。
 - 池创建 (`createPoolAndAddLiquidity`) 为 `onlyLauncher` 门控，不对外暴露；这是有意设计，建池必须经 `Launcher -> Router`，由 `Launcher` 提供 desired budgets，再由 Router 执行实际建池与首笔加池。`createPoolAndAddLiquidityWithPermit2` 已移除，池创建不再支持 Permit2 路径。
 - Router 对 bootstrap 的集成契约是“实际执行后返回 actual spend / actual liquidity”（非 preview-equality 契约）；Launcher 的 post-bootstrap accounting 与记账语义见 [docs/spec/verse/accounting.md](../verse/accounting.md) §3.2 与 [docs/spec/invariants.md](../invariants.md) INV-04；unused bootstrap `uAsset` 进入的 settlement dust reserve 结构与处置 home 在 [docs/spec/polend/core.md §6.7](../polend/core.md)。
@@ -55,7 +56,7 @@
 - 若输入和输出都不在支持列表，swap 回退 `CurrencyNotSupported`。
 - Exact-output swap 若实际 gross output 小于请求输出，Hook 回退 `ExactOutputPartialFill()`。
 - Exact-input swap 若实际 pool input 与预期不符，Hook 回退 `ExactInputPartialFill()`。
-- `PROTOCOL_FEE_RATIO_BPS = 3000`，即 `feeBps` 中 30% 归 protocol、70% 归 LP。
+- `FeeMath.PROTOCOL_FEE_SHARE_BPS = 3000`；shared fee math 将 `feeBps` 按 30% protocol / 70% LP 拆分。
 - 公开 swap 始终使用正常费率路径：`feeBps = max(current launch fee, dynamic fee, FEE_BASE_BPS)`；dynamic fee engine 故障通过升级/修复处理，不提供 bypass mode。
 - native 拒绝（V5）：swap 栈只支持 ERC20/ERC20 pair；`key.currency0` / `key.currency1` 任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`。swap 栈不接受 `msg.value`，Permit2 也不为 native 提供任何兜底路径。
 - 非 standard 余额语义 token（fee-on-transfer / rebasing / 其它使名义 `amount` 与实到余额不一致的 token）不在支持范围内：swap 栈（含 preorder settlement 的 Executor 中转 hop）一律按名义 `amount` 执行 `transferFrom` / `settle` / `take`。FoT token 下 settle 因余额不足而整笔原子回滚，不产生资金损失；准入应排除此类 token，运行时不做 FoT 检测。

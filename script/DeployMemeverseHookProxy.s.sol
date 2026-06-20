@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {Bytes32AddressLib} from "solmate/utils/Bytes32AddressLib.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {BaseScript} from "./BaseScript.s.sol";
@@ -16,7 +18,7 @@ import {IMemeversePreorderSettlementExecutor} from "../src/swap/interfaces/IMeme
 import {UniswapLP} from "../src/swap/tokens/UniswapLP.sol";
 
 /// @title DeployMemeverseHookProxy
-/// @notice Deploys the production Memeverse Uniswap v4 hook implementation and ERC1967 proxy.
+/// @notice Deploys the production Memeverse Uniswap v4 hook implementation and transparent proxy.
 contract DeployMemeverseHookProxy is BaseScript {
     using Bytes32AddressLib for bytes32;
 
@@ -77,10 +79,15 @@ contract DeployMemeverseHookProxy is BaseScript {
     );
     error ExistingHookProxyCodehashMismatch(address proxy, bytes32 expectedCodehash, bytes32 currentCodehash);
     error ExistingEngineProxyCodehashMismatch(address engine, bytes32 expectedCodehash, bytes32 currentCodehash);
+    error ExistingHookProxyAdminMissing(address proxy);
+    error ExistingHookProxyAdminMismatch(address proxy, address expectedAdmin, address actualAdmin);
+    error ExistingHookProxyAdminOwnerMismatch(address proxy, address admin, address expectedOwner, address actualOwner);
     error ExpectedHookImplementationCodehashNotSet();
+    error ExpectedHookProxyCodehashNotSet();
     error ExpectedEngineImplementationCodehashNotSet();
     error ExpectedLPTokenImplementationCodehashNotSet();
     error ExpectedPreorderSettlementExecutorCodehashNotSet();
+    error UnusableHookOwner(address hookOwner);
     error ZeroAddressNotAllowed();
 
     /// @notice Complete deployment artifacts for the Memeverse hook + engine split.
@@ -149,6 +156,7 @@ contract DeployMemeverseHookProxy is BaseScript {
 
         (bytes32 proxySalt, address selectedProxy, bool reuseExistingProxy) =
             _selectProxySalt(outrunDeployer, deployer, nonce, hookOwner, hookTreasury, poolManager);
+        _requireUsableHookOwner(hookOwner, selectedProxy);
         if (reuseExistingProxy) {
             result.hookProxy = selectedProxy;
             result.hookImplementation = _getExistingImplementation(result.hookProxy);
@@ -216,7 +224,7 @@ contract DeployMemeverseHookProxy is BaseScript {
         result.preorderSettlementExecutor = preorderSettlementExecutor;
     }
 
-    /// @notice Deploys the implementation and a mined ERC1967 proxy through OutrunDeployer.
+    /// @notice Deploys the implementation and a mined transparent proxy through OutrunDeployer.
     /// @dev ATOMICITY: all four CREATE3 deployments execute in a single call. If any step
     ///      fails, the entire call reverts — no intermediate salts are consumed.
     ///      WARNING: do NOT extract individual steps into separate transactions.
@@ -246,6 +254,7 @@ contract DeployMemeverseHookProxy is BaseScript {
 
         (bytes32 proxySalt, address selectedProxy, bool reuseExistingProxy) =
             _selectProxySalt(outrunDeployer, deployerNamespace, nonce, hookOwner, hookTreasury, poolManager);
+        _requireUsableHookOwner(hookOwner, selectedProxy);
         if (reuseExistingProxy) {
             result.hookProxy = selectedProxy;
             result.hookImplementation = _getExistingImplementation(result.hookProxy);
@@ -326,16 +335,19 @@ contract DeployMemeverseHookProxy is BaseScript {
         return UNISWAP_V4_HOOK_FLAG_MASK;
     }
 
-    /// @notice Builds ERC1967Proxy creation code for CREATE3 deployment.
+    /// @notice Builds TransparentUpgradeableProxy creation code for CREATE3 deployment.
     /// @param implementation Hook implementation address passed to the proxy constructor.
+    /// @param initialOwner Owner assigned to the proxy's ProxyAdmin.
     /// @param initializeData Initializer calldata passed to the proxy constructor.
     /// @return creationCode Complete proxy creation code including constructor args.
-    function proxyCreationCode(address implementation, bytes memory initializeData)
+    function proxyCreationCode(address implementation, address initialOwner, bytes memory initializeData)
         public
         pure
         returns (bytes memory creationCode)
     {
-        return abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initializeData));
+        return abi.encodePacked(
+            type(TransparentUpgradeableProxy).creationCode, abi.encode(implementation, initialOwner, initializeData)
+        );
     }
 
     /// @notice Mines an OutrunDeployer salt whose proxy address has the required Uniswap v4 hook flags.
@@ -712,7 +724,7 @@ contract DeployMemeverseHookProxy is BaseScript {
                 IMemeversePreorderSettlementExecutor(preorderSettlementExecutor)
             )
         );
-        bytes memory creationCode = proxyCreationCode(implementation, initializeData);
+        bytes memory creationCode = proxyCreationCode(implementation, hookOwner, initializeData);
 
         proxy = outrunDeployer.deploy(salt, creationCode);
         if (proxy != expectedProxy) revert ProxyDeploymentMismatch(expectedProxy, proxy);
@@ -728,6 +740,12 @@ contract DeployMemeverseHookProxy is BaseScript {
 
     function _requireNoZeroAddress(address addr) internal pure {
         if (addr == address(0)) revert ZeroAddressNotAllowed();
+    }
+
+    function _requireUsableHookOwner(address hookOwner, address proxy) internal pure {
+        // OZ v5 transparent proxies create their ProxyAdmin from the proxy constructor.
+        // Owning the hook or ProxyAdmin by either generated contract makes upgrades and onlyOwner calls unreachable.
+        if (hookOwner == proxy || hookOwner == vm.computeCreateAddress(proxy, 1)) revert UnusableHookOwner(hookOwner);
     }
 
     function _getExistingImplementation(address proxy) internal view returns (address implementation) {
@@ -762,6 +780,7 @@ contract DeployMemeverseHookProxy is BaseScript {
 
         MemeverseUniswapHook hook = MemeverseUniswapHook(proxy);
         address actualHookOwner = hook.owner();
+        _requireUsableHookOwner(actualHookOwner, proxy);
         if (actualHookOwner != expectedHookOwner) {
             revert ExistingHookOwnerMismatch(proxy, expectedHookOwner, actualHookOwner);
         }
@@ -895,10 +914,24 @@ contract DeployMemeverseHookProxy is BaseScript {
     }
 
     function _validateExistingImplementationCodehashes(address proxy) internal view {
-        bytes32 expectedProxyCodehash = keccak256(type(ERC1967Proxy).runtimeCode);
+        bytes32 expectedHookProxyCodehash = vm.envOr(string.concat("EXPECTED_HOOK_PROXY_", "CODEHASH"), bytes32(0));
+        if (expectedHookProxyCodehash == bytes32(0)) revert ExpectedHookProxyCodehashNotSet();
+
         bytes32 currentHookProxyCodehash = proxy.codehash;
-        if (currentHookProxyCodehash != expectedProxyCodehash) {
-            revert ExistingHookProxyCodehashMismatch(proxy, expectedProxyCodehash, currentHookProxyCodehash);
+        if (currentHookProxyCodehash != expectedHookProxyCodehash) {
+            revert ExistingHookProxyCodehashMismatch(proxy, expectedHookProxyCodehash, currentHookProxyCodehash);
+        }
+
+        address hookProxyAdmin = address(uint160(uint256(vm.load(proxy, ERC1967Utils.ADMIN_SLOT))));
+        if (hookProxyAdmin == address(0)) revert ExistingHookProxyAdminMissing(proxy);
+        address expectedHookProxyAdmin = vm.computeCreateAddress(proxy, 1);
+        if (hookProxyAdmin != expectedHookProxyAdmin) {
+            revert ExistingHookProxyAdminMismatch(proxy, expectedHookProxyAdmin, hookProxyAdmin);
+        }
+        address hookOwner = MemeverseUniswapHook(proxy).owner();
+        address adminOwner = ProxyAdmin(hookProxyAdmin).owner();
+        if (adminOwner != hookOwner) {
+            revert ExistingHookProxyAdminOwnerMismatch(proxy, hookProxyAdmin, hookOwner, adminOwner);
         }
 
         bytes32 expectedHookCodehash = vm.envOr(string.concat("EXPECTED_HOOK_", "IMPLEMENTATION_CODEHASH"), bytes32(0));
@@ -912,6 +945,7 @@ contract DeployMemeverseHookProxy is BaseScript {
             );
         }
 
+        bytes32 expectedProxyCodehash = keccak256(type(ERC1967Proxy).runtimeCode);
         address engine = address(MemeverseUniswapHook(proxy).dynamicFeeEngine());
         bytes32 currentEngineProxyCodehash = engine.codehash;
         if (currentEngineProxyCodehash != expectedProxyCodehash) {

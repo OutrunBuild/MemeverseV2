@@ -3,9 +3,14 @@ pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -48,8 +53,6 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     bytes4 internal constant TOTAL_SUPPLY_SELECTOR = bytes4(keccak256("totalSupply()"));
     bytes4 internal constant UNAUTHORIZED_POOL_INITIALIZER_SELECTOR =
         bytes4(keccak256("UnauthorizedPoolInitializer()"));
-    bytes4 internal constant UPGRADE_POOL_MANAGER_MISMATCH_SELECTOR =
-        bytes4(keccak256("UpgradePoolManagerMismatch(address,address)"));
     bytes4 internal constant DYNAMIC_FEE_ENGINE_POOL_MANAGER_MISMATCH_SELECTOR =
         bytes4(keccak256("DynamicFeeEnginePoolManagerMismatch(address,address)"));
     bytes4 internal constant DYNAMIC_FEE_ENGINE_OWNER_MISMATCH_SELECTOR =
@@ -169,8 +172,8 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         assertEq(UniswapLP(lpToken).owner(), address(hook), "owner");
         assertEq(PoolId.unwrap(UniswapLP(lpToken).poolId()), PoolId.unwrap(poolId), "pool id");
         assertEq(UniswapLP(lpToken).memeverseUniswapHook(), address(hook), "hook");
-        assertEq(UniswapLP(lpToken).name(), "Outrun-TK0-TK1-LP", "name");
-        assertEq(UniswapLP(lpToken).symbol(), "Outrun-TK0-TK1-LP", "symbol");
+        assertEq(UniswapLP(lpToken).name(), "Memeverse LP", "name");
+        assertEq(UniswapLP(lpToken).symbol(), "MLP", "symbol");
         assertEq(UniswapLP(lpToken).decimals(), 18, "decimals");
     }
 
@@ -527,6 +530,12 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
             address(this),
             block.timestamp
         );
+    }
+
+    /// @notice Verifies router LP token lookup rejects native pairs.
+    function testRouterLpTokenReverts_WhenPairUsesNativeCurrency() external {
+        vm.expectRevert(IMemeverseUniswapHook.NativeCurrencyUnsupported.selector);
+        router.lpToken(address(0), address(token1));
     }
 
     /// @notice Executes test router remove liquidity uses hook core.
@@ -1502,7 +1511,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         );
 
         vm.expectRevert(abi.encodeWithSelector(Hooks.HookAddressNotValid.selector, predictedProxy));
-        new ERC1967Proxy(address(implementation), data);
+        new TransparentUpgradeableProxy(address(implementation), address(this), data);
     }
 
     function testProxyInitializeRevertsWhenEngineOwnerIsNotHook() external {
@@ -1519,8 +1528,9 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
                 DYNAMIC_FEE_ENGINE_OWNER_MISMATCH_SELECTOR, address(engine), predictedHook, address(this)
             )
         );
-        new ERC1967Proxy(
+        new TransparentUpgradeableProxy(
             address(implementation),
+            address(this),
             abi.encodeCall(
                 MemeverseUniswapHook.initialize,
                 (address(this), address(this), engine, address(lpTokenImplementation), preorderSettlementExecutor)
@@ -1531,20 +1541,22 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
     function testNonOwnerCannotUpgrade() external {
         MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(this));
         MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(mockManager)));
+        address proxyAdmin = address(uint160(uint256(vm.load(address(initialized), ERC1967Utils.ADMIN_SLOT))));
 
         vm.prank(address(0xB0B));
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
-        initialized.upgradeToAndCall(address(newImplementation), bytes(""));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(0xB0B)));
+        ProxyAdmin(proxyAdmin)
+            .upgradeAndCall(
+                ITransparentUpgradeableProxy(payable(address(initialized))), address(newImplementation), bytes("")
+            );
     }
 
-    /// @notice Verifies a UUPS upgrade to the V2 facade preserves V1 hook storage (owner, treasury, launcher,
+    /// @notice Verifies a ProxyAdmin upgrade to the V2 facade preserves V1 hook storage (owner, treasury, launcher,
     ///         poolInitializer).
     /// @dev Mirrors the #9 engine facade upgrade test: the facade shell does not inherit MemeverseUniswapHook, so
     ///      it exposes no V1 getters and post-upgrade storage is read via `vm.load` against the V1 storage slots
-    ///      (OwnableUpgradeable owner slot + the hook ERC7201 namespace struct field offsets). Upgrade authorization
-    ///      still runs V1's `_authorizeUpgrade` (onlyOwner + `MemeverseUniswapHook(newImpl).poolManager()` match),
-    ///      which the facade satisfies via its immutable `poolManager`. Upgrade semantics are unchanged; only the
-    ///      read mechanism moves from V1 getters to slot loads, because the facade intentionally lacks them.
+    ///      (OwnableUpgradeable owner slot + the hook ERC7201 namespace struct field offsets). Transparent proxy
+    ///      upgrade authorization lives on ProxyAdmin, so implementation runtime does not carry an upgrade guard.
     function testOwnerCanUpgradeAndPreserveStorage() external {
         MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(0xFEE));
         initialized.setLauncher(address(0xD00D));
@@ -1559,8 +1571,14 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
             vm.load(address(initialized), bytes32(uint256(HOOK_SLOT) + OFF_POOL_INITIALIZER));
 
         MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(mockManager)));
+        address proxyAdmin = address(uint160(uint256(vm.load(address(initialized), ERC1967Utils.ADMIN_SLOT))));
+        assertTrue(proxyAdmin != address(0), "proxy admin");
+        assertEq(ProxyAdmin(proxyAdmin).owner(), address(this), "proxy admin owner");
 
-        initialized.upgradeToAndCall(address(newImplementation), bytes(""));
+        ProxyAdmin(proxyAdmin)
+            .upgradeAndCall(
+                ITransparentUpgradeableProxy(payable(address(initialized))), address(newImplementation), bytes("")
+            );
 
         assertEq(MemeverseUniswapHookV2(address(initialized)).version(), 2, "version");
         assertEq(vm.load(address(initialized), ownableSlot), snapshotOwner, "owner survived");
@@ -1581,17 +1599,19 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         );
     }
 
-    function testOwnerCannotUpgradeToImplementationWithDifferentPoolManager() external {
+    function testProxyAdminCanUpgradeToImplementationWithDifferentPoolManager() external {
         MemeverseUniswapHook initialized = _deployHookProxy(address(this), address(this));
         MockPoolManagerForHookLiquidity differentManager = new MockPoolManagerForHookLiquidity();
         MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(differentManager)));
+        address proxyAdmin = address(uint160(uint256(vm.load(address(initialized), ERC1967Utils.ADMIN_SLOT))));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                UPGRADE_POOL_MANAGER_MISMATCH_SELECTOR, address(mockManager), address(differentManager)
-            )
-        );
-        initialized.upgradeToAndCall(address(newImplementation), bytes(""));
+        // The implementation no longer carries a poolManager upgrade guard; operators must enforce that off-chain.
+        ProxyAdmin(proxyAdmin)
+            .upgradeAndCall(
+                ITransparentUpgradeableProxy(payable(address(initialized))), address(newImplementation), bytes("")
+            );
+
+        assertEq(MemeverseUniswapHookV2(address(initialized)).version(), 2, "version");
     }
 
     function testConstructorRevertsWhenPoolManagerIsZero() external {
@@ -1649,7 +1669,7 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         assertEq(address(hook.dynamicFeeEngine()), address(newEngine), "engine pointer");
     }
 
-    /// @notice Verifies a UUPS upgrade to the V2 facade preserves the V1 dynamic-fee-engine pointer slot.
+    /// @notice Verifies a ProxyAdmin upgrade to the V2 facade preserves the V1 dynamic-fee-engine pointer slot.
     /// @dev Same facade-no-getters constraint as `testOwnerCanUpgradeAndPreserveStorage`: the engine pointer
     ///      (`dynamicFeeEngine`, struct offset 11 in the hook ERC7201 namespace) is read via `vm.load` after the
     ///      upgrade because the facade shell lacks the V1 `dynamicFeeEngine()` view.
@@ -1661,7 +1681,9 @@ contract MemeverseUniswapHookLiquidityTest is Test, HookStorageHelper {
         bytes32 snapshotEnginePointer = vm.load(address(hook), bytes32(uint256(HOOK_SLOT) + OFF_DYNAMIC_FEE_ENGINE));
 
         MemeverseUniswapHookV2 newImplementation = new MemeverseUniswapHookV2(IPoolManager(address(mockManager)));
-        hook.upgradeToAndCall(address(newImplementation), bytes(""));
+        address proxyAdmin = address(uint160(uint256(vm.load(address(hook), ERC1967Utils.ADMIN_SLOT))));
+        ProxyAdmin(proxyAdmin)
+            .upgradeAndCall(ITransparentUpgradeableProxy(payable(address(hook))), address(newImplementation), bytes(""));
 
         assertEq(MemeverseUniswapHookV2(address(hook)).version(), 2, "version");
         assertEq(

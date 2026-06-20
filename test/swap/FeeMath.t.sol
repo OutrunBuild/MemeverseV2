@@ -3,12 +3,10 @@ pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {FeeMath} from "../../src/swap/libraries/FeeMath.sol";
-import {MemeverseUniswapHook} from "../../src/swap/MemeverseUniswapHook.sol";
 
-/// @notice Focused tests for shared fee split math and fee constant ABI compatibility.
+/// @notice Focused tests for shared fee split math.
 contract FeeMathTest is Test {
     function testSharedFeeMathKeepsProtocolAndLpSplitAtThirtySeventy() external pure {
         assertEq(FeeMath.BPS_BASE, 10_000, "bps base");
@@ -25,13 +23,6 @@ contract FeeMathTest is Test {
             assertEq(splitProtocolFeeBps, protocolFeeBps, "shared protocol split");
             assertEq(splitLpFeeBps, lpFeeBps, "shared lp split");
         }
-    }
-
-    function testHookPreservesProtocolFeeRatioBpsGetter() external {
-        IPoolManager manager = IPoolManager(address(0x1001));
-        MemeverseUniswapHook hook = new MemeverseUniswapHook(manager);
-
-        assertEq(hook.PROTOCOL_FEE_RATIO_BPS(), FeeMath.PROTOCOL_FEE_SHARE_BPS, "legacy protocol fee ratio");
     }
 
     /// @notice Fuzz: LP and protocol shares always sum exactly to the total fee.
