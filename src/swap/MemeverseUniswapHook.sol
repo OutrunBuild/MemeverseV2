@@ -20,7 +20,7 @@ import {
     toBeforeSwapDelta
 } from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
-import {BaseHook} from "@uniswap/v4-hooks-public/src/base/BaseHook.sol";
+import {ImmutableState} from "@uniswap/v4-periphery/src/base/ImmutableState.sol";
 import {SafeCast} from "./libraries/SafeCast.sol";
 import {LiquidityQuote} from "./libraries/LiquidityQuote.sol";
 import {MemeverseTransientState} from "./libraries/MemeverseTransientState.sol";
@@ -72,7 +72,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     is
     IMemeverseUniswapHook,
     IUnlockCallback,
-    BaseHook,
+    ImmutableState,
     ReentrancyGuard,
     Initializable,
     OutrunOwnableUpgradeable
@@ -137,8 +137,8 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     MemeverseUniswapHookStorage private memeverseUniswapHookStorage;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    /// @param _manager Uniswap v4 pool manager stored by `BaseHook` as immutable implementation bytecode state.
-    constructor(IPoolManager _manager) BaseHook(_manager) {
+    /// @param _manager Uniswap v4 pool manager stored by `ImmutableState` as immutable implementation bytecode state.
+    constructor(IPoolManager _manager) ImmutableState(_manager) {
         if (address(_manager) == address(0)) revert ZeroAddress();
         _disableInitializers();
     }
@@ -188,8 +188,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         });
         emit DefaultLaunchFeeConfigUpdated(0, 0, 0, 5000, FEE_BASE_BPS, 900);
     }
-
-    function validateHookAddress(BaseHook) internal pure virtual override {}
 
     /// @inheritdoc IMemeverseUniswapHook
     function owner() public view override(OutrunOwnableUpgradeable, IMemeverseUniswapHook) returns (address) {
@@ -413,7 +411,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     /// @notice Declares which hook callbacks are enabled for this hook.
     /// @dev Memeverse uses only `beforeInitialize`, `beforeAddLiquidity`, `beforeSwap`, and `afterSwap`.
     /// @return permissions The callback permission bitmap consumed by the Uniswap v4 hook framework.
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+    function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: true,
             afterInitialize: false,
@@ -432,9 +430,21 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         });
     }
 
+    /// @notice PoolManager callback before a hook-managed pool is initialized.
+    /// @param sender Original caller forwarded by PoolManager.
+    /// @param key Pool key being initialized.
+    /// @param sqrtPriceX96 Initial pool price.
+    /// @return The `beforeInitialize` selector expected by PoolManager.
+    function beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
+        external
+        onlyPoolManager
+        returns (bytes4)
+    {
+        return _beforeInitialize(sender, key, sqrtPriceX96);
+    }
+
     function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
         internal
-        override
         erc20Pair(key.currency0, key.currency1)
         returns (bytes4)
     {
@@ -462,10 +472,25 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return IHooks.beforeInitialize.selector;
     }
 
+    /// @notice PoolManager callback before a hook-managed swap.
+    /// @param sender Original caller forwarded by PoolManager.
+    /// @param key Pool key being swapped.
+    /// @param params Swap parameters.
+    /// @param hookData Extra hook data forwarded by PoolManager.
+    /// @return The `beforeSwap` selector expected by PoolManager.
+    /// @return delta Hook delta used to charge swap-side fees.
+    /// @return lpFeeOverride Dynamic LP fee override; zero keeps PoolManager default behavior.
+    function beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
+        external
+        onlyPoolManager
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        return _beforeSwap(sender, key, params, hookData);
+    }
+
     /// @dev Computes the dynamic fee, collects any exact-input input-side fees, and stores swap context for `afterSwap`.
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
-        override
         erc20Pair(key.currency0, key.currency1)
         returns (bytes4, BeforeSwapDelta, uint24)
     {
@@ -561,13 +586,31 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         if (resumeTime != 0 && block.timestamp < resumeTime) revert PublicSwapDisabled();
     }
 
+    /// @notice PoolManager callback after a hook-managed swap.
+    /// @param sender Original caller forwarded by PoolManager.
+    /// @param key Pool key being swapped.
+    /// @param params Swap parameters.
+    /// @param delta Pool balance delta from the swap.
+    /// @param hookData Extra hook data forwarded by PoolManager.
+    /// @return The `afterSwap` selector expected by PoolManager.
+    /// @return unspecifiedDelta Hook delta used to settle output-side or exact-output fees.
+    function afterSwap(
+        address sender,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        BalanceDelta delta,
+        bytes calldata hookData
+    ) external onlyPoolManager returns (bytes4, int128) {
+        return _afterSwap(sender, key, params, delta, hookData);
+    }
+
     function _afterSwap(
         address sender,
         PoolKey calldata key,
         SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata
-    ) internal override returns (bytes4, int128) {
+    ) internal returns (bytes4, int128) {
         if (MemeverseTransientState.isExpectedPreorderSettlementExecutor(sender)) {
             return (IHooks.afterSwap.selector, 0);
         }
@@ -664,11 +707,25 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return (IHooks.afterSwap.selector, 0);
     }
 
+    /// @notice PoolManager callback before liquidity is added to a hook-managed pool.
+    /// @param sender Original caller forwarded by PoolManager.
+    /// @param key Pool key receiving liquidity.
+    /// @param params Liquidity modification parameters.
+    /// @param hookData Extra hook data forwarded by PoolManager.
+    /// @return The `beforeAddLiquidity` selector expected by PoolManager.
+    function beforeAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        bytes calldata hookData
+    ) external onlyPoolManager returns (bytes4) {
+        return _beforeAddLiquidity(sender, key, params, hookData);
+    }
+
     /// @dev Restricts add-liquidity modifications to calls coming from this hook itself.
     function _beforeAddLiquidity(address sender, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
         internal
         view
-        override
         returns (bytes4)
     {
         if (sender != address(this)) revert SenderMustBeHook();
