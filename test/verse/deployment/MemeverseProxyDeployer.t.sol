@@ -927,9 +927,7 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
 
         address poolManager = address(uint160(0x4631));
         MockReadinessRouter router = new MockReadinessRouter(
-            address(0),
-            address(new MemeverseUniswapHookLens(IPoolManager(poolManager))),
-            poolManager
+            address(0), address(new MemeverseUniswapHookLens(IPoolManager(poolManager))), poolManager
         );
         MockReadinessHook hookImpl = new MockReadinessHook();
         readySwapHook = address(uint160(0x28cc));
