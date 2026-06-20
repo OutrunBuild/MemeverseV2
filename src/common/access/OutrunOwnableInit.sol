@@ -4,7 +4,7 @@ pragma solidity ^0.8.35;
 import {Initializable} from "./Initializable.sol";
 
 /**
- * @dev Outrun's Ownable implementation.
+ * @dev Outrun's minimal-proxy-friendly Ownable implementation.
  */
 abstract contract OutrunOwnableInit is Initializable {
     /// @custom:storage-location erc7201:outrun.storage.Ownable
