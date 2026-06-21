@@ -22,6 +22,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 
 import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IMemeverseOFTEnum} from "../../../src/common/types/IMemeverseOFTEnum.sol";
 import {IPOLend} from "../../../src/polend/interfaces/IPOLend.sol";
 import {IPOLSplitter} from "../../../src/polend/interfaces/IPOLSplitter.sol";
 import {IMemeverseUniswapHook} from "../../../src/swap/interfaces/IMemeverseUniswapHook.sol";
@@ -1322,6 +1323,22 @@ contract MockOFTDispatcher {
         composeCallCount++;
         lastToken = _from;
         lastMessage = _message;
+    }
+
+    /// @notice Records a mocked same-chain dispatch.
+    /// @dev Reuses the lzCompose counters/fields so existing assertions stay unchanged.
+    /// Message is encoded as (receiver, tokenType, amount) to match the prior same-chain
+    /// compose payload, keeping `abi.decode(lastMessage, (address, uint8, uint256))` valid.
+    /// @param token Token being distributed.
+    /// @param receiver Recipient of the distribution.
+    /// @param tokenType Enum identifying the token type.
+    /// @param amount Amount being distributed.
+    function distributeSameChain(address token, address receiver, IMemeverseOFTEnum.TokenType tokenType, uint256 amount)
+        external
+    {
+        composeCallCount++;
+        lastToken = token;
+        lastMessage = abi.encode(receiver, tokenType, amount);
     }
 }
 

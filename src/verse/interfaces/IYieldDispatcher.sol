@@ -18,4 +18,13 @@ interface IYieldDispatcher is IMemeverseOFTEnum, ILayerZeroComposer {
     error AlreadyExecuted();
 
     error PermissionDenied();
+
+    /// @notice Settles same-chain fee proceeds routed by the launcher.
+    /// @dev The launcher transfers the fee token into this dispatcher first, then calls this entry so the same
+    ///      settlement logic that handles bridged compose payloads also serves the local fast path.
+    /// @param token Fee token to settle.
+    /// @param receiver Yield vault, governor, or EOA burn target.
+    /// @param tokenType Whether the token is a memecoin or a uAsset.
+    /// @param amount Amount to settle, derived by the launcher from on-chain claimed fees.
+    function distributeSameChain(address token, address receiver, TokenType tokenType, uint256 amount) external;
 }

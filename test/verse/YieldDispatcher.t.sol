@@ -107,48 +107,52 @@ contract YieldDispatcherTest is Test {
         dispatcher.lzCompose(address(token), bytes32(0), "", address(0), "");
     }
 
-    /// @notice Test launcher path burns memecoin for eoa receiver.
-    function testLauncherPathBurnsMemecoinForEoaReceiver() external {
+    /// @notice Test lz compose rejects the launcher now that the compose entry is endpoint-only.
+    function testLzComposeRejectsLauncherCaller() external {
+        bytes memory message = abi.encode(ALICE, IMemeverseOFTEnum.TokenType.MEMECOIN, 1 ether);
+        vm.prank(LAUNCHER);
+        vm.expectRevert(IYieldDispatcher.PermissionDenied.selector);
+        dispatcher.lzCompose(address(token), bytes32("launcher-guid"), message, address(0), "");
+    }
+
+    /// @notice Test same-chain path rejects any caller other than the launcher.
+    function testDistributeSameChainRejectsNonLauncherCaller() external {
+        vm.expectRevert(IYieldDispatcher.PermissionDenied.selector);
+        dispatcher.distributeSameChain(address(token), ALICE, IMemeverseOFTEnum.TokenType.MEMECOIN, 1 ether);
+    }
+
+    /// @notice Test same-chain path burns memecoin for eoa receiver.
+    function testDistributeSameChainBurnsMemecoinForEoaReceiver() external {
         uint256 amount = 5 ether;
         token.mint(address(dispatcher), amount);
 
-        bytes memory message = abi.encode(ALICE, IMemeverseOFTEnum.TokenType.MEMECOIN, amount);
-
         vm.prank(LAUNCHER);
-        dispatcher.lzCompose(address(token), bytes32("launcher-guid"), message, address(0), "");
+        dispatcher.distributeSameChain(address(token), ALICE, IMemeverseOFTEnum.TokenType.MEMECOIN, amount);
 
         assertEq(token.lastBurnAmount(), amount);
         assertEq(token.balanceOf(address(dispatcher)), 0);
     }
 
-    /// @notice Test launcher path approves and calls receivers.
-    function testLauncherPathApprovesAndCallsReceivers() external {
+    /// @notice Test same-chain path approves exactly the amount and calls receivers.
+    function testDistributeSameChainApprovesExactAmountAndCallsReceivers() external {
         uint256 memeAmount = 7 ether;
         uint256 uAssetAmount = 11 ether;
         token.mint(address(dispatcher), memeAmount + uAssetAmount);
 
         vm.prank(LAUNCHER);
-        dispatcher.lzCompose(
-            address(token),
-            bytes32("yield-guid"),
-            abi.encode(address(yieldVault), IMemeverseOFTEnum.TokenType.MEMECOIN, memeAmount),
-            address(0),
-            ""
+        dispatcher.distributeSameChain(
+            address(token), address(yieldVault), IMemeverseOFTEnum.TokenType.MEMECOIN, memeAmount
         );
         assertEq(yieldVault.lastAccumulatedAmount(), memeAmount);
-        assertEq(token.allowance(address(dispatcher), address(yieldVault)), type(uint256).max);
+        assertEq(token.allowance(address(dispatcher), address(yieldVault)), memeAmount);
 
         vm.prank(LAUNCHER);
-        dispatcher.lzCompose(
-            address(token),
-            bytes32("gov-guid"),
-            abi.encode(address(governor), IMemeverseOFTEnum.TokenType.UASSET, uAssetAmount),
-            address(0),
-            ""
+        dispatcher.distributeSameChain(
+            address(token), address(governor), IMemeverseOFTEnum.TokenType.UASSET, uAssetAmount
         );
         assertEq(governor.lastToken(), address(token));
         assertEq(governor.lastAmount(), uAssetAmount);
-        assertEq(token.allowance(address(dispatcher), address(governor)), type(uint256).max);
+        assertEq(token.allowance(address(dispatcher), address(governor)), uAssetAmount);
     }
 
     /// @notice Test local endpoint path rejects already executed compose.

@@ -11,6 +11,7 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 import {MemeverseLauncher} from "../../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IMemeverseOFTEnum} from "../../../src/common/types/IMemeverseOFTEnum.sol";
 import {IMemeverseProxyDeployer} from "../../../src/verse/interfaces/IMemeverseProxyDeployer.sol";
 import {IPOLend} from "../../../src/polend/interfaces/IPOLend.sol";
 import {IPOLSplitter} from "../../../src/polend/interfaces/IPOLSplitter.sol";
@@ -350,6 +351,18 @@ contract MockYieldDispatcherForPOLendIntegration {
         composeCallCount++;
         lastToken = token;
         lastMessage = message;
+    }
+
+    /// @notice Records a mocked same-chain dispatch.
+    /// @dev Reuses the lzCompose counters/fields so existing assertions stay unchanged.
+    /// Message is encoded as (receiver, tokenType, amount) to match the prior same-chain
+    /// compose payload, keeping `abi.decode(lastMessage, (address, uint8, uint256))` valid.
+    function distributeSameChain(address token, address receiver, IMemeverseOFTEnum.TokenType tokenType, uint256 amount)
+        external
+    {
+        composeCallCount++;
+        lastToken = token;
+        lastMessage = abi.encode(receiver, tokenType, amount);
     }
 }
 

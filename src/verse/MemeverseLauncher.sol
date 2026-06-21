@@ -2197,26 +2197,19 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
 
         uint256 transferToDispatcher = govFee + auxiliaryGovUAssetHeldByLauncher;
         govFee += fees.auxiliaryGovUAssetFee;
-        // Same-chain governance routes through YieldDispatcher's compose entry so local and remote fee flows share one sink.
+        // Same-chain governance routes through YieldDispatcher's dedicated same-chain entry so local and remote fee
+        // flows share one settlement sink.
         if (govFee != 0) {
             if (transferToDispatcher != 0) {
                 _transferOut(verse.uAsset, _yieldDispatcher, transferToDispatcher);
             }
             IYieldDispatcher(_yieldDispatcher)
-                .lzCompose(
-                    verse.uAsset, bytes32(0), abi.encode(verse.governor, TokenType.UASSET, govFee), address(0), ""
-                );
+                .distributeSameChain(verse.uAsset, verse.governor, TokenType.UASSET, govFee);
         }
         if (fees.memecoinFee != 0) {
             _transferOut(verse.memecoin, _yieldDispatcher, fees.memecoinFee);
             IYieldDispatcher(_yieldDispatcher)
-                .lzCompose(
-                    verse.memecoin,
-                    bytes32(0),
-                    abi.encode(verse.yieldVault, TokenType.MEMECOIN, fees.memecoinFee),
-                    address(0),
-                    ""
-                );
+                .distributeSameChain(verse.memecoin, verse.yieldVault, TokenType.MEMECOIN, fees.memecoinFee);
         }
 
         return govFee;
