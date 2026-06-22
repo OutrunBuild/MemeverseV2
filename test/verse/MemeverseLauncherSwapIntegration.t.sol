@@ -21,6 +21,7 @@ import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.
 import {RealisticSwapManagerHarness} from "../swap/helpers/RealisticSwapManagerHarness.sol";
 import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MockOFTDispatcher} from "../mocks/verse/LauncherLifecycleMocks.sol";
 import {
@@ -130,6 +131,7 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
 
         launcher.setMemeverseUniswapHook(address(hook));
         launcher.setMemeverseSwapRouter(address(router));
+        launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         assertEq(address(router.hook()), address(hook), "router hook");
         assertEq(hook.launcher(), address(launcher), "hook launcher");
         assertEq(hook.poolInitializer(), address(router), "hook initializer");

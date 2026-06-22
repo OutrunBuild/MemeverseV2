@@ -500,6 +500,14 @@ contract MemeverseLauncherConfigTest is Test {
         launcher.setYieldDispatcher(address(0));
     }
 
+    /// @notice Test set bootstrap impl rejects zero.
+    /// @dev Guards the bootstrap sibling setter against zero inputs; `bootstrapImpl` has no getter, so only
+    ///      the zero-address revert is asserted here (happy-path delegatecall runs in BootstrapImpl.t.sol).
+    function testSetBootstrapImplRejectsZero() external {
+        vm.expectRevert(IMemeverseLauncher.ZeroInput.selector);
+        launcher.setBootstrapImpl(address(0));
+    }
+
     /// @notice Test set fund meta data stores values and guards inputs.
     /// @dev Verifies the metadata setter stores limits and rejects invalid caps.
     function testSetFundMetaDataStoresValuesAndGuardsInputs() external {

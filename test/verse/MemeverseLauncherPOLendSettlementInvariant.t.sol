@@ -25,6 +25,7 @@ import {
 } from "../mocks/verse/LauncherSettlementMocks.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 
 contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
@@ -94,6 +95,7 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLaunch
         launcher.setMemeverseUniswapHook(address(hook));
         hook.setPoolInitializer(address(router));
         launcher.setMemeverseSwapRouter(address(router));
+        launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
         setPolSplitterForTest(launcherProxy, address(splitter));
@@ -793,6 +795,7 @@ contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
         IMemeverseLauncher(launcher_).setMemeverseUniswapHook(address(hook_));
         hook_.setPoolInitializer(address(router_));
         IMemeverseLauncher(launcher_).setMemeverseSwapRouter(address(router_));
+        IMemeverseLauncher(launcher_).setBootstrapImpl(address(new MemeverseBootstrap()));
         IMemeverseLauncher(launcher_).setYieldDispatcher(address(dispatcher_));
         IMemeverseLauncher(launcher_).setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
         setPolSplitterForTest(launcher_, address(splitter_));

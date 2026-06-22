@@ -545,11 +545,15 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
         uint256 burnedMemecoin,
         address polendAddr
     ) internal {
+        // credited/treasuryExcess stay 0 when no unused uAsset is routed, so the single emit below
+        // naturally reports (0, 0) for the unused-asset fields — both residual shapes share one emit site.
+        uint256 credited;
+        uint256 treasuryExcess;
         if (unusedBootstrapUAsset != 0) {
             (uint128 reserveBefore, uint128 maxReserve) = IPOLend(polendAddr).settlementDustStates(uAsset);
             uint256 capacity = maxReserve > reserveBefore ? uint256(maxReserve - reserveBefore) : 0;
-            uint256 credited = unusedBootstrapUAsset < capacity ? unusedBootstrapUAsset : capacity;
-            uint256 treasuryExcess = unusedBootstrapUAsset - credited;
+            credited = unusedBootstrapUAsset < capacity ? unusedBootstrapUAsset : capacity;
+            treasuryExcess = unusedBootstrapUAsset - credited;
 
             // reset + set approval
             _proxyApprove(proxy, uAsset, polendAddr, 0);
@@ -557,11 +561,12 @@ abstract contract MemeverseLauncherTestHelper is StorageSlotPrimitives {
 
             vm.prank(proxy);
             IPOLend(polendAddr).fundSettlementDustReserve(uAsset, unusedBootstrapUAsset);
+        }
+        // Emit only when something actually happened: unused uAsset routed, or memecoin burned.
+        if (unusedBootstrapUAsset != 0 || burnedMemecoin != 0) {
             emit IMemeverseLauncher.BootstrapUnusedAssetsHandled(
                 verseId, uAsset, memecoin, unusedBootstrapUAsset, credited, treasuryExcess, burnedMemecoin
             );
-        } else if (burnedMemecoin != 0) {
-            emit IMemeverseLauncher.BootstrapUnusedAssetsHandled(verseId, uAsset, memecoin, 0, 0, 0, burnedMemecoin);
         }
     }
 

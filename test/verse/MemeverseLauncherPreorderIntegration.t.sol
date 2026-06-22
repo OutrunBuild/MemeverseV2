@@ -10,6 +10,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
@@ -88,6 +89,7 @@ contract MemeverseLauncherPreorderIntegrationTest is Test, HookStorageHelper {
         hook.setLauncher(address(launcher));
         hook.setPoolInitializer(address(router));
 
+        launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         assertEq(address(router.hook()), address(hook), "router hook");

@@ -12,6 +12,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseOFTEnum} from "../../src/common/types/IMemeverseOFTEnum.sol";
@@ -121,6 +122,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
 
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
+        launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
@@ -819,6 +821,15 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setAddLiquidityResult(address(pt), address(uAsset), 20 ether, 10 ether, 5 ether);
         router.setAddLiquidityResult(address(pt), address(liquidProof), 40 ether, 40 ether, 40 ether);
 
+        // Lock the BootstrapUnusedAssetsHandled emit on the real sibling delegatecall path — until now this
+        // emit was only asserted via the forceDeployLiquidity replica (a manual copy), so a param-order bug in
+        // the sibling would have gone undetected. Mock polend settlementDustStates==(0,0) => capacity 0 =>
+        // credited 0, treasuryExcess = full 21 ether unused; main-pool mock consumes the entire memecoin
+        // budget (both amounts 0 => fallback to desired) => burnedMemecoin 0.
+        vm.expectEmit(true, true, true, true, address(launcher));
+        emit IMemeverseLauncher.BootstrapUnusedAssetsHandled(
+            verseId, address(uAsset), address(memecoin), 21 ether, 0, 21 ether, 0
+        );
         launcher.changeStage(verseId);
 
         assertEq(polend.lastFundSettlementDustReserveUAsset(), address(uAsset), "reserve uAsset");

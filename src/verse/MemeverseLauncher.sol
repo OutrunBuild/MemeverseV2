@@ -3,23 +3,22 @@ pragma solidity ^0.8.35;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 import {TokenHelper} from "../common/token/TokenHelper.sol";
-import {InitialPriceCalculator} from "./libraries/InitialPriceCalculator.sol";
 import {IMemecoin} from "../token/interfaces/IMemecoin.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
+import {MemeverseLauncherStorage} from "./interfaces/IMemeverseLauncherStorage.sol";
+import {IMemeverseBootstrap} from "./interfaces/IMemeverseBootstrap.sol";
 import {IPol} from "../token/interfaces/IPol.sol";
 import {ILzEndpointRegistry} from "../common/omnichain/interfaces/ILzEndpointRegistry.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
@@ -31,6 +30,7 @@ import {MemeversePoolKeyLib} from "../swap/libraries/MemeversePoolKeyLib.sol";
 import {IPOLend} from "../polend/interfaces/IPOLend.sol";
 import {IPOLSplitter} from "../polend/interfaces/IPOLSplitter.sol";
 import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
+import {MemeverseLauncherLib} from "./libraries/MemeverseLauncherLib.sol";
 
 /**
  * @title Trapping into the memeverse
@@ -51,55 +51,17 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
     TokenHelper
 {
     using OptionsBuilder for bytes;
-    using PoolIdLibrary for PoolKey;
+    using Address for address;
 
     uint256 public constant RATIO = 10000;
     uint256 internal constant UNLOCK_PROTECTION_WINDOW = 24 hours;
     uint256 internal constant MAX_FUND_BASED_AMOUNT = (1 << 64) - 1;
-    uint256 internal constant MAX_SUPPORTED_TOTAL_GENESIS_FUNDS = type(uint128).max;
     /// @dev Numerator of the 0.7% factor used to size the yield-vault virtual buffer V from the minimum
     ///      main-pool memecoin provision. `V = minTotalFund * fundBasedAmount * 7 / 1000`. See
     ///      docs/spec/governance/governance-yield-details.md §4.
     uint256 internal constant YIELD_VAULT_VIRTUAL_ASSET_FACTOR = 7;
     /// @dev Denominator paired with `YIELD_VAULT_VIRTUAL_ASSET_FACTOR` to express 0.7%.
     uint256 internal constant YIELD_VAULT_VIRTUAL_ASSET_DIVISOR = 1000;
-
-    /// @notice Storage layout for the MemeverseLauncher ERC7201 namespace.
-    ///         When adding fields in upgrades, append only at the end.
-    ///         Never reorder or insert fields between existing ones.
-    /// @custom:storage-location erc7201:outrun.storage.MemeverseLauncher
-    struct MemeverseLauncherStorage {
-        address localLzEndpoint;
-        address lzEndpointRegistry;
-        address yieldDispatcher;
-        address memeverseRegistrar;
-        address memeverseProxyDeployer;
-        address memeverseSwapRouter;
-        address memeverseUniswapHook;
-        address polend;
-        address polSplitter;
-        uint256 executorRewardRate;
-        uint256 preorderCapRatio;
-        uint256 preorderVestingDuration;
-        uint128 oftReceiveGasLimit;
-        uint128 yieldDispatcherGasLimit;
-        mapping(address pol => uint256) polToIds;
-        mapping(address memecoin => uint256) memecoinToIds;
-        mapping(uint256 verseId => Memeverse) memeverses;
-        mapping(address uAsset => FundMetaData) fundMetaDatas;
-        mapping(uint256 verseId => uint256) totalNormalFunds;
-        mapping(uint256 verseId => PreorderState) preorderStates;
-        mapping(uint256 verseId => AuxiliaryLiquidity) auxiliaryLiquidities;
-        mapping(uint256 verseId => BootstrapResidualClaims) bootstrapResidualClaims;
-        mapping(uint256 verseId => uint256) totalNormalClaimableYT;
-        mapping(uint256 verseId => mapping(address account => bool)) normalYTClaimed;
-        mapping(uint256 verseId => mapping(address account => GenesisData)) userGenesisData;
-        mapping(uint256 verseId => mapping(address account => PreorderData)) userPreorderData;
-        mapping(uint256 verseId => mapping(uint256 provider => string)) communitiesMap;
-        mapping(uint256 verseId => NormalFeeState) normalFeeStates;
-        mapping(uint256 verseId => mapping(address account => UserNormalFeeClaim)) userNormalFeeClaims;
-        mapping(uint256 verseId => PendingAuxiliaryGovFeeState) pendingAuxiliaryGovFeeStates;
-    }
 
     /// @dev Namespaced storage. The contract header's `layout at erc7201(...)` binds this struct to
     ///      the ERC-7201 base slot of "outrun.storage.MemeverseLauncher" — identical to the prior
@@ -200,6 +162,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         contracts.memeverseProxyDeployer = memeverseLauncherStorage.memeverseProxyDeployer;
         contracts.memeverseSwapRouter = memeverseLauncherStorage.memeverseSwapRouter;
         contracts.polSplitter = memeverseLauncherStorage.polSplitter;
+        contracts.bootstrapImpl = memeverseLauncherStorage.bootstrapImpl;
     }
 
     function getLauncherParameters() external view returns (LauncherParameters memory parameters) {
@@ -337,8 +300,8 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         _versIdValidate(verseId);
         uint256 totalFunds = memeverseLauncherStorage.totalNormalFunds[verseId]
             + IPOLend(memeverseLauncherStorage.polend).getTotalLeveragedDebt(verseId);
-        if (totalFunds >= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) return 0;
-        return MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - totalFunds;
+        if (totalFunds >= MemeverseLauncherLib.MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) return 0;
+        return MemeverseLauncherLib.MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - totalFunds;
     }
 
     /**
@@ -447,7 +410,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         _versIdValidate(verseId);
         uint256 totalLeveragedDebt = IPOLend(memeverseLauncherStorage.polend).getTotalLeveragedDebt(verseId);
         uint256 normalFunds = memeverseLauncherStorage.totalNormalFunds[verseId];
-        uint256 totalBaseFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
+        uint256 totalBaseFunds = MemeverseLauncherLib.checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         uint256 maxCapacity = _preorderMaxCapacity(totalBaseFunds);
         uint256 usedCapacity = memeverseLauncherStorage.preorderStates[verseId].totalFunds;
         if (usedCapacity >= maxCapacity) return 0;
@@ -543,8 +506,10 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         uint256 currentTotalGenesisFunds =
             normalFunds + IPOLend(memeverseLauncherStorage.polend).getTotalLeveragedDebt(verseId);
         uint256 projectedTotalGenesisFunds = currentTotalGenesisFunds + amountInUAsset;
-        if (projectedTotalGenesisFunds > MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) {
-            revert TotalGenesisFundsTooHigh(projectedTotalGenesisFunds, MAX_SUPPORTED_TOTAL_GENESIS_FUNDS);
+        if (projectedTotalGenesisFunds > MemeverseLauncherLib.MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) {
+            revert TotalGenesisFundsTooHigh(
+                projectedTotalGenesisFunds, MemeverseLauncherLib.MAX_SUPPORTED_TOTAL_GENESIS_FUNDS
+            );
         }
 
         memeverseLauncherStorage.totalNormalFunds[verseId] = normalFunds + amountInUAsset;
@@ -576,7 +541,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         uint256 nextTotalPreorderFunds = preorderState.totalFunds + amountInUAsset;
         uint256 totalLeveragedDebt = IPOLend(memeverseLauncherStorage.polend).getTotalLeveragedDebt(verseId);
         uint256 normalFunds = memeverseLauncherStorage.totalNormalFunds[verseId];
-        uint256 totalBaseFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
+        uint256 totalBaseFunds = MemeverseLauncherLib.checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         uint256 maxCapacity = _preorderMaxCapacity(totalBaseFunds);
         require(nextTotalPreorderFunds <= maxCapacity, InvalidLength());
 
@@ -762,382 +727,22 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         address _polend,
         address _polSplitter
     ) internal {
-        require(_polend != address(0) && _polSplitter != address(0), PermissionDenied());
-
-        uint256 normalFunds = memeverseLauncherStorage.totalNormalFunds[verseId];
-        uint256 totalGenesisFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
-        uint256 mainPoolUAssetBudget = FullMath.mulDiv(totalGenesisFunds, 7, 10);
-        address swapRouter = memeverseLauncherStorage.memeverseSwapRouter;
-        address hookAddress = memeverseLauncherStorage.memeverseUniswapHook;
-
-        _validatePreorderSettlementConfig(swapRouter, hookAddress);
-        _safeApprove(uAsset, swapRouter, totalGenesisFunds);
-        _safeApprove(
-            memecoin, swapRouter, mainPoolUAssetBudget * memeverseLauncherStorage.fundMetaDatas[uAsset].fundBasedAmount
-        );
-        _safeApproveInf(uAsset, hookAddress);
-
-        (uint256 mainPoolUAssetUsed, uint256 polUAssetUsed, uint256 ptUAssetUsed, uint256 burnedMemecoin) = _createBootstrapPools(
-            verseId,
-            uAsset,
-            memecoin,
-            pol,
-            normalFunds,
-            totalLeveragedDebt,
-            mainPoolUAssetBudget,
-            swapRouter,
-            _polSplitter,
-            _polend
-        );
-
-        uint256 totalSpent = mainPoolUAssetUsed + polUAssetUsed + ptUAssetUsed;
-        uint256 unusedBootstrapUAsset = totalSpent < totalGenesisFunds ? totalGenesisFunds - totalSpent : 0;
-        _handleBootstrapResiduals(verseId, uAsset, memecoin, unusedBootstrapUAsset, burnedMemecoin, _polend);
-    }
-
-    function _createBootstrapPools(
-        uint256 verseId,
-        address uAsset,
-        address memecoin,
-        address pol,
-        uint256 normalFunds,
-        uint256 totalLeveragedDebt,
-        uint256 mainPoolUAssetBudget,
-        address swapRouter,
-        address _polSplitter,
-        address _polend
-    )
-        internal
-        returns (uint256 mainPoolUAssetUsed, uint256 polUAssetUsed, uint256 ptUAssetUsed, uint256 burnedMemecoin)
-    {
-        uint128 mainPoolPOLRawAmount;
-        PoolKey memory poolKey;
-        (mainPoolPOLRawAmount, poolKey, mainPoolUAssetUsed, burnedMemecoin) =
-            _createMainBootstrapPool(memecoin, uAsset, mainPoolUAssetBudget, swapRouter);
-
-        _settlePreorder(verseId, poolKey, uAsset, memecoin);
-        BootstrapPolPlan memory plan = _buildBootstrapPolPlan(normalFunds, mainPoolPOLRawAmount, totalLeveragedDebt);
-
-        address yt;
-        (polUAssetUsed, ptUAssetUsed, yt) = _bootstrapPOLAndAuxiliaryPools(
-            verseId,
-            uAsset,
-            pol,
-            swapRouter,
-            _polSplitter,
-            plan,
-            mainPoolPOLRawAmount,
-            mainPoolUAssetUsed,
-            poolKey.toId(),
-            totalLeveragedDebt
-        );
-
-        if (plan.leveragedPolToSplit != 0) {
-            _transferOut(yt, _polend, plan.leveragedPolToSplit);
-            IPOLend(_polend).recordLeveragedYT(verseId, yt, plan.leveragedPolToSplit);
-        }
-    }
-
-    function _createMainBootstrapPool(
-        address memecoin,
-        address uAsset,
-        uint256 mainPoolUAssetBudget,
-        address swapRouter
-    )
-        internal
-        returns (
-            uint128 mainPoolPOLRawAmount,
-            PoolKey memory poolKey,
-            uint256 mainPoolUAssetUsed,
-            uint256 burnedMemecoin
-        )
-    {
-        uint256 mainPoolMemecoinBudget = mainPoolUAssetBudget
-            * memeverseLauncherStorage.fundMetaDatas[uAsset].fundBasedAmount;
-        uint160 mainPoolStartPrice = InitialPriceCalculator.calculateInitialSqrtPriceX96(
-            memecoin, uAsset, mainPoolMemecoinBudget, mainPoolUAssetBudget
-        );
-        IMemecoin(memecoin).mint(address(this), mainPoolMemecoinBudget);
-
-        uint256 mainPoolMemecoinUsed;
-        (mainPoolPOLRawAmount, poolKey, mainPoolMemecoinUsed, mainPoolUAssetUsed) = IMemeverseSwapRouter(swapRouter)
-            .createPoolAndAddLiquidity(
-                memecoin,
+        address impl = memeverseLauncherStorage.bootstrapImpl;
+        require(impl != address(0), IMemeverseLauncher.BootstrapImplNotSet());
+        // OZ functionDelegateCall returns bytes memory AND bubbles the sibling's revert reason.
+        // deployLiquidity is void; the return value is discarded.
+        impl.functionDelegateCall(
+            abi.encodeWithSelector(
+                IMemeverseBootstrap.deployLiquidity.selector,
+                verseId,
                 uAsset,
-                mainPoolMemecoinBudget,
-                mainPoolUAssetBudget,
-                mainPoolStartPrice,
-                address(this),
-                block.timestamp
-            );
-
-        burnedMemecoin = mainPoolMemecoinBudget - mainPoolMemecoinUsed;
-        if (burnedMemecoin != 0) IMemecoin(memecoin).burn(burnedMemecoin);
-    }
-
-    function _bootstrapPOLAndAuxiliaryPools(
-        uint256 verseId,
-        address uAsset,
-        address pol,
-        address swapRouter,
-        address _polSplitter,
-        BootstrapPolPlan memory plan,
-        uint256 mainPoolPOLRawAmount,
-        uint256 mainPoolUAssetUsed,
-        PoolId poolId,
-        uint256 totalLeveragedDebt
-    ) internal returns (uint256 polUAssetUsed, uint256 ptUAssetUsed, address yt) {
-        _safeApprove(pol, swapRouter, plan.polForPolUAsset + plan.polForPtPol);
-
-        uint256 polUsedForPolUAsset;
-        address pt;
-        (polUAssetUsed, polUsedForPolUAsset, pt, yt) = _bootstrapPOLPool(
-            verseId, uAsset, pol, swapRouter, _polSplitter, plan, mainPoolPOLRawAmount, mainPoolUAssetUsed, poolId
+                memecoin,
+                pol,
+                totalLeveragedDebt,
+                _polend,
+                _polSplitter
+            )
         );
-
-        ptUAssetUsed = _bootstrapPTPools(
-            verseId,
-            uAsset,
-            pol,
-            pt,
-            swapRouter,
-            _polSplitter,
-            plan,
-            mainPoolUAssetUsed,
-            mainPoolPOLRawAmount,
-            polUsedForPolUAsset,
-            totalLeveragedDebt
-        );
-    }
-
-    function _bootstrapPOLPool(
-        uint256 verseId,
-        address uAsset,
-        address pol,
-        address swapRouter,
-        address _polSplitter,
-        BootstrapPolPlan memory plan,
-        uint256 mainPoolPOLRawAmount,
-        uint256 mainPoolUAssetUsed,
-        PoolId poolId
-    ) internal returns (uint256 polUAssetUsed, uint256 polUsedForPolUAsset, address pt, address yt) {
-        IPol(pol).mint(address(this), mainPoolPOLRawAmount);
-        IPol(pol).setPoolId(poolId);
-
-        (pt, yt) = IPOLSplitter(_polSplitter).getPTAndYT(verseId);
-
-        IPOLSplitter(_polSplitter).recordPTBackingRatio(verseId, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        uint256 polUAssetRequired = FullMath.mulDiv(plan.polForPolUAsset, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        uint128 polUAssetLpAmount;
-        (polUAssetLpAmount,, polUsedForPolUAsset, polUAssetUsed) =
-            _createPoolAndAddLiquidity(swapRouter, pol, uAsset, plan.polForPolUAsset, polUAssetRequired, address(this));
-        memeverseLauncherStorage.auxiliaryLiquidities[verseId].polUAssetLpAmount = polUAssetLpAmount;
-    }
-
-    function _bootstrapPTPools(
-        uint256 verseId,
-        address uAsset,
-        address pol,
-        address pt,
-        address swapRouter,
-        address _polSplitter,
-        BootstrapPolPlan memory plan,
-        uint256 mainPoolUAssetUsed,
-        uint256 mainPoolPOLRawAmount,
-        uint256 polUsedForPolUAsset,
-        uint256 totalLeveragedDebt
-    ) internal returns (uint256 ptUAssetUsed) {
-        _safeApproveInf(pol, _polSplitter);
-        (uint256 totalPT,) = IPOLSplitter(_polSplitter).split(verseId, plan.normalPolToSplit + plan.leveragedPolToSplit);
-        _safeApprove(pt, swapRouter, totalPT);
-        uint256 ptForPtUAsset = totalPT / 3;
-        uint256 ptForPtPol = totalPT - ptForPtUAsset;
-
-        uint256 ptUsedForPtUAsset;
-        uint256 ptUsedForPtPol;
-        uint256 polUsedForPtPol;
-        (ptUAssetUsed, ptUsedForPtUAsset) = _createPTUAssetAuxiliaryPool(
-            verseId, uAsset, pt, swapRouter, mainPoolUAssetUsed, mainPoolPOLRawAmount, ptForPtUAsset
-        );
-        (ptUsedForPtPol, polUsedForPtPol) =
-            _createPTPOLAuxiliaryPool(verseId, pol, pt, swapRouter, ptForPtPol, plan.polForPtPol);
-
-        memeverseLauncherStorage.totalNormalClaimableYT[verseId] = plan.normalPolToSplit;
-        _recordPTBootstrapResiduals(
-            verseId,
-            plan,
-            polUsedForPolUAsset,
-            polUsedForPtPol,
-            ptForPtUAsset,
-            ptUsedForPtUAsset,
-            ptForPtPol,
-            ptUsedForPtPol,
-            totalLeveragedDebt
-        );
-    }
-
-    function _createPTUAssetAuxiliaryPool(
-        uint256 verseId,
-        address uAsset,
-        address pt,
-        address swapRouter,
-        uint256 mainPoolUAssetUsed,
-        uint256 mainPoolPOLRawAmount,
-        uint256 ptForPtUAsset
-    ) internal returns (uint256 ptUAssetUsed, uint256 ptUsedForPtUAsset) {
-        uint256 ptUAssetRequired = FullMath.mulDiv(ptForPtUAsset, mainPoolUAssetUsed, mainPoolPOLRawAmount);
-        uint128 ptUAssetLpAmount;
-        (ptUAssetLpAmount,, ptUsedForPtUAsset, ptUAssetUsed) =
-            _createPoolAndAddLiquidity(swapRouter, pt, uAsset, ptForPtUAsset, ptUAssetRequired, address(this));
-        memeverseLauncherStorage.auxiliaryLiquidities[verseId].ptUAssetLpAmount = ptUAssetLpAmount;
-    }
-
-    function _createPTPOLAuxiliaryPool(
-        uint256 verseId,
-        address pol,
-        address pt,
-        address swapRouter,
-        uint256 ptForPtPol,
-        uint256 polForPtPol
-    ) internal returns (uint256 ptUsedForPtPol, uint256 polUsedForPtPol) {
-        uint128 ptPolLpAmount;
-        (ptPolLpAmount,, ptUsedForPtPol, polUsedForPtPol) =
-            _createPoolAndAddLiquidity(swapRouter, pt, pol, ptForPtPol, polForPtPol, address(this));
-        memeverseLauncherStorage.auxiliaryLiquidities[verseId].ptPolLpAmount = ptPolLpAmount;
-    }
-
-    function _recordPTBootstrapResiduals(
-        uint256 verseId,
-        BootstrapPolPlan memory plan,
-        uint256 polUsedForPolUAsset,
-        uint256 polUsedForPtPol,
-        uint256 ptForPtUAsset,
-        uint256 ptUsedForPtUAsset,
-        uint256 ptForPtPol,
-        uint256 ptUsedForPtPol,
-        uint256 totalLeveragedDebt
-    ) internal {
-        uint256 residualPOL =
-            plan.polForPolUAsset - polUsedForPolUAsset + plan.polForPtPol - polUsedForPtPol;
-        uint256 residualPT = ptForPtUAsset - ptUsedForPtUAsset + ptForPtPol - ptUsedForPtPol;
-        uint256 _totalGenesisFunds =
-            _checkedTotalGenesisFunds(memeverseLauncherStorage.totalNormalFunds[verseId], totalLeveragedDebt);
-        _recordBootstrapResidualClaims(verseId, residualPOL, residualPT, totalLeveragedDebt, _totalGenesisFunds);
-    }
-
-    function _handleBootstrapResiduals(
-        uint256 verseId,
-        address uAsset,
-        address memecoin,
-        uint256 unusedBootstrapUAsset,
-        uint256 burnedMemecoin,
-        address _polend
-    ) internal {
-        if (unusedBootstrapUAsset != 0) {
-            (uint128 reserveBefore, uint128 maxReserve) = IPOLend(_polend).settlementDustStates(uAsset);
-            uint256 capacity = maxReserve > reserveBefore ? uint256(maxReserve - reserveBefore) : 0;
-            uint256 credited = unusedBootstrapUAsset < capacity ? unusedBootstrapUAsset : capacity;
-            uint256 treasuryExcess = unusedBootstrapUAsset - credited;
-            _safeApprove(uAsset, _polend, 0);
-            _safeApprove(uAsset, _polend, unusedBootstrapUAsset);
-            IPOLend(_polend).fundSettlementDustReserve(uAsset, unusedBootstrapUAsset);
-            emit BootstrapUnusedAssetsHandled(
-                verseId, uAsset, memecoin, unusedBootstrapUAsset, credited, treasuryExcess, burnedMemecoin
-            );
-        } else if (burnedMemecoin != 0) {
-            emit BootstrapUnusedAssetsHandled(verseId, uAsset, memecoin, 0, 0, 0, burnedMemecoin);
-        }
-    }
-
-    function _createPoolAndAddLiquidity(
-        address swapRouter,
-        address tokenA,
-        address tokenB,
-        uint256 amountADesired,
-        uint256 amountBDesired,
-        address recipient
-    ) internal returns (uint128 liquidity, PoolKey memory poolKey, uint256 amountAUsed, uint256 amountBUsed) {
-        uint160 startPrice =
-            InitialPriceCalculator.calculateInitialSqrtPriceX96(tokenA, tokenB, amountADesired, amountBDesired);
-        return IMemeverseSwapRouter(swapRouter)
-            .createPoolAndAddLiquidity(
-                tokenA, tokenB, amountADesired, amountBDesired, startPrice, recipient, block.timestamp
-            );
-    }
-
-    function _buildBootstrapPolPlan(uint256 normalFunds, uint256 totalPOL, uint256 totalLeveragedDebt)
-        internal
-        pure
-        returns (BootstrapPolPlan memory plan)
-    {
-        uint256 totalGenesisFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
-        if (totalGenesisFunds == 0) return plan;
-
-        plan.polForPolUAsset = FullMath.mulDiv(totalPOL, 2, 7);
-        uint256 polToSplit = FullMath.mulDiv(totalPOL, 3, 7);
-        plan.normalPolToSplit = FullMath.mulDiv(polToSplit, normalFunds, totalGenesisFunds);
-        plan.leveragedPolToSplit = polToSplit - plan.normalPolToSplit;
-        plan.polForPtPol = totalPOL - plan.polForPolUAsset - polToSplit;
-    }
-
-    function _recordBootstrapResidualClaims(
-        uint256 verseId,
-        uint256 residualPOL,
-        uint256 residualPT,
-        uint256 totalLeveragedDebt,
-        uint256 totalGenesisFunds
-    ) internal {
-        BootstrapResidualClaims storage claims = memeverseLauncherStorage.bootstrapResidualClaims[verseId];
-        // Residual tokens follow the same normal/leveraged funding split as auxiliary LP ownership.
-        uint256 leveragedResidualPOL = FullMath.mulDiv(residualPOL, totalLeveragedDebt, totalGenesisFunds);
-        uint256 leveragedResidualPT = FullMath.mulDiv(residualPT, totalLeveragedDebt, totalGenesisFunds);
-        claims.leveragedResidualPOL = leveragedResidualPOL;
-        claims.normalResidualPOL = residualPOL - leveragedResidualPOL;
-        claims.leveragedResidualPT = leveragedResidualPT;
-        claims.normalResidualPT = residualPT - leveragedResidualPT;
-    }
-
-    function _settlePreorder(uint256 verseId, PoolKey memory poolKey, address uAsset, address memecoin) internal {
-        PreorderState storage preorderState = memeverseLauncherStorage.preorderStates[verseId];
-        uint256 totalFunds = preorderState.totalFunds;
-        if (totalFunds == 0) return;
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == uAsset;
-        uint160 sqrtPriceLimitX96 = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
-        // Settlement goes through the hook's dedicated preorder-settlement path so preorder accounting stays isolated from public swap flow.
-        BalanceDelta delta = IMemeverseUniswapHook(memeverseLauncherStorage.memeverseUniswapHook)
-            .executePreorderSettlement(
-                IMemeverseUniswapHook.PreorderSettlementParams({
-                key: poolKey,
-                params: SwapParams({
-                zeroForOne: zeroForOne, amountSpecified: -int256(totalFunds), sqrtPriceLimitX96: sqrtPriceLimitX96
-            }),
-                recipient: address(this)
-            })
-            );
-
-        uint256 settledMemecoin = _deltaAmountForToken(delta, memecoin, poolKey);
-        // Later vesting claims split this aggregate fill pro rata by each user's preorder funds and anchor to this timestamp.
-        preorderState.settledMemecoin = settledMemecoin;
-        preorderState.settlementTimestamp = uint40(block.timestamp);
-    }
-
-    function _deltaAmountForToken(BalanceDelta delta, address token, PoolKey memory poolKey)
-        internal
-        pure
-        returns (uint256 amount)
-    {
-        if (Currency.unwrap(poolKey.currency0) == token) {
-            int128 amount0 = delta.amount0();
-            return amount0 > 0 ? uint256(uint128(amount0)) : 0;
-        }
-
-        if (Currency.unwrap(poolKey.currency1) == token) {
-            int128 amount1 = delta.amount1();
-            return amount1 > 0 ? uint256(uint128(amount1)) : 0;
-        }
-
-        return 0;
     }
 
     /**
@@ -1380,7 +985,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         {
             uint256 normalFunds = memeverseLauncherStorage.totalNormalFunds[verseId];
             uint256 totalLeveragedDebt = IPOLend(_polend).getTotalLeveragedDebt(verseId);
-            uint256 totalFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
+            uint256 totalFunds = MemeverseLauncherLib.checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
             (polUAssetLp, ptUAssetLp, ptPolLp, residualPOL, residualPT) =
                 _consumeLeveragedAuxiliaryClaims(verseId, totalLeveragedDebt, totalFunds);
         }
@@ -1876,6 +1481,16 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         _unpause();
     }
 
+    /// @notice Set the MemeverseBootstrap sibling address used to run bootstrap liquidity deployment.
+    /// @dev Only callable by the owner. `_deployLiquidity` delegatecalls this sibling, so a zero address would
+    ///      delegatecall into address(0) and burn the call; reject it explicitly here.
+    /// @param impl The MemeverseBootstrap sibling address.
+    function setBootstrapImpl(address impl) external override onlyOwner {
+        require(impl != address(0), ZeroInput());
+        memeverseLauncherStorage.bootstrapImpl = impl;
+        emit SetBootstrapImpl(impl);
+    }
+
     /**
      * @notice Set the memeverse swap router contract.
      * @dev Only callable by the owner.
@@ -1885,7 +1500,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         require(_memeverseSwapRouter != address(0), ZeroInput());
         address hookAddress = memeverseLauncherStorage.memeverseUniswapHook;
         if (hookAddress != address(0)) {
-            _validatePreorderSettlementConfig(_memeverseSwapRouter, hookAddress);
+            MemeverseLauncherLib.validateSettlementWiring(_memeverseSwapRouter, hookAddress);
         }
 
         memeverseLauncherStorage.memeverseSwapRouter = _memeverseSwapRouter;
@@ -1901,7 +1516,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         if (memeverseLauncherStorage.memeverseUniswapHook != address(0)) revert HookAlreadyConfigured();
         address routerAddress = memeverseLauncherStorage.memeverseSwapRouter;
         if (routerAddress != address(0)) {
-            _validatePreorderSettlementConfig(routerAddress, _memeverseUniswapHook);
+            MemeverseLauncherLib.validateSettlementWiring(routerAddress, _memeverseUniswapHook);
         } else {
             address boundLauncher = IMemeverseUniswapHook(_memeverseUniswapHook).launcher();
             require(boundLauncher == address(this), InvalidPreorderSettlementConfig());
@@ -1910,19 +1525,6 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         memeverseLauncherStorage.memeverseUniswapHook = _memeverseUniswapHook;
 
         emit SetMemeverseUniswapHook(_memeverseUniswapHook);
-    }
-
-    function _validatePreorderSettlementConfig(address routerAddress, address hookAddress) internal view {
-        require(routerAddress != address(0) && hookAddress != address(0), InvalidPreorderSettlementConfig());
-        IMemeverseSwapRouter router = IMemeverseSwapRouter(routerAddress);
-        IMemeverseUniswapHook hook = IMemeverseUniswapHook(hookAddress);
-        address routerHookAddress = address(router.hook());
-        address boundLauncher = hook.launcher();
-        address poolInitializer = hook.poolInitializer();
-        require(
-            routerHookAddress == hookAddress && boundLauncher == address(this) && poolInitializer == routerAddress,
-            InvalidPreorderSettlementConfig()
-        );
     }
 
     function _activatePostUnlockPublicSwapProtection(
@@ -2411,22 +2013,11 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         if (!preserveNormalShare) return (totalUAssetFee, totalPTFee);
         uint256 normalFunds = memeverseLauncherStorage.totalNormalFunds[verseId];
         uint256 totalLeveragedDebt = IPOLend(memeverseLauncherStorage.polend).getTotalLeveragedDebt(verseId);
-        uint256 totalFunds = _checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
+        uint256 totalFunds = MemeverseLauncherLib.checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
         if (totalFunds == 0) return (totalUAssetFee, totalPTFee);
 
         govUAssetFee = FullMath.mulDiv(totalUAssetFee, totalLeveragedDebt, totalFunds);
         govPTFee = FullMath.mulDiv(totalPTFee, totalLeveragedDebt, totalFunds);
-    }
-
-    function _checkedTotalGenesisFunds(uint256 normalFunds, uint256 leveragedDebt)
-        internal
-        pure
-        returns (uint256 totalFunds)
-    {
-        totalFunds = normalFunds + leveragedDebt;
-        if (totalFunds > MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) {
-            revert TotalGenesisFundsTooHigh(totalFunds, MAX_SUPPORTED_TOTAL_GENESIS_FUNDS);
-        }
     }
 
     function _previewPairFees(address tokenA, address tokenB)

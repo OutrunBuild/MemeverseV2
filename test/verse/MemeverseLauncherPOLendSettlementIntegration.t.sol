@@ -21,6 +21,7 @@ import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.
 import {RealisticSwapManagerHarness} from "../swap/helpers/RealisticSwapManagerHarness.sol";
 import {HookStorageHelper} from "../mocks/swap/HookStorageHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {POLend} from "../../src/polend/POLend.sol";
 import {POLSplitter} from "../../src/polend/POLSplitter.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
@@ -165,6 +166,7 @@ contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLaun
         // 8. Launcher wiring.
         launcher.setMemeverseUniswapHook(address(hook));
         launcher.setMemeverseSwapRouter(address(router));
+        launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
         launcher.setYieldDispatcher(address(dispatcher));

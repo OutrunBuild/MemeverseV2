@@ -187,7 +187,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     }
 
     function _expectedLauncherSelectorSignatures() internal pure returns (string[] memory signatures) {
-        signatures = new string[](64);
+        signatures = new string[](65);
         signatures[0] = "RATIO()";
         signatures[1] = "auxiliaryLiquidities(uint256)";
         signatures[2] = "bootstrapResidualClaims(uint256)";
@@ -233,25 +233,26 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         signatures[42] = "registerMemeverse(string,string,uint256,uint128,uint128,uint32[],address,bool)";
         signatures[43] = "remainingGenesisCapacity(uint256)";
         signatures[44] = "removeGasDust(address)";
-        signatures[45] = "setExecutorRewardRate(uint256)";
-        signatures[46] = "setExternalInfo(uint256,string,string,string[])";
-        signatures[47] = "setFundMetaData(address,uint256,uint256)";
-        signatures[48] = "setGasLimits(uint128,uint128)";
-        signatures[49] = "setLzEndpointRegistry(address)";
-        signatures[50] = "setMemeverseProxyDeployer(address)";
-        signatures[51] = "setMemeverseRegistrar(address)";
-        signatures[52] = "setMemeverseSwapRouter(address)";
-        signatures[53] = "setMemeverseUniswapHook(address)";
-        signatures[54] = "setPreorderConfig(uint256,uint256)";
-        signatures[55] = "setYieldDispatcher(address)";
-        signatures[56] = "settleLeveragedAuxiliaryLiquidity(uint256)";
-        signatures[57] = "totalNormalClaimableYT(uint256)";
-        signatures[58] = "totalNormalFunds(uint256)";
-        signatures[59] = "transferOwnership(address)";
-        signatures[60] = "unpause()";
-        signatures[61] = "userGenesisData(uint256,address)";
-        signatures[62] = "userNormalFeeClaims(uint256,address)";
-        signatures[63] = "userPreorderData(uint256,address)";
+        signatures[45] = "setBootstrapImpl(address)";
+        signatures[46] = "setExecutorRewardRate(uint256)";
+        signatures[47] = "setExternalInfo(uint256,string,string,string[])";
+        signatures[48] = "setFundMetaData(address,uint256,uint256)";
+        signatures[49] = "setGasLimits(uint128,uint128)";
+        signatures[50] = "setLzEndpointRegistry(address)";
+        signatures[51] = "setMemeverseProxyDeployer(address)";
+        signatures[52] = "setMemeverseRegistrar(address)";
+        signatures[53] = "setMemeverseSwapRouter(address)";
+        signatures[54] = "setMemeverseUniswapHook(address)";
+        signatures[55] = "setPreorderConfig(uint256,uint256)";
+        signatures[56] = "setYieldDispatcher(address)";
+        signatures[57] = "settleLeveragedAuxiliaryLiquidity(uint256)";
+        signatures[58] = "totalNormalClaimableYT(uint256)";
+        signatures[59] = "totalNormalFunds(uint256)";
+        signatures[60] = "transferOwnership(address)";
+        signatures[61] = "unpause()";
+        signatures[62] = "userGenesisData(uint256,address)";
+        signatures[63] = "userNormalFeeClaims(uint256,address)";
+        signatures[64] = "userPreorderData(uint256,address)";
     }
 
     function _expectSelectorMissing(string memory signature) internal view {
@@ -262,9 +263,9 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     function testExpectedSelectorBaselineIncludesRuntimeSurface() external {
         string[] memory signatures = _expectedLauncherSelectorSignatures();
-        assertEq(signatures.length, 64, "expected selector count");
+        assertEq(signatures.length, 65, "expected selector count");
         assertEq(signatures[0], "RATIO()", "first selector");
-        assertEq(signatures[63], "userPreorderData(uint256,address)", "last selector");
+        assertEq(signatures[64], "userPreorderData(uint256,address)", "last selector");
 
         // Verify every expected selector actually exists on the proxy.
         // Pad calldata with 256 zero-bytes so the abi decoder does not revert
@@ -281,6 +282,76 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
                 ok || data.length > 0, string(abi.encodePacked("selector missing from runtime: ", signatures[i]))
             );
         }
+    }
+
+    /// @notice Scans runtime bytecode for function selectors and verifies each one
+    ///         is accounted for in the baseline list. Catches new external functions
+    ///         added without updating _expectedLauncherSelectorSignatures.
+    function testNoUndocumentedRuntimeSelectors() external {
+        string[] memory expected = _expectedLauncherSelectorSignatures();
+
+        // Build a lookup array of expected selectors (local mapping not allowed in Solidity).
+        bytes4[] memory knownSelectors = new bytes4[](expected.length);
+        for (uint256 i = 0; i < expected.length; i++) {
+            knownSelectors[i] = bytes4(keccak256(bytes(expected[i])));
+        }
+
+        // Scan runtime bytecode for PUSH4 (0x63) selector patterns.
+        // In the function dispatch block the compiler emits:
+        //   DUP1 PUSH4 <selector> EQ PUSH2 <dest> JUMPI
+        // Extract every 4-byte value following a 0x63 opcode.
+        bytes memory code = address(pureLauncher).code;
+        uint256 selectorCount;
+        bytes4[] memory found = new bytes4[](code.length / 4); // upper bound
+
+        for (uint256 i = 0; i + 4 < code.length; i++) {
+            if (uint8(code[i]) == 0x63) {
+                // PUSH4 opcode — next 4 bytes are the selector.
+                if (i + 5 > code.length) break;
+                bytes4 sel = bytes4(
+                    (uint32(uint8(code[i + 1])) << 24)
+                        | (uint32(uint8(code[i + 2])) << 16)
+                        | (uint32(uint8(code[i + 3])) << 8)
+                        | uint32(uint8(code[i + 4]))
+                );
+                // Skip selectors below the RATIO() floor — compiler metadata noise.
+                if (uint32(sel) < 0x10000000) continue;
+
+                // De-duplicate.
+                bool duplicate;
+                for (uint256 j = 0; j < selectorCount; j++) {
+                    if (found[j] == sel) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate) continue;
+
+                // Check against baseline.
+                bool inBaseline;
+                for (uint256 j = 0; j < knownSelectors.length; j++) {
+                    if (knownSelectors[j] == sel) {
+                        inBaseline = true;
+                        break;
+                    }
+                }
+
+                if (!inBaseline) {
+                    // Reconstruct a plausible signature string for diagnostics.
+                    // Verify the selector actually dispatches to a real function
+                    // (call returns non-empty revert data) before flagging it.
+                    bytes memory pad = new bytes(256);
+                    (bool ok, bytes memory data) = pureLauncher.staticcall(abi.encodePacked(sel, pad));
+                    if (ok || data.length > 0) {
+                        found[selectorCount] = sel;
+                        selectorCount++;
+                        // Emit selector hex so the developer can identify the missing entry.
+                        emit log_named_bytes32("undocumented selector", bytes32(sel));
+                    }
+                }
+            }
+        }
+        assertEq(selectorCount, 0, "runtime has selectors not in baseline");
     }
 
     function testNoNewInternalStateGetters() external view {

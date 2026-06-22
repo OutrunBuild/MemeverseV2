@@ -367,6 +367,43 @@ contract TestableMemeverseScript is MemeverseScript {
     }
 }
 
+/// @notice Production-faithful harness: inherits `MemeverseScript` WITHOUT overriding
+///         `_beginMemeverseLauncherOwnerExecution`, so the owner-execution hook stays the base
+///         no-op (no `vm.startPrank(initialOwner)`). This mirrors how the script actually runs under
+///         `forge script --broadcast`, where no prank rescues onlyOwner calls. Used by regression
+///         tests that must exercise the real deployer != owner deployment path.
+contract ProductionFaithfulMemeverseScript is MemeverseScript {
+    function configureLauncherDeploymentWithOwner(
+        address initialOwner_,
+        address localEndpoint_,
+        address memeverseRegistrar_,
+        address memeverseProxyDeployer_,
+        address yieldDispatcher_,
+        address lzEndpointRegistry_,
+        address polend_,
+        address polSplitter_,
+        address outrunDeployer_,
+        address ueth_,
+        address uusd_
+    ) external {
+        owner = initialOwner_;
+        MEMEVERSE_REGISTRAR = memeverseRegistrar_;
+        MEMEVERSE_PROXY_DEPLOYER = memeverseProxyDeployer_;
+        MEMEVERSE_YIELD_DISPATCHER = yieldDispatcher_;
+        MEMEVERSE_COMMON_INFO = lzEndpointRegistry_;
+        POLEND = polend_;
+        POLSPLITTER = polSplitter_;
+        OUTRUN_DEPLOYER = outrunDeployer_;
+        UETH = ueth_;
+        UUSD = uusd_;
+        endpoints[uint32(block.chainid)] = localEndpoint_;
+    }
+
+    function deployMemeverseLauncherHarness(uint256 nonce) external {
+        _deployMemeverseLauncher(nonce);
+    }
+}
+
 contract MemeverseProxyDeployerTest is Test {
     using Clones for address;
 
@@ -561,12 +598,14 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
     address internal constant UUSD = address(0x1009);
 
     TestableMemeverseScript internal scriptHarness;
+    ProductionFaithfulMemeverseScript internal productionHarness;
     MockScriptOutrunDeployer internal outrunDeployer;
     address internal readySwapRouter;
     address internal readySwapHook;
 
     function setUp() external {
         scriptHarness = new TestableMemeverseScript();
+        productionHarness = new ProductionFaithfulMemeverseScript();
         outrunDeployer = new MockScriptOutrunDeployer();
         scriptHarness.configureLauncherDeployment(
             LOCAL_ENDPOINT,
@@ -731,6 +770,41 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         vm.prank(deployCaller);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployCaller));
         deployedLauncher.setFundMetaData(UETH, 1, 1);
+    }
+
+    /// @notice Regression: in production-faithful mode (the owner-execution hook is the base no-op,
+    ///         so NO vm.startPrank(initialOwner) wraps the deploy), a deployer != owner deployment
+    ///         must NOT revert. Before the script fix, setBootstrapImpl (onlyOwner) was called
+    ///         unconditionally with msg.sender = deployer, reverting OwnableUnauthorizedAccount and
+    ///         aborting the whole deploy. `scriptHarness` cannot catch this because it overrides the
+    ///         hook to prank the owner; `productionHarness` does not, so it reproduces production.
+    function testDeployerNotOwnerDoesNotRevertWhenBootstrapDeferredToOwner() external {
+        uint256 nonce = 5;
+        address initialOwner = address(0x4567);
+        bytes32 launcherSalt = keccak256(abi.encodePacked("MemeverseLauncher", nonce));
+
+        // deployer (= productionHarness address) != owner; the harness does not prank the owner.
+        productionHarness.configureLauncherDeploymentWithOwner(
+            initialOwner,
+            LOCAL_ENDPOINT,
+            REGISTRAR,
+            PROXY_DEPLOYER,
+            YIELD_DISPATCHER,
+            LZ_ENDPOINT_REGISTRY,
+            POLEND,
+            POLSPLITTER,
+            address(outrunDeployer),
+            UETH,
+            UUSD
+        );
+
+        // Before the fix this reverted with OwnableUnauthorizedAccount; now bootstrap wiring is
+        // deferred to the owner and the deploy completes.
+        productionHarness.deployMemeverseLauncherHarness(nonce);
+
+        address proxy = outrunDeployer.deployments(address(productionHarness), launcherSalt);
+        assertNotEq(proxy, address(0), "launcher proxy not deployed");
+        assertEq(MemeverseLauncher(proxy).owner(), initialOwner, "owner mismatch");
     }
 
     function testDeployMemeverseLauncherRevertsWhenUethUnset() external {

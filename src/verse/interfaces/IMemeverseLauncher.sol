@@ -134,6 +134,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         address memeverseProxyDeployer;
         address memeverseSwapRouter;
         address polSplitter;
+        address bootstrapImpl;
     }
 
     /// @notice Bundle of launcher-configured numeric parameters returned by `getLauncherParameters`.
@@ -428,6 +429,11 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param yieldDispatcher The new yield dispatcher address.
     function setYieldDispatcher(address yieldDispatcher) external;
 
+    /// @notice Sets the MemeverseBootstrap sibling implementation that runs bootstrap liquidity deployment.
+    /// @dev Implementations are expected to guard this with their admin or owner flow.
+    /// @param bootstrapImpl The MemeverseBootstrap sibling address.
+    function setBootstrapImpl(address bootstrapImpl) external;
+
     /// @notice Sets the fund metadata used for a verse uAsset token.
     /// @dev `fundBasedAmount` controls launcher-side bootstrap pricing and may be bounded by the implementation.
     /// @param uAsset The fundraising token address.
@@ -510,6 +516,9 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     error FundBasedAmountTooHigh(uint256 fundBasedAmount, uint256 maxSupportedFundBasedAmount);
     error TotalGenesisFundsTooHigh(uint256 totalGenesisFunds, uint256 maxSupportedTotalGenesisFunds);
 
+    /// @dev Reverted when the owner has not configured the bootstrap sibling the facade delegatecalls into.
+    error BootstrapImplNotSet();
+
     event Genesis(uint256 indexed verseId, address indexed depositer, uint256 amount);
 
     event ChangeStage(uint256 indexed verseId, Stage currentStage);
@@ -547,6 +556,9 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     event SetMemeverseProxyDeployer(address memeverseProxyDeployer);
 
     event SetYieldDispatcher(address yieldDispatcher);
+
+    /// @dev Emitted when the owner repoints the facade to a new bootstrap sibling implementation.
+    event SetBootstrapImpl(address indexed bootstrapImpl);
 
     event SetFundMetaData(address indexed uAsset, uint256 minTotalFund, uint256 fundBasedAmount);
 

@@ -21,6 +21,7 @@ import {MemeverseRegistrarAtLocal} from "../src/verse/registration/MemeverseRegi
 import {MemeverseRegistrationCenter} from "../src/verse/registration/MemeverseRegistrationCenter.sol";
 import {MemeverseRegistrarOmnichain} from "../src/verse/registration/MemeverseRegistrarOmnichain.sol";
 import {MemeverseLauncher, IMemeverseLauncher} from "../src/verse/MemeverseLauncher.sol";
+import {MemeverseBootstrap} from "../src/verse/MemeverseBootstrap.sol";
 import {POLend} from "../src/polend/POLend.sol";
 import {POLSplitter} from "../src/polend/POLSplitter.sol";
 import {OmnichainMemecoinStaker} from "../src/interoperation/OmnichainMemecoinStaker.sol";
@@ -487,9 +488,14 @@ contract MemeverseScript is BaseScript {
         _beginMemeverseLauncherOwnerExecution(initialOwner);
         if (deployCaller == initialOwner) {
             _setMemeverseLauncherFundMetaData(launcher);
+            // setBootstrapImpl is onlyOwner, so the bootstrap sibling can only be wired when the
+            // broadcaster IS the owner. The launcher delegatecalls it from `_deployLiquidity`; when
+            // deployer != owner the owner deploys and wires it afterwards (see WARNING below).
+            MemeverseBootstrap bootstrapImpl = new MemeverseBootstrap();
+            launcher.setBootstrapImpl(address(bootstrapImpl));
         } else {
             console.log(
-                "WARNING: deployCaller(%s) != initialOwner(%s) -- fund metadata must be set by initialOwner",
+                "WARNING: deployCaller(%s) != initialOwner(%s) -- fund metadata and bootstrapImpl must be set by initialOwner",
                 deployCaller,
                 initialOwner
             );
@@ -789,6 +795,9 @@ contract MemeverseScript is BaseScript {
         _requireFundMetaDataReady(UETH, "UETH_FUND_METADATA_NOT_READY");
         _requireFundMetaDataReady(UUSD, "UUSD_FUND_METADATA_NOT_READY");
         _requireSwapReady(swapRouter, hook);
+
+        address bootstrapImpl = _readBootstrapImpl(MEMEVERSE_LAUNCHER);
+        _requireContractCode(bootstrapImpl, "BOOTSTRAP_IMPL_NOT_READY");
     }
 
     function _requireSwapReady(address swapRouter, address hook) internal view {
@@ -849,6 +858,16 @@ contract MemeverseScript is BaseScript {
 
     function _readPolSplitterPolend() internal view returns (address value) {
         return _readAddress(POLSPLITTER, "polend()");
+    }
+
+    function _readBootstrapImpl(address launcher) internal view returns (address value) {
+        (bool success, bytes memory data) =
+            launcher.staticcall(abi.encodeWithSignature("getLauncherContracts()"));
+        require(success && data.length >= 256, "LAUNCHER_CONTRACTS_NOT_READY");
+        // LauncherContracts: 8 address fields; bootstrapImpl is the 8th (last).
+        address[8] memory addrs =
+            abi.decode(data, (address[8]));
+        value = addrs[7];
     }
 
     function _readSettlementDustState(address uAsset) internal view returns (uint128 reserve, uint128 maxReserve) {
