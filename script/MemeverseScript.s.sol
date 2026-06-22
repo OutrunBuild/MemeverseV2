@@ -805,8 +805,10 @@ contract MemeverseScript is BaseScript {
         _requireContractCode(hook, "HOOK_CODE_NOT_READY");
         require(_hookFlags(hook) == MEMEVERSE_HOOK_FLAGS, "HOOK_FLAGS_NOT_READY");
 
-        require(_readAddress(MEMEVERSE_LAUNCHER, "memeverseSwapRouter()") == swapRouter, "LAUNCHER_ROUTER_NOT_READY");
-        require(_readAddress(MEMEVERSE_LAUNCHER, "memeverseUniswapHook()") == hook, "LAUNCHER_HOOK_NOT_READY");
+        IMemeverseLauncher.LauncherContracts memory launcherContracts =
+            IMemeverseLauncher(MEMEVERSE_LAUNCHER).getLauncherContracts();
+        require(launcherContracts.memeverseSwapRouter == swapRouter, "LAUNCHER_ROUTER_NOT_READY");
+        require(launcherContracts.memeverseUniswapHook == hook, "LAUNCHER_HOOK_NOT_READY");
         require(_readAddress(swapRouter, "hook()") == hook, "ROUTER_HOOK_NOT_READY");
         require(_readAddress(hook, "launcher()") == MEMEVERSE_LAUNCHER, "HOOK_LAUNCHER_NOT_READY");
         require(_readAddress(hook, "poolInitializer()") == swapRouter, "HOOK_POOL_INITIALIZER_NOT_READY");
@@ -861,12 +863,12 @@ contract MemeverseScript is BaseScript {
     }
 
     function _readBootstrapImpl(address launcher) internal view returns (address value) {
-        (bool success, bytes memory data) =
-            launcher.staticcall(abi.encodeWithSignature("getLauncherContracts()"));
-        require(success && data.length >= 256, "LAUNCHER_CONTRACTS_NOT_READY");
-        // LauncherContracts: 8 address fields; bootstrapImpl is the 8th (last).
-        address[8] memory addrs =
-            abi.decode(data, (address[8]));
+        (bool success, bytes memory data) = launcher.staticcall(abi.encodeWithSignature("getLauncherContracts()"));
+        require(success && data.length >= 288, "LAUNCHER_CONTRACTS_NOT_READY");
+        // LauncherContracts: 9 address fields. bootstrapImpl is the 8th (index 7); the trailing
+        // memeverseUniswapHook field is the 9th. Decoding only the first 8 fields keeps bootstrapImpl
+        // at index 7 — appending fields at the tail never shifts earlier indices.
+        address[8] memory addrs = abi.decode(data, (address[8]));
         value = addrs[7];
     }
 

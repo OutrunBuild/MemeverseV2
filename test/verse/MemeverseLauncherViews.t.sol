@@ -187,7 +187,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
     }
 
     function _expectedLauncherSelectorSignatures() internal pure returns (string[] memory signatures) {
-        signatures = new string[](65);
+        signatures = new string[](64);
         signatures[0] = "RATIO()";
         signatures[1] = "auxiliaryLiquidities(uint256)";
         signatures[2] = "bootstrapResidualClaims(uint256)";
@@ -211,48 +211,47 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         signatures[20] = "getVerseIdByMemecoin(address)";
         signatures[21] = "getYieldVaultByVerseId(uint256)";
         signatures[22] = "memecoinToIds(address)";
-        signatures[23] = "memeverseUniswapHook()";
-        signatures[24] = "mintPOLToken(uint256,uint256,uint256,uint256,uint256,uint256,uint256)";
-        signatures[25] = "normalFeeStates(uint256)";
-        signatures[26] = "normalYTClaimed(uint256,address)";
-        signatures[27] = "owner()";
-        signatures[28] = "pause()";
-        signatures[29] = "paused()";
-        signatures[30] = "pendingAuxiliaryGovFeeStates(uint256)";
-        signatures[31] = "polToIds(address)";
-        signatures[32] = "polend()";
-        signatures[33] = "preorder(uint256,uint256,address)";
-        signatures[34] = "previewGenesisMakerFees(uint256)";
-        signatures[35] = "previewPreorderCapacity(uint256)";
-        signatures[36] = "quoteDistributionLzFee(uint256)";
-        signatures[37] = "redeemAndDistributeFees(uint256,address)";
-        signatures[38] = "redeemAuxiliaryLiquidity(uint256)";
-        signatures[39] = "redeemMemecoinLiquidity(uint256,uint256,bool)";
-        signatures[40] = "refund(uint256)";
-        signatures[41] = "refundPreorder(uint256)";
-        signatures[42] = "registerMemeverse(string,string,uint256,uint128,uint128,uint32[],address,bool)";
-        signatures[43] = "remainingGenesisCapacity(uint256)";
-        signatures[44] = "removeGasDust(address)";
-        signatures[45] = "setBootstrapImpl(address)";
-        signatures[46] = "setExecutorRewardRate(uint256)";
-        signatures[47] = "setExternalInfo(uint256,string,string,string[])";
-        signatures[48] = "setFundMetaData(address,uint256,uint256)";
-        signatures[49] = "setGasLimits(uint128,uint128)";
-        signatures[50] = "setLzEndpointRegistry(address)";
-        signatures[51] = "setMemeverseProxyDeployer(address)";
-        signatures[52] = "setMemeverseRegistrar(address)";
-        signatures[53] = "setMemeverseSwapRouter(address)";
-        signatures[54] = "setMemeverseUniswapHook(address)";
-        signatures[55] = "setPreorderConfig(uint256,uint256)";
-        signatures[56] = "setYieldDispatcher(address)";
-        signatures[57] = "settleLeveragedAuxiliaryLiquidity(uint256)";
-        signatures[58] = "totalNormalClaimableYT(uint256)";
-        signatures[59] = "totalNormalFunds(uint256)";
-        signatures[60] = "transferOwnership(address)";
-        signatures[61] = "unpause()";
-        signatures[62] = "userGenesisData(uint256,address)";
-        signatures[63] = "userNormalFeeClaims(uint256,address)";
-        signatures[64] = "userPreorderData(uint256,address)";
+        signatures[23] = "mintPOLToken(uint256,uint256,uint256,uint256,uint256,uint256,uint256)";
+        signatures[24] = "normalFeeStates(uint256)";
+        signatures[25] = "normalYTClaimed(uint256,address)";
+        signatures[26] = "owner()";
+        signatures[27] = "pause()";
+        signatures[28] = "paused()";
+        signatures[29] = "pendingAuxiliaryGovFeeStates(uint256)";
+        signatures[30] = "polToIds(address)";
+        signatures[31] = "polend()";
+        signatures[32] = "preorder(uint256,uint256,address)";
+        signatures[33] = "previewGenesisMakerFees(uint256)";
+        signatures[34] = "previewPreorderCapacity(uint256)";
+        signatures[35] = "quoteDistributionLzFee(uint256)";
+        signatures[36] = "redeemAndDistributeFees(uint256,address)";
+        signatures[37] = "redeemAuxiliaryLiquidity(uint256)";
+        signatures[38] = "redeemMemecoinLiquidity(uint256,uint256,bool)";
+        signatures[39] = "refund(uint256)";
+        signatures[40] = "refundPreorder(uint256)";
+        signatures[41] = "registerMemeverse(string,string,uint256,uint128,uint128,uint32[],address,bool)";
+        signatures[42] = "remainingGenesisCapacity(uint256)";
+        signatures[43] = "removeGasDust(address)";
+        signatures[44] = "setBootstrapImpl(address)";
+        signatures[45] = "setExecutorRewardRate(uint256)";
+        signatures[46] = "setExternalInfo(uint256,string,string,string[])";
+        signatures[47] = "setFundMetaData(address,uint256,uint256)";
+        signatures[48] = "setGasLimits(uint128,uint128)";
+        signatures[49] = "setLzEndpointRegistry(address)";
+        signatures[50] = "setMemeverseProxyDeployer(address)";
+        signatures[51] = "setMemeverseRegistrar(address)";
+        signatures[52] = "setMemeverseSwapRouter(address)";
+        signatures[53] = "setMemeverseUniswapHook(address)";
+        signatures[54] = "setPreorderConfig(uint256,uint256)";
+        signatures[55] = "setYieldDispatcher(address)";
+        signatures[56] = "settleLeveragedAuxiliaryLiquidity(uint256)";
+        signatures[57] = "totalNormalClaimableYT(uint256)";
+        signatures[58] = "totalNormalFunds(uint256)";
+        signatures[59] = "transferOwnership(address)";
+        signatures[60] = "unpause()";
+        signatures[61] = "userGenesisData(uint256,address)";
+        signatures[62] = "userNormalFeeClaims(uint256,address)";
+        signatures[63] = "userPreorderData(uint256,address)";
     }
 
     function _expectSelectorMissing(string memory signature) internal view {
@@ -263,9 +262,9 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     function testExpectedSelectorBaselineIncludesRuntimeSurface() external {
         string[] memory signatures = _expectedLauncherSelectorSignatures();
-        assertEq(signatures.length, 65, "expected selector count");
+        assertEq(signatures.length, 64, "expected selector count");
         assertEq(signatures[0], "RATIO()", "first selector");
-        assertEq(signatures[64], "userPreorderData(uint256,address)", "last selector");
+        assertEq(signatures[63], "userPreorderData(uint256,address)", "last selector");
 
         // Verify every expected selector actually exists on the proxy.
         // Pad calldata with 256 zero-bytes so the abi decoder does not revert
@@ -309,10 +308,8 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
                 // PUSH4 opcode — next 4 bytes are the selector.
                 if (i + 5 > code.length) break;
                 bytes4 sel = bytes4(
-                    (uint32(uint8(code[i + 1])) << 24)
-                        | (uint32(uint8(code[i + 2])) << 16)
-                        | (uint32(uint8(code[i + 3])) << 8)
-                        | uint32(uint8(code[i + 4]))
+                    (uint32(uint8(code[i + 1])) << 24) | (uint32(uint8(code[i + 2])) << 16)
+                        | (uint32(uint8(code[i + 3])) << 8) | uint32(uint8(code[i + 4]))
                 );
                 // Skip selectors below the RATIO() floor — compiler metadata noise.
                 if (uint32(sel) < 0x10000000) continue;

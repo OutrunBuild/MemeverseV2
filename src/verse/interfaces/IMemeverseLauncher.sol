@@ -135,6 +135,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         address memeverseSwapRouter;
         address polSplitter;
         address bootstrapImpl;
+        address memeverseUniswapHook;
     }
 
     /// @notice Bundle of launcher-configured numeric parameters returned by `getLauncherParameters`.
@@ -398,11 +399,6 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @dev Implementations are expected to guard this with their admin or owner flow.
     /// @param memeverseSwapRouter The new router address.
     function setMemeverseSwapRouter(address memeverseSwapRouter) external;
-
-    /// @notice Exposes the hook configured for preorder settlement and unlock-protection writes.
-    /// @dev The launcher stores this explicitly instead of resolving it from the router on each use.
-    /// @return memeverseHook The configured hook address.
-    function memeverseUniswapHook() external view returns (address memeverseHook);
 
     /// @notice Initializes the launcher's hook binding.
     /// @dev The hook binding is write-once because live pool identities include the hook address.

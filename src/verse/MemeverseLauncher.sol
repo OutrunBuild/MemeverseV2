@@ -163,6 +163,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         contracts.memeverseSwapRouter = memeverseLauncherStorage.memeverseSwapRouter;
         contracts.polSplitter = memeverseLauncherStorage.polSplitter;
         contracts.bootstrapImpl = memeverseLauncherStorage.bootstrapImpl;
+        contracts.memeverseUniswapHook = memeverseLauncherStorage.memeverseUniswapHook;
     }
 
     function getLauncherParameters() external view returns (LauncherParameters memory parameters) {
@@ -171,10 +172,6 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         parameters.preorderVestingDuration = memeverseLauncherStorage.preorderVestingDuration;
         parameters.oftReceiveGasLimit = memeverseLauncherStorage.oftReceiveGasLimit;
         parameters.yieldDispatcherGasLimit = memeverseLauncherStorage.yieldDispatcherGasLimit;
-    }
-
-    function memeverseUniswapHook() external view returns (address) {
-        return memeverseLauncherStorage.memeverseUniswapHook;
     }
 
     function polend() external view override returns (address) {

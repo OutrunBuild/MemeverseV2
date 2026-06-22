@@ -108,11 +108,8 @@ contract MemeverseLauncherConfigTest is Test {
         return address(launcher).call(abi.encodeWithSignature("setMemeverseUniswapHook(address)", hookAddress));
     }
 
-    function _readMemeverseUniswapHook() internal view returns (bool ok, address hookAddress) {
-        (bool success, bytes memory data) =
-            address(launcher).staticcall(abi.encodeWithSignature("memeverseUniswapHook()"));
-        if (!success || data.length != 32) return (false, address(0));
-        return (true, abi.decode(data, (address)));
+    function _readMemeverseUniswapHook() internal view returns (address hookAddress) {
+        return launcher.getLauncherContracts().memeverseUniswapHook;
     }
 
     /// @notice Set up.
@@ -402,8 +399,7 @@ contract MemeverseLauncherConfigTest is Test {
         launcher.setMemeverseSwapRouter(address(settledRouter));
         assertEq(launcher.getLauncherContracts().memeverseSwapRouter, address(settledRouter));
 
-        (bool readHookOk, address storedHook) = _readMemeverseUniswapHook();
-        assertTrue(readHookOk, "hook getter missing");
+        address storedHook = _readMemeverseUniswapHook();
         assertEq(storedHook, address(configuredHook));
     }
 
@@ -434,8 +430,7 @@ contract MemeverseLauncherConfigTest is Test {
         configuredHook.setPoolInitializer(address(router));
         launcher.setMemeverseUniswapHook(address(configuredHook));
 
-        (bool readHookOk, address storedHook) = _readMemeverseUniswapHook();
-        assertTrue(readHookOk, "hook getter missing");
+        address storedHook = _readMemeverseUniswapHook();
         assertEq(storedHook, address(configuredHook));
     }
 
