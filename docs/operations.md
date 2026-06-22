@@ -113,20 +113,25 @@
 
 本节覆盖 UUPS 可升级合约和 `TransparentUpgradeableProxy` Hook 的升级操作规程。升级的本质是让 proxy 指向新的 implementation 合约，proxy 地址不变、storage 数据不变、用户无感知。部署记录还必须把不可升级但一等返回的 `lpTokenImplementation` 与 `preorderSettlementExecutor` 作为独立 artifacts 记录。
 
-#### 3.9.1 可升级合约汇总
+#### 3.9.1 可升级与可替换实现合约汇总
 
 | 合约 | proxy 来源 / proxy salt label | implementation 部署来源 | 当前可证 implementation salt label | 授权门控 | 特殊约束 |
 | --- | --- | --- | --- | --- | --- |
+| **UUPS 可升级** | | | | | |
 | `MemeverseLauncher` | `MemeverseScript._deployMemeverseLauncher`; proxy salt = `MemeverseLauncher + nonce` | `MemeverseScript._deployMemeverseLauncher` 内部署 | `MemeverseLauncherImplementation + nonce` | `onlyOwner` | 存储 `polend`/`polSplitter` proxy 地址，不可运行时替换 |
 | `POLend` | `MemeverseScript._deployPOLend`; proxy salt = `POLend + nonce` | `MemeverseScript._deployPOLend` 内部署 | `POLendImplementation + nonce` | `onlyOwner` | 存储 `launcher`/`splitter` 地址；`leveragedDebtFactor` 技术上限 `uint128.max * 1e18` |
 | `POLSplitter` | `MemeverseScript._deployPOLSplitter`; proxy salt = `POLSplitter + nonce` | `MemeverseScript._deployPOLSplitter` 内部署 | `POLSplitterImplementation + nonce` | `onlyOwner` | 存储 `launcher`/`polend` 地址；初始化时读 `launcher.polend()` |
+| **透明代理可升级** | | | | | |
 | `MemeverseUniswapHook` | `DeployMemeverseHookProxy.getPredictedProxy(..., nonce, hookOwner, hookTreasury, poolManager)`；内部 `_selectProxySalt` 使用 `keccak256(abi.encodePacked("MemeverseUniswapHookProxy", nonce, i))` 选择 nonce-scoped hook-flag proxy salt | `DeployMemeverseHookProxy` 通过 `new MemeverseUniswapHook(poolManager)` 部署 | `N/A` | Hook proxy admin slot 指向的 `ProxyAdmin.owner()` | `poolManager` 不在 proxy storage 中，是字节码级绑定；poolManager 匹配是 operator-side pre-check |
+| **治理代理可升级** | | | | | |
 | `MemecoinDaoGovernorUpgradeable` | `MemeverseProxyDeployer.deployGovernorAndIncentivizer`; proxy salt = `keccak256(abi.encode(uniqueId))` | `MemeverseScript._deployMemecoinGovernorImplementation` | `MemecoinDaoGovernorImplementation + nonce` | `onlyGovernance` | 需走 OZ Governor 提案流程；`_authorizeUpgrade` 由 Governor 合约内部 `_governanceCall` 放行 |
 | `GovernanceCycleIncentivizerUpgradeable` | `MemeverseProxyDeployer.deployGovernorAndIncentivizer`; proxy salt = `keccak256(abi.encode(uniqueId))` | `MemeverseScript._deployImplementation` | `GovernanceCycleIncentivizerImplementation + nonce` | `onlyGovernance` | 实际校验 `msg.sender == _governor`（即 Governor proxy 地址） |
+| **Facade delegatecall 目标（非 proxy，可替换实现）** | | | | | |
+| `MemeverseBootstrap` | N/A（非 proxy，Launcher `delegatecall` 目标） | `MemeverseScript` 单角色模式 `new MemeverseBootstrap()` | N/A | `setBootstrapImpl`（`onlyOwner`） | 与 Launcher 共享 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；替换方式为部署新 sibling + owner `setBootstrapImpl`（非 UUPS `upgradeToAndCall`）；sibling 读 proxy storage，被 EOA 直调时读自身空 storage 回退 |
 
 #### 3.9.2 升级前：Storage 兼容性验证
 
-所有 6 个合约使用 ERC7201 名域存储（namespaced storage）。每个合约的自定义数据存在一个由 namespace 字符串计算出的固定槽位起始位置。下表列出各合约的 annotation（`@custom:storage-location`，含 `erc7201:` scheme 前缀）和实际参与 slot hash 的 namespace ID：
+所有 7 个合约使用 ERC7201 名域存储（namespaced storage）。每个合约的自定义数据存在一个由 namespace 字符串计算出的固定槽位起始位置。下表列出各合约的 annotation（`@custom:storage-location`，含 `erc7201:` scheme 前缀）和实际参与 slot hash 的 namespace ID：
 
 | 合约 | annotation（代码注解） | namespace ID（hash 输入） |
 |---|---|---|
@@ -136,6 +141,9 @@
 | `MemeverseUniswapHook` | `erc7201:outrun.storage.MemeverseUniswapHook` | `outrun.storage.MemeverseUniswapHook` |
 | `MemecoinDaoGovernorUpgradeable` | `erc7201:outrun.storage.MemecoinDaoGovernor` | `outrun.storage.MemecoinDaoGovernor` |
 | `GovernanceCycleIncentivizerUpgradeable` | `erc7201:outrun.storage.GovernanceCycleIncentivizer` | `outrun.storage.GovernanceCycleIncentivizer` |
+| `MemeverseBootstrap` | `erc7201:outrun.storage.MemeverseLauncher` | `outrun.storage.MemeverseLauncher`（与 `MemeverseLauncher` 相同） |
+
+`MemeverseBootstrap` 与 `MemeverseLauncher` facade 共享同一 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；升级任一方 storage layout 时另一方必须用相同 struct 同步重编，否则 Launcher facade 经 `delegatecall` 调用 sibling 时会读写错位。`MemeverseBootstrap` 行的 namespace 经 `layout at erc7201("outrun.storage.MemeverseLauncher")` 子句绑定，`@custom:storage-location` 注解实际挂在 `src/verse/interfaces/IMemeverseLauncherStorage.sol::MemeverseLauncherStorage`。
 
 ERC7201 槽位计算公式：`keccak256(abi.encode(uint256(keccak256(“outrun.storage.XXX”)) - 1)) & ~bytes32(uint256(0xff))`。注意：`erc7201:` 仅是 annotation scheme 前缀，用于标识 struct 使用 ERC7201 存储，**不参与** slot hash 计算。可以用 `cast storage <proxy> <slot>` 直接读链上数据验证。
 
@@ -350,6 +358,11 @@ cast call $LAUNCHER_PROXY "memeverseUniswapHook()(address)" --rpc-url $RPC
 
 cast call $LAUNCHER_PROXY "memeverseRegistrar()(address)" --rpc-url $RPC
 # 应等于 Registrar 地址
+
+# bootstrapImpl：getLauncherContracts() 返回的 LauncherContracts 第 8 字段
+cast call $LAUNCHER_PROXY "getLauncherContracts()" --rpc-url $RPC
+# 返回的 LauncherContracts 中 bootstrapImpl 字段应为非零地址且有代码（即当前接线的 MemeverseBootstrap sibling）
+# 可用 cast codehash $BOOTSTRAP_IMPL --rpc-url $RPC 二次确认非空
 ```
 
 **MemeverseUniswapHook：**

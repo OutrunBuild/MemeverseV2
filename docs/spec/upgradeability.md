@@ -41,6 +41,8 @@
 | `MemeverseDynamicFeeEngine` | `ERC1967Proxy` + UUPS | `initialize(initialOwner, authorizedHook_)` | `_authorizeUpgrade(...) => onlyOwner + poolManager mismatch guardrail` | `src/swap/MemeverseDynamicFeeEngine.sol::initialize`、`::_authorizeUpgrade` |
 | **透明代理可升级** | | | | |
 | `MemeverseUniswapHook` | `TransparentUpgradeableProxy` + `ProxyAdmin` | `initialize(initialOwner, treasury_, dynamicFeeEngine_, lpTokenImplementation_, preorderSettlementExecutor_)` | Hook proxy admin 的 `ProxyAdmin.owner()`；已部署 Hook 使用同一 `hookOwner` 作为 Hook `owner()` 与 `ProxyAdmin.owner()` | `script/DeployMemeverseHookProxy.s.sol`（Hook proxy 部署与 existing proxy 校验）；`src/swap/MemeverseUniswapHook.sol::initialize`；getter 区 `::dynamicFeeEngine`、`::lpTokenImplementation`、`::preorderSettlementExecutor` |
+| **Facade delegatecall 目标（非 proxy）** | | | | |
+| `MemeverseBootstrap` | Launcher facade `delegatecall` 目标（非 proxy） | 无（纯逻辑合约，读 proxy storage） | owner `setBootstrapImpl` 替换指针（非 UUPS `upgradeToAndCall`） | `src/verse/MemeverseBootstrap.sol`；`src/verse/MemeverseLauncher.sol::setBootstrapImpl`、`::_deployLiquidity`；`src/verse/interfaces/IMemeverseBootstrap.sol::deployLiquidity` |
 
 ## 3. 初始化约束（当前代码实际支持）
 
@@ -84,8 +86,10 @@
 - `deployCaller` 是执行 CREATE3 / proxy 部署的调用者，`initialOwner` 是 Launcher proxy 初始化后的 owner；两者显式拆分。默认脚本支持两种模式：`deployCaller == initialOwner` 时脚本在部署中直接写入 `setFundMetaData`；`deployCaller != initialOwner` 时跳过 fund metadata，由 `initialOwner` 单独调用 `setFundMetaData`。测试 harness 通过覆盖 `_beginMemeverseLauncherOwnerExecution` 实现 `vm.startPrank` 以在单交易内测试双角色路径。`[代码已证]`
   - 证据：`script/MemeverseScript.s.sol::_deployMemeverseLauncher`、`::_setMemeverseLauncherFundMetaData`; `test/verse/deployment/MemeverseProxyDeployer.t.sol::_beginMemeverseLauncherOwnerExecution`
 - `POLend` / `POLSplitter` 通过 Launcher `initialize(...)` 参数（`polend_`、`polSplitter_`）写入，且必须是各自 canonical proxy address。
-- readiness 检查覆盖 Launcher proxy 可读配置、launcher-bound 依赖 back-reference、`fundMetaDatas[uAsset]`、以及 `POLend.settlementDustStates(uAsset).maxReserve`，不能只检查 implementation 或 proxy code 存在。
-  - 证据：`script/MemeverseScript.s.sol::_checkMemeverseLauncherDeployment`、`::_requireDeploymentReady`、`::_requireFundMetaDataReady`、`::_readSettlementDustState`
+- readiness 检查覆盖 Launcher proxy 可读配置、launcher-bound 依赖 back-reference、`fundMetaDatas[uAsset]`、`POLend.settlementDustStates(uAsset).maxReserve`，以及 `bootstrapImpl` 有代码，不能只检查 implementation 或 proxy code 存在。
+  - 证据：`script/MemeverseScript.s.sol::_checkMemeverseLauncherDeployment`、`::_requireDeploymentReady`、`::_requireFundMetaDataReady`、`::_readSettlementDustState`、`::_readBootstrapImpl`
+- `bootstrapImpl` 由部署期 owner `setBootstrapImpl` 配置（非 `initialize` 参数）；`Genesis -> Locked` 的 bootstrap 流动性部署由 Launcher facade `::_deployLiquidity` 经 `delegatecall` 委托 `MemeverseBootstrap::deployLiquidity`，在 proxy storage 上下文执行。readiness 校验 `bootstrapImpl` 有代码。`[代码已证]`
+  - 证据：`src/verse/MemeverseLauncher.sol::setBootstrapImpl`、`::_deployLiquidity`；`src/verse/MemeverseBootstrap.sol::deployLiquidity`
 - `proxiableUUID()` 在 implementation 上可读；通过 proxy 调用 `proxiableUUID()` 必须按 UUPS guard 回退，不能作为 proxy readiness 成功检查。
 
 ## 4. Proxy / Deployer 假设（仅限代码可证）
@@ -107,6 +111,11 @@
 - `lpTokenImplementation` 与 `preorderSettlementExecutor` 是 first-class deployment artifacts，不是 UUPS surface；脚本必须在 `DeploymentResult.lpTokenImplementation` 与 `DeploymentResult.preorderSettlementExecutor` 中返回。same-nonce 复用时二者都要校验预测地址、地址非零与代码存在。二者的运行期 codehash 都必须等于预期值（`lpTokenImplementation` 对应 `EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH`，`preorderSettlementExecutor` 对应 `EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH`，见 `script/DeployMemeverseHookProxy.s.sol::_validateExistingImplementationCodehashes`）；二者 readiness 均不包含 pool-manager getter 检查。`[代码已证]`
 - `lpTokenImplementation` 与 `preorderSettlementExecutor` 在升级语义上不对称。`preorderSettlementExecutor` 暴露 owner setter `setPreorderSettlementExecutor`（`src/swap/MemeverseUniswapHook.sol::setPreorderSettlementExecutor`），可由 owner 原子替换，替换后所有 pool 立即生效。`lpTokenImplementation` 同样暴露 owner setter `setLpTokenImplementation`（`src/swap/MemeverseUniswapHook.sol::setLpTokenImplementation`），可由 owner 替换克隆模板；但替换仅影响后续新建的 pool，已部署 pool 的 LP token clone 不受影响。根因：`preorderSettlementExecutor` 是所有 pool 共享的单例，hook 每次 preorder settlement 经内部读取（`src/swap/MemeverseUniswapHook.sol::executePreorderSettlement`）取最新指针，替换后立即生效。`lpTokenImplementation` 则是每个 pool 在 `beforeInitialize` 经 `Clones.clone` 独立克隆的模板（`src/swap/MemeverseUniswapHook.sol::_beforeInitialize`），EIP-1167 minimal proxy 在 clone 时即固化实现地址，clone 实例不可迁移。因此 `setLpTokenImplementation` 替换指针后，仅对此后新建的 pool 生效；已存在 pool 的 LP token clone 永久指向旧实现，无法热修，只能引导流动性迁移到新 pool。`[代码已证]`
 - `POLend.initialize(...)` 必须拒绝 `leveragedDebtFactor_ > uint128.max * 1e18`；后续 owner setter 使用同一技术上限，升级不得放宽该边界。`[代码已证]`
+- `MemeverseBootstrap` 是 Launcher facade 受信 `delegatecall` 目标，属 Launcher proxy 受信代码集；`setBootstrapImpl` 为 `onlyOwner`，与 Launcher 其他 admin setter 一致。`[代码已证]`
+  - sibling 与 Launcher facade 共享同一 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；sibling 只写 bootstrap 语义字段，零越界写其他 storage。
+  - facade `::_deployLiquidity` 前置守卫 `bootstrapImpl != address(0)`（`BootstrapImplNotSet`），防零地址 void `delegatecall` 静默成功、bootstrap 不执行却推进状态。
+  - sibling 被 EOA 直调时读自身空 storage 回退（sibling 无 `Initializable`、无自身 storage），不构成可利用路径。
+  - 证据：`src/verse/MemeverseBootstrap.sol`；`src/verse/MemeverseLauncher.sol::setBootstrapImpl`、`::_deployLiquidity`；`src/verse/interfaces/IMemeverseBootstrap.sol::deployLiquidity`；`src/verse/interfaces/IMemeverseLauncher.sol::BootstrapImplNotSet`
 
 ## 5. 与文档链的关系
 

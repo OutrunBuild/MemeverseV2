@@ -85,7 +85,8 @@
 
 重点配置事件（均 `[代码已证]`）：
 
-- Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits` 等
+- Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits`、`SetBootstrapImpl` 等
+  - `SetBootstrapImpl(address indexed bootstrapImpl)`：bootstrap sibling 实现指针替换事件，owner-level；脚本单角色模式部署期与 owner `setBootstrapImpl(...)` 替换时均以新接线地址 `(bootstrapImpl)` 单值触发。事件不携带旧值，旧值需通过历史日志或 `getLauncherContracts()` 快照对比获取。`[代码已证]`
 - RegistrationCenter：`SetSupportedUAsset`、`SetDurationDaysRange`、`SetRegisterGasLimit`
 - Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`LauncherUpdated`、`PoolInitializerUpdated`、`PoolInitializationAuthorized`、`DefaultLaunchFeeConfigUpdated`、`DynamicFeeEngineUpdated`、`LPTokenImplementationUpdated`、`PreorderSettlementExecutorUpdated`
   - `DynamicFeeEngineUpdated`：在 `upgradeDynamicFeeEngine` 中 emit，标记 engine pointer 替换（非 implementation 升级）。

@@ -16,6 +16,7 @@
 - `MemeverseRegistrationCenter`：中心链注册入口与 fan-out。`[代码已证]`
 - `MemeverseRegistrarAtLocal` 或 `MemeverseRegistrarOmnichain`：注册执行层。`[代码已证]`
 - `MemeverseLauncher`：verse 生命周期与资金总编排；当前为 `IOutrunDeployer` CREATE3 部署的 `ERC1967Proxy + UUPS` proxy。`[代码已证]`
+- `MemeverseBootstrap`：bootstrap 流动性部署 sibling；Launcher facade 经 `delegatecall` 调用的纯逻辑合约，与 Launcher 共享同一 ERC-7201 storage namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct，在 proxy storage 上下文执行主池+三辅助池创建、preorder settlement 接线与 residual 处置。本身非 proxy（无 `Initializable`、无自身 storage），部署期由 owner `setBootstrapImpl` 接线。`[代码已证]`
 - `MemeverseProxyDeployer`：per-verse clone/proxy 部署器。`[代码已证]`
 - `YieldDispatcher`：收益 OFT compose 分发器。`[代码已证]`
 - `MemeverseOmnichainInteroperation` + `OmnichainMemecoinStaker`：跨链 staking 路径。`[代码已证]`
@@ -66,6 +67,7 @@
 ## 4. 关键部署依赖事实
 
 - Launcher 配置 router / hook 时的 set-time 三重校验与 write-once 语义见 [docs/spec/invariants.md](../invariants.md) INV-04；`Genesis -> Locked` 执行建池前会做 launch-time preflight 复核，避免配置漂移到运行建池时才失败。`[代码已证]`
+- `Genesis -> Locked` 的 bootstrap 流动性部署由 Launcher facade `::_deployLiquidity` 经 `delegatecall` 委托 `MemeverseBootstrap`（`src/verse/MemeverseBootstrap.sol::deployLiquidity` / `src/verse/interfaces/IMemeverseBootstrap.sol::deployLiquidity`）。sibling 与 Launcher facade 共享同一 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct，在 proxy storage 上下文执行；sibling 地址由 owner `setBootstrapImpl` 配置（`src/verse/MemeverseLauncher.sol::setBootstrapImpl`），未配置时 `Genesis -> Locked` 回退 `BootstrapImplNotSet`。`[代码已证]`
 - `polend` 与 `polSplitter` 都是 Launcher proxy 初始化写入的必需接线，当前代码不存在 unset 或运行中换地址路径。注册、创世部署、fee preview/claim、unlock settlement 都直接依赖这两个固定地址。`[代码已证]`
 - 具体接线语义：
   - `polend`：注册时 `registerLendMarket`，部署时 `finalizeLeveragedGenesis`，Locked governor PT fee 预兑付时 `preRedeemPTFee`，unlock settlement 时按需 `executeGlobalSettlement`
@@ -91,10 +93,10 @@
 
 脚本支持两种部署模式：
 
-- **单角色部署**（`deployCaller == initialOwner`，如同一 EOA 既部署又持有 owner）：脚本在部署过程中直接写入 `setFundMetaData`。readiness check 通过后即可打开 registration。`[代码已证]`
-证据：`script/MemeverseScript.s.sol:_deployMemeverseLauncher, _setMemeverseLauncherFundMetaData`
-- **双角色部署**（`deployCaller != initialOwner`，如 DevOps 负责部署、multisig 持有 owner）：脚本部署 proxy 并执行 `initialize`，但跳过 `setFundMetaData` 写入。`initialOwner` 必须在单独交易中调用 `launcher.setFundMetaData(...)`，完成后才能通过 readiness check 并打开 registration。脚本在检测到双角色部署时输出 console 警告。`[代码已证]`
-证据：`script/MemeverseScript.s.sol:_deployMemeverseLauncher`（条件跳过 + 警告 log）
+- **单角色部署**（`deployCaller == initialOwner`，如同一 EOA 既部署又持有 owner）：脚本在部署过程中直接写入 `setFundMetaData` 与 `setBootstrapImpl`（脚本部署 `MemeverseBootstrap` sibling 并 `launcher.setBootstrapImpl(...)` 接线）。readiness check 通过后即可打开 registration。`[代码已证]`
+证据：`script/MemeverseScript.s.sol:_deployMemeverseLauncher, _setMemeverseLauncherFundMetaData`；`src/verse/MemeverseLauncher.sol::setBootstrapImpl`
+- **双角色部署**（`deployCaller != initialOwner`，如 DevOps 负责部署、multisig 持有 owner）：脚本部署 proxy 并执行 `initialize`，但跳过 `setFundMetaData` 与 `setBootstrapImpl` 写入。`initialOwner` 必须在单独交易中调用 `launcher.setFundMetaData(...)` 与 `launcher.setBootstrapImpl(...)`，完成后才能通过 readiness check 并打开 registration。脚本在检测到双角色部署时输出 console 警告。`[代码已证]`
+证据：`script/MemeverseScript.s.sol:_deployMemeverseLauncher`（条件跳过 + 警告 log，文案为 `"WARNING: deployCaller(%s) != initialOwner(%s) -- fund metadata and bootstrapImpl must be set by initialOwner"`）
 
 Launcher、`POLend`、`POLSplitter`、`lpTokenImplementation`、`preorderSettlementExecutor` 使用同一 `DEPLOYMENT_NONCE` 派生各自 salt；脚本输出的 `DeploymentResult` 必须把这些地址作为 first-class fields 返回，不能只把后两者当作内部临时地址。
 
@@ -114,7 +116,8 @@ Launcher、`POLend`、`POLSplitter`、`lpTokenImplementation`、`preorderSettlem
 3. `_deployMemeverseLauncher(nonce)`：部署 Launcher implementation（salt = `MemeverseLauncherImplementation + nonce`），用预测的 POLend 和 POLSplitter 地址构建 proxy creation code，部署 Launcher proxy（salt = `MemeverseLauncher + nonce`）。
 4. `_deployPOLSplitter(nonce)`：部署 POLSplitter implementation（salt = `POLSplitterImplementation + nonce`），用已部署的 Launcher 地址构建 proxy creation code，部署 POLSplitter proxy（salt = `POLSplitter + nonce`）。`POLSplitter.initialize` 内部调用 `launcher.polend()` 获取 POLend 地址，因此 Launcher 必须先部署。
 5. 部署 `lpTokenImplementation` 与 `preorderSettlementExecutor`，并写入 `DeploymentResult.lpTokenImplementation`、`DeploymentResult.preorderSettlementExecutor`。
-6. 打开 registration 前执行 readiness checks。fund metadata readiness 取决于部署模式：单角色部署时脚本已在部署中写入 `setFundMetaData`；双角色部署时 `initialOwner` 须在单独交易中调用 `launcher.setFundMetaData(...)`，否则 readiness check 失败。
+6. 单角色部署模式下，脚本部署 `MemeverseBootstrap` sibling 并调用 `launcher.setBootstrapImpl(address(bootstrapImpl))` 接线（双角色模式跳过，由 `initialOwner` 在单独交易中完成）。
+7. 打开 registration 前执行 readiness checks。fund metadata 与 bootstrapImpl readiness 取决于部署模式：单角色部署时脚本已在部署中写入 `setFundMetaData` 与 `setBootstrapImpl`；双角色部署时 `initialOwner` 须在单独交易中调用 `launcher.setFundMetaData(...)` 与 `launcher.setBootstrapImpl(...)`，否则 readiness check 失败。
 
 Readiness checks 至少包括：`[代码已证]`
 证据：`script/MemeverseScript.s.sol:_checkMemeverseLauncherDeployment, _checkPOLendDeployment, _checkPOLSplitterDeployment, _requireDeploymentReady`
@@ -129,6 +132,7 @@ Readiness checks 至少包括：`[代码已证]`
 - `polend.owner() == initialOwner`、`polend.launcher() == launcherProxy`、`polend.splitter() == polSplitterProxy`、`polend.treasury() == POLEND_TREASURY`。
 - `polSplitter.owner() == initialOwner`、`polSplitter.launcher() == launcherProxy`、`polSplitter.polend() == polendProxy`。
 - `DeploymentResult.lpTokenImplementation` 与 `DeploymentResult.preorderSettlementExecutor` 均为非零地址且 `code.length > 0`。
+- `bootstrapImpl`（经 `launcher.getLauncherContracts()` 读取 `LauncherContracts` 第 8 字段）非零且有代码；脚本 `_readBootstrapImpl` 取值后 `_requireContractCode(bootstrapImpl, "BOOTSTRAP_IMPL_NOT_READY")`。`[代码已证]`
 - 同一 nonce 复用时，`lpTokenImplementation` 与 `preorderSettlementExecutor` 必须和按当前 salt 预测出的地址一致；二者的运行期 codehash 都必须等于预期值（`lpTokenImplementation` 对应 `EXPECTED_LP_TOKEN_IMPLEMENTATION_CODEHASH`，`preorderSettlementExecutor` 对应 `EXPECTED_PREORDER_SETTLEMENT_EXECUTOR_CODEHASH`，见 `script/DeployMemeverseHookProxy.s.sol::_validateExistingImplementationCodehashes`），同时要求地址非零且有代码。
 - 每个支持的 `uAsset` 都有非零 `fundMetaDatas(uAsset).minTotalFund` 与 `fundMetaDatas(uAsset).fundBasedAmount`。
 - `POLend.settlementDustStates(uAsset).maxReserve > 0`。
