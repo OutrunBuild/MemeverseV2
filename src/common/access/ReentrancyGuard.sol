@@ -9,9 +9,17 @@ abstract contract ReentrancyGuard {
     error ReentrancyGuardReentrantCall();
 
     modifier nonReentrant() {
-        require(!locked, ReentrancyGuardReentrantCall());
-        locked = true;
+        _nonReentrantBefore();
         _;
+        _nonReentrantAfter();
+    }
+
+    function _nonReentrantBefore() private {
+        if (locked) revert ReentrancyGuardReentrantCall();
+        locked = true;
+    }
+
+    function _nonReentrantAfter() private {
         locked = false;
     }
 }

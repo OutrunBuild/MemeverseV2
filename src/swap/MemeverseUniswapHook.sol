@@ -313,14 +313,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return memeverseUniswapHookStorage.supportedProtocolFeeCurrencies[currency];
     }
 
-    function PROTOCOL_FEE_RATIO_BPS() external pure returns (uint256) {
-        return FeeMath.PROTOCOL_FEE_SHARE_BPS;
-    }
-
-    function BPS_BASE() external pure returns (uint256) {
-        return FeeMath.BPS_BASE;
-    }
-
     function poolInfo(PoolId poolId)
         external
         view
@@ -404,7 +396,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     }
 
     modifier onlyLauncher() {
-        if (msg.sender != memeverseUniswapHookStorage.launcher) revert Unauthorized();
+        _checkLauncher();
         _;
     }
 
@@ -586,6 +578,10 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(specifiedDeltaInput, int128(0)), 0);
+    }
+
+    function _checkLauncher() private view {
+        if (msg.sender != memeverseUniswapHookStorage.launcher) revert Unauthorized();
     }
 
     function _revertIfPublicSwapBlocked(PoolId poolId) internal view {
