@@ -130,9 +130,9 @@ Follow the `orchestration_profile`, writer roles, review roles, verifier require
 For `prod-semantic` work, use this sequence:
 
 1. run `gate.sh --classify-only`
-2. main session decides whether spec/docs changes are required
-3. if spec/docs changes are required, dispatch `harness_writer_roles` for that spec/doc round
-4. once the spec/doc round is ready, dispatch `spec-reviewer` before any code writer
+2. main session decides whether **product documentation** changes are required, by grepping the entire `docs/` tree for entries describing the affected behavior, fund flow, permissions, events, or invariants. Scope covers both the `docs/spec/` spec subtree AND `docs/` root-level product docs (`GLOSSARY`, `ARCHITECTURE`, `implementation-map`, `operations`, `SECURITY_AND_APPROVALS`, `TRACEABILITY`, `VERIFICATION`). `docs/superpowers/` (brainstorming specs and plans) is a design record, NOT this round. The main session MUST output the candidate-doc list with a per-item verdict (update / no-update + reason) before proceeding; a silent decision is not allowed.
+3. if product doc changes are required, dispatch `harness_writer_roles` (`process-implementer`) for that doc round across the affected `docs/` files
+4. once the doc round is ready, dispatch `spec-reviewer` before any code writer
 5. if other harness-control changes are required, dispatch `harness_writer_roles`
 6. dispatch `code_writer_roles`
 7. run `code_review_roles`
