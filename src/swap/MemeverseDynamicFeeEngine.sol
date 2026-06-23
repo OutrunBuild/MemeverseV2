@@ -6,7 +6,9 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {wadExp} from "solmate/utils/SignedWadMath.sol";
 
 import {IMemeverseDynamicFeeEngine} from "./interfaces/IMemeverseDynamicFeeEngine.sol";
@@ -59,6 +61,10 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         mapping(address hook => mapping(address trader => mapping(PoolId poolId => AddressBatchState)))
             addressBatchStates;
         address authorizedHook;
+        // Rebate fields appended for the referral rebate feature. Keyed by the unwrapped ERC20 address to
+        // match the hook's supportedProtocolFeeCurrencies convention.
+        uint256 referrerRebateBps;
+        mapping(address referrer => mapping(address token => uint256)) pendingRebate;
     }
 
     MemeverseDynamicFeeEngineStorage private memeverseDynamicFeeEngineStorage;
@@ -78,6 +84,9 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
         if (authorizedHook_ == address(0)) revert ZeroAddress();
         __OutrunOwnable_init(initialOwner);
         memeverseDynamicFeeEngineStorage.authorizedHook = authorizedHook_;
+        // Default rebate rate: 10% of the total fee (carved out of the protocol share).
+        memeverseDynamicFeeEngineStorage.referrerRebateBps = 1000;
+        emit ReferrerRebateBpsUpdated(0, 1000);
     }
 
     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
@@ -95,6 +104,50 @@ contract MemeverseDynamicFeeEngine layout at erc7201("outrun.storage.MemeverseDy
     /// @inheritdoc IMemeverseDynamicFeeEngine
     function authorizedHook() external view override returns (address) {
         return memeverseDynamicFeeEngineStorage.authorizedHook;
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function setReferrerRebateBps(uint256 bps) external override onlyOwner {
+        if (bps > FeeMath.PROTOCOL_FEE_SHARE_BPS) revert RebateExceedsProtocolShare();
+        uint256 old = memeverseDynamicFeeEngineStorage.referrerRebateBps;
+        memeverseDynamicFeeEngineStorage.referrerRebateBps = bps;
+        emit ReferrerRebateBpsUpdated(old, bps);
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function referrerRebateBps() external view override returns (uint256) {
+        return memeverseDynamicFeeEngineStorage.referrerRebateBps;
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    function pendingRebateOf(address referrer, Currency currency) external view override returns (uint256) {
+        return memeverseDynamicFeeEngineStorage.pendingRebate[referrer][Currency.unwrap(currency)];
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    /// @dev Hook-only pure-ledger entry. The hook performs the PoolManager `take` to this engine's
+    ///      address (delta recorded on the hook, offset by its `beforeSwap` specifiedDelta credit) and
+    ///      then calls this, so token custody already lives on the engine; this call only increments the
+    ///      referrer's pending balance. No external call here, so CEI holds trivially and no unsettled
+    ///      engine delta is created. Doing the `take` here instead would leave a -amount delta on the
+    ///      engine (v4 records `take` deltas on msg.sender) that the swap unlock never settles, reverting
+    ///      with `CurrencyNotSettled` on the real v4 PoolManager.
+    function accrueRebate(address referrer, Currency currency, uint256 amount) external override onlyAuthorizedCaller {
+        if (referrer == address(0) || amount == 0) return;
+        memeverseDynamicFeeEngineStorage.pendingRebate[referrer][Currency.unwrap(currency)] += amount;
+        emit ReferralRebateAccrued(referrer, currency, amount);
+    }
+
+    /// @inheritdoc IMemeverseDynamicFeeEngine
+    /// @dev No ReentrancyGuard: the pending balance is zeroed before the external ERC20 transfer (CEI), so a
+    ///      malicious `transfer` callback cannot withdraw more than the caller's accrued rebate.
+    function claimRebate(Currency currency, address recipient) external override returns (uint256 amount) {
+        if (recipient == address(0)) revert ZeroAddress();
+        amount = memeverseDynamicFeeEngineStorage.pendingRebate[msg.sender][Currency.unwrap(currency)];
+        if (amount == 0) return 0;
+        memeverseDynamicFeeEngineStorage.pendingRebate[msg.sender][Currency.unwrap(currency)] = 0;
+        if (!IERC20Minimal(Currency.unwrap(currency)).transfer(recipient, amount)) revert ERC20TransferFailed();
+        emit ReferralRebateClaimed(msg.sender, recipient, currency, amount);
     }
 
     /// @inheritdoc IMemeverseDynamicFeeEngine

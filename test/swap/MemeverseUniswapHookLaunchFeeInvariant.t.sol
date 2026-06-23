@@ -96,8 +96,8 @@ contract LaunchFeeQuoteHandler is Test {
 contract DirectPreorderSettlementHandler is Test {
     uint160 internal constant SQRT_PRICE_1_1 = 79228162514264337593543950336;
     uint256 internal constant MAX_SWAP_AMOUNT = 10_000 ether;
-    uint256 internal constant PROTOCOL_FEE_BPS = 30;
-    uint256 internal constant LP_FEE_BPS = 70;
+    uint256 internal constant PROTOCOL_FEE_BPS = 35;
+    uint256 internal constant LP_FEE_BPS = 65;
     uint256 internal constant BPS_BASE = 10_000;
     MemeverseUniswapHook internal immutable hook;
     address internal immutable owner;
@@ -385,7 +385,7 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
             address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 200 ether, true, false));
 
         assertTrue(ok, "zeroForOne currency1");
-        assertEq(token1.balanceOf(settlementRecipient) - recipientToken1Before, 99.0021 ether, "recipient net output");
+        assertEq(token1.balanceOf(settlementRecipient) - recipientToken1Before, 99.002275 ether, "recipient net output");
         assertEq(token1.balanceOf(address(handler)), payerToken1Before, "payer output token unchanged");
     }
 
@@ -395,7 +395,7 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
         (bool ok,) =
             address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 100 ether, true, true));
         assertTrue(ok, "zeroForOne currency0");
-        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "zeroForOne currency0 treasury0");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.35 ether, "zeroForOne currency0 treasury0");
         assertEq(token1.balanceOf(treasury) - treasury1Before, 0, "zeroForOne currency0 treasury1");
         assertEq(token1.balanceOf(settlementRecipient), 49.5 ether, "zeroForOne currency0 recipient1");
 
@@ -406,8 +406,8 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
             address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 200 ether, true, false));
         assertTrue(ok, "zeroForOne currency1");
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0, "zeroForOne currency1 treasury0");
-        assertEq(token1.balanceOf(treasury) - treasury1Before, 0.2979 ether, "zeroForOne currency1 treasury1");
-        assertEq(token1.balanceOf(settlementRecipient), 148.5021 ether, "zeroForOne currency1 recipient1");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 0.347725 ether, "zeroForOne currency1 treasury1");
+        assertEq(token1.balanceOf(settlementRecipient), 148.502275 ether, "zeroForOne currency1 recipient1");
         assertEq(token1.balanceOf(address(handler)), handlerToken1Before, "zeroForOne currency1 payer1");
 
         treasury0Before = token0.balanceOf(treasury);
@@ -416,9 +416,9 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
         (ok,) =
             address(handler).call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 300 ether, false, true));
         assertTrue(ok, "oneForZero currency0");
-        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.44685 ether, "oneForZero currency0 treasury0");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.5215875 ether, "oneForZero currency0 treasury0");
         assertEq(token1.balanceOf(treasury) - treasury1Before, 0, "oneForZero currency0 treasury1");
-        assertEq(token0.balanceOf(settlementRecipient), 148.50315 ether, "oneForZero currency0 recipient0");
+        assertEq(token0.balanceOf(settlementRecipient), 148.5034125 ether, "oneForZero currency0 recipient0");
         assertEq(token0.balanceOf(address(handler)), handlerToken0Before, "oneForZero currency0 payer0");
 
         treasury0Before = token0.balanceOf(treasury);
@@ -427,8 +427,8 @@ contract MemeverseUniswapHookPreorderSettlementInvariantTest is StdInvariant, Te
             .call(abi.encodeWithSignature("settlementSwap(uint256,bool,bool)", 400 ether, false, false));
         assertTrue(ok, "oneForZero currency1");
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0, "oneForZero currency1 treasury0");
-        assertEq(token1.balanceOf(treasury) - treasury1Before, 1.2 ether, "oneForZero currency1 treasury1");
-        assertEq(token0.balanceOf(settlementRecipient), 346.50315 ether, "oneForZero currency1 recipient0");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 1.4 ether, "oneForZero currency1 treasury1");
+        assertEq(token0.balanceOf(settlementRecipient), 346.5034125 ether, "oneForZero currency1 recipient0");
 
         assertEq(handler.settlementSwapCount(), 4, "settlement count");
     }
