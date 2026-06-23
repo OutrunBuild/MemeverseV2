@@ -25,8 +25,9 @@
 - Dispatch and review are selected by policy-derived `orchestration_profile`.
 - Derive `change_class`, `surface_sensitivity`, `orchestration_profile`, `harness_writer_roles`, `code_writer_roles`, and `code_review_roles` from policy/gate evidence before delegating.
 - For `prod-semantic` work, the main session decides whether spec/docs or other harness-control changes are needed before dispatching `harness_writer_roles`, `code_writer_roles`, or `code_review_roles`.
+- For `prod-semantic` changes the gate emits `doc_round_required=true` and fills `harness_writer_roles` with `process-implementer`. When `doc_round_required=true`, the main session MUST run the product-doc round first — grep the entire `docs/` tree (both `docs/spec/` and `docs/` root-level product docs), output a per-item update/no-update verdict, dispatch `process-implementer` for the affected `docs/` files, then dispatch `spec-reviewer` — before any code writer. The gate does not compute `affected_docs`; that semantic judgment stays with the main session.
 - If the main session decides spec/docs changes are required, complete that spec/doc writing round first and dispatch `spec-reviewer` immediately after the spec/doc changes are ready, before any code writer is dispatched.
-- `spec-reviewer` dispatch is a main-session orchestration hook, not a `gate.sh` output field. Separately, `requires_human_confirmation` remains a policy signal for spec/doc paths and does not itself decide reviewer dispatch.
+- `spec-reviewer` dispatch is a main-session orchestration hook, not a `gate.sh` output field. For `prod-semantic` work the doc round that precedes it is triggered by the gate's `doc_round_required` signal; `spec-reviewer` itself remains a hook, not a routing field. Separately, `requires_human_confirmation` remains a policy signal for spec/doc paths and does not itself decide reviewer dispatch.
 - Main session may directly modify files only for `direct` and `direct-review`.
 - Main session must not author `delegated`, `full-review`, or `full-subagent` changes except to integrate approved subagent output.
 - Do not dispatch writer or reviewer agents for `direct`.

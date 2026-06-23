@@ -46,6 +46,10 @@
     ]
   },
   "orchestration_rules": {
+    "doc_round": {
+      "trigger_change_class": ["prod-semantic"],
+      "writer_role": "process-implementer"
+    },
     "scope_escalation": {
       "prod_solidity_max_files_before_full_review": 1,
       "prod_solidity_max_semantic_lines_before_full_review": 20

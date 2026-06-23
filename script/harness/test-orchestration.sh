@@ -445,7 +445,8 @@ jq -e '
   .harness_writer_roles == ["process-implementer"] and
   (has("spec_review_required") | not) and
   .code_writer_roles == [] and
-  .code_review_roles == []
+  .code_review_roles == [] and
+  .doc_round_required == false
 ' "$docs_record" >/dev/null
 assert_no_removed_fields "$docs_record"
 
@@ -459,7 +460,8 @@ jq -e '
   .harness_writer_roles == ["process-implementer"] and
   (has("spec_review_required") | not) and
   .code_writer_roles == [] and
-  .code_review_roles == []
+  .code_review_roles == [] and
+  .doc_round_required == false
 ' "$readme_record" >/dev/null
 assert_no_removed_fields "$readme_record"
 
@@ -471,7 +473,8 @@ jq -e '
   (has("spec_review_required") | not) and
   .code_writer_roles == [] and
   .code_review_roles == [] and
-  .requires_human_confirmation == true
+  .requires_human_confirmation == true and
+  .doc_round_required == false
 ' "$spec_record" >/dev/null
 assert_no_removed_fields "$spec_record"
 
@@ -484,7 +487,8 @@ jq -e '
   .harness_writer_roles == [] and
   (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
-  .code_review_roles == ["logic-reviewer"]
+  .code_review_roles == ["logic-reviewer"] and
+  .doc_round_required == false
 ' "$test_record" >/dev/null
 assert_no_removed_fields "$test_record"
 
@@ -494,7 +498,8 @@ src_record="$(run_classify srcsol "$src_changed" "$src_diff")"
 jq -e '
   .change_class == "prod-semantic" and
   .orchestration_profile == "full-review" and
-  .harness_writer_roles == [] and
+  .harness_writer_roles == ["process-implementer"] and
+  .doc_round_required == true and
   (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"]
@@ -507,7 +512,8 @@ jq -e '
   .file_input_mode == "planned-files" and
   .change_class == "prod-semantic" and
   .orchestration_profile == "full-review" and
-  .harness_writer_roles == [] and
+  .harness_writer_roles == ["process-implementer"] and
+  .doc_round_required == true and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
   (.residual_risks[] | select(.rule_id == "planned-solidity-classification"))
@@ -523,7 +529,8 @@ jq -e '
   .harness_writer_roles == [] and
   .code_writer_roles == ["solidity-implementer"] and
   .code_review_roles == ["logic-reviewer"] and
-  (.residual_risks[] | select(.rule_id == "planned-solidity-classification"))
+  (.residual_risks[] | select(.rule_id == "planned-solidity-classification")) and
+  .doc_round_required == false
 ' "$planned_test_record" >/dev/null
 assert_no_removed_fields "$planned_test_record"
 
@@ -536,6 +543,7 @@ jq -e '
   (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
+  .doc_round_required == true and
   .requires_human_confirmation == true
 ' "$mixed_record" >/dev/null
 assert_no_removed_fields "$mixed_record"
@@ -549,6 +557,7 @@ jq -e '
   (has("spec_review_required") | not) and
   .code_writer_roles == ["solidity-implementer"] and
   (.code_review_roles | sort) == ["gas-reviewer", "logic-reviewer", "security-reviewer"] and
+  .doc_round_required == true and
   .requires_human_confirmation == false
 ' "$mixed_non_spec_record" >/dev/null
 assert_no_removed_fields "$mixed_non_spec_record"
@@ -558,7 +567,8 @@ jq -e '
   .changed_files == ["script/harness/gate.sh"] and
   .change_class == "non-semantic" and
   .orchestration_profile == "delegated" and
-  .final_verdict == "classified"
+  .final_verdict == "classified" and
+  .doc_round_required == false
 ' "$single_direct_record" >/dev/null
 assert_no_removed_fields "$single_direct_record"
 

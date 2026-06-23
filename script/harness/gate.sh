@@ -1484,6 +1484,7 @@ declare -a code_review_roles=()
 harness_writer_roles_json='[]'
 code_writer_roles_json='[]'
 code_review_roles_json='[]'
+doc_round_required=false
 
 append_unique orchestration_reasons "change_class=$change_class"
 append_unique orchestration_reasons "surface_sensitivity=$surface_sensitivity"
@@ -1525,6 +1526,25 @@ if [ "$change_class" = "prod-semantic" ]; then
         structural_escalation=true
         append_unique orchestration_reasons "mixed_solidity_and_harness_control"
     fi
+fi
+
+
+# Doc round: prod-semantic changes implicitly require a product-doc round
+# (AGENTS.md step 2-4). Surface-based writer derivation only fills
+# process-implementer when docs/ are in the input, so a pure-code
+# prod-semantic change would otherwise emit harness_writer_roles=[] and the
+# main session could silently skip the doc round. Gate-emitted here to mirror
+# risk_analysis_summary_required: the main session must run the doc round
+# (grep docs/ + per-doc update/no-update) before any code writer. The gate
+# does NOT compute affected_docs -- that semantic judgment stays with the main
+# session.
+if jq -e --arg class "$change_class" \
+    'has("orchestration_rules") and (.orchestration_rules.doc_round.trigger_change_class // [] | index($class)) != null' \
+    "$policy_file" >/dev/null 2>&1; then
+    doc_round_required=true
+    doc_round_writer_role="$(jq -r '.orchestration_rules.doc_round.writer_role // "process-implementer"' "$policy_file")"
+    append_unique harness_writer_roles "$doc_round_writer_role"
+    append_unique orchestration_reasons "doc_round_required"
 fi
 
 if [ "${#changed_files[@]}" -eq 0 ] && [ "$hard_blocked" -eq 0 ]; then
@@ -1646,6 +1666,7 @@ classification_record_json="$(jq -cn \
     --argjson risk_analysis_record_required "$risk_analysis_record_required" \
     --argjson risk_analysis_summary_required "$risk_analysis_summary_required" \
     --argjson requires_doc_editorial_attestation "$requires_doc_editorial_attestation" \
+    --argjson doc_round_required "$doc_round_required" \
     --argjson requires_human_confirmation "$requires_human_confirmation" \
     --arg orchestration_profile "$orchestration_profile" \
     --arg default_orchestration_profile "$default_orchestration_profile" \
@@ -1683,6 +1704,7 @@ classification_record_json="$(jq -cn \
       risk_analysis_summary_required: $risk_analysis_summary_required,
       doc_editorial_attestation: null,
       requires_doc_editorial_attestation: $requires_doc_editorial_attestation,
+      doc_round_required: $doc_round_required,
       requires_human_confirmation: $requires_human_confirmation,
       orchestration_profile: $orchestration_profile,
       verification_profile: $verification_profile,
