@@ -32,6 +32,7 @@
 | `MemeverseUniswapHook` | `supportedProtocolFeeCurrencies[currency]` | `setProtocolFeeCurrency` / `setProtocolFeeCurrencySupport` | owner-only | 协议费币种选择（输入侧优先） | `[代码已证]` |
 | `MemeverseUniswapHook` | `launcher` | `setLauncher` | 非零；允许 owner 在部署后 retarget，属于同一 trust boundary 的接受语义 | preorder settlement 授权 + pair-based `setPublicSwapResumeTime` 写入权限绑定 | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig={start,min,decaySeconds}` | `setDefaultLaunchFeeConfig` | 全部非零；`min<=start<=10000` | 启动窗口费率衰减 | `[代码已证]` |
+| `MemeverseUniswapHook`（经 wrapper 转发到 `MemeverseDynamicFeeEngine`） | `referrerRebateBps` | `setReferrerRebateBps`（hook wrapper `onlyOwner` -> `engine.setReferrerRebateBps`，engine 的 `onlyOwner` 是 hook proxy） | `<= FeeMath.PROTOCOL_FEE_SHARE_BPS`（即 `<= 3500`），否则 engine revert `RebateExceedsProtocolShare` | 返佣率（占总 fee bps）；engine `initialize` 默认 `1000`（10%） | `[代码已证]` |
 | `MemeverseOmnichainInteroperation` | `oftReceiveGasLimit`,`omnichainStakingGasLimit` | `setGasLimits` | 两者 `>0` | memecoin 远端 staking OFT options | `[代码已证]` |
 | `MemeverseProxyDeployer` | `quorumNumerator` | `setQuorumNumerator` | 非零 | 仅影响后续新部署 governor 初始化 | `[代码已证]` |
 | `POLend` | `leveragedDebtFactor` | `initialize` / `setLeveragedDebtFactor` | 非零；`<= uint128.max * 1e18`；与当前利率满足最小杠杆乘积约束 | 未来 `None / Genesis` market 的 debt cap 与剩余杠杆容量预览 | `[代码已证]` |
@@ -70,7 +71,8 @@ canonical Launcher address 是 `IOutrunDeployer` CREATE3 部署的 ERC1967 proxy
 | `MemeverseRegistrationCenter` | `FIXED_LOCKUP_DURATION` | `365 days` | 注册时固定锁定期；`unlockTime = endTime + 365 days`，不是注册参数或 owner 配置项 | `[代码已证]` |
 | `MemeverseRegistrarAtLocal` | `registrationCenter.DAY()` | 中心链配置值 | 本地报价读取 registration center 的时间单位 | `[代码已证]` |
 | `MemeverseRegistrarAtLocal` | unlock 辅助计算 | `365 days` | 本地报价辅助使用固定锁定期，与中心链最终写入语义一致 | `[代码已证]` |
-| `FeeMath` | `PROTOCOL_FEE_SHARE_BPS` | `3000` | shared fee math 中 protocol/LP 按 30%/70% 拆分 `feeBps` | `[代码已证]` |
+| `FeeMath` | `PROTOCOL_FEE_SHARE_BPS` | `3500` | shared fee math 中 protocol/LP 按 35%/65% 拆分 `feeBps` | `[代码已证]` |
+| `MemeverseDynamicFeeEngine` | `referrerRebateBps` 初始值 | `1000` | engine `initialize` 写入；返佣率（占总 fee bps，有 referrer 时从 protocol share 切出）；上限 `<= FeeMath.PROTOCOL_FEE_SHARE_BPS`（`3500`）；owner 可经 hook wrapper `setReferrerRebateBps` 后续修改 | `[代码已证]` |
 | `MemeverseUniswapHook` | `TICK_SPACING` | `200` | 只接受该 tick spacing | `[代码已证]` |
 | `MemeverseUniswapHook` | `PREORDER_SETTLEMENT_FEE_BPS` | `100` | preorder 结算固定 1% | `[代码已证]` |
 | `MemeverseUniswapHook` | `defaultLaunchFeeConfig` 初始值 | `start=5000,min=100,decay=900s` | proxy `initialize(initialOwner, treasury_, dynamicFeeEngine_, lpTokenImplementation_, preorderSettlementExecutor_)` 初始化；同时建立默认启动费率配置、engine / LP template / preorder executor 绑定；owner 可通过 `setDefaultLaunchFeeConfig(...)` 后续修改 | `[代码已证]` |

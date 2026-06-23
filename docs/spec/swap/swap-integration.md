@@ -76,13 +76,21 @@ fee claim 需要单独区分两类能力：
 
 - Protocol fee 币种选择规则（V4：输入侧优先、支持列表、`CurrencyNotSupported` 回退）见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3。
 - `treasury` 必须只是收款方，不应在收款回调里继续发起交易。
+- 返佣（referral rebate）切流：普通 swap 若 `hookData` 前 20 字节 packed 携带非零 referrer，protocol fee 收取点（`MemeverseUniswapHook::_collectProtocolFee`）先计算 `rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`，再 split：
+  - `toTreasury = protocolFee - rebate` 经 `_takeToTreasury` 到 treasury；
+  - `rebate` 经 `MemeverseDynamicFeeEngine::accrueRebate` 由 engine `poolManager.take` 到 engine 自身 custody，并累加到 `pendingRebate[referrer][currency]`。
+- rebate custody 在 engine（与 LP fee 在 hook 隔离）；rebate currency 与该 swap 的 protocol fee currency 一致，in-kind，不进入 treasury、不经过下游 uAsset / POLend 转换。
+- rebate 为 pull 模式：swap 时只记账 + take，referrer 须主动调 `MemeverseDynamicFeeEngine::claimRebate(currency, recipient)` 领取（engine 独立可调，不经 hook）。
+- `ProtocolFeeCollected.amount`（on hook）现是 treasury 实收（`toTreasury`），带 referrer 时 `< protocolFee`，差额在 engine 上的 `ReferralRebateAccrued` 事件；索引器统计 protocol 总收入须同时读 hook 的 `ProtocolFeeCollected` 与 engine 的 `ReferralRebateAccrued`。
+- 无 referrer（`hookData` 空或前 20 字节为零）时不切 rebate，treasury 收全额 protocol fee。
+- preorder settlement 路径（`executePreorderSettlement`）不携带 referrer，不参与返佣；其 `ProtocolFeeCollected.amount` 仍是完整 protocol fee。
 
 ### 2.3 两者是分开结算的
 
 正确理解是：
 
 - `LP fee`：输入侧
-- `Protocol fee`：由支持列表决定，输入侧优先
+- `Protocol fee`：由支持列表决定，输入侧优先；有 referrer 时再切 rebate 到 engine custody
 
 ### 2.4 启动期收费语义
 
@@ -121,7 +129,7 @@ function swap(
 - `amountInMaximum`：
   - exact-input 时可传 `0`
   - exact-output 时必须传
-- `hookData`：透传给 hook 的额外数据；普通集成路径通常可传空，当前公开 Router 不再为 preorder settlement 保留专用 marker
+- `hookData`：透传给 hook 的额外数据；普通集成路径通常可传空，当前公开 Router 不再为 preorder settlement 保留专用 marker。若要携带 referrer 以触发返佣，caller 必须用 `abi.encodePacked(referrer)` 把 referrer 地址 packed 放入前 20 字节（`abi.encode` 会左 padding 导致 `MemeverseUniswapHook::_decodeReferrer` 误读，禁止使用）；长度 < 20 字节或前 20 字节为全零视为无 referrer，protocol fee 不切 rebate
 
 返回值含义：
 

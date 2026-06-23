@@ -29,3 +29,7 @@
 - **Registrar**：把注册结果写入 launcher 的执行层（本地或异链接收）。
 - **DAY（注册时间单位）**：注册中心当前实现中的常量单位为 180 秒，不等于自然日。
 - **Protocol Fee Currency**：Hook 允许收取 protocol fee 的币种白名单。
+- **Referrer（推荐人）**：普通 swap 的 `hookData` 前 20 字节 packed 携带的地址（caller 用 `abi.encodePacked(referrer)`；`abi.encode` 会左 padding 被 `MemeverseUniswapHook::_decodeReferrer` 误读，禁止使用）。无签名、无准入、无 referee 侧；自推荐合法。preorder settlement 路径不携带 referrer。详见 [docs/spec/swap/uniswap-v4.md §3](spec/swap/uniswap-v4.md)。
+- **Rebate（返佣）**：普通 swap 有 referrer 时，从 protocol fee 切给 referrer 的份额。`rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`（等价 `totalFee × referrerRebateBps / BPS_BASE`）。in-kind（与该 swap 的 protocol fee currency 一致），不进 treasury、不经下游 uAsset / POLend 转换。守恒与偿付能力约束见 [docs/spec/invariants.md INV-20](spec/invariants.md)。
+- **referrerRebateBps（返佣率）**：返佣占总 fee 的 bps（默认 `1000` = 10%，上限 `FeeMath.PROTOCOL_FEE_SHARE_BPS = 3500`）。engine `initialize` 默认 `1000`；owner 经 hook wrapper `MemeverseUniswapHook::setReferrerRebateBps` 转发到 `MemeverseDynamicFeeEngine::setReferrerRebateBps`（engine 的 `onlyOwner` 是 hook proxy）。配置矩阵见 [docs/spec/verse/config-matrix.md §2](spec/verse/config-matrix.md)。
+- **pendingRebate（未领返佣）**：engine 上 per-referrer、per-currency 的未领返佣累积。swap 时由 `MemeverseDynamicFeeEngine::accrueRebate` 记账（engine `poolManager.take` 到 engine 自身 custody）；referrer 经 `MemeverseDynamicFeeEngine::claimRebate` pull 领取（engine 独立可调，不经 hook；CEI 清零后 transfer）。custody 在 engine，与 LP fee 在 hook 隔离。运维语义见 [docs/operations.md §3.11](operations.md)。

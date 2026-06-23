@@ -208,8 +208,8 @@ accounting.md 只保留对 Launcher 侧记账入口的引用：launcher 把 fee/
 ### 7.3 Launch Fee 的分配对象
 
 - Launch fee 本身不产生独立分配；它是 effective fee 的一部分，参与与常规 swap fee 相同的拆分：
-  - **LP 分配**：`lpFeeBps = effectiveFeeBps - protocolFeeBps`（即 `effectiveFeeBps * 7000 / 10000`）
-  - **Protocol 分配**：`protocolFeeBps = effectiveFeeBps * 3000 / 10000`
+  - **LP 分配**：`lpFeeBps = effectiveFeeBps - protocolFeeBps`（即 `effectiveFeeBps * 6500 / 10000`，对应 `FeeMath.PROTOCOL_FEE_SHARE_BPS = 3500` 的 LP/protocol = 65/35 拆分）
+  - **Protocol 分配**：`protocolFeeBps = effectiveFeeBps * 3500 / 10000`
 - LP fee 按 per-share 累加到 `fee0PerShare / fee1PerShare`，LP 持有人通过 `claimFeesCore` 领取。
 - Protocol fee 发送到 `treasury` 地址。
 
@@ -217,9 +217,9 @@ accounting.md 只保留对 Launcher 侧记账入口的引用：launcher 把 fee/
 
 - Preorder settlement swap 使用独立路径 `executePreorderSettlement`，不经过 `beforeSwap/afterSwap` 回调。
 - 固定费率 `PREORDER_SETTLEMENT_FEE_BPS = 100`（1%），不使用动态费也不使用衰减曲线。
-- 分配同样遵循 70/30 拆分：
-  - `lpFeeBps = 70`（0.7%）
-  - `protocolFeeBps = 30`（0.3%）
+- 分配同样遵循 65/35 拆分（与普通 swap 一致，LP/protocol = `FeeMath.PROTOCOL_FEE_SHARE_BPS` 对应比例）：
+  - `lpFeeBps = 65`（0.65%）
+  - `protocolFeeBps = 35`（0.35%）
 - 输入侧费用在 settlement 入口直接收取：
   - LP fee 部分：从 `payer` pull ERC20 到 hook，按 per-share 计入 LP 分配；若 `cachedLpTotalSupply == 0`（有效 LP 供应量为零，无 LP 可接收分配）则整笔回退 `NoActiveLiquidityShares`，LP fee 与 protocol fee 均不收取、整笔 settlement 失败（fail-closed，避免费用滞留 hook）。settlement 入口 `_revertIfNoActiveLiquidityShares` 另在「缓存为 0 但 pool liquidity > 0」的不一致状态提前 revert 同一错误。详见 `uniswap-v4.md` §5。
   - Protocol fee 部分：从 `payer` pull ERC20 直接到 `treasury`。
