@@ -260,6 +260,11 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     /// @notice Upgrades the implementation behind the currently bound dynamic fee engine proxy.
     /// @dev Engine ownership must stay on this hook so governance has one control path: hook owner -> hook -> engine.
     ///      The engine's own UUPS authorization validates the new implementation and preserves its storage.
+    ///      When upgrading a deployed engine to an implementation that introduces the referral rebate,
+    ///      `referrerRebateBps` keeps its prior value (0 on an engine initialized under an older
+    ///      implementation), so rebates stay disabled until the owner sets the rate. Pass
+    ///      `abi.encodeCall(IMemeverseDynamicFeeEngine.setReferrerRebateBps, (1000))` as `data` (or call
+    ///      `hook.setReferrerRebateBps(1000)` after the upgrade) to activate the default 10% rate.
     /// @param newImplementation New engine implementation address.
     /// @param data Optional migration calldata forwarded to the engine proxy.
     function upgradeDynamicFeeEngineImplementation(address newImplementation, bytes calldata data) external onlyOwner {
@@ -306,14 +311,6 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
 
     function supportedProtocolFeeCurrencies(address currency) external view returns (bool) {
         return memeverseUniswapHookStorage.supportedProtocolFeeCurrencies[currency];
-    }
-
-    function PROTOCOL_FEE_RATIO_BPS() external pure returns (uint256) {
-        return FeeMath.PROTOCOL_FEE_SHARE_BPS;
-    }
-
-    function BPS_BASE() external pure returns (uint256) {
-        return FeeMath.BPS_BASE;
     }
 
     function poolInfo(PoolId poolId)
@@ -399,7 +396,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     }
 
     modifier onlyLauncher() {
-        if (msg.sender != memeverseUniswapHookStorage.launcher) revert Unauthorized();
+        _checkLauncher();
         _;
     }
 
@@ -489,18 +486,20 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     }
 
     /// @dev Computes the dynamic fee, collects any exact-input input-side fees, and stores swap context for `afterSwap`.
-    function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
+    function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
         internal
         erc20Pair(key.currency0, key.currency1)
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        PoolId poolId = key.toId();
         // Preorder settlement delegates the pool swap to the dedicated executor contract, so the swap callback
         // `sender` is the executor address — detected via the transient marker set in `executePreorderSettlement`.
-        // Skip the public-swap fee path for those self-initiated swaps.
+        // Skip the public-swap fee path (including referrer decode) for those self-initiated swaps; mirror the
+        // _afterSwap ordering where the preorder early return precedes `_decodeReferrer`.
         if (MemeverseTransientState.isExpectedPreorderSettlementExecutor(sender)) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
+        PoolId poolId = key.toId();
+        address referrer = _decodeReferrer(hookData);
         _revertIfPublicSwapBlocked(poolId);
         uint256 effectiveSupply = _activeLpSupplyForSwap(poolId, params.amountSpecified);
 
@@ -558,7 +557,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
             _collectLpFee(poolId, ctx.currencyIn, ctx.inputIsCurrency0, lpFeeInputAmount, effectiveSupply);
         }
         if (protocolFeeInputAmount > 0) {
-            _collectProtocolFee(poolId, ctx.currencyIn, protocolFeeInputAmount);
+            _collectProtocolFee(poolId, ctx.currencyIn, protocolFeeInputAmount, referrer);
         }
 
         if (params.amountSpecified > 0 && !ctx.protocolFeeOnInput) {
@@ -579,6 +578,10 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(specifiedDeltaInput, int128(0)), 0);
+    }
+
+    function _checkLauncher() private view {
+        if (msg.sender != memeverseUniswapHookStorage.launcher) revert Unauthorized();
     }
 
     function _revertIfPublicSwapBlocked(PoolId poolId) internal view {
@@ -609,11 +612,12 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         PoolKey calldata key,
         SwapParams calldata params,
         BalanceDelta delta,
-        bytes calldata
+        bytes calldata hookData
     ) internal returns (bytes4, int128) {
         if (MemeverseTransientState.isExpectedPreorderSettlementExecutor(sender)) {
             return (IHooks.afterSwap.selector, 0);
         }
+        address referrer = _decodeReferrer(hookData);
 
         PoolId poolId = key.toId();
         SwapFeeContext memory ctx = SwapFeeContext({
@@ -655,7 +659,7 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
                 uint256 actualOutputAbs = _actualOutputAmount(delta, params.zeroForOne);
                 uint256 exactInputProtocolFeeOutputAmount = FeeMath.feeOnAmount(actualOutputAbs, protocolFeeBps);
                 if (exactInputProtocolFeeOutputAmount > 0) {
-                    _collectProtocolFee(poolId, ctx.currencyOut, exactInputProtocolFeeOutputAmount);
+                    _collectProtocolFee(poolId, ctx.currencyOut, exactInputProtocolFeeOutputAmount, referrer);
                 }
                 return (IHooks.afterSwap.selector, int128(int256(exactInputProtocolFeeOutputAmount)));
             }
@@ -691,13 +695,13 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
             if (ctx.protocolFeeOnInput) {
                 uint256 exactOutputProtocolFeeInputAmount = FeeMath.feeOnAmount(actualInputAbs, protocolFeeBps);
                 if (exactOutputProtocolFeeInputAmount > 0) {
-                    _collectProtocolFee(poolId, ctx.currencyIn, exactOutputProtocolFeeInputAmount);
+                    _collectProtocolFee(poolId, ctx.currencyIn, exactOutputProtocolFeeInputAmount, referrer);
                 }
                 unspecifiedDelta = exactOutputLpFeeInputAmount + exactOutputProtocolFeeInputAmount;
             } else {
                 // Output-side protocol fee was grossed up in `beforeSwap`; here the hook withholds the realized output fee from the taker.
                 if (reservedProtocolFeeOutputAmount > 0) {
-                    _collectProtocolFee(poolId, ctx.currencyOut, reservedProtocolFeeOutputAmount);
+                    _collectProtocolFee(poolId, ctx.currencyOut, reservedProtocolFeeOutputAmount, referrer);
                 }
                 unspecifiedDelta = exactOutputLpFeeInputAmount;
             }
@@ -1076,10 +1080,42 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         return encodedFeeBps & SWAP_CONTEXT_PROTOCOL_FEE_ON_INPUT_FLAG != 0;
     }
 
-    function _collectProtocolFee(PoolId poolId, Currency feeCurrency, uint256 protocolFeeAmount) internal {
+    /// @dev Referrer is the first 20 bytes of `hookData`. Empty or short payload means no referrer.
+    function _decodeReferrer(bytes calldata hookData) internal pure returns (address referrer) {
+        if (hookData.length < 20) return address(0);
+        return address(bytes20(hookData[:20]));
+    }
+
+    function _collectProtocolFee(PoolId poolId, Currency feeCurrency, uint256 protocolFeeAmount, address referrer)
+        internal
+    {
         if (protocolFeeAmount == 0) return;
-        address treasury_ = _takeToTreasury(feeCurrency, protocolFeeAmount);
-        emit ProtocolFeeCollected(poolId, feeCurrency, treasury_, protocolFeeAmount, block.number);
+        // rebate = protocolFee × rebateBps / PROTOCOL_FEE_SHARE_BPS
+        //   = (totalFee × 35%) × rebateBps / 35% = totalFee × rebateBps / BPS_BASE
+        // rebateBps is the rebate share of the *total fee* in bps (default 1000 = 10%, max 3500).
+        uint256 rebate = 0;
+        if (referrer != address(0)) {
+            uint256 rebateBps = _dynamicFeeEngine().referrerRebateBps();
+            if (rebateBps != 0) {
+                rebate = FullMath.mulDiv(protocolFeeAmount, rebateBps, FeeMath.PROTOCOL_FEE_SHARE_BPS);
+            }
+        }
+        uint256 toTreasury = protocolFeeAmount - rebate;
+
+        // Always emit ProtocolFeeCollected for indexer continuity (toTreasury may be 0
+        // when rebateBps == PROTOCOL_FEE_SHARE_BPS). _takeToTreasury with amount 0 is a no-op take.
+        address treasury_ = _takeToTreasury(feeCurrency, toTreasury);
+        emit ProtocolFeeCollected(poolId, feeCurrency, treasury_, toTreasury, block.number);
+        if (rebate > 0) {
+            // Hook takes the rebate to the engine's address (delta recorded on the hook, offset by its
+            // `beforeSwap` specifiedDelta credit, which already reserves the full protocol fee). v4 records
+            // `take` deltas on msg.sender, so an engine-internal take would leave an unsettled -rebate on the
+            // engine and revert the unlock with CurrencyNotSettled. The engine then ledgers the rebate purely
+            // and holds the token as claim custody, preserving engine-balance >= sum(pending) solvency.
+            IMemeverseDynamicFeeEngine engine = _dynamicFeeEngine();
+            poolManager.take(feeCurrency, address(engine), rebate);
+            engine.accrueRebate(referrer, feeCurrency, rebate);
+        }
     }
 
     function _collectLpFee(
@@ -1126,7 +1162,12 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
     function _takeToTreasury(Currency feeCurrency, uint256 amount) internal returns (address treasury_) {
         treasury_ = memeverseUniswapHookStorage.treasury;
         if (treasury_ == address(0)) revert Unauthorized();
-        poolManager.take(feeCurrency, treasury_, amount);
+        // Skip the take for a zero amount: when rebateBps == PROTOCOL_FEE_SHARE_BPS the entire protocol
+        // fee goes to the referrer (toTreasury == 0). A zero-amount take would still call transfer(to, 0),
+        // which reverts for non-compliant ERC20s that return false on zero-value transfers.
+        if (amount > 0) {
+            poolManager.take(feeCurrency, treasury_, amount);
+        }
     }
 
     function _setProtocolFeeCurrencySupport(Currency currency, bool supported) internal {
@@ -1232,6 +1273,14 @@ contract MemeverseUniswapHook layout at erc7201("outrun.storage.MemeverseUniswap
         address old = memeverseUniswapHookStorage.treasury;
         memeverseUniswapHookStorage.treasury = _treasury;
         emit TreasuryUpdated(old, _treasury);
+    }
+
+    /// @notice Sets the referral rebate rate on the bound dynamic fee engine.
+    /// @dev The engine's `onlyOwner` sees this hook as its owner; the human governance owner
+    ///      calls this wrapper to adjust the rate post-deployment.
+    /// @param bps New rebate rate in basis points (must not exceed `FeeMath.PROTOCOL_FEE_SHARE_BPS`).
+    function setReferrerRebateBps(uint256 bps) external onlyOwner {
+        _dynamicFeeEngine().setReferrerRebateBps(bps);
     }
 
     /// @notice Enables a currency as a supported protocol-fee settlement currency.

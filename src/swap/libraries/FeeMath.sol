@@ -6,11 +6,11 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 /// @title FeeMath
 /// @notice Shared fee split math and pure dynamic-fee math primitives for Memeverse swap fees.
-/// @dev Basis points (bps) use 10_000 as 100%. The protocol receives 30% of the total fee and LPs receive the rest.
+/// @dev Basis points (bps) use 10_000 as 100%. The protocol receives 35% of the total fee and LPs receive the rest.
 ///      All pure math primitives are `internal` so they inline into callers; the library itself is never deployed.
 library FeeMath {
     uint256 internal constant BPS_BASE = 10_000;
-    uint256 internal constant PROTOCOL_FEE_SHARE_BPS = 3_000;
+    uint256 internal constant PROTOCOL_FEE_SHARE_BPS = 3_500;
 
     // Constants used by the dynamic-fee pure math primitives below. They live here as the single source of truth so
     // both the engine and any importer (tests) reference the same value.

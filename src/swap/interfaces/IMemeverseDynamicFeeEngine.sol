@@ -4,6 +4,7 @@ pragma solidity ^0.8.35;
 import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
 /// @title IMemeverseDynamicFeeEngine
 /// @notice Interface for Memeverse dynamic swap fee quoting and state tracking.
@@ -150,4 +151,52 @@ interface IMemeverseDynamicFeeEngine {
 
     /// @notice Reverts when a caller is not allowed to update dynamic fee state.
     error UnauthorizedCaller(address caller);
+
+    /// @notice Ledgers a referral rebate to `referrer` in `currency`. Hook-only: the hook has already
+    ///         `take`n the rebate from the PoolManager to the engine's address (delta recorded on the hook,
+    ///         offset by its beforeSwap credit); this call only accrues the claimable balance — no external
+    ///         call, no engine-side PoolManager delta.
+    /// @dev No-op when `referrer == address(0)` or `amount == 0`.
+    /// @param referrer Referrer address accruing the rebate.
+    /// @param currency Rebate currency (same as the swap's protocol-fee currency).
+    /// @param amount Rebate amount to accrue.
+    function accrueRebate(address referrer, Currency currency, uint256 amount) external;
+
+    /// @notice Claims the caller's accrued rebate for a currency and transfers it to `recipient`.
+    /// @dev Engine has no ReentrancyGuard: the engine clears `pendingRebate` before the external transfer (CEI).
+    /// @param currency Rebate currency to claim.
+    /// @param recipient Recipient of the transferred rebate.
+    /// @return amount Claimed rebate amount.
+    function claimRebate(Currency currency, address recipient) external returns (uint256 amount);
+
+    /// @notice Sets the global referral rebate rate.
+    /// @dev Engine-owned (the engine's `onlyOwner` is the hook proxy); the hook exposes a wrapper so the
+    ///      human governance owner can adjust the rate post-deployment.
+    /// @param bps New rebate rate in basis points (must not exceed `FeeMath.PROTOCOL_FEE_SHARE_BPS`).
+    function setReferrerRebateBps(uint256 bps) external;
+
+    /// @notice Returns the current global referral rebate rate.
+    /// @return Rebate rate in basis points.
+    function referrerRebateBps() external view returns (uint256);
+
+    /// @notice Returns the accrued (unclaimed) rebate for a referrer in a currency.
+    /// @param referrer Referrer address.
+    /// @param currency Rebate currency.
+    /// @return Accrued rebate amount.
+    function pendingRebateOf(address referrer, Currency currency) external view returns (uint256);
+
+    /// @notice Emitted when a referral rebate is accrued to a referrer.
+    event ReferralRebateAccrued(address indexed referrer, Currency currency, uint256 amount);
+
+    /// @notice Emitted when a referral rebate is claimed and transferred.
+    event ReferralRebateClaimed(address indexed referrer, address indexed recipient, Currency currency, uint256 amount);
+
+    /// @notice Emitted when the global referral rebate rate is updated.
+    event ReferrerRebateBpsUpdated(uint256 oldBps, uint256 newBps);
+
+    /// @notice Reverts when the configured rebate rate exceeds the protocol fee share.
+    error RebateExceedsProtocolShare();
+
+    /// @notice Reverts when an ERC20 transfer returns false.
+    error ERC20TransferFailed();
 }

@@ -301,7 +301,11 @@ interface IMemeverseUniswapHook {
         PoolId indexed poolId, address indexed liquidityToken, Currency indexed currency0, Currency currency1
     );
 
-    /// @notice Emitted when protocol fees are collected
+    /// @notice Emitted when protocol fees are collected.
+    /// @dev `amount` is the portion received by `treasury`. When a swap carries a referrer, the rebate
+    ///      carved out of the protocol fee is emitted separately as `ReferralRebateAccrued` on the engine,
+    ///      so `ProtocolFeeCollected.amount + rebate == totalProtocolFee`. Indexers summing protocol
+    ///      revenue must read both events on referral swaps.
     event ProtocolFeeCollected(
         PoolId indexed poolId, Currency indexed currency, address indexed treasury, uint256 amount, uint256 blockNumber
     );

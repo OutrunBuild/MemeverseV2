@@ -385,8 +385,10 @@ contract MemeverseDynamicFeeEngineTest is Test {
         vm.prank(AUTHORIZED_HOOK);
         IMemeverseDynamicFeeEngine.PreparedSwapFee memory quote = engine.prepareSwapFee(params);
 
-        uint256 expectedGrossOutputAmount = 10_030_090_270_812_437_312;
-        uint256 expectedOutputSideProtocolFee = 30_090_270_812_437_312;
+        // Protocol share is 35 bps (PROTOCOL_FEE_SHARE_BPS = 3500); gross output is grossed up to
+        // cover the output-side protocol fee on top of the 10 ether net output.
+        uint256 expectedGrossOutputAmount = 10_035_122_930_255_895_635;
+        uint256 expectedOutputSideProtocolFee = 35_122_930_255_895_635;
 
         assertEq(quote.feeBps, FEE_BASE_BPS, "base fee");
         assertEq(quote.estimatedOutputAmount, 10 ether, "net output");

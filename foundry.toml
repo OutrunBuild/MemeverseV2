@@ -30,6 +30,7 @@ scroll_sepolia = "${SCROLL_SEPOLIA_RPC}"
 monad_testnet = "${MONAD_TESTNET_RPC}"
 bera_sepolia = "${BERA_SEPOLIA_RPC}"
 
+eth_mainnet = "${ETH_MAINNET_RPC}"
 bsc_mainnet = "${BSC_MAINNET_RPC}"
 
 [etherscan]
@@ -46,6 +47,7 @@ linea_sepolia = { key = "${ETHEREUMSCAN_API_KEY}", chain = "59141", url = "${ETH
 blast_sepolia = { key = "${ETHEREUMSCAN_API_KEY}", chain = "168587773", url = "${ETHEREUMSCAN_API_URL}" }
 scroll_sepolia = { key = "${ETHEREUMSCAN_API_KEY}", chain = "534351", url = "${ETHEREUMSCAN_API_URL}" }
 
+eth_mainnet = { key = "${ETHEREUMSCAN_API_KEY}", chain = "1", url = "${ETHEREUMSCAN_API_URL}" }
 bsc_mainnet = { key = "${ETHEREUMSCAN_API_KEY}", chain = "56", url = "${ETHEREUMSCAN_API_URL}" }
 
 [lint]

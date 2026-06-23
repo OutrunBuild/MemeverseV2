@@ -523,7 +523,7 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 
 #### 3.11.3 `accrueRebate` 只在 swap unlock session 内可调
 
-- `MemeverseDynamicFeeEngine::accrueRebate` 受 `onlyAuthorizedCaller` 保护，且 hook 仅在 `_beforeSwap` / `_afterSwap` 内调用该函数——此时 PoolManager 处于 unlock session。engine 不可独立于 swap 调 `accrueRebate`：非 unlock 上下文下 engine 内部的 `poolManager.take` 会 revert，因此 rebate accrual 与 swap 生命周期严格绑定。`[代码已证]`
+- `MemeverseDynamicFeeEngine::accrueRebate` 受 `onlyAuthorizedCaller` 保护，且 hook 仅在 `_beforeSwap` / `_afterSwap` 内调用该函数——此时 PoolManager 处于 unlock session。修复后 `accrueRebate` 是纯记账（`pendingRebate[referrer][currency] += amount` + emit，无 PoolManager 调用、无外部调用），不再有"engine 内部 `poolManager.take` 在非 unlock 上下文 revert"的问题；take 由 hook 在 `_collectProtocolFee` 内的 unlock session 中执行（v4 `PoolManager.take` delta 记调用者 hook，被 beforeSwap specifiedDelta credit 抵消），故 rebate accrual 仍与 swap 生命周期严格绑定（`onlyAuthorizedCaller` + hook 调用点均在 unlock 内）。`[代码已证]`
 
 `[代码已证]`
 

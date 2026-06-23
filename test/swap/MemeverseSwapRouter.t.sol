@@ -599,7 +599,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
     }
 
     /// @notice Verifies explicit preorder settlement uses fixed 1% economics.
-    /// @dev Confirms the treasury receives the 30% protocol slice of the fixed fee.
+    /// @dev Confirms the treasury receives the 35% protocol slice of the fixed fee.
     function testExecutePreorderSettlement_UsesFixedOnePercentFee() external {
         _setProtocolFeeCurrency(key.currency0);
         uint160 priceLimit = uint160((uint256(SQRT_PRICE_1_1) * 99) / 100);
@@ -624,11 +624,11 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
 
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
-        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "fixed 1% protocol fee");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.35 ether, "fixed 1% protocol fee");
     }
 
     /// @notice Verifies explicit preorder settlement on an output-fee pool only collects the output-side protocol fee once.
-    /// @dev The treasury/output balances should match a single 30 bps output fee on the post-LP-fee swap output.
+    /// @dev The treasury/output balances should match a single 35 bps output fee on the post-LP-fee swap output.
     function testExecutePreorderSettlement_OutputSideProtocolFeeCollectedExactlyOnce() external {
         _setProtocolFeeCurrency(key.currency1);
         hook.setLauncher(address(this));
@@ -648,10 +648,10 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
         );
 
         assertEq(token0.balanceOf(treasury) - treasury0Before, 0, "no input-side protocol fee");
-        assertEq(token1.balanceOf(treasury) - treasury1Before, 0.14895 ether, "single output-side protocol fee");
-        assertEq(token1.balanceOf(address(this)) - sender1Before, 49.50105 ether, "recipient gets net output once");
-        assertEq(delta.amount0(), -int128(int256(99.3 ether)), "delta0 tracks post-LP-fee swap input");
-        assertEq(delta.amount1(), int128(int256(49.50105 ether)), "delta1 reduced by one output-side fee");
+        assertEq(token1.balanceOf(treasury) - treasury1Before, 0.1738625 ether, "single output-side protocol fee");
+        assertEq(token1.balanceOf(address(this)) - sender1Before, 49.5011375 ether, "recipient gets net output once");
+        assertEq(delta.amount0(), -int128(int256(99.35 ether)), "delta0 tracks post-LP-fee swap input");
+        assertEq(delta.amount1(), int128(int256(49.5011375 ether)), "delta1 reduced by one output-side fee");
     }
 
     /// @notice Verifies changing launch-fee floor does not change explicit settlement pricing.
@@ -677,7 +677,7 @@ contract MemeverseSwapRouterTest is Test, HookStorageHelper {
 
         assertLt(delta.amount0(), 0, "delta0");
         assertGt(delta.amount1(), 0, "delta1");
-        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.3 ether, "settlement remains fixed 1%");
+        assertEq(token0.balanceOf(treasury) - treasury0Before, 0.35 ether, "settlement remains fixed 1%");
     }
 
     /// @notice Verifies explicit settlement updates dynamic-fee state even though the pool-manager self-call skips hook callbacks.

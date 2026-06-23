@@ -78,7 +78,7 @@ fee claim 需要单独区分两类能力：
 - `treasury` 必须只是收款方，不应在收款回调里继续发起交易。
 - 返佣（referral rebate）切流：普通 swap 若 `hookData` 前 20 字节 packed 携带非零 referrer，protocol fee 收取点（`MemeverseUniswapHook::_collectProtocolFee`）先计算 `rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`，再 split：
   - `toTreasury = protocolFee - rebate` 经 `_takeToTreasury` 到 treasury；
-  - `rebate` 经 `MemeverseDynamicFeeEngine::accrueRebate` 由 engine `poolManager.take` 到 engine 自身 custody，并累加到 `pendingRebate[referrer][currency]`。
+  - `rebate` 由 hook `poolManager.take(feeCurrency, address(engine), rebate)` 拉到 engine 地址（v4 `PoolManager.take` delta 记调用者 hook，被 beforeSwap specifiedDelta credit 抵消，token 进 engine custody），再调 `MemeverseDynamicFeeEngine::accrueRebate` 纯记账累加 `pendingRebate[referrer][currency]`（无 PoolManager 调用）。
 - rebate custody 在 engine（与 LP fee 在 hook 隔离）；rebate currency 与该 swap 的 protocol fee currency 一致，in-kind，不进入 treasury、不经过下游 uAsset / POLend 转换。
 - rebate 为 pull 模式：swap 时只记账 + take，referrer 须主动调 `MemeverseDynamicFeeEngine::claimRebate(currency, recipient)` 领取（engine 独立可调，不经 hook）。
 - `ProtocolFeeCollected.amount`（on hook）现是 treasury 实收（`toTreasury`），带 referrer 时 `< protocolFee`，差额在 engine 上的 `ReferralRebateAccrued` 事件；索引器统计 protocol 总收入须同时读 hook 的 `ProtocolFeeCollected` 与 engine 的 `ReferralRebateAccrued`。

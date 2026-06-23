@@ -51,9 +51,9 @@ sequenceDiagram
     Note over H: toTreasury = protocolFee - rebate<br/>LP fee 留在 hook
     H->>PM: take toTreasury 到 treasury
     H->>PM: take LP fee 到 hook custody
+    H->>PM: take rebate 到 engine 地址（delta 记 hook，被 specifiedDelta credit 抵消）
     H->>E: accrueRebate(referrer, currency, rebate)
-    E->>PM: take rebate 到 engine 自身 custody
-    E->>E: pendingRebate[referrer][currency] += rebate
+    E->>E: pendingRebate[referrer][currency] += rebate（纯记账，无 PoolManager 调用）
     PM-->>S: BalanceDelta
 
     R->>E: claimRebate(currency, recipient)
