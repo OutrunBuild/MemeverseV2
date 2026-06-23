@@ -63,7 +63,26 @@
 
 | 函数 | 作用 |
 |---|---|
-| `collectProtocolFee` | 从 PoolManager take 出 protocol fee 到 treasury，触发 `ProtocolFeeCollected` 事件。 |
+| `collectProtocolFee` | 从 PoolManager take 出 protocol fee，按 referrer 切 rebate：`toTreasury = protocolFee - rebate` 经 `_takeToTreasury` 到 treasury，`rebate` 经 `MemeverseDynamicFeeEngine::accrueRebate` 由 engine `poolManager.take` 到 engine 自身 custody 并记 `pendingRebate`。进入非零 protocol fee 路径后始终触发 `ProtocolFeeCollected`（`amount` 是 treasury 实收 `toTreasury`，带 referrer 时 < 完整 protocolFee）；`protocolFeeAmount == 0` 时函数早返不 emit，有 rebate 时额外触发 engine 的 `ReferralRebateAccrued`。无 referrer（`_decodeReferrer` 返回零）或 `referrerRebateBps == 0` 时 rebate = 0，等价旧语义。 |
+
+**返佣（Referral Rebate）**
+
+普通 swap 的 protocol fee 拆分从 `LP 70 / protocol 30` 调整为 `LP 65 / protocol 35`（`FeeMath.PROTOCOL_FEE_SHARE_BPS` 从 `3000` 改为 `3500`），并在有 referrer 时从 protocol share 切 rebate：
+
+| 场景 | LP | protocol base（treasury 实收） | rebate |
+|---|---|---|---|
+| 无 referrer | 65% | 35% | 0% |
+| 有 referrer（默认 `referrerRebateBps = 1000`） | 65% | 25% | 10% |
+
+rebate 公式：`rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`（等价 `totalFee × referrerRebateBps / BPS_BASE`）。rebate custody 在 `MemeverseDynamicFeeEngine`（与 LP fee 在 hook 隔离）；engine 在 `accrueRebate` 内通过自身 immutable `poolManager` 引用 `take` 到 `address(this)`，并记 `pendingRebate[referrer][currency] += rebate`。referrer 经 `claimRebate` pull 领取（engine 独立可调，不经 hook；CEI 清零后 transfer）。返佣逻辑放 engine 而非 hook，因 hook runtime 接近 24KB bytecode 上限。
+
+hook 侧返佣路径锚点：
+
+- `_decodeReferrer`：从 `hookData` 前 20 字节 packed 解码 referrer（caller 用 `abi.encodePacked`；`abi.encode` 左 padding 会误读，禁用）；长度 < 20 或前 20 字节全零视为无 referrer。在 `_beforeSwap` 与 `_afterSwap` 各解码一次。
+- `_collectProtocolFee`：4 个调用点（exact-input `beforeSwap` input 侧、exact-input `afterSwap` output 侧、exact-output `afterSwap` input 侧、exact-output `afterSwap` output 侧）均传入 referrer。
+- `setReferrerRebateBps` wrapper：hook `onlyOwner` 转发到 `engine.setReferrerRebateBps`（engine 的 `onlyOwner` 是 hook proxy）。
+
+preorder settlement 路径（`executePreorderSettlement`）不携带 referrer，不参与返佣。
 
 **资产结算与转账**
 

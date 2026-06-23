@@ -67,8 +67,13 @@
 | `LPFeeCollected` / `ProtocolFeeCollected` | `MemeverseUniswapHook` | fee 归集时 | 手续费归属跟踪 |
 | `FeesClaimed` | `MemeverseUniswapHook` | LP 提取收益时 | 已领取 fee 对账 |
 | `PublicSwapResumeTimeUpdated` | `MemeverseUniswapHook` | pool-level 公开 swap 恢复时间更新 | unlock 后公开 swap 保护窗口可观测性 |
+| `ReferralRebateAccrued(address indexed referrer,address currency,uint256 amount)` | `MemeverseDynamicFeeEngine` | 普通 swap 携带非零 referrer 且 `amount > 0` 时，`accrueRebate` 把 rebate take 到 engine custody 并记账后（`referrer == address(0)` 或 `amount == 0` 时 no-op，不 take / 不记账 / 不 emit） | 返佣累计；索引器统计 protocol 总收入须同时读 hook 的 `ProtocolFeeCollected`（treasury 实收 `toTreasury`）与 engine 的 `ReferralRebateAccrued`，二者之和等于该 swap 的完整 protocolFee。**indexed**：`referrer` indexed，可按 referrer 直接 filter；`currency` 未 indexed，按 currency（per-token 统计）对账须扫全表聚合 distinct currency |
+| `ReferralRebateClaimed(address indexed referrer,address indexed recipient,address currency,uint256 amount)` | `MemeverseDynamicFeeEngine` | referrer 调 `claimRebate` 领取 accrued rebate 并 transfer 成功后 | 返佣领取流水；`pendingRebate` 清零先于 external transfer（CEI）。**indexed**：`referrer` 与 `recipient` 均可按地址直接 filter；`currency` 未 indexed，per-token 对账须扫全表聚合 |
+| `ReferrerRebateBpsUpdated(oldBps,newBps)` | `MemeverseDynamicFeeEngine` | `setReferrerRebateBps` 成功后（owner 经 hook wrapper 转发） | 全局返佣率变更审计；engine `initialize` 时以 `(0, 1000)` 触发一次 |
 
 以上均为 `[代码已证]`。
+
+**返佣对 `ProtocolFeeCollected.amount` 语义的影响**：带 referrer 的普通 swap 中，`ProtocolFeeCollected.amount`（on hook）是 treasury 实收 `toTreasury = protocolFee - rebate`，严格小于该 swap 的完整 protocolFee；差额在 engine 上的 `ReferralRebateAccrued.amount`。无 referrer 或 preorder settlement 路径下 `ProtocolFeeCollected.amount` 仍是完整 protocol fee。索引器 / 财务对账若按 swap 维度统计 protocol 总收入，必须把同一 swap 的 `ProtocolFeeCollected` 与 `ReferralRebateAccrued` 求和，否则会漏计 rebate 部分。
 
 ### 2.4 Yield / Governance / Cross-chain
 
@@ -93,6 +98,7 @@
   - `PoolInitializationAuthorized`：一次性授权消费事件，记录单次池初始化授权。
   - `LPTokenImplementationUpdated`：LP token clone 模板替换事件；`initialize` 时以 `(address(0), impl)` 触发，`setLpTokenImplementation` 时以 `(old, new)` 触发。
   - `PreorderSettlementExecutorUpdated`：preorder settlement executor 替换事件，owner-level 安全 retarget；`initialize` 时以 `(address(0), executor)` 触发，`setPreorderSettlementExecutor` 时以 `(old, new)` 触发。
+- Engine（`MemeverseDynamicFeeEngine`）：`ReferrerRebateBpsUpdated`（owner 经 hook wrapper `setReferrerRebateBps` 转发到 engine setter；engine `initialize` 时以 `(0, 1000)` 触发一次）。
 - Interoperation：`SetGasLimits`
 - ProxyDeployer：`SetQuorumNumerator`
 

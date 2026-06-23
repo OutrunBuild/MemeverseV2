@@ -33,6 +33,41 @@ flowchart TD
 - swap 栈只支持 ERC20/ERC20 pair；native 拒绝规则（V5）与收费/币种边界见 [docs/spec/swap/uniswap-v4.md](uniswap-v4.md) §3。
 - 启动期保护通过 Hook 内的 `launch fee window` 费率逻辑体现。
 
+### 1.1 返佣资金流（Referral Rebate）
+
+普通 swap 携带 referrer 时，protocol fee 在 `_collectProtocolFee` 内切出 rebate，rebate custody 在 engine，与 LP fee 在 hook 隔离。
+
+```mermaid
+sequenceDiagram
+    participant S as Swapper
+    participant PM as PoolManager
+    participant H as Hook
+    participant E as Engine
+    participant R as Referrer
+
+    S->>PM: swap(..., hookData=encodePacked(referrer))
+    PM->>H: beforeSwap / afterSwap
+    H->>H: _collectProtocolFee：split protocolFee
+    Note over H: toTreasury = protocolFee - rebate<br/>LP fee 留在 hook
+    H->>PM: take toTreasury 到 treasury
+    H->>PM: take LP fee 到 hook custody
+    H->>E: accrueRebate(referrer, currency, rebate)
+    E->>PM: take rebate 到 engine 自身 custody
+    E->>E: pendingRebate[referrer][currency] += rebate
+    PM-->>S: BalanceDelta
+
+    R->>E: claimRebate(currency, recipient)
+    Note over E: CEI: pendingRebate 先清零
+    E->>R: transfer rebate 到 recipient
+```
+
+说明：
+
+- **rebate custody 在 engine，不在 hook**：`MemeverseUniswapHook` 受 24KB bytecode 限制（V11 / `MemeverseUniswapHook` bytecode budget），rebate 累计记账与 token custody 都落在独立 `MemeverseDynamicFeeEngine` 上，避免 hook 持有额外语义状态。
+- **rebate currency = 该 swap protocol fee 的 currency**：由 `protocolFeeOnInput`（输入侧优先，否则输出侧）决定；rebate 与 protocol fee / LP fee 同侧同币种（in-kind）。无 referrer 时不切 rebate，protocol 收全额 35%。
+- **claimRebate 在 engine 独立可调，不经 hook**：`MemeverseDynamicFeeEngine::claimRebate(currency, recipient)` 直接对 engine 调用；engine `onlyOwner` 是 hook proxy，但 claim 路径无 modifier，任意 referrer 可调用。engine 持有的 token 余额偿付能力见 [docs/spec/invariants.md](../invariants.md) INV-20。
+- **preorder settlement 路径不携带 referrer，不参与返佣**：`executePreorderSettlement` 走 `Launcher -> Hook -> Executor` 显式通道（见 §3），`hookData = ZERO_BYTES`，4 个 `_collectProtocolFee` 调用点不存在，protocol 收全额固定 fee 不切 rebate。
+
 ---
 
 ## 2. 启动期费率窗口

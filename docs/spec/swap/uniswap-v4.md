@@ -56,8 +56,10 @@
 - 若输入和输出都不在支持列表，swap 回退 `CurrencyNotSupported`。
 - Exact-output swap 若实际 gross output 小于请求输出，Hook 回退 `ExactOutputPartialFill()`。
 - Exact-input swap 若实际 pool input 与预期不符，Hook 回退 `ExactInputPartialFill()`。
-- `FeeMath.PROTOCOL_FEE_SHARE_BPS = 3000`；shared fee math 将 `feeBps` 按 30% protocol / 70% LP 拆分。
+- `FeeMath.PROTOCOL_FEE_SHARE_BPS = 3500`；shared fee math 将 `feeBps` 按 35% protocol / 65% LP 拆分。
 - 公开 swap 始终使用正常费率路径：`feeBps = max(current launch fee, dynamic fee, FEE_BASE_BPS)`；dynamic fee engine 故障通过升级/修复处理，不提供 bypass mode。
+- 返佣（referral rebate）：普通 swap 可在 `hookData` 前 20 字节 packed 携带 referrer 地址（caller 用 `abi.encodePacked(referrer)`；`abi.encode` 会左 padding 导致 `MemeverseUniswapHook::_decodeReferrer` 误读，禁止使用）。有 referrer 时，protocol fee 在 `_collectProtocolFee` 内切出 rebate：`rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`（默认 `referrerRebateBps = 1000` = 总 fee 的 10%），`toTreasury = protocolFee - rebate` 到 treasury，`rebate` 经 `MemeverseDynamicFeeEngine::accrueRebate` 由 engine `poolManager.take` 到 engine 自身 custody 并记入 `pendingRebate[referrer][currency]`。无 referrer 时不切 rebate，protocol 收全额 35%。rebate custody 在 engine（与 LP fee 在 hook 隔离）；referrer 经 `MemeverseDynamicFeeEngine::claimRebate` pull 领取（不经 hook）。preorder settlement 路径不携带 referrer，不参与返佣。**返佣按链独立**：每条链的 hook/engine 独立 settle / accrue / claim 该链 swap 的 rebate，无 LayerZero 同步、无跨链聚合、无全局 referrer 状态；referrer 在 A 链累积的 `pendingRebate` 只能在 A 链经 A 链的 engine `claimRebate` 领取，不能在 B 链领。
+- `_decodeReferrer` 在 `_beforeSwap` 与 `_afterSwap` 各解码一次；4 个 `_collectProtocolFee` 调用点（exact-input `beforeSwap` input 侧、exact-input `afterSwap` output 侧、exact-output `afterSwap` input 侧、exact-output `afterSwap` output 侧）均传入 referrer。
 - native 拒绝（V5）：swap 栈只支持 ERC20/ERC20 pair；`key.currency0` / `key.currency1` 任一侧为 `address(0)` 直接 `revert NativeCurrencyUnsupported`。swap 栈不接受 `msg.value`，Permit2 也不为 native 提供任何兜底路径。
 - 非 standard 余额语义 token（fee-on-transfer / rebasing / 其它使名义 `amount` 与实到余额不一致的 token）不在支持范围内：swap 栈（含 preorder settlement 的 Executor 中转 hop）一律按名义 `amount` 执行 `transferFrom` / `settle` / `take`。FoT token 下 settle 因余额不足而整笔原子回滚，不产生资金损失；准入应排除此类 token，运行时不做 FoT 检测。
 

@@ -500,6 +500,33 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 
 脚本为每个失败路径提供明确的错误类型（`Create3SaltConsumed`、`ExistingIntermediateDeploymentNotReusable`、`EngineImplementationCreate3SaltConsumed` 等），而非 solmate 默认的 `DEPLOYMENT_FAILED`。
 
+### 3.11 返佣（Referral Rebate）运维
+
+普通 swap 携带 referrer 时，protocol fee 切 rebate 到 engine custody；rebate 配置与领取独立于 hook 业务路径。
+
+- **领取 rebate（referrer 主动）**：`MemeverseDynamicFeeEngine::claimRebate(currency, recipient)`。无 modifier，任何地址可作为 `recipient`；caller 是 referrer（`pendingRebate` 按 `msg.sender` 索引），`recipient` 非零。engine 无 `ReentrancyGuard`，`pendingRebate` 在 external transfer 前清零（CEI）。currency 与该 referrer 累计 rebate 的 protocol fee currency 一致（in-kind）。`pendingRebate` 是 `[referrer][token]` 二级 mapping 记账，engine 无批量 claim 入口；referrer 若在多 token 累积 rebate 须逐 token 调用 `claimRebate`。前端/SDK 应先从 `ReferralRebateAccrued` 事件历史聚合 distinct currency（`currency` 未 indexed，须扫全表），再对每个 currency 逐次调用 `claimRebate`。
+- **查询未领 rebate**：`MemeverseDynamicFeeEngine::pendingRebateOf(referrer, currency)`（view）。注意 engine 持有的 token 余额 ≥ Σ 所有 referrer 的 `pendingRebate` 是返佣偿付能力不变量（见 [docs/spec/invariants.md](spec/invariants.md) INV-20）。
+- **改返佣率**：`MemeverseUniswapHook::setReferrerRebateBps(bps)`（hook wrapper，`onlyOwner`）转发到 `MemeverseDynamicFeeEngine::setReferrerRebateBps`。engine 的 `onlyOwner` 是 hook proxy，因此 human governance owner 经 hook wrapper 调整。约束 `bps <= FeeMath.PROTOCOL_FEE_SHARE_BPS`（`3500`），否则 engine revert `RebateExceedsProtocolShare`。触发 `ReferrerRebateBpsUpdated(oldBps, newBps)`。
+- **查询当前返佣率**：`MemeverseDynamicFeeEngine::referrerRebateBps()`（view）。engine `initialize` 默认 `1000`（10%）。
+- **engine implementation 升级（`upgradeDynamicFeeEngineImplementation`）**：UUPS proxy storage 保留，`referrerRebateBps` 与 `pendingRebate` mapping 跨升级不丢。但若把一个老部署的 engine（在不含返佣逻辑的实现下 `initialize` 过，其 `referrerRebateBps == 0`）升级到含返佣的实现，`referrerRebateBps` 保留旧值 `0`，rebate 实际禁用（`_collectProtocolFee` 内 `rebateBps != 0` 检查不通过），须经 `data` migration calldata 或升级后调 `hook.setReferrerRebateBps(1000)` 显式激活。推荐升级 calldata：`abi.encodeCall(IMemeverseDynamicFeeEngine.setReferrerRebateBps, (1000))`。
+- **engine pointer 替换（`upgradeDynamicFeeEngine`）**：换 engine proxy 实例，新 engine 的 dynamic fee state 从零开始（EWVWAP / volatility / short-impact 全 reset）。旧 engine 的 `pendingRebate` 不随之迁移：旧 engine 仍独立部署，其 `claimRebate` 不经 hook，referrer 仍可直接对旧 engine 调 `claimRebate` 领取存量 rebate。运维替换 engine 前应提示 referrer 先领旧 engine 上的 pending rebate，或接受存量 rebate 仍可经旧 engine claim（不会被销毁，只是不再增长）。`upgradeDynamicFeeEngine` 无 on-chain pending-rebate migration 守卫；这是接受的 trade-off（见设计 spec Trade-offs）。前端/SDK 默认读 `hook.dynamicFeeEngine()` 得到当前 engine 地址，对旧 engine 上的存量 rebate 不可见；要领取旧 engine 上的 pending rebate，须从 `DynamicFeeEngineUpdated(oldEngine, newEngine)` 事件历史回溯找旧 engine 地址（每次替换产生一条事件，多轮替换需沿事件链回溯），再直接对旧 engine 调 `claimRebate(currency, recipient)`。建议 engine 替换后前端缓存全部历史 engine 地址列表（含替换前的初始 engine）。
+- **coverage**：返佣只在普通 swap（`_beforeSwap` / `_afterSwap`）路径触发；preorder settlement（`executePreorderSettlement`）不携带 referrer，不参与返佣。
+
+#### 3.11.1 返佣相关 revert 条件
+
+- `RebateExceedsProtocolShare`：`MemeverseUniswapHook::setReferrerRebateBps(bps)`（转发到 `MemeverseDynamicFeeEngine::setReferrerRebateBps`）当 `bps > FeeMath.PROTOCOL_FEE_SHARE_BPS`（`3500`）时触发，保证单次 swap 的 rebate ≤ protocol fee，不会透支 protocol share。`[代码已证]`
+- `ERC20TransferFailed`：`MemeverseDynamicFeeEngine::claimRebate(currency, recipient)` 在 rebate token 的 `IERC20Minimal.transfer(recipient, amount)` 返回 `false`（非标准 ERC20 返回值或拒绝）时触发；CEI 下 `pendingRebate` 已先清零，整笔 revert 回滚清零，账本与余额同步。`[代码已证]`
+
+#### 3.11.2 treasury 必须非零配置
+
+- `treasury` 必须在 hook 上非零配置；`MemeverseUniswapHook::setTreasury` 已 reject 零地址。若 treasury 未配置或在运行期被清零（当前实现无 zero-address 清零路径，但运维侧若错误 retarget 到零地址），普通 swap 在 `_collectProtocolFee → _takeToTreasury` 处 `transfer` 到零地址会按非标准 ERC20 行为 revert；preorder settlement 在 `_collectPreorderSettlementInputFees` 直接 `transferFrom` 到 treasury，零地址同样 revert。`[代码已证]`
+
+#### 3.11.3 `accrueRebate` 只在 swap unlock session 内可调
+
+- `MemeverseDynamicFeeEngine::accrueRebate` 受 `onlyAuthorizedCaller` 保护，且 hook 仅在 `_beforeSwap` / `_afterSwap` 内调用该函数——此时 PoolManager 处于 unlock session。engine 不可独立于 swap 调 `accrueRebate`：非 unlock 上下文下 engine 内部的 `poolManager.take` 会 revert，因此 rebate accrual 与 swap 生命周期严格绑定。`[代码已证]`
+
+`[代码已证]`
+
 ## 4. 治理周期相关操作语义
 
 - `finalizeCurrentCycle()` 是对外开放入口，时间到即可执行，不要求 `onlyGovernance`。`[代码已证]`

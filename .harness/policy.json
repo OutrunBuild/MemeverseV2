@@ -68,9 +68,11 @@
     "harness_control": [
       "(^|.*/)(spec|specs)/.*\\.(md|mdx)$",
       "^AGENTS\\.md$",
+      "^(src|test|script)/AGENTS\\.md$",
       "^CLAUDE\\.md$",
       "^README\\.md$",
       "^\\.claude/agents/.*$",
+      "^\\.claude/rules/.*$",
       "^\\.claude/settings\\.json$",
       "^\\.codex/agents/.*$",
       "^\\.githooks/.*$",
