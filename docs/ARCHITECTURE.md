@@ -63,7 +63,7 @@
 
 | 函数 | 作用 |
 |---|---|
-| `collectProtocolFee` | 从 PoolManager take 出 protocol fee，按 referrer 切 rebate：`toTreasury = protocolFee - rebate` 经 `_takeToTreasury` 到 treasury，`rebate` 经 `MemeverseDynamicFeeEngine::accrueRebate` 由 engine `poolManager.take` 到 engine 自身 custody 并记 `pendingRebate`。进入非零 protocol fee 路径后始终触发 `ProtocolFeeCollected`（`amount` 是 treasury 实收 `toTreasury`，带 referrer 时 < 完整 protocolFee）；`protocolFeeAmount == 0` 时函数早返不 emit，有 rebate 时额外触发 engine 的 `ReferralRebateAccrued`。无 referrer（`_decodeReferrer` 返回零）或 `referrerRebateBps == 0` 时 rebate = 0，等价旧语义。 |
+| `collectProtocolFee` | 从 PoolManager take 出 protocol fee，按 referrer 切 rebate：`toTreasury = protocolFee - rebate` 经 `_takeToTreasury` 到 treasury，`rebate` 由 hook `poolManager.take(feeCurrency, address(engine), rebate)` 拉到 engine 地址（v4 `PoolManager.take` delta 记调用者 hook，被 beforeSwap specifiedDelta credit 抵消，token 进 engine custody），再调 `MemeverseDynamicFeeEngine::accrueRebate` 纯记账累加 `pendingRebate`（无 PoolManager 调用）。进入非零 protocol fee 路径后始终触发 `ProtocolFeeCollected`（`amount` 是 treasury 实收 `toTreasury`，带 referrer 时 < 完整 protocolFee）；`protocolFeeAmount == 0` 时函数早返不 emit，有 rebate 时额外触发 engine 的 `ReferralRebateAccrued`。无 referrer（`_decodeReferrer` 返回零）或 `referrerRebateBps == 0` 时 rebate = 0，等价旧语义。 |
 
 **返佣（Referral Rebate）**
 
@@ -74,7 +74,7 @@
 | 无 referrer | 65% | 35% | 0% |
 | 有 referrer（默认 `referrerRebateBps = 1000`） | 65% | 25% | 10% |
 
-rebate 公式：`rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`（等价 `totalFee × referrerRebateBps / BPS_BASE`）。rebate custody 在 `MemeverseDynamicFeeEngine`（与 LP fee 在 hook 隔离）；engine 在 `accrueRebate` 内通过自身 immutable `poolManager` 引用 `take` 到 `address(this)`，并记 `pendingRebate[referrer][currency] += rebate`。referrer 经 `claimRebate` pull 领取（engine 独立可调，不经 hook；CEI 清零后 transfer）。返佣逻辑放 engine 而非 hook，因 hook runtime 接近 24KB bytecode 上限。
+rebate 公式：`rebate = protocolFee × referrerRebateBps / PROTOCOL_FEE_SHARE_BPS`（等价 `totalFee × referrerRebateBps / BPS_BASE`）。rebate custody 在 `MemeverseDynamicFeeEngine`（与 LP fee 在 hook 隔离）；hook 在 `_collectProtocolFee` 内 `poolManager.take(feeCurrency, address(engine), rebate)` 把 token 拉到 engine 地址（v4 `PoolManager.take` delta 记调用者 hook，被 beforeSwap specifiedDelta credit 抵消），再调 `engine.accrueRebate` 纯记账 `pendingRebate[referrer][currency] += rebate`（无 PoolManager 调用、无外部调用）。referrer 经 `claimRebate` pull 领取（engine 独立可调，不经 hook；CEI 清零后 transfer）。take 在 hook（v4 `PoolManager.take` delta 记 `msg.sender`，只有 hook 的 specifiedDelta credit 能抵消；engine 自己 take 会留 engine 地址的未结算 delta → unlock 结束 NonzeroDeltaCount != 0 → CurrencyNotSettled），记账 / custody / claim 留在 engine（hook runtime 接近 24KB bytecode 上限，无法容纳完整返佣状态）。
 
 hook 侧返佣路径锚点：
 
