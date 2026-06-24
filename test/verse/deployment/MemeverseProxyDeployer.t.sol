@@ -14,6 +14,7 @@ import {MemeverseUniswapHookLens} from "../../../src/swap/MemeverseUniswapHookLe
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {MemeverseLauncher} from "../../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {LauncherReadinessMockBase} from "../../mocks/verse/LauncherReadinessMockBase.sol";
 
 contract MockDeployerCloneable {
     uint256 public marker;
@@ -110,15 +111,7 @@ contract MockScriptOutrunDeployer is IOutrunDeployer {
     }
 }
 
-contract MockReadinessLauncher {
-    address public owner;
-    address public memeverseRegistrar;
-    address public memeverseProxyDeployer;
-    address public yieldDispatcher;
-    address public polend;
-    address public polSplitter;
-    address public memeverseSwapRouter;
-    address public memeverseUniswapHook;
+contract MockReadinessLauncher is LauncherReadinessMockBase {
     mapping(address uAsset => uint256 minTotalFund) internal minTotalFunds;
     mapping(address uAsset => uint256 fundBasedAmount) internal fundBasedAmounts;
 
@@ -141,18 +134,6 @@ contract MockReadinessLauncher {
     function setFundMetaData(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external {
         minTotalFunds[uAsset] = minTotalFund;
         fundBasedAmounts[uAsset] = fundBasedAmount;
-    }
-
-    function setOwner(address owner_) external {
-        owner = owner_;
-    }
-
-    function setMemeverseSwapRouter(address router_) external {
-        memeverseSwapRouter = router_;
-    }
-
-    function setMemeverseUniswapHook(address hook_) external {
-        memeverseUniswapHook = hook_;
     }
 
     function fundMetaDatas(address uAsset) external view returns (uint256, uint256) {

@@ -6,25 +6,14 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {MemeverseScript} from "../../script/MemeverseScript.s.sol";
 import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
+import {LauncherReadinessMockBase} from "../mocks/verse/LauncherReadinessMockBase.sol";
 
-contract MockScriptLauncher {
-    address public owner;
-    address public memeverseRegistrar;
-    address public memeverseProxyDeployer;
-    address public yieldDispatcher;
-    address public polend;
-    address public polSplitter;
-    address public memeverseSwapRouter;
-    address public memeverseUniswapHook;
+contract MockScriptLauncher is LauncherReadinessMockBase {
     mapping(address => FundMetaData) internal metadata;
 
     struct FundMetaData {
         uint256 minTotalFund;
         uint256 fundBasedAmount;
-    }
-
-    function setOwner(address owner_) external {
-        owner = owner_;
     }
 
     function setLauncherDependencies(address registrar_, address proxyDeployer_, address yieldDispatcher_) external {
@@ -39,14 +28,6 @@ contract MockScriptLauncher {
 
     function setPolSplitter(address polSplitter_) external {
         polSplitter = polSplitter_;
-    }
-
-    function setMemeverseSwapRouter(address router_) external {
-        memeverseSwapRouter = router_;
-    }
-
-    function setMemeverseUniswapHook(address hook_) external {
-        memeverseUniswapHook = hook_;
     }
 
     function setFundMetaData(address uAsset, uint256 minTotalFund, uint256 fundBasedAmount) external {
