@@ -45,4 +45,5 @@ struct MemeverseLauncherStorage {
     address bootstrapImpl; // appended at end — ERC-7201 allows append-only growth
     address feeDistributorImpl; // appended — delegatecall target for fee distribution (Step C)
     address feePreviewReader; // appended — independent view contract for fee previews (Step C)
+    address polMinterImpl; // appended — delegatecall target for POL minting (Step D)
 }

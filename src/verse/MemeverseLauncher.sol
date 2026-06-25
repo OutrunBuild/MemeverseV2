@@ -17,6 +17,7 @@ import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
 import {MemeverseLauncherStorage} from "./interfaces/IMemeverseLauncherStorage.sol";
 import {IMemeverseBootstrap} from "./interfaces/IMemeverseBootstrap.sol";
 import {IMemeverseFeeDistributor} from "./interfaces/IMemeverseFeeDistributor.sol";
+import {IMemeversePOLMinter} from "./interfaces/IMemeversePOLMinter.sol";
 import {IPol} from "../token/interfaces/IPol.sol";
 import {ILzEndpointRegistry} from "../common/omnichain/interfaces/ILzEndpointRegistry.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
@@ -161,6 +162,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         contracts.memeverseUniswapHook = memeverseLauncherStorage.memeverseUniswapHook;
         contracts.feeDistributorImpl = memeverseLauncherStorage.feeDistributorImpl;
         contracts.feePreviewReader = memeverseLauncherStorage.feePreviewReader;
+        contracts.polMinterImpl = memeverseLauncherStorage.polMinterImpl;
     }
 
     function getLauncherParameters() external view returns (LauncherParameters memory parameters) {
@@ -1147,27 +1149,28 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
 
         address uAsset = verse.uAsset;
         address memecoin = verse.memecoin;
-        address swapRouter = memeverseLauncherStorage.memeverseSwapRouter;
-        _transferIn(uAsset, msg.sender, amountInUAssetDesired);
-        _transferIn(memecoin, msg.sender, amountInMemecoinDesired);
-        _safeApprove(uAsset, swapRouter, amountInUAssetDesired);
-        _safeApprove(memecoin, swapRouter, amountInMemecoinDesired);
-        (amountInUAsset, amountInMemecoin, amountOut) = _executeMintPOLTokenLiquidity(
-            uAsset,
-            memecoin,
-            amountInUAssetDesired,
-            amountInMemecoinDesired,
-            amountInUAssetMin,
-            amountInMemecoinMin,
-            amountOutDesired,
-            deadline
-        );
-
         address pol = verse.pol;
-        IPol(pol).mint(msg.sender, amountOut);
-        _refundMintPOLTokenInputs(
-            uAsset, memecoin, amountInUAssetDesired, amountInMemecoinDesired, amountInUAsset, amountInMemecoin
+
+        // Delegatecall the POL-minter sibling so all token movement (transfer-in, router liquidity, POL mint,
+        // refund) shares one delegatecall boundary and operates on proxy storage/balance. The facade keeps the
+        // outer validation (verseId / pause / input non-zero / stage) and emits the event after success.
+        address impl = memeverseLauncherStorage.polMinterImpl;
+        require(impl != address(0), POLMinterImplNotSet());
+        bytes memory ret = impl.functionDelegateCall(
+            abi.encodeWithSelector(
+                IMemeversePOLMinter.mintPOLToken.selector,
+                uAsset,
+                memecoin,
+                pol,
+                amountInUAssetDesired,
+                amountInMemecoinDesired,
+                amountInUAssetMin,
+                amountInMemecoinMin,
+                amountOutDesired,
+                deadline
+            )
         );
+        (amountInUAsset, amountInMemecoin, amountOut) = abi.decode(ret, (uint256, uint256, uint256));
 
         emit MintPOLToken(verseId, memecoin, pol, msg.sender, amountOut);
     }
@@ -1239,108 +1242,6 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         verse.unlockTime = unlockTime;
         verse.omnichainIds = omnichainIds;
         verse.flashGenesis = flashGenesis;
-    }
-
-    function _executeMintPOLTokenLiquidity(
-        address uAsset,
-        address memecoin,
-        uint256 amountInUAssetDesired,
-        uint256 amountInMemecoinDesired,
-        uint256 amountInUAssetMin,
-        uint256 amountInMemecoinMin,
-        uint256 amountOutDesired,
-        uint256 deadline
-    ) internal returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut) {
-        if (amountOutDesired == 0) {
-            return _mintPOLTokenWithAutoLiquidity(
-                uAsset,
-                memecoin,
-                amountInUAssetDesired,
-                amountInMemecoinDesired,
-                amountInUAssetMin,
-                amountInMemecoinMin,
-                deadline
-            );
-        }
-
-        return _mintPOLTokenWithExactLiquidity(
-            uAsset, memecoin, amountInUAssetDesired, amountInMemecoinDesired, amountOutDesired, deadline
-        );
-    }
-
-    function _mintPOLTokenWithAutoLiquidity(
-        address uAsset,
-        address memecoin,
-        uint256 amountInUAssetDesired,
-        uint256 amountInMemecoinDesired,
-        uint256 amountInUAssetMin,
-        uint256 amountInMemecoinMin,
-        uint256 deadline
-    ) internal returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut) {
-        (amountOut, amountInUAsset, amountInMemecoin) = IMemeverseSwapRouter(
-                memeverseLauncherStorage.memeverseSwapRouter
-            )
-            .addLiquidityDetailed(
-                Currency.wrap(uAsset),
-                Currency.wrap(memecoin),
-                amountInUAssetDesired,
-                amountInMemecoinDesired,
-                amountInUAssetMin,
-                amountInMemecoinMin,
-                address(this),
-                deadline
-            );
-    }
-
-    function _mintPOLTokenWithExactLiquidity(
-        address uAsset,
-        address memecoin,
-        uint256 amountInUAssetDesired,
-        uint256 amountInMemecoinDesired,
-        uint256 amountOutDesired,
-        uint256 deadline
-    ) internal returns (uint256 amountInUAsset, uint256 amountInMemecoin, uint256 amountOut) {
-        require(amountOutDesired <= type(uint128).max, InvalidLength());
-        // Quote the smallest router-side budgets that should mint the requested LP amount at the current pool price.
-        (uint256 quotedUAsset, uint256 quotedMemecoin) = IMemeverseSwapRouter(
-                memeverseLauncherStorage.memeverseSwapRouter
-            ).quoteExactAmountsForLiquidity(uAsset, memecoin, uint128(amountOutDesired));
-        if (quotedUAsset > amountInUAssetDesired) {
-            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(quotedUAsset, amountInUAssetDesired);
-        }
-        if (quotedMemecoin > amountInMemecoinDesired) {
-            revert IMemeverseSwapRouter.InputAmountExceedsMaximum(quotedMemecoin, amountInMemecoinDesired);
-        }
-        // Reuse the exact quote as the desired budget so any price move that under-mints reverts instead of silently
-        // minting less POL than requested.
-        (amountOut, amountInUAsset, amountInMemecoin) = IMemeverseSwapRouter(
-                memeverseLauncherStorage.memeverseSwapRouter
-            )
-            .addLiquidityDetailed(
-                Currency.wrap(uAsset),
-                Currency.wrap(memecoin),
-                quotedUAsset,
-                quotedMemecoin,
-                0,
-                0,
-                address(this),
-                deadline
-            );
-        if (amountOut < amountOutDesired) revert IMemeverseUniswapHook.TooMuchSlippage();
-    }
-
-    function _refundMintPOLTokenInputs(
-        address uAsset,
-        address memecoin,
-        uint256 amountInUAssetDesired,
-        uint256 amountInMemecoinDesired,
-        uint256 amountInUAsset,
-        uint256 amountInMemecoin
-    ) internal {
-        uint256 uAssetRefund = amountInUAssetDesired - amountInUAsset;
-        uint256 memecoinRefund = amountInMemecoinDesired - amountInMemecoin;
-        if (uAssetRefund > 0) _transferOut(uAsset, msg.sender, uAssetRefund);
-        if (memecoinRefund > 0) _transferOut(memecoin, msg.sender, memecoinRefund);
     }
 
     function _deployAndInitializeVerseTokens(uint256 uniqueId, string calldata name, string calldata symbol)
@@ -1442,6 +1343,16 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         require(reader != address(0), ZeroInput());
         memeverseLauncherStorage.feePreviewReader = reader;
         emit SetFeePreviewReader(reader);
+    }
+
+    /// @notice Set the POL-minter sibling implementation invoked via delegatecall for POL minting.
+    /// @dev Only callable by the owner. `mintPOLToken` delegatecalls this sibling, so a zero address
+    ///      would delegatecall into address(0) and burn the call; reject it explicitly here.
+    /// @param impl The MemeversePOLMinter sibling address.
+    function setPOLMinterImpl(address impl) external override onlyOwner {
+        require(impl != address(0), ZeroInput());
+        memeverseLauncherStorage.polMinterImpl = impl;
+        emit SetPOLMinterImpl(impl);
     }
 
     /**

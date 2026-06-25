@@ -133,14 +133,11 @@ contract MemeverseLauncherFeePreviewConsistencyTest is MemeverseLauncherLifecycl
 
         // Reader (preview) and distributor (claim) read different mock setters; set BOTH to identical fee
         // amounts so preview accuracy and runtime settlement agree on which OFT sends fire.
-        router.setPreviewQuote(
-            address(remoteMemecoin), address(remoteUAsset), address(launcher), mainMemecoinFee, mainUAssetFee
-        );
-        router.setClaimQuote(
-            address(remoteMemecoin), address(remoteUAsset), address(launcher), mainMemecoinFee, mainUAssetFee
-        );
-        router.setPreviewQuote(address(liquidProof), address(remoteUAsset), address(launcher), 0, auxUAssetFee);
-        router.setClaimQuote(address(liquidProof), address(remoteUAsset), address(launcher), 0, auxUAssetFee);
+        // Fees are caller-order (memecoin/uAsset by name). The mock router stores them in canonical
+        // token0/token1 order (matching the real router), so canonicalize here to keep attribution correct
+        // regardless of how the two MockOFTToken addresses happened to land.
+        _setSemanticQuote(address(remoteMemecoin), address(remoteUAsset), mainMemecoinFee, mainUAssetFee);
+        _setSemanticQuote(address(liquidProof), address(remoteUAsset), 0, auxUAssetFee);
         remoteUAsset.setQuoteFee(govQuoteFee);
         remoteMemecoin.setQuoteFee(memecoinQuoteFee);
 
@@ -185,14 +182,11 @@ contract MemeverseLauncherFeePreviewConsistencyTest is MemeverseLauncherLifecycl
         setGenesisFundForTest(launcherProxy, verseId, normalFunds);
         polend.setTotalLeveragedDebt(verseId, leveragedDebt);
 
-        router.setPreviewQuote(
-            address(remoteMemecoin), address(remoteUAsset), address(launcher), mainMemecoinFee, mainUAssetFee
-        );
-        router.setClaimQuote(
-            address(remoteMemecoin), address(remoteUAsset), address(launcher), mainMemecoinFee, mainUAssetFee
-        );
-        router.setPreviewQuote(address(liquidProof), address(remoteUAsset), address(launcher), 0, auxUAssetFee);
-        router.setClaimQuote(address(liquidProof), address(remoteUAsset), address(launcher), 0, auxUAssetFee);
+        // Fees are caller-order (memecoin/uAsset by name). The mock router stores them in canonical
+        // token0/token1 order (matching the real router), so canonicalize here to keep attribution correct
+        // regardless of how the two MockOFTToken addresses happened to land.
+        _setSemanticQuote(address(remoteMemecoin), address(remoteUAsset), mainMemecoinFee, mainUAssetFee);
+        _setSemanticQuote(address(liquidProof), address(remoteUAsset), 0, auxUAssetFee);
 
         // Make the mock LZ fee track the bridged amount, so a magnitude drift in any fee split changes the
         // quoted fee — the sentinel property the fixed-fee variant lacks.
@@ -203,5 +197,16 @@ contract MemeverseLauncherFeePreviewConsistencyTest is MemeverseLauncherLifecycl
         remoteMemecoin.mint(address(launcher), 100 ether);
 
         quoted = feePreviewReader.quoteDistributionLzFee(verseId);
+    }
+
+    /// @notice Sets both the preview (reader) and claim (distributor) pair-fee quotes from caller-order
+    ///         inputs, canonicalizing to the router's token0/token1 order.
+    /// @dev Mirrors the base harness `_setSemanticPreviewQuote`, but covers both fee sources in one call via
+    ///      `router.setQuote`. The mock router stores fees verbatim in canonical order (as the real router
+    ///      returns them), so without this canonicalization the memecoin/uAsset attribution would flip whenever
+    ///      the two MockOFTToken addresses are not in canonical order — which a setUp nonce shift can trigger.
+    function _setSemanticQuote(address tokenA, address tokenB, uint256 tokenAFee, uint256 tokenBFee) internal {
+        (uint256 fee0, uint256 fee1) = tokenA < tokenB ? (tokenAFee, tokenBFee) : (tokenBFee, tokenAFee);
+        router.setQuote(tokenA, tokenB, address(launcher), fee0, fee1);
     }
 }

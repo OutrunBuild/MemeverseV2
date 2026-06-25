@@ -1040,18 +1040,21 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         launcher.setMemeverseSwapRouter(readySwapRouter);
         launcher.setMemeverseUniswapHook(readySwapHook);
 
-        // readiness 校验三个 delegatecall/view sibling 有代码（BOOTSTRAP/FEE_DISTRIBUTOR/FEE_PREVIEW
-        // via _readLauncherImplSiblings）；etch 有代码的地址并接线，让 readiness 末尾检查通过。
+        // readiness 校验四个 delegatecall/view sibling 有代码（BOOTSTRAP/FEE_DISTRIBUTOR/FEE_PREVIEW/
+        // POL_MINTER via _readLauncherImplSiblings）；etch 有代码的地址并接线，让 readiness 末尾检查通过。
         address bootstrapImplAddr = address(uint160(0x5001));
         address feeDistributorImplAddr = address(uint160(0x5002));
         address feePreviewReaderAddr = address(uint160(0x5003));
+        address polMinterImplAddr = address(uint160(0x5004));
         bytes memory siblingCode = type(MockReadinessHook).creationCode;
         vm.etch(bootstrapImplAddr, siblingCode);
         vm.etch(feeDistributorImplAddr, siblingCode);
         vm.etch(feePreviewReaderAddr, siblingCode);
+        vm.etch(polMinterImplAddr, siblingCode);
         launcher.setBootstrapImpl(bootstrapImplAddr);
         launcher.setFeeDistributorImpl(feeDistributorImplAddr);
         launcher.setFeePreviewReader(feePreviewReaderAddr);
+        launcher.setPOLMinterImpl(polMinterImplAddr);
 
         scriptHarness.configureReadinessHarness(
             launcherAddress,

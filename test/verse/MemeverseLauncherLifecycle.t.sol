@@ -15,6 +15,7 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
 import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
+import {MemeversePOLMinter} from "../../src/verse/MemeversePOLMinter.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {IMemeverseFeePreviewReader} from "../../src/verse/interfaces/IMemeverseFeePreviewReader.sol";
@@ -130,6 +131,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
         feePreviewReader = new MemeverseFeePreviewReader(address(launcher));
         launcher.setFeePreviewReader(address(feePreviewReader));
+        launcher.setPOLMinterImpl(address(new MemeversePOLMinter()));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
