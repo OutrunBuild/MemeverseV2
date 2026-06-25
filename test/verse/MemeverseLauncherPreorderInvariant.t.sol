@@ -14,6 +14,8 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
+import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
+import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
@@ -306,6 +308,8 @@ contract MemeverseLauncherPreorderSuccessInvariantTest is StdInvariant, Memevers
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
+        launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
+        launcher.setFeePreviewReader(address(new MemeverseFeePreviewReader(address(launcher))));
         assertEq(address(router.hook()), address(hook), "router hook");
         assertEq(hook.launcher(), address(launcher), "hook launcher");
         assertEq(hook.poolInitializer(), address(router), "hook initializer");

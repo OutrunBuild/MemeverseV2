@@ -6,6 +6,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 import {MemeverseScript} from "../../script/MemeverseScript.s.sol";
 import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
+import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 
 contract MockScriptLauncher {
     address public owner;
@@ -16,6 +17,9 @@ contract MockScriptLauncher {
     address public polSplitter;
     address public memeverseSwapRouter;
     address public memeverseUniswapHook;
+    address public bootstrapImpl;
+    address public feeDistributorImpl;
+    address public feePreviewReader;
     mapping(address => FundMetaData) internal metadata;
 
     struct FundMetaData {
@@ -56,6 +60,28 @@ contract MockScriptLauncher {
     function fundMetaDatas(address uAsset) external view returns (uint256 minTotalFund, uint256 fundBasedAmount) {
         FundMetaData memory data = metadata[uAsset];
         return (data.minTotalFund, data.fundBasedAmount);
+    }
+
+    function setBootstrapImpl(address impl) external {
+        bootstrapImpl = impl;
+    }
+
+    function setFeeDistributorImpl(address impl) external {
+        feeDistributorImpl = impl;
+    }
+
+    function setFeePreviewReader(address reader) external {
+        feePreviewReader = reader;
+    }
+
+    // readiness 经 getLauncherContracts() 读 swap/hook/sibling；返回 mock 字段，其余字段为零。
+    function getLauncherContracts() external view returns (IMemeverseLauncher.LauncherContracts memory c) {
+        c.memeverseSwapRouter = memeverseSwapRouter;
+        c.memeverseUniswapHook = memeverseUniswapHook;
+        c.bootstrapImpl = bootstrapImpl;
+        c.feeDistributorImpl = feeDistributorImpl;
+        c.feePreviewReader = feePreviewReader;
+        return c;
     }
 }
 
@@ -392,6 +418,19 @@ contract MemeverseScriptTest is Test {
         _mockEngineOnHook(readyHook);
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setMemeverseUniswapHook(readyHook);
+
+        // readiness 校验三个 delegatecall/view sibling 有代码（_readLauncherImplSiblings 的
+        // BOOTSTRAP/FEE_DISTRIBUTOR/FEE_PREVIEW 检查）；etch 有代码的地址并接线。
+        address bootstrapImplAddr = address(uint160(0x5001));
+        address feeDistributorImplAddr = address(uint160(0x5002));
+        address feePreviewReaderAddr = address(uint160(0x5003));
+        bytes memory siblingCode = address(hookImpl).code;
+        vm.etch(bootstrapImplAddr, siblingCode);
+        vm.etch(feeDistributorImplAddr, siblingCode);
+        vm.etch(feePreviewReaderAddr, siblingCode);
+        launcher.setBootstrapImpl(bootstrapImplAddr);
+        launcher.setFeeDistributorImpl(feeDistributorImplAddr);
+        launcher.setFeePreviewReader(feePreviewReaderAddr);
         return (address(router), readyHook);
     }
 

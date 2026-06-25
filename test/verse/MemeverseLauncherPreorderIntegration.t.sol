@@ -11,6 +11,8 @@ import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
+import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
+import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {MemeverseSwapRouter} from "../../src/swap/MemeverseSwapRouter.sol";
 import {MemeverseUniswapHookLens} from "../../src/swap/MemeverseUniswapHookLens.sol";
@@ -90,6 +92,8 @@ contract MemeverseLauncherPreorderIntegrationTest is Test, HookStorageHelper {
         hook.setPoolInitializer(address(router));
 
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
+        launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
+        launcher.setFeePreviewReader(address(new MemeverseFeePreviewReader(address(launcher))));
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         assertEq(address(router.hook()), address(hook), "router hook");

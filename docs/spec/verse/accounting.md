@@ -42,7 +42,7 @@
   - `cap = base * 70% * preorderCapRatio / RATIO`
   - `remaining = max(cap - preorderState.totalFunds, 0)`
 - `totalLeveragedDebt` 来自 `POLend`。
-- `previewGenesisMakerFees(uint256 verseId) returns (uint256 uAssetFee,uint256 memecoinFee)` 预览可分发 genesis maker fee。
+- `previewGenesisMakerFees(uint256 verseId) returns (uint256 uAssetFee,uint256 memecoinFee)` 预览可分发 genesis maker fee。该函数与 `quoteDistributionLzFee`（见 §5.4）现由独立 view 合约 `MemeverseFeePreviewReader` 暴露，调用地址取 `getLauncherContracts().feePreviewReader`（见 [operations.md §3.3](../../operations.md)）；`previewPreorderCapacity` 仍在 Launcher 上。
 - ABI 前置条件：校验 `verseId` 有效，且 verse stage 必须 `>= Locked`；无效 verse 或阶段不满足时按当前实现错误 revert。
 - 该预览聚合主池 `memecoin/uAsset` claimable fees 与辅助池 gov-fee pools：`uAsset` 侧走 DAO/governor 路径，`memecoin` 侧走 yield vault 路径。
 
@@ -142,14 +142,16 @@
 ### 5.3 执行者奖励与治理收入
 
 - 对主池 `memecoin/uAsset` 的 `uAsset` fee，`executorReward` 必须使用 full-precision `mulDiv` 或等价 overflow-safe 实现计算：`executorReward = fullPrecisionMulDiv(mainPoolUAssetFee, executorRewardRate, 10000)`。
+- `executorRewardRate` 单位为 protocol ratio units（分母 `RATIO = 10000`，即 bps）。合法区间 `[0, 10000)`：`src/verse/MemeverseLauncher.sol::initialize` 与 `src/verse/MemeverseLauncher.sol::setExecutorRewardRate` 均校验 `executorRewardRate < RATIO`，越界 revert `FeeRateOverFlow`（owner 经 `setExecutorRewardRate` 配置）。部署脚本默认值 `25`（0.25%）。
 - `mainPoolGovFee = mainPoolUAssetFee - executorReward`，减法必须保持 checked arithmetic 语义。
 - 执行者奖励直接发给 `rewardReceiver`。
 - `quoteDistributionLzFee` 与 `redeemAndDistributeFees` 必须共享同一套执行者奖励分账算术语义；quote 口径不得因中间乘法溢出而偏离 redeem 实际执行结果。
+- 上述 quote 与 redeem 共享的分账算术通过内部库 `src/verse/libraries/MemeverseLauncherLib.sol::splitExecutorReward` 落地：`MemeverseFeeDistributor._splitExecutorReward` 与 `MemeverseFeePreviewReader._splitExecutorReward` 仅作为薄 wrapper 调用同一实现，二者之间仅在如何读取 `executorRewardRate` 上不同。[代码已证]
 - 辅助 governor 路径的 `uAsset` fee 与 `PT` 转换后的 `uAsset` 会在主池分账之后并入 governor treasury 路径，不额外再拆执行者奖励。
 
 ### 5.4 治理链本地/异链分发
 
-- 目标：`quoteDistributionLzFee(verseId)` 返回 Launcher 费用分发所需的 required native fee；本地分发或无跨链要求时返回 `0`。
+- 目标：`quoteDistributionLzFee(verseId)`（由 `MemeverseFeePreviewReader` 暴露，与 Launcher 的 `redeemAndDistributeFees` 跨合约、算术须逐字镜像）返回 Launcher 费用分发所需的 required native fee；本地分发或无跨链要求时返回 `0`。执行者奖励分账与主池 fee 的 token 顺序排列通过共享的 `MemeverseLauncherLib` 辅助函数（`splitExecutorReward`、`mapPairFees`）实现，因此两侧逐字节一致；其余镜像辅助函数（辅助 governor fee 拆分、OFT send-param 构造）则通过源码约定与注释标注成对维护，并由 `MemeverseLauncherFeePreviewConsistency.t.sol` 端到端断言 `quoteDistributionLzFee` 等于 `redeemAndDistributeFees` 所需 native fee 作机器化反 drift 哨兵；该测试同时启用 amountLD 敏感的 OFT 报价（mock `quoteSend` 返回 `sendParam.amountLD`）并注入非零杠杆与普通资金，使辅助 governor fee 的 `mulDiv` 量级 drift 亦能被捕获（非仅 zero-crossing）。OFT send-param 构造（`_buildSendParamAndMessagingFee`）现同样经 `MemeverseLauncherLib::buildSendParamAndMessagingFee` 共享实现，结构与量级 drift 均不可达；唯一仍靠源码约定成对维护的是辅助 governor fee 拆分（`_splitAuxiliaryGovFees`，因移走会改 `preserveNormalShare==false` 短路与外部调用顺序）。[代码已证]
 - `previewGenesisMakerFees` 与 `quoteDistributionLzFee/redeemAndDistributeFees` 不共享同一 main-pool `uAsset` 净额口径：
   - `previewGenesisMakerFees` 返回的是 gross main-pool `uAsset` fee，再叠加辅助 governor fee 的 `uAsset` 等价额；这里不会先扣执行者奖励。
   - `quoteDistributionLzFee` 与 `redeemAndDistributeFees` 对 main-pool `uAsset` fee 会先拆出 `executorReward`，只有剩余的 `govFee` 进入 governor treasury 路径。

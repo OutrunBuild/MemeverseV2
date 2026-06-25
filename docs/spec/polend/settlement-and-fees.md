@@ -57,9 +57,9 @@ normalPTFee = totalPTFee - govPTFee
 
 #### 1.3 Locked -> Unlocked 最后捕获
 
-`Locked -> Unlocked` 时，`Launcher` 必定先调用 `_captureLockedAuxiliaryFees`，作为 `Locked` 阶段最后一次辅助池 fee 捕获。
+`Locked -> Unlocked` 时，facade `src/verse/MemeverseLauncher.sol::changeStage` 必定先经 delegatecall 调用 `src/verse/MemeverseFeeDistributor.sol::captureLockedAuxiliaryFees(verseId, polSplitter, hook)`，作为 `Locked` 阶段最后一次辅助池 fee 捕获（stage 翻转为 `Unlocked` 之前完成）。
 
-`_captureLockedAuxiliaryFees`：
+`captureLockedAuxiliaryFees`：
 
 - 只在 `Locked -> Unlocked` 调用一次
 - 捕获三个辅助池 fee
@@ -99,7 +99,7 @@ pendingPTFee
 
 #### 1.5 quoteDistributionLzFee
 
-`quoteDistributionLzFee` 是计算 `redeemAndDistributeFees` 所需跨链 fee 的 view，必须与 `redeemAndDistributeFees` 逻辑同步。
+`quoteDistributionLzFee`（由 `MemeverseFeePreviewReader` 暴露，地址取 `getLauncherContracts().feePreviewReader`）是计算 `redeemAndDistributeFees`（Launcher facade）所需跨链 fee 的 view；二者分处不同合约，算术必须逐字镜像，否则 quote 偏离实际执行。
 
 异链分发 quote 必须覆盖：
 
@@ -264,7 +264,7 @@ normal share 取余数，不能另建永久 launcher bucket。
 
 `Launcher.changeStage` 在 `Locked -> Unlocked` 时按顺序执行（以下步骤在同一笔交易内原子执行，任一步骤失败则全部回滚）：
 
-1. `_captureLockedAuxiliaryFees(verseId)`
+1. 经 delegatecall 委托 `src/verse/MemeverseFeeDistributor.sol::captureLockedAuxiliaryFees(verseId, polSplitter, hook)`（由 facade `src/verse/MemeverseLauncher.sol::changeStage` 发起，捕获在 stage 翻转为 Unlocked 之前完成）
 2. `verse.currentStage = Unlocked`
 3. `POLSplitter.settle(verseId)`
 4. 若 `getTotalLeveragedDebt(verseId) > 0`，调用 `POLend.executeGlobalSettlement(verseId)`
@@ -852,3 +852,22 @@ function splitInfos(uint256 verseId) external view returns (address pt, address 
 - 写入 `launcher`
 - 初始化 `PrincipalToken / YieldToken` implementation
 - 必须先于任何 `initializeVerse / split / settle / redeem` 路径完成
+
+`MemeverseFeeDistributor` 是 delegatecall-only sibling：无 owner 入口、无独立业务入口，只由 facade `src/verse/MemeverseLauncher.sol::changeStage` / `redeemAndDistributeFees` 经 delegatecall 调用。runtime integration ABI（`IMemeverseFeeDistributor`）：
+
+```solidity
+function collectAndDistributeFees(uint256 verseId, address rewardReceiver, address polSplitter) external payable returns (uint256 govFee, uint256 memecoinFee, uint256 polFee, uint256 executorReward, bool hadFees);
+function captureLockedAuxiliaryFees(uint256 verseId, address polSplitter, address hook) external;
+```
+
+- `collectAndDistributeFees` 标记 `payable`：跨链路径把 `msg.value` 作为 LayerZero native fee 消耗；`hadFees == false` 标识无 fee 早返回路径，facade 据此 gate `RedeemAndDistributeFees` 的 emit。
+- `captureLockedAuxiliaryFees` 是 §1.3 / §4 描述的 Locked→Unlocked 辅助池 fee 捕获入口。
+
+`MemeverseFeePreviewReader` 是独立 view 合约：无 owner gating，持有 immutable `PROXY`（Launcher proxy 地址），runtime 只 staticcall proxy getter。runtime integration ABI（`IMemeverseFeePreviewReader`）：
+
+```solidity
+function previewGenesisMakerFees(uint256 verseId) external view returns (uint256 uAssetFee, uint256 memecoinFee);
+function quoteDistributionLzFee(uint256 verseId) external view returns (uint256 lzFee);
+```
+
+- `quoteDistributionLzFee` 在治理链为本链时返回 `0`。

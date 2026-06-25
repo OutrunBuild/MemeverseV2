@@ -36,7 +36,7 @@
 
 | Surface | 权限边界 | 证据 |
 | --- | --- | --- |
-| `MemeverseLauncher` 配置面 | `set*`、`pause/unpause`、`removeGasDust` 为 `onlyOwner` | `src/verse/MemeverseLauncher.sol::setMemeverseSwapRouter`, `::setMemeverseUniswapHook`, `::setLzEndpointRegistry`, `::setMemeverseRegistrar`, `::setMemeverseProxyDeployer`, `::setYieldDispatcher`, `::setFundMetaData`, `::setExecutorRewardRate`, `::setPreorderConfig`, `::setGasLimits`, `::setBootstrapImpl`, `::pause`, `::unpause`, `::removeGasDust` |
+| `MemeverseLauncher` 配置面 | `set*`、`pause/unpause`、`removeGasDust` 为 `onlyOwner` | `src/verse/MemeverseLauncher.sol::setMemeverseSwapRouter`, `::setMemeverseUniswapHook`, `::setLzEndpointRegistry`, `::setMemeverseRegistrar`, `::setMemeverseProxyDeployer`, `::setYieldDispatcher`, `::setFundMetaData`, `::setExecutorRewardRate`, `::setPreorderConfig`, `::setGasLimits`, `::setBootstrapImpl`, `::setFeeDistributorImpl`, `::setFeePreviewReader`, `::pause`, `::unpause`, `::removeGasDust` |
 | `MemeverseLauncher.registerMemeverse` | 仅 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol::registerMemeverse` |
 | `MemeverseLauncher.setExternalInfo` | `governor` 或 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol::setExternalInfo` |
 | Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimNormalYT`/POLend `claimLeveragedYT`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol::genesis`, `::changeStage`, `::refund`, `::claimNormalYT`, `::redeemAndDistributeFees` |

@@ -119,6 +119,9 @@ contract MockReadinessLauncher {
     address public polSplitter;
     address public memeverseSwapRouter;
     address public memeverseUniswapHook;
+    address public bootstrapImpl;
+    address public feeDistributorImpl;
+    address public feePreviewReader;
     mapping(address uAsset => uint256 minTotalFund) internal minTotalFunds;
     mapping(address uAsset => uint256 fundBasedAmount) internal fundBasedAmounts;
 
@@ -157,6 +160,29 @@ contract MockReadinessLauncher {
 
     function fundMetaDatas(address uAsset) external view returns (uint256, uint256) {
         return (minTotalFunds[uAsset], fundBasedAmounts[uAsset]);
+    }
+
+    function setBootstrapImpl(address impl) external {
+        bootstrapImpl = impl;
+    }
+
+    function setFeeDistributorImpl(address impl) external {
+        feeDistributorImpl = impl;
+    }
+
+    function setFeePreviewReader(address reader) external {
+        feePreviewReader = reader;
+    }
+
+    // readiness 经 getLauncherContracts() 读 swap/hook/sibling；返回 mock 字段，其余字段为零
+    // （readiness 不校验它们的存在性，只校验 swap/hook 接线与 sibling 有代码）。
+    function getLauncherContracts() external view returns (IMemeverseLauncher.LauncherContracts memory c) {
+        c.memeverseSwapRouter = memeverseSwapRouter;
+        c.memeverseUniswapHook = memeverseUniswapHook;
+        c.bootstrapImpl = bootstrapImpl;
+        c.feeDistributorImpl = feeDistributorImpl;
+        c.feePreviewReader = feePreviewReader;
+        return c;
     }
 }
 
@@ -947,6 +973,40 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
     }
 
+    function testRequireDeploymentReadyRevertsWhenFeeDistributorImplNotSet() external {
+        // readiness 必须校验 feeDistributorImpl 有代码：接好全部依赖后 unset distributor，
+        // readiness 应在末尾回退 FEE_DISTRIBUTOR_IMPL_NOT_READY（finding R4/SR-006 覆盖）。
+        MockReadinessLauncher readyLauncher =
+            _configureReadyDependencies(address(0), address(0), address(0), address(0));
+        readyLauncher.setFeeDistributorImpl(address(0));
+
+        vm.expectRevert("FEE_DISTRIBUTOR_IMPL_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
+    // readiness 校验 bootstrapImpl 有代码：接好全部依赖后 unset bootstrap，readiness
+    // 顺序 bootstrap->distributor->reader，第一条即回退 BOOTSTRAP_IMPL_NOT_READY。
+    // 与 distributor 对称，防止未来重构误删/改序时 CI 静默放行（finding R2-A）。
+    function testRequireDeploymentReadyRevertsWhenBootstrapImplNotSet() external {
+        MockReadinessLauncher readyLauncher =
+            _configureReadyDependencies(address(0), address(0), address(0), address(0));
+        readyLauncher.setBootstrapImpl(address(0));
+
+        vm.expectRevert("BOOTSTRAP_IMPL_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
+    // readiness 校验 feePreviewReader 有代码：前两条 sibling 仍 etched 有代码，
+    // 命中末尾 FEE_PREVIEW_READER_NOT_READY。与 distributor 对称（finding R2-A）。
+    function testRequireDeploymentReadyRevertsWhenFeePreviewReaderNotSet() external {
+        MockReadinessLauncher readyLauncher =
+            _configureReadyDependencies(address(0), address(0), address(0), address(0));
+        readyLauncher.setFeePreviewReader(address(0));
+
+        vm.expectRevert("FEE_PREVIEW_READER_NOT_READY");
+        scriptHarness.requireDeploymentReadyHarness(readySwapRouter, readySwapHook);
+    }
+
     function testEnvAddressWithFallbackUsesPrimaryWhenPresent() external {
         vm.setEnv("TEST_PRIMARY_LZ_ENDPOINT_REGISTRY", "0x0000000000000000000000000000000000001234");
         vm.setEnv("TEST_FALLBACK_MEMEVERSE_COMMON_INFO", "0x0000000000000000000000000000000000005678");
@@ -973,13 +1033,13 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         address registrarLauncher,
         address proxyDeployerLauncher,
         address dispatcherLauncher
-    ) internal {
+    ) internal returns (MockReadinessLauncher launcher) {
         MockReadinessRegistrar registrar = new MockReadinessRegistrar(address(0));
         MockReadinessProxyDeployer proxyDeployer = new MockReadinessProxyDeployer(address(0));
         MockReadinessYieldDispatcher dispatcher = new MockReadinessYieldDispatcher(address(0));
         MockReadinessPOLend polend = new MockReadinessPOLend(address(0), address(0));
         MockReadinessPOLSplitter splitter = new MockReadinessPOLSplitter(address(0), address(0));
-        MockReadinessLauncher launcher = new MockReadinessLauncher(
+        launcher = new MockReadinessLauncher(
             launcherOwner == address(0) ? address(scriptHarness) : launcherOwner,
             address(registrar),
             address(proxyDeployer),
@@ -1020,6 +1080,19 @@ contract MemeverseScriptLauncherDeploymentTest is Test {
         readySwapRouter = address(router);
         launcher.setMemeverseSwapRouter(readySwapRouter);
         launcher.setMemeverseUniswapHook(readySwapHook);
+
+        // readiness 校验三个 delegatecall/view sibling 有代码（BOOTSTRAP/FEE_DISTRIBUTOR/FEE_PREVIEW
+        // via _readLauncherImplSiblings）；etch 有代码的地址并接线，让 readiness 末尾检查通过。
+        address bootstrapImplAddr = address(uint160(0x5001));
+        address feeDistributorImplAddr = address(uint160(0x5002));
+        address feePreviewReaderAddr = address(uint160(0x5003));
+        bytes memory siblingCode = type(MockReadinessHook).creationCode;
+        vm.etch(bootstrapImplAddr, siblingCode);
+        vm.etch(feeDistributorImplAddr, siblingCode);
+        vm.etch(feePreviewReaderAddr, siblingCode);
+        launcher.setBootstrapImpl(bootstrapImplAddr);
+        launcher.setFeeDistributorImpl(feeDistributorImplAddr);
+        launcher.setFeePreviewReader(feePreviewReaderAddr);
 
         scriptHarness.configureReadinessHarness(
             launcherAddress,
