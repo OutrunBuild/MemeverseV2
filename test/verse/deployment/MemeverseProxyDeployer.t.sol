@@ -14,6 +14,7 @@ import {MemeverseUniswapHookLens} from "../../../src/swap/MemeverseUniswapHookLe
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {MemeverseLauncher} from "../../../src/verse/MemeverseLauncher.sol";
 import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {LauncherReadinessMockBase} from "../../mocks/verse/LauncherReadinessMockBase.sol";
 
 contract MockDeployerCloneable {
     uint256 public marker;
@@ -110,18 +111,7 @@ contract MockScriptOutrunDeployer is IOutrunDeployer {
     }
 }
 
-contract MockReadinessLauncher {
-    address public owner;
-    address public memeverseRegistrar;
-    address public memeverseProxyDeployer;
-    address public yieldDispatcher;
-    address public polend;
-    address public polSplitter;
-    address public memeverseSwapRouter;
-    address public memeverseUniswapHook;
-    address public bootstrapImpl;
-    address public feeDistributorImpl;
-    address public feePreviewReader;
+contract MockReadinessLauncher is LauncherReadinessMockBase {
     mapping(address uAsset => uint256 minTotalFund) internal minTotalFunds;
     mapping(address uAsset => uint256 fundBasedAmount) internal fundBasedAmounts;
 
@@ -146,43 +136,12 @@ contract MockReadinessLauncher {
         fundBasedAmounts[uAsset] = fundBasedAmount;
     }
 
-    function setOwner(address owner_) external {
-        owner = owner_;
-    }
-
-    function setMemeverseSwapRouter(address router_) external {
-        memeverseSwapRouter = router_;
-    }
-
-    function setMemeverseUniswapHook(address hook_) external {
-        memeverseUniswapHook = hook_;
-    }
-
     function fundMetaDatas(address uAsset) external view returns (uint256, uint256) {
         return (minTotalFunds[uAsset], fundBasedAmounts[uAsset]);
     }
 
     function setBootstrapImpl(address impl) external {
         bootstrapImpl = impl;
-    }
-
-    function setFeeDistributorImpl(address impl) external {
-        feeDistributorImpl = impl;
-    }
-
-    function setFeePreviewReader(address reader) external {
-        feePreviewReader = reader;
-    }
-
-    // readiness 经 getLauncherContracts() 读 swap/hook/sibling；返回 mock 字段，其余字段为零
-    // （readiness 不校验它们的存在性，只校验 swap/hook 接线与 sibling 有代码）。
-    function getLauncherContracts() external view returns (IMemeverseLauncher.LauncherContracts memory c) {
-        c.memeverseSwapRouter = memeverseSwapRouter;
-        c.memeverseUniswapHook = memeverseUniswapHook;
-        c.bootstrapImpl = bootstrapImpl;
-        c.feeDistributorImpl = feeDistributorImpl;
-        c.feePreviewReader = feePreviewReader;
-        return c;
     }
 }
 

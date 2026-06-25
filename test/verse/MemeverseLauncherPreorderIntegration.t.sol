@@ -169,7 +169,7 @@ contract MemeverseLauncherPreorderIntegrationTest is Test, HookStorageHelper {
         assertEq(uint256(stage), uint256(IMemeverseLauncher.Stage.Locked), "locked");
 
         uint256 treasuryUAssetBalance = uAsset.balanceOf(address(this)) - treasuryUAssetBalanceBefore;
-        assertEq(treasuryUAssetBalance, 0.0045 ether, "treasury received fixed 0.3% protocol fee");
+        assertEq(treasuryUAssetBalance, 0.00525 ether, "treasury received fixed 0.35% protocol fee");
 
         vm.warp(block.timestamp + 3 days + 12 hours);
 
