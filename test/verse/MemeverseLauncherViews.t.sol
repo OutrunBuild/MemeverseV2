@@ -9,8 +9,10 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
+import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IMemeverseFeePreviewReader} from "../../src/verse/interfaces/IMemeverseFeePreviewReader.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 
 contract MockPOLendForViews {
@@ -80,6 +82,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
 
     IMemeverseLauncher internal launcher;
     address internal launcherProxy;
+    IMemeverseFeePreviewReader internal feePreviewReader;
     /// @notice Pure proxy (implementation = MemeverseLauncher without *ForTest helpers)
     ///         for selector/ABI surface validation independent of test-only state helpers.
     address internal pureLauncher;
@@ -120,6 +123,7 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
             )
         );
         launcher = IMemeverseLauncher(launcherProxy);
+        feePreviewReader = new MemeverseFeePreviewReader(launcherProxy);
 
         // Deploy a pure proxy (implementation = pure MemeverseLauncher, no *ForTest helpers)
         // for selector / ABI surface validation.
@@ -221,20 +225,20 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         signatures[30] = "polToIds(address)";
         signatures[31] = "polend()";
         signatures[32] = "preorder(uint256,uint256,address)";
-        signatures[33] = "previewGenesisMakerFees(uint256)";
-        signatures[34] = "previewPreorderCapacity(uint256)";
-        signatures[35] = "quoteDistributionLzFee(uint256)";
-        signatures[36] = "redeemAndDistributeFees(uint256,address)";
-        signatures[37] = "redeemAuxiliaryLiquidity(uint256)";
-        signatures[38] = "redeemMemecoinLiquidity(uint256,uint256,bool)";
-        signatures[39] = "refund(uint256)";
-        signatures[40] = "refundPreorder(uint256)";
-        signatures[41] = "registerMemeverse(string,string,uint256,uint128,uint128,uint32[],address,bool)";
-        signatures[42] = "remainingGenesisCapacity(uint256)";
-        signatures[43] = "removeGasDust(address)";
-        signatures[44] = "setBootstrapImpl(address)";
-        signatures[45] = "setExecutorRewardRate(uint256)";
-        signatures[46] = "setExternalInfo(uint256,string,string,string[])";
+        signatures[33] = "previewPreorderCapacity(uint256)";
+        signatures[34] = "redeemAndDistributeFees(uint256,address)";
+        signatures[35] = "redeemAuxiliaryLiquidity(uint256)";
+        signatures[36] = "redeemMemecoinLiquidity(uint256,uint256,bool)";
+        signatures[37] = "refund(uint256)";
+        signatures[38] = "refundPreorder(uint256)";
+        signatures[39] = "registerMemeverse(string,string,uint256,uint128,uint128,uint32[],address,bool)";
+        signatures[40] = "remainingGenesisCapacity(uint256)";
+        signatures[41] = "removeGasDust(address)";
+        signatures[42] = "setBootstrapImpl(address)";
+        signatures[43] = "setExecutorRewardRate(uint256)";
+        signatures[44] = "setExternalInfo(uint256,string,string,string[])";
+        signatures[45] = "setFeeDistributorImpl(address)";
+        signatures[46] = "setFeePreviewReader(address)";
         signatures[47] = "setFundMetaData(address,uint256,uint256)";
         signatures[48] = "setGasLimits(uint128,uint128)";
         signatures[49] = "setLzEndpointRegistry(address)";
@@ -387,16 +391,16 @@ contract MemeverseLauncherViewsTest is Test, MemeverseLauncherTestHelper {
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getGovernorByVerseId(0);
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
-        launcher.previewGenesisMakerFees(0);
+        feePreviewReader.previewGenesisMakerFees(0);
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
-        launcher.quoteDistributionLzFee(0);
+        feePreviewReader.quoteDistributionLzFee(0);
 
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getMemeverseByVerseId(999);
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
         launcher.getMemeverseByMemecoin(address(0x9999));
         vm.expectRevert(IMemeverseLauncher.InvalidVerseId.selector);
-        launcher.quoteDistributionLzFee(999);
+        feePreviewReader.quoteDistributionLzFee(999);
 
         vm.startPrank(ALICE);
         assertEq(launcher.getVerseIdByMemecoin(MEMECOIN), 1);

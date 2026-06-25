@@ -13,8 +13,11 @@ import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
+import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
+import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
+import {IMemeverseFeePreviewReader} from "../../src/verse/interfaces/IMemeverseFeePreviewReader.sol";
 import {IMemeverseOFTEnum} from "../../src/common/types/IMemeverseOFTEnum.sol";
 import {IPOLend} from "../../src/polend/interfaces/IPOLend.sol";
 import {IMemeverseSwapRouter} from "../../src/swap/interfaces/IMemeverseSwapRouter.sol";
@@ -45,6 +48,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
 
     IMemeverseLauncher internal launcher;
     address internal launcherProxy;
+    IMemeverseFeePreviewReader internal feePreviewReader;
     MockSwapRouter internal router;
     MockOFTDispatcher internal dispatcher;
     MockPredictOnlyProxyDeployer internal proxyDeployer;
@@ -123,6 +127,9 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         launcher.setMemeverseUniswapHook(address(router.hook()));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
+        launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
+        feePreviewReader = new MemeverseFeePreviewReader(address(launcher));
+        launcher.setFeePreviewReader(address(feePreviewReader));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setLzEndpointRegistry(address(registry));
@@ -263,7 +270,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setQuote(address(memecoin), address(uAsset), address(launcher), 11 ether, 22 ether);
         router.setQuote(address(liquidProof), address(uAsset), address(launcher), 33 ether, 44 ether);
 
-        (uint256 uAssetFee, uint256 memecoinFee) = launcher.previewGenesisMakerFees(verseId);
+        (uint256 uAssetFee, uint256 memecoinFee) = feePreviewReader.previewGenesisMakerFees(verseId);
 
         assertEq(memecoinFee, 22 ether, "memecoin fee");
         assertEq(uAssetFee, 44 ether, "uAsset fee");
@@ -280,7 +287,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         _setSemanticPreviewQuote(address(pt), address(uAsset), 28 ether, 21 ether);
         _setSemanticPreviewQuote(address(pt), address(liquidProof), 14 ether, 35 ether);
 
-        (uint256 uAssetFee, uint256 memecoinFee) = launcher.previewGenesisMakerFees(verseId);
+        (uint256 uAssetFee, uint256 memecoinFee) = feePreviewReader.previewGenesisMakerFees(verseId);
 
         assertEq(memecoinFee, 3 ether, "memecoin fee");
         assertEq(uAssetFee, 29 ether, "uAsset fee includes auxiliary gov share");
@@ -298,7 +305,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         _setSemanticPreviewQuote(address(pt), address(uAsset), 14 ether, 0);
         _setSemanticPreviewQuote(address(pt), address(liquidProof), 0, 0);
 
-        (uint256 uAssetFee, uint256 memecoinFee) = launcher.previewGenesisMakerFees(verseId);
+        (uint256 uAssetFee, uint256 memecoinFee) = feePreviewReader.previewGenesisMakerFees(verseId);
 
         assertEq(memecoinFee, 3 ether, "memecoin fee");
         assertEq(uAssetFee, 9 ether, "uAsset fee includes converted PT backing");
@@ -315,7 +322,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         _setSemanticPreviewQuote(address(pt), address(uAsset), 0, 0);
         _setSemanticPreviewQuote(address(pt), address(liquidProof), 0, 0);
 
-        (uint256 uAssetFee, uint256 memecoinFee) = launcher.previewGenesisMakerFees(verseId);
+        (uint256 uAssetFee, uint256 memecoinFee) = feePreviewReader.previewGenesisMakerFees(verseId);
 
         assertEq(memecoinFee, 0, "memecoin fee");
         assertEq(uAssetFee, 5 ether, "uAsset fee includes pending auxiliary gov fees");
@@ -334,7 +341,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         _writeMemeverse(verseId, verse);
 
         vm.expectRevert(IMemeverseLauncher.NotReachedLockedStage.selector);
-        launcher.previewGenesisMakerFees(verseId);
+        feePreviewReader.previewGenesisMakerFees(verseId);
     }
 
     /// @notice Verifies normal YT can be claimed exactly once after the verse is locked.
@@ -383,7 +390,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         uint256 verseId = 1;
         _setLockedVerse(verseId);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 0);
     }
@@ -411,7 +418,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         remoteUAsset.setQuoteFee(0.15 ether);
         remoteMemecoin.setQuoteFee(0.25 ether);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 0.4 ether);
     }
@@ -442,7 +449,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setPreviewQuote(address(liquidProof), address(remoteUAsset), address(launcher), 0, 0);
         remoteUAsset.setQuoteFee(0.15 ether);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 0.15 ether);
     }
@@ -473,7 +480,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setPreviewQuote(address(liquidProof), address(remoteUAsset), address(launcher), 0, 0);
         remoteMemecoin.setQuoteFee(0.25 ether);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 0.25 ether);
     }
@@ -510,7 +517,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         uint256 expectedExecutorReward = FullMath.mulDiv(largeFee, rewardRate, 10_000);
         uint256 expectedGovFee = largeFee - expectedExecutorReward;
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, expectedGovFee);
     }
@@ -546,7 +553,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setPreviewQuote(address(pt), address(liquidProof), address(launcher), 0, 0);
         remoteUAsset.setQuoteFee(0.15 ether);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 0.15 ether);
     }
@@ -592,7 +599,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         (uint256 pendingUAssetFee, uint256 pendingPTFee) = _concrete().pendingAuxiliaryGovFeeStates(verseId);
         assertGt(pendingUAssetFee + pendingPTFee, 0, "pending auxiliary gov fee captured");
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
         assertEq(fee, 0.15 ether, "pending auxiliary fee still quoted");
     }
 
@@ -620,7 +627,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setPreviewQuote(address(pt), address(liquidProof), address(launcher), 0, 0);
         remoteUAsset.setQuoteAmountAsFee(true);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 2 ether, "quoted converted pending backing");
     }
@@ -654,7 +661,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setPreviewQuote(address(pt), address(liquidProof), address(launcher), 0, 0);
         remoteUAsset.setQuoteAmountAsFee(true);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 2 ether, "quoted converted current backing");
     }
@@ -683,7 +690,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setPreviewQuote(address(pt), address(liquidProof), address(launcher), 0, 0);
         remoteUAsset.setQuoteAmountAsFee(true);
 
-        uint256 fee = launcher.quoteDistributionLzFee(verseId);
+        uint256 fee = feePreviewReader.quoteDistributionLzFee(verseId);
 
         assertEq(fee, 1, "quoted merged converted backing");
     }
@@ -1636,6 +1643,9 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         assertEq(remoteMemecoin.lastSendDstEid(), 302);
         assertEq(remoteUAsset.lastNativeFeePaid(), 0.15 ether);
         assertEq(remoteMemecoin.lastNativeFeePaid(), 0.25 ether);
+        // Cross-chain fee distribution must route through OFT sends, never the local dispatcher
+        // (remoteFeePathNeverUsesLocalDispatcher). A regression here would silently misroute fees.
+        assertEq(dispatcher.composeCallCount(), 0, "remote path must not invoke local dispatcher");
     }
 
     /// @notice Verifies remote fee redemption rejects overpayment instead of trapping extra ETH in the launcher.
@@ -1992,6 +2002,53 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         assertEq(liquidProof.balanceOf(address(launcher)), 0, "launcher liquid proof");
     }
 
+    /// @notice Fuzzes same-chain fee redemption across main and auxiliary pool fee amounts.
+    /// @dev Leaves normal funding and leverage unset so every auxiliary fee is governance-side value.
+    function testFuzz_RedeemAndDistributeFees_SameChainClaimsAndDistributesAllFees(
+        uint128 mainMemecoinFee,
+        uint128 mainUAssetFee,
+        uint128 auxiliaryPolFee,
+        uint128 auxiliaryUAssetFee
+    ) external {
+        uint256 verseId = 40;
+        _setLockedVerse(verseId);
+
+        if (address(memecoin) < address(uAsset)) {
+            router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), mainMemecoinFee, mainUAssetFee);
+        } else {
+            router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), mainUAssetFee, mainMemecoinFee);
+        }
+        if (address(liquidProof) < address(uAsset)) {
+            router.setClaimQuote(
+                address(liquidProof), address(uAsset), address(launcher), auxiliaryPolFee, auxiliaryUAssetFee
+            );
+        } else {
+            router.setClaimQuote(
+                address(liquidProof), address(uAsset), address(launcher), auxiliaryUAssetFee, auxiliaryPolFee
+            );
+        }
+
+        (uint256 govFee, uint256 memecoinFee, uint256 liquidProofFee, uint256 executorReward) =
+            launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
+
+        assertEq(memecoinFee, uint256(mainMemecoinFee), "memecoin fee");
+        assertEq(liquidProofFee, uint256(auxiliaryPolFee), "liquid proof fee");
+        // With no normal-side liability, all claimed uAsset leaves through governance or executor reward paths.
+        assertEq(govFee + executorReward, uint256(mainUAssetFee) + uint256(auxiliaryUAssetFee), "uAsset fee");
+        assertEq(liquidProof.burnedAmount(), liquidProofFee, "burned liquid proof");
+        assertEq(uAsset.balanceOf(address(launcher)), 0, "launcher uAsset");
+        assertEq(memecoin.balanceOf(address(launcher)), 0, "launcher memecoin");
+        assertEq(liquidProof.balanceOf(address(launcher)), 0, "launcher liquid proof");
+        assertEq(uAsset.balanceOf(REWARD_RECEIVER), executorReward, "reward receiver uAsset");
+        assertEq(uAsset.balanceOf(address(dispatcher)), govFee, "dispatcher uAsset");
+        assertEq(memecoin.balanceOf(address(dispatcher)), memecoinFee, "dispatcher memecoin");
+
+        uint256 expectedComposeCallCount;
+        if (govFee != 0) expectedComposeCallCount++;
+        if (memecoinFee != 0) expectedComposeCallCount++;
+        assertEq(dispatcher.composeCallCount(), expectedComposeCallCount, "compose call count");
+    }
+
     /// @notice Verifies preview fee mapping matches actual redemption fee mapping.
     /// @dev Prevents preview and claim flows from drifting on token ordering.
     function testPreviewAndRedeemShareTheSameFeeMapping() external {
@@ -2003,7 +2060,7 @@ contract MemeverseLauncherLifecycleTest is Test, MemeverseLauncherTestHelper {
         router.setClaimQuote(address(memecoin), address(uAsset), address(launcher), 9 ether, 4 ether);
         router.setClaimQuote(address(liquidProof), address(uAsset), address(launcher), 13 ether, 6 ether);
 
-        (uint256 previewUAssetFee, uint256 previewMemecoinFee) = launcher.previewGenesisMakerFees(verseId);
+        (uint256 previewUAssetFee, uint256 previewMemecoinFee) = feePreviewReader.previewGenesisMakerFees(verseId);
         (uint256 govFee, uint256 memecoinFee,, uint256 executorReward) =
             launcher.redeemAndDistributeFees(verseId, REWARD_RECEIVER);
 

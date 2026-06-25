@@ -7,26 +7,22 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
-import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
-import {IOFT, SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 import {TokenHelper} from "../common/token/TokenHelper.sol";
 import {IMemecoin} from "../token/interfaces/IMemecoin.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IMemeverseLauncher} from "./interfaces/IMemeverseLauncher.sol";
 import {MemeverseLauncherStorage} from "./interfaces/IMemeverseLauncherStorage.sol";
 import {IMemeverseBootstrap} from "./interfaces/IMemeverseBootstrap.sol";
+import {IMemeverseFeeDistributor} from "./interfaces/IMemeverseFeeDistributor.sol";
 import {IPol} from "../token/interfaces/IPol.sol";
 import {ILzEndpointRegistry} from "../common/omnichain/interfaces/ILzEndpointRegistry.sol";
 import {IMemecoinYieldVault} from "../yield/interfaces/IMemecoinYieldVault.sol";
-import {IYieldDispatcher} from "./interfaces/IYieldDispatcher.sol";
 import {IMemeverseProxyDeployer} from "./interfaces/IMemeverseProxyDeployer.sol";
 import {IMemeverseSwapRouter} from "../swap/interfaces/IMemeverseSwapRouter.sol";
 import {IMemeverseUniswapHook} from "../swap/interfaces/IMemeverseUniswapHook.sol";
-import {MemeversePoolKeyLib} from "../swap/libraries/MemeversePoolKeyLib.sol";
 import {IPOLend} from "../polend/interfaces/IPOLend.sol";
 import {IPOLSplitter} from "../polend/interfaces/IPOLSplitter.sol";
 import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
@@ -50,7 +46,6 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
     UUPSUpgradeable,
     TokenHelper
 {
-    using OptionsBuilder for bytes;
     using Address for address;
 
     uint256 public constant RATIO = 10000;
@@ -164,6 +159,8 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         contracts.polSplitter = memeverseLauncherStorage.polSplitter;
         contracts.bootstrapImpl = memeverseLauncherStorage.bootstrapImpl;
         contracts.memeverseUniswapHook = memeverseLauncherStorage.memeverseUniswapHook;
+        contracts.feeDistributorImpl = memeverseLauncherStorage.feeDistributorImpl;
+        contracts.feePreviewReader = memeverseLauncherStorage.feePreviewReader;
     }
 
     function getLauncherParameters() external view returns (LauncherParameters memory parameters) {
@@ -238,7 +235,7 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         return (claim.claimedUAssetFee, claim.claimedPTFee);
     }
 
-    function pendingAuxiliaryGovFeeStates(uint256 verseId) external view returns (uint256, uint256) {
+    function pendingAuxiliaryGovFeeStates(uint256 verseId) external view override returns (uint256, uint256) {
         PendingAuxiliaryGovFeeState storage state = memeverseLauncherStorage.pendingAuxiliaryGovFeeStates[verseId];
         return (state.pendingUAssetFee, state.pendingPTFee);
     }
@@ -415,75 +412,6 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
     }
 
     /**
-     * @notice Preview Genesis liquidity market maker fees for DAO Treasury (uAsset) and Yield Vault (Memecoin).
-     * @dev Aggregates the claimable LP fees from the memecoin/uAsset pool and auxiliary gov-fee pools.
-     * @param verseId - Memeverse id
-     * @return uAssetFee - The uAsset fee.
-     * @return memecoinFee - The memecoin fee.
-     */
-    function previewGenesisMakerFees(uint256 verseId)
-        public
-        view
-        override
-        returns (uint256 uAssetFee, uint256 memecoinFee)
-    {
-        _versIdValidate(verseId);
-        Memeverse storage verse = memeverseLauncherStorage.memeverses[verseId];
-        require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
-
-        (memecoinFee, uAssetFee) = _previewPairFees(verse.memecoin, verse.uAsset);
-        address _polSplitter = memeverseLauncherStorage.polSplitter;
-        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
-        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt);
-        uAssetFee += govUAssetFee + govPTFee;
-    }
-
-    /**
-     * @dev Quote the LZ fee for the redemption and distribution of fees
-     * @param verseId - Memeverse id
-     * @return lzFee - The LZ fee.
-     * @notice The LZ fee is only charged when the governance chain is not the same as the current chain,
-     *         and callers should provide exactly the required native fee to redeemAndDistributeFees.
-     *         The local/no-fee required fee is zero.
-     */
-    function quoteDistributionLzFee(uint256 verseId) external view override returns (uint256 lzFee) {
-        _versIdValidate(verseId);
-        Memeverse storage verse = memeverseLauncherStorage.memeverses[verseId];
-        require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
-        uint32 govChainId = verse.omnichainIds[0];
-        if (govChainId == block.chainid) return 0;
-
-        address uAsset = verse.uAsset;
-        (uint256 memecoinFee, uint256 mainUAssetFee) = _previewPairFees(verse.memecoin, uAsset);
-        (uint256 govFee,) = _splitExecutorReward(mainUAssetFee);
-
-        address _polSplitter = memeverseLauncherStorage.polSplitter;
-        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
-        (uint256 govUAssetFee, uint256 govPTFee) = _previewGovFeeWithPending(verseId, verse, pt);
-        govFee += govUAssetFee + govPTFee;
-
-        uint32 govEndpointId =
-            ILzEndpointRegistry(memeverseLauncherStorage.lzEndpointRegistry).lzEndpointIdOfChain(govChainId);
-        bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
-            .addExecutorLzReceiveOption(memeverseLauncherStorage.oftReceiveGasLimit, 0)
-            .addExecutorLzComposeOption(0, memeverseLauncherStorage.yieldDispatcherGasLimit, 0);
-
-        if (govFee != 0) {
-            (, MessagingFee memory govMessagingFee) = _buildSendParamAndMessagingFee(
-                govEndpointId, govFee, uAsset, verse.governor, TokenType.UASSET, yieldDispatcherOptions
-            );
-            lzFee += govMessagingFee.nativeFee;
-        }
-
-        if (memecoinFee != 0) {
-            (, MessagingFee memory memecoinMessagingFee) = _buildSendParamAndMessagingFee(
-                govEndpointId, memecoinFee, verse.memecoin, verse.yieldVault, TokenType.MEMECOIN, yieldDispatcherOptions
-            );
-            lzFee += memecoinMessagingFee.nativeFee;
-        }
-    }
-
-    /**
      * @dev Genesis memeverse by depositing uAsset
      * @param verseId - Memeverse id
      * @param amountInUAsset - Amount of uAsset
@@ -579,7 +507,13 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
             address _polSplitter = memeverseLauncherStorage.polSplitter;
             address _polend = memeverseLauncherStorage.polend;
             address _hook = memeverseLauncherStorage.memeverseUniswapHook;
-            _captureLockedAuxiliaryFees(verseId, verse, _polSplitter, _hook);
+            address _feeDistributorImpl = memeverseLauncherStorage.feeDistributorImpl;
+            require(_feeDistributorImpl != address(0), FeeDistributorImplNotSet());
+            _feeDistributorImpl.functionDelegateCall(
+                abi.encodeWithSelector(
+                    IMemeverseFeeDistributor.captureLockedAuxiliaryFees.selector, verseId, _polSplitter, _hook
+                )
+            );
             verse.currentStage = Stage.Unlocked;
             IPOLSplitter(_polSplitter).settle(verseId);
             if (IPOLend(_polend).getTotalLeveragedDebt(verseId) != 0) {
@@ -1124,22 +1058,23 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         Memeverse storage verse = memeverseLauncherStorage.memeverses[verseId];
         require(verse.currentStage >= Stage.Locked, NotReachedLockedStage());
 
+        address impl = memeverseLauncherStorage.feeDistributorImpl;
+        require(impl != address(0), FeeDistributorImplNotSet());
         address _polSplitter = memeverseLauncherStorage.polSplitter;
-        RedeemedFeeState memory fees = _collectRedeemedFees(verseId, verse, _polSplitter);
-        if (_hasNoRedeemedFees(fees)) {
-            if (msg.value != 0) revert InvalidLzFee(0, msg.value);
+        bytes memory ret = impl.functionDelegateCall(
+            abi.encodeWithSelector(
+                IMemeverseFeeDistributor.collectAndDistributeFees.selector, verseId, rewardReceiver, _polSplitter
+            )
+        );
+        bool hadFees;
+        (govFee, memecoinFee, polFee, executorReward, hadFees) =
+            abi.decode(ret, (uint256, uint256, uint256, uint256, bool));
+        // `hadFees` mirrors the distributor's `_hasNoRedeemedFees` gate, so the emit decision is byte-for-byte
+        // equivalent to the original inline implementation (emit iff fees were collected). The no-fee path also
+        // reverts InvalidLzFee inside the distributor when msg.value != 0.
+        if (!hadFees) {
             return (0, 0, 0, 0);
         }
-        if (fees.polFee != 0) IPol(verse.pol).burn(address(this), fees.polFee);
-
-        (govFee, executorReward) = _splitExecutorReward(fees.uAssetFee);
-        // Anyone can execute fee redemption; only the uAsset-side fee is split with the caller as an execution incentive.
-        if (executorReward != 0) _transferOut(verse.uAsset, rewardReceiver, executorReward);
-
-        memecoinFee = fees.memecoinFee;
-        polFee = fees.polFee;
-        govFee = _distributeRedeemedFees(verseId, verse, govFee, fees, _polSplitter);
-
         emit RedeemAndDistributeFees(verseId, govFee, memecoinFee, polFee, executorReward);
     }
 
@@ -1488,6 +1423,27 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         emit SetBootstrapImpl(impl);
     }
 
+    /// @notice Set the MemeverseFeeDistributor sibling address used to run fee collection and distribution.
+    /// @dev Only callable by the owner. `redeemAndDistributeFees` and the Locked->Unlocked branch of
+    ///      `changeStage` delegatecall this sibling, so a zero address would delegatecall into address(0)
+    ///      and burn the call; reject it explicitly here.
+    /// @param impl The MemeverseFeeDistributor sibling address.
+    function setFeeDistributorImpl(address impl) external override onlyOwner {
+        require(impl != address(0), ZeroInput());
+        memeverseLauncherStorage.feeDistributorImpl = impl;
+        emit SetFeeDistributorImpl(impl);
+    }
+
+    /// @notice Set the fee-preview reader contract used for off-chain fee previews.
+    /// @dev Only callable by the owner. The reader is a standalone view contract (not a delegatecall
+    ///      target); a zero address is rejected to keep the wiring explicit.
+    /// @param reader The fee-preview reader contract address.
+    function setFeePreviewReader(address reader) external override onlyOwner {
+        require(reader != address(0), ZeroInput());
+        memeverseLauncherStorage.feePreviewReader = reader;
+        emit SetFeePreviewReader(reader);
+    }
+
     /**
      * @notice Set the memeverse swap router contract.
      * @dev Only callable by the owner.
@@ -1714,342 +1670,8 @@ contract MemeverseLauncher layout at erc7201("outrun.storage.MemeverseLauncher")
         emit SetExternalInfo(verseId, uri, description, communities);
     }
 
-    function _collectRedeemedFees(uint256 verseId, Memeverse storage verse, address _polSplitter)
-        internal
-        returns (RedeemedFeeState memory fees)
-    {
-        address _hook = memeverseLauncherStorage.memeverseUniswapHook;
-        (fees.memecoinFee, fees.uAssetFee) = _claimPairFees(verse.memecoin, verse.uAsset, _hook);
-
-        address pt = IPOLSplitter(_polSplitter).getPT(verseId);
-        (fees.auxiliaryGovUAssetFee, fees.auxiliaryGovPTFee, fees.polFee) =
-            _claimAndAccrueAuxiliaryFees(verseId, verse, pt, verse.currentStage == Stage.Locked, _hook);
-
-        fees = _mergePendingAuxiliaryGovFees(verseId, fees, _polSplitter);
-    }
-
-    function _mergePendingAuxiliaryGovFees(uint256 verseId, RedeemedFeeState memory fees, address _polSplitter)
-        internal
-        returns (RedeemedFeeState memory)
-    {
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState =
-            memeverseLauncherStorage.pendingAuxiliaryGovFeeStates[verseId];
-        uint256 pendingUAssetFee = pendingGovFeeState.pendingUAssetFee;
-        uint256 pendingPTFee = pendingGovFeeState.pendingPTFee;
-        uint256 auxiliaryGovPTFee = fees.auxiliaryGovPTFee + pendingPTFee;
-
-        fees.auxiliaryGovUAssetFee += pendingUAssetFee;
-        if (auxiliaryGovPTFee != 0) {
-            if (IPOLSplitter(_polSplitter).previewPTToUAsset(verseId, auxiliaryGovPTFee) == 0) {
-                pendingGovFeeState.pendingPTFee = auxiliaryGovPTFee;
-                fees.auxiliaryGovPTFee = 0;
-            } else {
-                fees.auxiliaryGovPTFee = auxiliaryGovPTFee;
-                pendingGovFeeState.pendingPTFee = 0;
-            }
-        }
-        if (pendingUAssetFee != 0) pendingGovFeeState.pendingUAssetFee = 0;
-
-        return fees;
-    }
-
-    function _hasNoRedeemedFees(RedeemedFeeState memory fees) internal pure returns (bool) {
-        return fees.uAssetFee == 0 && fees.memecoinFee == 0 && fees.polFee == 0 && fees.auxiliaryGovUAssetFee == 0
-            && fees.auxiliaryGovPTFee == 0;
-    }
-
-    function _distributeRedeemedFees(
-        uint256 verseId,
-        Memeverse storage verse,
-        uint256 govFee,
-        RedeemedFeeState memory fees,
-        address _polSplitter
-    ) internal returns (uint256) {
-        if (verse.omnichainIds[0] == block.chainid) {
-            return _distributeRedeemedFeesSameChain(verseId, verse, govFee, fees, _polSplitter);
-        }
-        return _distributeRedeemedFeesCrossChain(verseId, verse, govFee, fees, _polSplitter);
-    }
-
-    function _distributeRedeemedFeesSameChain(
-        uint256 verseId,
-        Memeverse storage verse,
-        uint256 govFee,
-        RedeemedFeeState memory fees,
-        address _polSplitter
-    ) internal returns (uint256) {
-        if (msg.value != 0) revert InvalidLzFee(0, msg.value);
-        address _yieldDispatcher = memeverseLauncherStorage.yieldDispatcher;
-        address _polend = memeverseLauncherStorage.polend;
-
-        uint256 auxiliaryGovUAssetHeldByLauncher = fees.auxiliaryGovUAssetFee;
-        if (fees.auxiliaryGovPTFee != 0) {
-            if (verse.currentStage == Stage.Locked) {
-                fees.auxiliaryGovUAssetFee += IPOLend(_polend)
-                    .preRedeemPTFee(verseId, fees.auxiliaryGovPTFee, _yieldDispatcher);
-            } else {
-                fees.auxiliaryGovUAssetFee += IPOLSplitter(_polSplitter)
-                    .redeemPT(verseId, fees.auxiliaryGovPTFee, _yieldDispatcher);
-            }
-            fees.auxiliaryGovPTFee = 0;
-        }
-
-        uint256 transferToDispatcher = govFee + auxiliaryGovUAssetHeldByLauncher;
-        govFee += fees.auxiliaryGovUAssetFee;
-        // Same-chain governance routes through YieldDispatcher's dedicated same-chain entry so local and remote fee
-        // flows share one settlement sink.
-        if (govFee != 0) {
-            if (transferToDispatcher != 0) {
-                _transferOut(verse.uAsset, _yieldDispatcher, transferToDispatcher);
-            }
-            IYieldDispatcher(_yieldDispatcher)
-                .distributeSameChain(verse.uAsset, verse.governor, TokenType.UASSET, govFee);
-        }
-        if (fees.memecoinFee != 0) {
-            _transferOut(verse.memecoin, _yieldDispatcher, fees.memecoinFee);
-            IYieldDispatcher(_yieldDispatcher)
-                .distributeSameChain(verse.memecoin, verse.yieldVault, TokenType.MEMECOIN, fees.memecoinFee);
-        }
-
-        return govFee;
-    }
-
-    function _distributeRedeemedFeesCrossChain(
-        uint256 verseId,
-        Memeverse storage verse,
-        uint256 govFee,
-        RedeemedFeeState memory fees,
-        address _polSplitter
-    ) internal returns (uint256) {
-        if (fees.auxiliaryGovPTFee != 0) {
-            uint256 convertedUAssetAmount;
-            if (verse.currentStage == Stage.Locked) {
-                convertedUAssetAmount = IPOLend(memeverseLauncherStorage.polend)
-                    .preRedeemPTFee(verseId, fees.auxiliaryGovPTFee, address(this));
-            } else {
-                convertedUAssetAmount =
-                    IPOLSplitter(_polSplitter).redeemPT(verseId, fees.auxiliaryGovPTFee, address(this));
-            }
-            fees.auxiliaryGovUAssetFee += convertedUAssetAmount;
-            fees.auxiliaryGovPTFee = 0;
-        }
-
-        govFee += fees.auxiliaryGovUAssetFee;
-        _sendRedeemedFeesCrossChain(verse, govFee, fees.memecoinFee);
-        return govFee;
-    }
-
-    function _sendRedeemedFeesCrossChain(Memeverse storage verse, uint256 govFee, uint256 memecoinFee) internal {
-        // Cross-chain governance prebuilds both OFT sends, then requires the caller to fund exactly the combined native messaging fee.
-        uint32 govEndpointId =
-            ILzEndpointRegistry(memeverseLauncherStorage.lzEndpointRegistry).lzEndpointIdOfChain(verse.omnichainIds[0]);
-        bytes memory yieldDispatcherOptions = OptionsBuilder.newOptions()
-            .addExecutorLzReceiveOption(memeverseLauncherStorage.oftReceiveGasLimit, 0)
-            .addExecutorLzComposeOption(0, memeverseLauncherStorage.yieldDispatcherGasLimit, 0);
-
-        SendParam memory sendUAssetParam;
-        MessagingFee memory govMessagingFee;
-        if (govFee != 0) {
-            (sendUAssetParam, govMessagingFee) = _buildSendParamAndMessagingFee(
-                govEndpointId, govFee, verse.uAsset, verse.governor, TokenType.UASSET, yieldDispatcherOptions
-            );
-        }
-
-        SendParam memory sendMemecoinParam;
-        MessagingFee memory memecoinMessagingFee;
-        if (memecoinFee != 0) {
-            (sendMemecoinParam, memecoinMessagingFee) = _buildSendParamAndMessagingFee(
-                govEndpointId, memecoinFee, verse.memecoin, verse.yieldVault, TokenType.MEMECOIN, yieldDispatcherOptions
-            );
-        }
-
-        uint256 requiredLzFee = govMessagingFee.nativeFee + memecoinMessagingFee.nativeFee;
-        if (msg.value != requiredLzFee) revert InvalidLzFee(requiredLzFee, msg.value);
-        if (govFee != 0) {
-            // solhint-disable-next-line check-send-result
-            IOFT(verse.uAsset).send{value: govMessagingFee.nativeFee}(sendUAssetParam, govMessagingFee, msg.sender);
-        }
-        if (memecoinFee != 0) {
-            // solhint-disable-next-line check-send-result,multiple-sends
-            IOFT(verse.memecoin).send{value: memecoinMessagingFee.nativeFee}(
-                sendMemecoinParam, memecoinMessagingFee, msg.sender
-            );
-        }
-    }
-
-    function _splitExecutorReward(uint256 uAssetFee) internal view returns (uint256 govFee, uint256 executorReward) {
-        executorReward = FullMath.mulDiv(uAssetFee, memeverseLauncherStorage.executorRewardRate, RATIO);
-        govFee = uAssetFee - executorReward;
-    }
-
-    function _buildSendParamAndMessagingFee(
-        uint32 govEndpointId,
-        uint256 amount,
-        address token,
-        address receiver,
-        TokenType tokenType,
-        bytes memory yieldDispatcherOptions
-    ) internal view returns (SendParam memory sendParam, MessagingFee memory messagingFee) {
-        sendParam = SendParam({
-            dstEid: govEndpointId,
-            to: bytes32(uint256(uint160(memeverseLauncherStorage.yieldDispatcher))),
-            amountLD: amount,
-            minAmountLD: 0,
-            extraOptions: yieldDispatcherOptions,
-            composeMsg: abi.encode(receiver, tokenType),
-            oftCmd: abi.encode()
-        });
-        messagingFee = IOFT(token).quoteSend(sendParam, false);
-    }
-
-    function _captureLockedAuxiliaryFees(
-        uint256 verseId,
-        Memeverse storage verse,
-        address polSplitterAddress,
-        address hook
-    ) internal {
-        address pt = IPOLSplitter(polSplitterAddress).getPT(verseId);
-        (uint256 govUAssetFee, uint256 govPTFee, uint256 burnedPolFee) =
-            _claimAndAccrueAuxiliaryFees(verseId, verse, pt, true, hook);
-        if (burnedPolFee != 0) IPol(verse.pol).burn(address(this), burnedPolFee);
-
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState =
-            memeverseLauncherStorage.pendingAuxiliaryGovFeeStates[verseId];
-        pendingGovFeeState.pendingUAssetFee += govUAssetFee;
-        pendingGovFeeState.pendingPTFee += govPTFee;
-    }
-
-    function _previewAuxiliaryGovFees(uint256 verseId, Memeverse storage verse, address pt)
-        internal
-        view
-        returns (uint256 govUAssetFee, uint256 govPTFee)
-    {
-        (, uint256 polUAssetUAssetFee) = _previewPairFees(verse.pol, verse.uAsset);
-        uint256 totalAuxiliaryUAssetFee = polUAssetUAssetFee;
-        uint256 totalPTFee;
-
-        if (pt != address(0)) {
-            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _previewPairFees(pt, verse.uAsset);
-            (uint256 ptPolPTFee,) = _previewPairFees(pt, verse.pol);
-            totalAuxiliaryUAssetFee += ptUAssetUAssetFee;
-            totalPTFee = ptUAssetPTFee + ptPolPTFee;
-        }
-
-        return _splitAuxiliaryGovFees(verseId, totalAuxiliaryUAssetFee, totalPTFee, verse.currentStage == Stage.Locked);
-    }
-
-    /// @dev Preview the total governance fee by combining pending accumulated fees with live auxiliary pool fees.
-    ///      Returns both components already converted to uAsset denomination so callers can sum directly.
-    ///      Used by previewGenesisMakerFees and quoteDistributionLzFee to avoid duplicating the
-    ///      pending-read → auxiliary-preview → PT-to-uAsset conversion → merge pattern.
-    function _previewGovFeeWithPending(uint256 verseId, Memeverse storage verse, address pt)
-        internal
-        view
-        returns (uint256 govUAssetFee, uint256 govPTFee)
-    {
-        PendingAuxiliaryGovFeeState storage pendingGovFeeState =
-            memeverseLauncherStorage.pendingAuxiliaryGovFeeStates[verseId];
-
-        // Preview live auxiliary fees from POL/uAsset and PT/uAsset pools
-        (uint256 auxUAssetFee, uint256 auxPTFee) = _previewAuxiliaryGovFees(verseId, verse, pt);
-
-        // Merge pending accumulated fees with live preview
-        govUAssetFee = pendingGovFeeState.pendingUAssetFee + auxUAssetFee;
-        govPTFee = pendingGovFeeState.pendingPTFee + auxPTFee;
-
-        // Convert PT-denominated fee to uAsset so the caller can add it directly
-        if (govPTFee != 0) {
-            govPTFee = IPOLSplitter(memeverseLauncherStorage.polSplitter).previewPTToUAsset(verseId, govPTFee);
-        }
-    }
-
-    function _claimAndAccrueAuxiliaryFees(
-        uint256 verseId,
-        Memeverse storage verse,
-        address pt,
-        bool preserveNormalShare,
-        address _hook
-    ) internal returns (uint256 govUAssetFee, uint256 govPTFee, uint256 burnedPolFee) {
-        (uint256 polUAssetPolFee, uint256 polUAssetUAssetFee) = _claimPairFees(verse.pol, verse.uAsset, _hook);
-        burnedPolFee = polUAssetPolFee;
-
-        uint256 totalAuxiliaryUAssetFee = polUAssetUAssetFee;
-        uint256 totalPTFee;
-        if (pt != address(0)) {
-            (uint256 ptUAssetPTFee, uint256 ptUAssetUAssetFee) = _claimPairFees(pt, verse.uAsset, _hook);
-            (uint256 ptPolPTFee, uint256 ptPolPolFee) = _claimPairFees(pt, verse.pol, _hook);
-            totalAuxiliaryUAssetFee += ptUAssetUAssetFee;
-            totalPTFee = ptUAssetPTFee + ptPolPTFee;
-            burnedPolFee += ptPolPolFee;
-        }
-
-        (govUAssetFee, govPTFee) =
-            _accrueAuxiliaryFeeShares(verseId, totalAuxiliaryUAssetFee, totalPTFee, preserveNormalShare);
-    }
-
-    function _accrueAuxiliaryFeeShares(
-        uint256 verseId,
-        uint256 totalUAssetFee,
-        uint256 totalPTFee,
-        bool preserveNormalShare
-    ) internal returns (uint256 govUAssetFee, uint256 govPTFee) {
-        (govUAssetFee, govPTFee) = _splitAuxiliaryGovFees(verseId, totalUAssetFee, totalPTFee, preserveNormalShare);
-        if (!preserveNormalShare) return (govUAssetFee, govPTFee);
-
-        NormalFeeState storage feeState = memeverseLauncherStorage.normalFeeStates[verseId];
-        feeState.accUAssetFee += totalUAssetFee - govUAssetFee;
-        feeState.accPTFee += totalPTFee - govPTFee;
-    }
-
-    function _splitAuxiliaryGovFees(
-        uint256 verseId,
-        uint256 totalUAssetFee,
-        uint256 totalPTFee,
-        bool preserveNormalShare
-    ) internal view returns (uint256 govUAssetFee, uint256 govPTFee) {
-        if (!preserveNormalShare) return (totalUAssetFee, totalPTFee);
-        uint256 normalFunds = memeverseLauncherStorage.totalNormalFunds[verseId];
-        uint256 totalLeveragedDebt = IPOLend(memeverseLauncherStorage.polend).getTotalLeveragedDebt(verseId);
-        uint256 totalFunds = MemeverseLauncherLib.checkedTotalGenesisFunds(normalFunds, totalLeveragedDebt);
-        if (totalFunds == 0) return (totalUAssetFee, totalPTFee);
-
-        govUAssetFee = FullMath.mulDiv(totalUAssetFee, totalLeveragedDebt, totalFunds);
-        govPTFee = FullMath.mulDiv(totalPTFee, totalLeveragedDebt, totalFunds);
-    }
-
-    function _previewPairFees(address tokenA, address tokenB)
-        internal
-        view
-        returns (uint256 tokenAFee, uint256 tokenBFee)
-    {
-        (uint256 fee0, uint256 fee1) = IMemeverseSwapRouter(memeverseLauncherStorage.memeverseSwapRouter)
-            .previewClaimableFees(tokenA, tokenB, address(this));
-        return _mapPairFees(tokenA, tokenB, fee0, fee1);
-    }
-
-    function _claimPairFees(address tokenA, address tokenB, address _hook)
-        internal
-        returns (uint256 tokenAFee, uint256 tokenBFee)
-    {
-        PoolKey memory key = MemeversePoolKeyLib.hookPoolKey(tokenA, tokenB, _hook);
-        (uint256 fee0, uint256 fee1) = IMemeverseUniswapHook(_hook)
-            .claimFeesCore(IMemeverseUniswapHook.ClaimFeesCoreParams({key: key, recipient: address(this)}));
-        return _mapPairFees(tokenA, tokenB, fee0, fee1);
-    }
-
     function _pairLpToken(address tokenA, address tokenB, address swapRouter) internal view returns (address lpToken) {
         return IMemeverseSwapRouter(swapRouter).lpToken(tokenA, tokenB);
-    }
-
-    function _mapPairFees(address tokenA, address tokenB, uint256 fee0, uint256 fee1)
-        internal
-        pure
-        returns (uint256 tokenAFee, uint256 tokenBFee)
-    {
-        if (tokenA < tokenB) {
-            return (fee0, fee1);
-        }
-        return (fee1, fee0);
     }
 
     function _positiveDeltaAmountForToken(BalanceDelta delta, address token, address tokenA, address tokenB)

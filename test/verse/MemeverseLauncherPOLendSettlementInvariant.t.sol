@@ -26,6 +26,8 @@ import {
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
+import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
+import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
 
 contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLauncherTestHelper {
     uint256 internal constant VERSE_ID = 1;
@@ -96,6 +98,8 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLaunch
         hook.setPoolInitializer(address(router));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
+        launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
+        launcher.setFeePreviewReader(address(new MemeverseFeePreviewReader(address(launcher))));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
         setPolSplitterForTest(launcherProxy, address(splitter));
@@ -796,6 +800,8 @@ contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
         hook_.setPoolInitializer(address(router_));
         IMemeverseLauncher(launcher_).setMemeverseSwapRouter(address(router_));
         IMemeverseLauncher(launcher_).setBootstrapImpl(address(new MemeverseBootstrap()));
+        IMemeverseLauncher(launcher_).setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
+        IMemeverseLauncher(launcher_).setFeePreviewReader(address(new MemeverseFeePreviewReader(launcher_)));
         IMemeverseLauncher(launcher_).setYieldDispatcher(address(dispatcher_));
         IMemeverseLauncher(launcher_).setMemeverseProxyDeployer(address(new MockProxyDeployerForPOLendIntegration()));
         setPolSplitterForTest(launcher_, address(splitter_));

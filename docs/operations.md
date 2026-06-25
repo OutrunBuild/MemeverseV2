@@ -55,7 +55,7 @@
 
 ### 3.3 费用分发（keeper）
 
-入口：`quoteDistributionLzFee(verseId)` 与 `redeemAndDistributeFees(verseId,rewardReceiver)`。  
+入口：`quoteDistributionLzFee(verseId)`（经 `MemeverseFeePreviewReader`，地址取 `getLauncherContracts().feePreviewReader`）与 `redeemAndDistributeFees(verseId,rewardReceiver)`（仍调 Launcher）。  
 语义：
 
 - 先从 `memecoin/uAsset` 主池与三个辅助池捕获 fee；目标分流规则见 [docs/spec/polend/README.md](spec/polend/README.md)
@@ -128,10 +128,13 @@
 | `GovernanceCycleIncentivizerUpgradeable` | `MemeverseProxyDeployer.deployGovernorAndIncentivizer`; proxy salt = `keccak256(abi.encode(uniqueId))` | `MemeverseScript._deployImplementation` | `GovernanceCycleIncentivizerImplementation + nonce` | `onlyGovernance` | 实际校验 `msg.sender == _governor`（即 Governor proxy 地址） |
 | **Facade delegatecall 目标（非 proxy，可替换实现）** | | | | | |
 | `MemeverseBootstrap` | N/A（非 proxy，Launcher `delegatecall` 目标） | `MemeverseScript` 单角色模式 `new MemeverseBootstrap()` | N/A | `setBootstrapImpl`（`onlyOwner`） | 与 Launcher 共享 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；替换方式为部署新 sibling + owner `setBootstrapImpl`（非 UUPS `upgradeToAndCall`）；sibling 读 proxy storage，被 EOA 直调时读自身空 storage 回退 |
+| `MemeverseFeeDistributor` | N/A（非 proxy，Launcher `delegatecall` 目标） | `MemeverseScript` 单角色模式 `new MemeverseFeeDistributor()` | N/A | `setFeeDistributorImpl`（`onlyOwner`） | 与 Launcher/Bootstrap 共享 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；替换方式为部署新 sibling + owner `setFeeDistributorImpl`；delegatecall-only by construction（自身 storage 永久未初始化，被 EOA 直调时读空 verse → 对 address(0) 外调回退） |
+| **Staticcall view sibling（非 proxy，可替换实现）** | | | | | |
+| `MemeverseFeePreviewReader` | N/A（非 proxy，独立 view 合约；通过 immutable `PROXY` staticcall 读 Launcher 状态） | `MemeverseScript` 单角色模式 `new MemeverseFeePreviewReader(launcherProxy)` | N/A | `setFeePreviewReader`（`onlyOwner`） | 不绑名域、不被 delegatecall、不可写 proxy storage；替换方式为部署新 reader + owner `setFeePreviewReader`；构造时 immutable 绑定 Launcher proxy，部署后无法 retarget 到其他 proxy；§3.9.7 readiness 要求未接线时阻断 registration 打开 |
 
 #### 3.9.2 升级前：Storage 兼容性验证
 
-所有 7 个合约使用 ERC7201 名域存储（namespaced storage）。每个合约的自定义数据存在一个由 namespace 字符串计算出的固定槽位起始位置。下表列出各合约的 annotation（`@custom:storage-location`，含 `erc7201:` scheme 前缀）和实际参与 slot hash 的 namespace ID：
+下表所列合约均使用 ERC7201 名域存储（namespaced storage）。每个合约的自定义数据存在一个由 namespace 字符串计算出的固定槽位起始位置。下表列出各合约的 annotation（`@custom:storage-location`，含 `erc7201:` scheme 前缀）和实际参与 slot hash 的 namespace ID：
 
 | 合约 | annotation（代码注解） | namespace ID（hash 输入） |
 |---|---|---|
@@ -142,8 +145,9 @@
 | `MemecoinDaoGovernorUpgradeable` | `erc7201:outrun.storage.MemecoinDaoGovernor` | `outrun.storage.MemecoinDaoGovernor` |
 | `GovernanceCycleIncentivizerUpgradeable` | `erc7201:outrun.storage.GovernanceCycleIncentivizer` | `outrun.storage.GovernanceCycleIncentivizer` |
 | `MemeverseBootstrap` | `erc7201:outrun.storage.MemeverseLauncher` | `outrun.storage.MemeverseLauncher`（与 `MemeverseLauncher` 相同） |
+| `MemeverseFeeDistributor` | `erc7201:outrun.storage.MemeverseLauncher` | `outrun.storage.MemeverseLauncher`（与 `MemeverseLauncher` 相同） |
 
-`MemeverseBootstrap` 与 `MemeverseLauncher` facade 共享同一 ERC-7201 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；升级任一方 storage layout 时另一方必须用相同 struct 同步重编，否则 Launcher facade 经 `delegatecall` 调用 sibling 时会读写错位。`MemeverseBootstrap` 行的 namespace 经 `layout at erc7201("outrun.storage.MemeverseLauncher")` 子句绑定，`@custom:storage-location` 注解实际挂在 `src/verse/interfaces/IMemeverseLauncherStorage.sol::MemeverseLauncherStorage`。
+`MemeverseBootstrap` 与 `MemeverseFeeDistributor` **均为** `MemeverseLauncher` facade 的 delegatecall sibling，共享同一 namespace `outrun.storage.MemeverseLauncher` 与 `IMemeverseLauncherStorage` struct；升级 facade 或任一 sibling 的 storage layout 时，**所有**共享该 namespace 的合约必须用相同 struct 同步重编，否则 facade 经 delegatecall 调 sibling 时读写错位。两行 namespace 均经 `layout at erc7201("outrun.storage.MemeverseLauncher")` 绑定，`@custom:storage-location` 注解实际挂在 `src/verse/interfaces/IMemeverseLauncherStorage.sol::MemeverseLauncherStorage`。
 
 ERC7201 槽位计算公式：`keccak256(abi.encode(uint256(keccak256(“outrun.storage.XXX”)) - 1)) & ~bytes32(uint256(0xff))`。注意：`erc7201:` 仅是 annotation scheme 前缀，用于标识 struct 使用 ERC7201 存储，**不参与** slot hash 计算。可以用 `cast storage <proxy> <slot>` 直接读链上数据验证。
 
@@ -365,6 +369,8 @@ cast call $LAUNCHER_PROXY "getLauncherContracts()" --rpc-url $RPC
 # 可用 cast codehash $BOOTSTRAP_IMPL --rpc-url $RPC 二次确认非空
 ```
 
+fee sibling 进 readiness check：`feeDistributorImpl`（`LauncherContracts` 第 10 字段）与 `feePreviewReader`（第 11 字段）由脚本 `_readLauncherImplSiblings` 取值后 `_requireContractCode` 校验非零且有代码，与 `bootstrapImpl` 对称（均为用户路径上使用的 delegatecall/view sibling：`::redeemAndDistributeFees` / `changeStage` Locked→Unlocked 会 delegatecall `feeDistributorImpl`，`feePreviewReader` 供链下预览）；未接线时 readiness 失败、阻断 registration 打开，运行时 `FeeDistributorImplNotSet` 守卫仅作兜底。`[代码已证]`
+
 **MemeverseUniswapHook：**
 
 ```bash
@@ -440,7 +446,7 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 
 **功能性冒烟测试（可选但建议）：**
 
-- 对 Launcher 调用 `quoteDistributionLzFee(verseId)` 确认 fee 计算逻辑正常
+- 对 FeePreviewReader 调用 `quoteDistributionLzFee(verseId)`（地址取 `getLauncherContracts().feePreviewReader`）确认 fee 计算逻辑正常
 - 对 Hook 调用 `getHookPermissions()` 确认 hook 权限配置正确
 - 对 Governor 调用 `state(proposalId)` 确认治理状态机正常
 

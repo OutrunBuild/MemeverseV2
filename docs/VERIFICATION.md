@@ -23,7 +23,7 @@ Gate output controls:
 
 Local current-work verification must use exact changed-file input. Solidity changed-files mode requires diff evidence via `CHANGE_CLASSIFIER_DIFF_FILE` or `GATE_DIFF_BASE`; without it, semantic classification is blocked.
 
-Gate verifies classification and command outcomes. Spec/document impact is decided before doc writers, `spec-reviewer`, code writers, or code reviewers are dispatched, not by gate.
+Gate verifies classification and command outcomes. For `prod-semantic` changes the gate emits `doc_round_required` to trigger the main session's product-doc round (grep `docs/` + per-doc update/no-update + dispatch doc writers and `spec-reviewer` before code writers), but the specific `affected_docs` set is still decided by the main session's `docs/` grep, not computed by the gate.
 
 For `fast` verification, `targeted_tests` still starts from the exact file set selected by `test_mapping`, but the gate now tries to compress that file set into a single `forge test --match-contract <regex>` run. The gate builds the regex from `forge test --list --match-path <file>` results, validates that `forge test --list --match-contract <regex>` resolves to the same test-contract set, and only then runs the compressed command. If extraction or validation fails, the gate falls back to the original per-file `forge test --match-path <file>` loop.
 

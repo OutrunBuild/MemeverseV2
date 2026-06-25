@@ -9,6 +9,8 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
+import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
+import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {POLend} from "../../src/polend/POLend.sol";
 import {POLSplitter} from "../../src/polend/POLSplitter.sol";
@@ -95,6 +97,8 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
         hook.setPoolInitializer(address(router));
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
+        launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
+        launcher.setFeePreviewReader(address(new MemeverseFeePreviewReader(address(launcher))));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setFundMetaData(address(uAsset), 10 ether, 1);

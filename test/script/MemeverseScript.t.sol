@@ -38,6 +38,10 @@ contract MockScriptLauncher is LauncherReadinessMockBase {
         FundMetaData memory data = metadata[uAsset];
         return (data.minTotalFund, data.fundBasedAmount);
     }
+
+    function setBootstrapImpl(address impl) external {
+        bootstrapImpl = impl;
+    }
 }
 
 contract MockScriptRegistrar {
@@ -373,6 +377,19 @@ contract MemeverseScriptTest is Test {
         _mockEngineOnHook(readyHook);
         launcher.setMemeverseSwapRouter(address(router));
         launcher.setMemeverseUniswapHook(readyHook);
+
+        // readiness 校验三个 delegatecall/view sibling 有代码（_readLauncherImplSiblings 的
+        // BOOTSTRAP/FEE_DISTRIBUTOR/FEE_PREVIEW 检查）；etch 有代码的地址并接线。
+        address bootstrapImplAddr = address(uint160(0x5001));
+        address feeDistributorImplAddr = address(uint160(0x5002));
+        address feePreviewReaderAddr = address(uint160(0x5003));
+        bytes memory siblingCode = address(hookImpl).code;
+        vm.etch(bootstrapImplAddr, siblingCode);
+        vm.etch(feeDistributorImplAddr, siblingCode);
+        vm.etch(feePreviewReaderAddr, siblingCode);
+        launcher.setBootstrapImpl(bootstrapImplAddr);
+        launcher.setFeeDistributorImpl(feeDistributorImplAddr);
+        launcher.setFeePreviewReader(feePreviewReaderAddr);
         return (address(router), readyHook);
     }
 

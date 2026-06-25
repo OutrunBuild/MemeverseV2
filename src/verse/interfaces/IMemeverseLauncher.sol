@@ -136,6 +136,8 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         address polSplitter;
         address bootstrapImpl;
         address memeverseUniswapHook;
+        address feeDistributorImpl;
+        address feePreviewReader;
     }
 
     /// @notice Bundle of launcher-configured numeric parameters returned by `getLauncherParameters`.
@@ -165,6 +167,16 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param verseId Verse id to inspect.
     /// @return totalFunds Total non-leveraged uAsset funds recorded by the launcher.
     function totalNormalFunds(uint256 verseId) external view returns (uint256 totalFunds);
+
+    /// @notice Returns the pending auxiliary governance fees accumulated for a verse.
+    /// @dev Consumed by the fee preview reader to merge pending accumulated fees with live pool previews.
+    /// @param verseId Verse id to inspect.
+    /// @return pendingUAssetFee Pending uAsset-denominated governance fee.
+    /// @return pendingPTFee Pending PT-denominated governance fee.
+    function pendingAuxiliaryGovFeeStates(uint256 verseId)
+        external
+        view
+        returns (uint256 pendingUAssetFee, uint256 pendingPTFee);
 
     /// @notice Returns fundraising metadata for a uAsset.
     /// @param uAsset Fundraising token address.
@@ -271,19 +283,6 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @return amount Currently claimable preorder memecoin amount.
     function claimablePreorderMemecoin(uint256 verseId) external view returns (uint256 amount);
 
-    /// @notice Previews the launcher-owned maker fees currently available for distribution.
-    /// @dev Aggregates fee claims across the verse's memecoin/uAsset pool and auxiliary gov-fee pools.
-    /// @param verseId Verse id to inspect.
-    /// @return uAssetFee Claimable uAsset-side fee amount.
-    /// @return memecoinFee Claimable memecoin-side fee amount.
-    function previewGenesisMakerFees(uint256 verseId) external view returns (uint256 uAssetFee, uint256 memecoinFee);
-
-    /// @notice Quotes the LayerZero fee required to distribute accrued fees.
-    /// @dev Returns zero when the governance chain is local and no cross-chain dispatch is needed.
-    /// @param verseId The memeverse id.
-    /// @return lzFee The quoted LayerZero native fee.
-    function quoteDistributionLzFee(uint256 verseId) external view returns (uint256 lzFee);
-
     /// @notice Contributes uAsset into a verse during Genesis.
     /// @dev Records a normal Genesis contribution by increasing total normal funds and user genesis funds.
     ///      Liquidity split happens when the verse transitions to Locked.
@@ -325,7 +324,8 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     /// @notice Redeems launcher-managed fees and distributes them to protocol recipients.
     /// @dev May perform same-chain transfers or cross-chain dispatches depending on verse configuration.
-    ///      Requires exactly the native fee quoted by `quoteDistributionLzFee`; local/no-fee paths require zero.
+    ///      Requires exactly the native fee quoted by `IMemeverseFeePreviewReader.quoteDistributionLzFee`;
+    ///      local/no-fee paths require zero.
     /// @param verseId The memeverse id.
     /// @param rewardReceiver The receiver of the executor reward.
     /// @return govFee The distributed governor fee amount.
@@ -430,6 +430,19 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param bootstrapImpl The MemeverseBootstrap sibling address.
     function setBootstrapImpl(address bootstrapImpl) external;
 
+    /// @notice Sets the MemeverseFeeDistributor sibling implementation invoked via delegatecall for fee
+    ///         collection and distribution.
+    /// @dev Implementations are expected to guard this with their admin or owner flow. The facade
+    ///      delegatecalls into this sibling, so a zero address would delegatecall into address(0).
+    /// @param feeDistributorImpl The MemeverseFeeDistributor sibling address.
+    function setFeeDistributorImpl(address feeDistributorImpl) external;
+
+    /// @notice Sets the independent fee-preview reader contract used for off-chain fee previews.
+    /// @dev Implementations are expected to guard this with their admin or owner flow. The reader is a
+    ///      standalone view contract (not a delegatecall target).
+    /// @param feePreviewReader The fee-preview reader contract address.
+    function setFeePreviewReader(address feePreviewReader) external;
+
     /// @notice Sets the fund metadata used for a verse uAsset token.
     /// @dev `fundBasedAmount` controls launcher-side bootstrap pricing and may be bounded by the implementation.
     /// @param uAsset The fundraising token address.
@@ -515,6 +528,9 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @dev Reverted when the owner has not configured the bootstrap sibling the facade delegatecalls into.
     error BootstrapImplNotSet();
 
+    /// @dev Reverted when the owner has not configured the fee-distributor sibling the facade delegatecalls into.
+    error FeeDistributorImplNotSet();
+
     event Genesis(uint256 indexed verseId, address indexed depositer, uint256 amount);
 
     event ChangeStage(uint256 indexed verseId, Stage currentStage);
@@ -555,6 +571,12 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     /// @dev Emitted when the owner repoints the facade to a new bootstrap sibling implementation.
     event SetBootstrapImpl(address indexed bootstrapImpl);
+
+    /// @dev Emitted when the owner repoints the facade to a new fee-distributor sibling implementation.
+    event SetFeeDistributorImpl(address indexed feeDistributorImpl);
+
+    /// @dev Emitted when the owner repoints the facade to a new fee-preview reader contract.
+    event SetFeePreviewReader(address indexed feePreviewReader);
 
     event SetFundMetaData(address indexed uAsset, uint256 minTotalFund, uint256 fundBasedAmount);
 

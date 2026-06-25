@@ -12,7 +12,7 @@ import {IMemeverseLauncher} from "../../../src/verse/interfaces/IMemeverseLaunch
 contract BootstrapImplDummy {}
 
 /// @notice Shared launcher mock for script readiness tests.
-/// @dev Owns the 9 fields that back the production `getLauncherContracts()` view and the
+/// @dev Owns the fields that back the production `getLauncherContracts()` view and the
 /// `_requireSwapReady` / `_requireDeploymentReady` paths in `MemeverseScript`. Derived mocks
 /// supply their own constructors, fund-metadata storage, and any extra setters their test
 /// suite needs.
@@ -26,6 +26,8 @@ contract LauncherReadinessMockBase {
     address public memeverseSwapRouter;
     address public memeverseUniswapHook;
     address public bootstrapImpl;
+    address public feeDistributorImpl;
+    address public feePreviewReader;
 
     constructor() {
         bootstrapImpl = address(new BootstrapImplDummy());
@@ -43,6 +45,14 @@ contract LauncherReadinessMockBase {
         memeverseUniswapHook = hook_;
     }
 
+    function setFeeDistributorImpl(address impl) external {
+        feeDistributorImpl = impl;
+    }
+
+    function setFeePreviewReader(address reader) external {
+        feePreviewReader = reader;
+    }
+
     /// @dev Returns a struct literal — every field of `LauncherContracts` is named explicitly.
     /// When the struct gains a new field, the Solidity compiler will reject this initializer and
     /// force the mock to be updated alongside the production struct (preventing a repeat of the
@@ -57,7 +67,9 @@ contract LauncherReadinessMockBase {
             memeverseSwapRouter: memeverseSwapRouter,
             polSplitter: polSplitter,
             bootstrapImpl: bootstrapImpl,
-            memeverseUniswapHook: memeverseUniswapHook
+            memeverseUniswapHook: memeverseUniswapHook,
+            feeDistributorImpl: feeDistributorImpl,
+            feePreviewReader: feePreviewReader
         });
     }
 }
