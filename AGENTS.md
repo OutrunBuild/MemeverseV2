@@ -150,6 +150,8 @@ README.md editorial-only direct changes require a Doc Editorial Attestation. REA
 - surface=harness_control -> route back to `process-implementer`
 - spec/doc review feedback -> route back to `process-implementer`
 - code review feedback -> route back to the owning code writer
+- Multiple findings, same writer → one re-dispatch with the full findings list (per-finding dispatches rebuild context and re-run suites each time).
+- Multiple findings, different writer surfaces → route each surface's findings to its own writer (e.g. solidity-implementer vs process-implementer).
 
 ## When Not To Trigger Harness
 

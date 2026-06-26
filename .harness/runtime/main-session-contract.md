@@ -48,3 +48,21 @@
 - Completion claims require fresh output from the selected matching `gate.sh` profile.
 - If required verification evidence is missing, keep the final verdict blocked or fail instead of projecting pass.
 - If Solidity surface or risk is unclear, inspect the related contracts, imports/inheritance, existing tests, and mapped spec documents before classifying. Do not rely on a separate explorer agent for this step.
+
+## Reviewer Dispatch — Diff Handoff
+
+When dispatching a reviewer, choose the diff handoff by size:
+
+- **Multi-file or large diff** (e.g. prod-semantic changes spanning several contracts): run `script/harness/review-package.sh BASE` and pass the printed file path. The diff content never enters the main session's context; the reviewer reads the file once.
+- **Single-file small change, already read by the main session**: the diff snippet may be passed inline to save the reviewer a Read.
+- **BASE**: the commit recorded before dispatching the implementer (run `git rev-parse HEAD` at that moment). Never `HEAD~1` — it silently truncates a multi-commit task.
+
+Never paste accumulated prior-round summaries into later dispatches — hand the reviewer its diff as a file path and the current findings list only.
+
+## Handling Reviewer needs_cross_check
+
+A reviewer may set `needs_cross_check: true` on a finding it cannot verify from this diff alone (the requirement depends on unchanged code, other files, or other tasks). This does not block the rest of the review. The main session holds the cross-file and cross-task context the reviewer lacks, so it adjudicates each such item: confirm a real gap and route it back to the owning writer for a fix plus re-review, or close it as a non-issue. Never silently drop a `needs_cross_check` item.
+
+## Handling Reviewer needs_fp_check (security)
+
+security-reviewer uses `needs_fp_check: true` (not `needs_cross_check`) when it suspects an exploitable vulnerability but cannot fully trace the call path to confirm exploitability. The main session routes any such finding to the `fp-check` skill for deep verification before acting on it — the security counterpart to needs_cross_check.
