@@ -24,6 +24,7 @@ import {MemeverseLauncher, IMemeverseLauncher} from "../src/verse/MemeverseLaunc
 import {MemeverseBootstrap} from "../src/verse/MemeverseBootstrap.sol";
 import {MemeverseFeeDistributor} from "../src/verse/MemeverseFeeDistributor.sol";
 import {MemeverseFeePreviewReader} from "../src/verse/MemeverseFeePreviewReader.sol";
+import {MemeversePOLMinter} from "../src/verse/MemeversePOLMinter.sol";
 import {POLend} from "../src/polend/POLend.sol";
 import {POLSplitter} from "../src/polend/POLSplitter.sol";
 import {GenesisCreditFactory} from "../src/credit/GenesisCreditFactory.sol";
@@ -505,9 +506,11 @@ contract MemeverseScript is BaseScript {
             launcher.setFeeDistributorImpl(address(feeDistributorImpl));
             MemeverseFeePreviewReader feePreviewReader = new MemeverseFeePreviewReader(address(launcher));
             launcher.setFeePreviewReader(address(feePreviewReader));
+            MemeversePOLMinter polMinterImpl = new MemeversePOLMinter();
+            launcher.setPOLMinterImpl(address(polMinterImpl));
         } else {
             console.log(
-                "WARNING: deployCaller(%s) != initialOwner(%s) -- fund metadata, bootstrapImpl, feeDistributorImpl and feePreviewReader must be set by initialOwner",
+                "WARNING: deployCaller(%s) != initialOwner(%s) -- fund metadata, bootstrapImpl, feeDistributorImpl, feePreviewReader and polMinterImpl must be set by initialOwner",
                 deployCaller,
                 initialOwner
             );
@@ -894,11 +897,12 @@ contract MemeverseScript is BaseScript {
         // readiness checks all three for code, symmetric with bootstrapImpl — a missing sibling would
         // otherwise only surface as a runtime FeeDistributorImplNotSet (or a broken preview) after the
         // system is already open to users.
-        (address bootstrapImpl, address feeDistributorImpl, address feePreviewReader) =
+        (address bootstrapImpl, address feeDistributorImpl, address feePreviewReader, address polMinterImpl) =
             _readLauncherImplSiblings(MEMEVERSE_LAUNCHER);
         _requireContractCode(bootstrapImpl, "BOOTSTRAP_IMPL_NOT_READY");
         _requireContractCode(feeDistributorImpl, "FEE_DISTRIBUTOR_IMPL_NOT_READY");
         _requireContractCode(feePreviewReader, "FEE_PREVIEW_READER_NOT_READY");
+        _requireContractCode(polMinterImpl, "POL_MINTER_IMPL_NOT_READY");
     }
 
     function _requireSwapReady(address swapRouter, address hook) internal view {
@@ -966,17 +970,18 @@ contract MemeverseScript is BaseScript {
     function _readLauncherImplSiblings(address launcher)
         internal
         view
-        returns (address bootstrapImpl, address feeDistributorImpl, address feePreviewReader)
+        returns (address bootstrapImpl, address feeDistributorImpl, address feePreviewReader, address polMinterImpl)
     {
         (bool success, bytes memory data) = launcher.staticcall(abi.encodeWithSignature("getLauncherContracts()"));
-        require(success && data.length >= 352, "LAUNCHER_CONTRACTS_NOT_READY");
+        require(success && data.length >= 384, "LAUNCHER_CONTRACTS_NOT_READY");
         // Typed decode (same pattern as _requireSwapReady's getLauncherContracts() call) avoids
         // positional index magic numbers — a field rename/reorder surfaces at compile time instead
-        // of silently misindexing. 352 = 11 fields × 32 bytes (all-static LauncherContracts struct).
+        // of silently misindexing. 384 = 12 fields × 32 bytes (all-static LauncherContracts struct).
         IMemeverseLauncher.LauncherContracts memory contracts = abi.decode(data, (IMemeverseLauncher.LauncherContracts));
         bootstrapImpl = contracts.bootstrapImpl;
         feeDistributorImpl = contracts.feeDistributorImpl;
         feePreviewReader = contracts.feePreviewReader;
+        polMinterImpl = contracts.polMinterImpl;
     }
 
     function _readSettlementDustState(address uAsset) internal view returns (uint128 reserve, uint128 maxReserve) {

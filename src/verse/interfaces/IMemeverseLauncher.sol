@@ -138,6 +138,7 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
         address memeverseUniswapHook;
         address feeDistributorImpl;
         address feePreviewReader;
+        address polMinterImpl;
     }
 
     /// @notice Bundle of launcher-configured numeric parameters returned by `getLauncherParameters`.
@@ -443,6 +444,12 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @param feePreviewReader The fee-preview reader contract address.
     function setFeePreviewReader(address feePreviewReader) external;
 
+    /// @notice Sets the MemeversePOLMinter sibling implementation invoked via delegatecall for POL minting.
+    /// @dev Implementations are expected to guard this with their admin or owner flow. The facade
+    ///      delegatecalls into this sibling, so a zero address would delegatecall into address(0).
+    /// @param polMinterImpl The MemeversePOLMinter sibling address.
+    function setPOLMinterImpl(address polMinterImpl) external;
+
     /// @notice Sets the fund metadata used for a verse uAsset token.
     /// @dev `fundBasedAmount` controls launcher-side bootstrap pricing and may be bounded by the implementation.
     /// @param uAsset The fundraising token address.
@@ -531,6 +538,9 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
     /// @dev Reverted when the owner has not configured the fee-distributor sibling the facade delegatecalls into.
     error FeeDistributorImplNotSet();
 
+    /// @dev Reverted when the owner has not configured the POL-minter sibling the facade delegatecalls into.
+    error POLMinterImplNotSet();
+
     event Genesis(uint256 indexed verseId, address indexed depositer, uint256 amount);
 
     event ChangeStage(uint256 indexed verseId, Stage currentStage);
@@ -577,6 +587,9 @@ interface IMemeverseLauncher is IMemeverseOFTEnum {
 
     /// @dev Emitted when the owner repoints the facade to a new fee-preview reader contract.
     event SetFeePreviewReader(address indexed feePreviewReader);
+
+    /// @dev Emitted when the owner repoints the facade to a new POL-minter sibling implementation.
+    event SetPOLMinterImpl(address indexed polMinterImpl);
 
     event SetFundMetaData(address indexed uAsset, uint256 minTotalFund, uint256 fundBasedAmount);
 

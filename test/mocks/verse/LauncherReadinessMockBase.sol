@@ -28,6 +28,7 @@ contract LauncherReadinessMockBase {
     address public bootstrapImpl;
     address public feeDistributorImpl;
     address public feePreviewReader;
+    address public polMinterImpl;
 
     constructor() {
         bootstrapImpl = address(new BootstrapImplDummy());
@@ -53,6 +54,10 @@ contract LauncherReadinessMockBase {
         feePreviewReader = reader;
     }
 
+    function setPOLMinterImpl(address impl) external {
+        polMinterImpl = impl;
+    }
+
     /// @dev Returns a struct literal — every field of `LauncherContracts` is named explicitly.
     /// When the struct gains a new field, the Solidity compiler will reject this initializer and
     /// force the mock to be updated alongside the production struct (preventing a repeat of the
@@ -69,7 +74,8 @@ contract LauncherReadinessMockBase {
             bootstrapImpl: bootstrapImpl,
             memeverseUniswapHook: memeverseUniswapHook,
             feeDistributorImpl: feeDistributorImpl,
-            feePreviewReader: feePreviewReader
+            feePreviewReader: feePreviewReader,
+            polMinterImpl: polMinterImpl
         });
     }
 }

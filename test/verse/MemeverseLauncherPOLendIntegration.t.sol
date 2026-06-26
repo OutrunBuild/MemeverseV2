@@ -11,6 +11,7 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
 import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
+import {MemeversePOLMinter} from "../../src/verse/MemeversePOLMinter.sol";
 import {IMemeverseLauncher} from "../../src/verse/interfaces/IMemeverseLauncher.sol";
 import {POLend} from "../../src/polend/POLend.sol";
 import {POLSplitter} from "../../src/polend/POLSplitter.sol";
@@ -99,6 +100,7 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
         launcher.setFeePreviewReader(address(new MemeverseFeePreviewReader(address(launcher))));
+        launcher.setPOLMinterImpl(address(new MemeversePOLMinter()));
         launcher.setYieldDispatcher(address(dispatcher));
         launcher.setMemeverseProxyDeployer(address(proxyDeployer));
         launcher.setFundMetaData(address(uAsset), 10 ether, 1);

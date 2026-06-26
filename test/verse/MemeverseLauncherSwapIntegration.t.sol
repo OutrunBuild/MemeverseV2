@@ -24,6 +24,7 @@ import {MemeverseLauncher} from "../../src/verse/MemeverseLauncher.sol";
 import {MemeverseBootstrap} from "../../src/verse/MemeverseBootstrap.sol";
 import {MemeverseFeeDistributor} from "../../src/verse/MemeverseFeeDistributor.sol";
 import {MemeverseFeePreviewReader} from "../../src/verse/MemeverseFeePreviewReader.sol";
+import {MemeversePOLMinter} from "../../src/verse/MemeversePOLMinter.sol";
 import {MemeverseLauncherTestHelper} from "../mocks/verse/MemeverseLauncherTestHelper.sol";
 import {MockOFTDispatcher} from "../mocks/verse/LauncherLifecycleMocks.sol";
 import {
@@ -136,6 +137,7 @@ contract MemeverseLauncherSwapIntegrationTest is Test, MemeverseLauncherTestHelp
         launcher.setBootstrapImpl(address(new MemeverseBootstrap()));
         launcher.setFeeDistributorImpl(address(new MemeverseFeeDistributor()));
         launcher.setFeePreviewReader(address(new MemeverseFeePreviewReader(address(launcher))));
+        launcher.setPOLMinterImpl(address(new MemeversePOLMinter()));
         assertEq(address(router.hook()), address(hook), "router hook");
         assertEq(hook.launcher(), address(launcher), "hook launcher");
         assertEq(hook.poolInitializer(), address(router), "hook initializer");

@@ -103,9 +103,10 @@
 
 重点配置事件（均 `[代码已证]`）：
 
-- Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits`、`SetBootstrapImpl`、`SetFeeDistributorImpl`、`SetFeePreviewReader` 等
+- Launcher：`SetMemeverseSwapRouter`、`SetFundMetaData`、`SetExecutorRewardRate`、`SetPreorderConfig`、`SetGasLimits`、`SetBootstrapImpl`、`SetFeeDistributorImpl`、`SetPOLMinterImpl`、`SetFeePreviewReader` 等
   - `SetBootstrapImpl(address indexed bootstrapImpl)`：bootstrap sibling 实现指针替换事件，owner-level；脚本单角色模式部署期与 owner `setBootstrapImpl(...)` 替换时均以新接线地址 `(bootstrapImpl)` 单值触发。事件不携带旧值，旧值需通过历史日志或 `getLauncherContracts()` 快照对比获取。`[代码已证]`
   - `SetFeeDistributorImpl(address indexed feeDistributorImpl)`：fee-distributor sibling 实现指针替换事件，owner-level；脚本单角色模式部署期与 owner `setFeeDistributorImpl(...)` 替换时触发，单值不携带旧值。`[代码已证]`
+  - `SetPOLMinterImpl(address indexed polMinterImpl)`：pol-minter sibling 实现指针替换事件，owner-level；脚本单角色模式部署期与 owner `setPOLMinterImpl(...)` 替换时触发，单值不携带旧值。`[代码已证]`
   - `SetFeePreviewReader(address indexed feePreviewReader)`：fee-preview reader 地址替换事件，owner-level；脚本单角色模式部署期与 owner `setFeePreviewReader(...)` 替换时触发，单值不携带旧值。`[代码已证]`
 - RegistrationCenter：`SetSupportedUAsset`、`SetDurationDaysRange`、`SetRegisterGasLimit`
 - Hook：`TreasuryUpdated`、`ProtocolFeeCurrencySupportUpdated`、`LauncherUpdated`、`PoolInitializerUpdated`、`PoolInitializationAuthorized`、`DefaultLaunchFeeConfigUpdated`、`DynamicFeeEngineUpdated`、`LPTokenImplementationUpdated`、`PreorderSettlementExecutorUpdated`
