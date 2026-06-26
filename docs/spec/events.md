@@ -49,16 +49,29 @@
 | `LeveragedDebtFactorChanged(uint256 oldFactor,uint256 newFactor)` | `POLend` | owner 修改全局杠杆债务上限系数 | 新增杠杆创世 debt cap 参数索引；不影响已 mint 债务 | `[代码已证]` |
 | `ProtocolTreasuryChanged(address indexed oldTreasury,address indexed newTreasury)` | `POLend` | owner 修改 POLend protocol treasury | 杠杆利息 treasury 变更索引；与 Memeverse DAO governor treasury 不同 | `[代码已证]` |
 | `SettlementDustReserveConfigured(address indexed uAsset,uint128 oldMaxReserve,uint128 newMaxReserve)` | `POLend` | owner 配置某 `uAsset` 的全局 reserve 上限 | reserve 上限变更审计 | `[代码已证]` |
-| `SettlementDustReservedFromInterest(uint256 indexed verseId,address indexed uAsset,uint256 totalLeveragedInterest,uint256 credited,uint256 treasuryInterest,uint256 reserveAfter)` | `POLend` | `finalizeLeveragedGenesis` 将已支付杠杆利息拆分为 reserve 与 treasury | 杠杆利息 reserve / treasury 拆分审计 | `[代码已证]` |
+| `SettlementDustReservedFromInterest(uint256 indexed verseId,address indexed uAsset,uint256 realInterest,uint256 credited,uint256 treasuryInterest,uint256 reserveAfter)` | `POLend` | `finalizeLeveragedGenesis` 将已支付杠杆利息拆分为 reserve 与 treasury | 杠杆利息 reserve / treasury 拆分审计 | `[代码已证]` |
 | `SettlementDustReserveFunded(address indexed uAsset,address indexed funder,uint256 amount,uint256 credited,uint256 excess)` | `POLend` | 手动 fund 或 Launcher 注入 bootstrap unused `uAsset` | reserve 注入、over-capacity excess 审计；非 Launcher 成功事件中 `excess == 0`；Launcher bootstrap 来源由 `BootstrapUnusedAssetsHandled` 携带 `verseId` | `[代码已证]` |
 | `SettlementDustReserveConsumed(uint256 indexed verseId,address indexed uAsset,uint256 consumed,uint256 reserveAfter)` | `POLend` | `executeGlobalSettlement` 消耗全局 reserve 补足 bounded deficit | reserve 消耗审计 | `[代码已证]` |
 | `GlobalSettlementExecuted(uint256 indexed verseId,address indexed uAsset,uint256 verseDebt,uint256 recoveredUAsset,uint256 consumedSettlementDustReserve,uint256 settlementDustReserveAfter,uint256 residualUAsset,uint256 residualMemecoin)` | `POLend` | `executeGlobalSettlement` 成功完成 | 债务偿还、reserve 消耗后余额、residual 记账审计 | `[代码已证]` |
 | `RedeemPT(uint256 indexed verseId,address indexed from,address indexed to,uint256 ptAmount)` | `POLSplitter` | settle 后 PT 兑付 | PT 兑付流水索引 | `[代码已证]` |
 | `RedeemYT(uint256 indexed verseId,address indexed from,address indexed to,uint256 ytAmount,uint256 uAssetAmount,uint256 memecoinAmount)` | `POLSplitter` | settle 后 YT 兑付 | YT 兑付流水索引 | `[代码已证]` |
+| `LeveragedGenesisWithCredit(uint256 indexed verseId,address indexed user,uint256 creditAmount)` | `POLend` | 用户在 Genesis 用 GenesisCredit 抵扣杠杆利息成功 | 杠杆创世 credit 抵扣参与与 credit 利息累计索引；`creditInterestPaid` 与 `market.totalCreditInterest` 同步累加 | `[代码已证]` |
+| `CreditBurned(uint256 indexed verseId,address indexed uAsset,uint256 totalCreditInterest)` | `POLend` | `finalizeLeveragedGenesis` 烧毁该 verse 托管的 GenesisCredit（量 = 该 verse `market.totalCreditInterest`） | 杠杆 finalize 的 GenesisCredit 销毁审计；承载 real/credit 切分证据（`SettlementDustReservedFromInterest.realInterest` 是 real 部分，`CreditBurned.totalCreditInterest` 是 credit 部分，二者合起来对应 `market.totalLeveragedInterest`） | `[代码已证]` |
+| `ClaimRefund(uint256 indexed verseId,address indexed user,address indexed to,uint256 refundedAmount)` | `POLend` | `claimRefund` 在 Refund 终态把 real-uAsset 利息退回给用户 | Refund 终态的 real `uAsset` 退回流水索引；与 credit 部分 GenesisCredit 退回物理隔离；credit-only 参与者不触发（`realPaid==0`） | `[代码已证]` |
+| `CreditRefunded(uint256 indexed verseId,address indexed user,address indexed to,uint256 amount)` | `POLend` | `claimRefund` 在 Refund 终态把 GenesisCredit 托管余额退回给 credit 用户 | Refund 终态的 GenesisCredit 退回流水索引；与 real 部分 `uAsset` 退回物理隔离 | `[代码已证]` |
+| `CreditFactoryChanged(address indexed oldFactory,address indexed newFactory)` | `POLend` | `setCreditFactory` 替换 `GenesisCreditFactory` 地址指针 | credit 工厂地址替换审计；影响后续 `leveragedGenesisWithCredit` 按 `uAsset` 查 GenesisCredit 的路径 | `[代码已证]` |
 
-目标事件面必须覆盖 `POLend.executeGlobalSettlement(...)` 产生的 leveraged residual 与 settlement dust reserve 记账结果。若实现只依赖 token transfer 或内部状态变化，则属于事件面缺口。
+目标事件面必须覆盖 `POLend.executeGlobalSettlement(...)` 产生的 leveraged residual 与 settlement dust reserve 记账结果，以及 GenesisCredit 抵扣路径（`leveragedGenesisWithCredit` / `finalizeLeveragedGenesis` burn / Refund 退 credit / `setCreditFactory`）产生的会计与配置变化。若实现只依赖 token transfer 或内部状态变化，则属于事件面缺口。
 
-### 2.3 Swap 与 LP
+### 2.3 GenesisCredit 冷启动层
+
+| 事件 | 触发模块 | 触发时机 | 用途 | 状态 |
+| --- | --- | --- | --- | --- |
+| `CreditDeployed(address indexed uAsset,address indexed credit)` | `GenesisCreditFactory` | owner 调 `deployCredit` 成功后 | per-uAsset GenesisCredit 地址发现、冷启动索引、部署审计 | `[代码已证]` |
+| `MerkleRootSet(bytes32 merkleRoot)` | `GenesisCredit` | owner 调 `setMerkleRoot` 成功后 | merkle claim root 配置审计、claim 数据版本追踪 | `[代码已证]` |
+| `Claimed(address indexed user,uint256 amount)` | `GenesisCredit` | home-chain merkle claim 成功后 | 用户 claim 流水、空投供应索引；区分 claim mint 与 OFT inbound mint | `[代码已证]` |
+
+### 2.4 Swap 与 LP
 
 | 事件 | 触发模块 | 触发时机 | 用途 |
 | --- | --- | --- | --- |
@@ -75,7 +88,7 @@
 
 **返佣对 `ProtocolFeeCollected.amount` 语义的影响**：带 referrer 的普通 swap 中，`ProtocolFeeCollected.amount`（on hook）是 treasury 实收 `toTreasury = protocolFee - rebate`，严格小于该 swap 的完整 protocolFee；差额在 engine 上的 `ReferralRebateAccrued.amount`。无 referrer 或 preorder settlement 路径下 `ProtocolFeeCollected.amount` 仍是完整 protocol fee。索引器 / 财务对账若按 swap 维度统计 protocol 总收入，必须把同一 swap 的 `ProtocolFeeCollected` 与 `ReferralRebateAccrued` 求和，否则会漏计 rebate 部分。
 
-### 2.4 Yield / Governance / Cross-chain
+### 2.5 Yield / Governance / Cross-chain
 
 | 事件 | 触发模块 | 触发时机 | 用途 |
 | --- | --- | --- | --- |

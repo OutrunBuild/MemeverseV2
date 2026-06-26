@@ -16,7 +16,8 @@ contract POLendStorageHelperSanityTest is Test, POLendStorageHelper {
             new ERC1967Proxy(
                 address(impl),
                 abi.encodeCall(
-                    POLend.initialize, (address(this), 1e17, 10e18, address(this), address(this), address(this))
+                    POLend.initialize,
+                    (address(this), 1e17, 10e18, address(this), address(this), address(this), address(this))
                 )
             )
         );

@@ -146,7 +146,7 @@ contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLaun
                     address(polendImpl),
                     abi.encodeCall(
                         POLend.initialize,
-                        (address(this), 0.1 ether, 10 ether, TREASURY, launcherProxy, address(splitter))
+                        (address(this), 0.1 ether, 10 ether, TREASURY, launcherProxy, address(splitter), address(this))
                     )
                 )
             )

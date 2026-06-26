@@ -408,8 +408,9 @@ contract MemeverseLauncherPOLendSettlementInvariantTest is Test, MemeverseLaunch
 
     function _deployPOLend(address splitter_) internal returns (POLend deployedPOLend) {
         POLend implementation = new POLend();
-        bytes memory data =
-            abi.encodeCall(POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, launcherProxy, splitter_));
+        bytes memory data = abi.encodeCall(
+            POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, launcherProxy, splitter_, address(this))
+        );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
     }
 
@@ -773,7 +774,8 @@ contract SettlementDustInvariantHandler is Test, MemeverseLauncherTestHelper {
     function _deployPOLend(address launcher_, POLSplitter splitter_) internal returns (POLend) {
         POLend implementation = new POLend();
         bytes memory data = abi.encodeCall(
-            POLend.initialize, (address(this), 0.1 ether, 10 ether, TREASURY, launcher_, address(splitter_))
+            POLend.initialize,
+            (address(this), 0.1 ether, 10 ether, TREASURY, launcher_, address(splitter_), address(this))
         );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
     }

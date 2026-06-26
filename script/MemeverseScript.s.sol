@@ -26,6 +26,7 @@ import {MemeverseFeeDistributor} from "../src/verse/MemeverseFeeDistributor.sol"
 import {MemeverseFeePreviewReader} from "../src/verse/MemeverseFeePreviewReader.sol";
 import {POLend} from "../src/polend/POLend.sol";
 import {POLSplitter} from "../src/polend/POLSplitter.sol";
+import {GenesisCreditFactory} from "../src/credit/GenesisCreditFactory.sol";
 import {OmnichainMemecoinStaker} from "../src/interoperation/OmnichainMemecoinStaker.sol";
 import {LzEndpointRegistry} from "../src/common/omnichain/LzEndpointRegistry.sol";
 import {ILzEndpointRegistry} from "../src/common/omnichain/interfaces/ILzEndpointRegistry.sol";
@@ -64,6 +65,7 @@ contract MemeverseScript is BaseScript {
     address internal OMNICHAIN_MEMECOIN_STAKER;
     address internal POLEND;
     address internal POLSPLITTER;
+    address internal CREDIT_FACTORY;
     address internal MEMEVERSE_SWAP_ROUTER;
 
     uint256 internal POLEND_INTEREST_RATE;
@@ -99,6 +101,7 @@ contract MemeverseScript is BaseScript {
         // _getDeployedPOLSplitter(2);
 
         // Update OutrunRouter after deployed
+        // _deployGenesisCreditFactory(2);             // R1-F5: homeChainEid guardrail — mandatory deploy path
         // _deployPOLend(2);                            // optimizer-runs: 200
         // _deployMemeverseLauncher(2);                 // optimizer-runs: 200
         // _deployPOLSplitter(2);                       // optimizer-runs: 200
@@ -581,6 +584,68 @@ contract MemeverseScript is BaseScript {
         console.log("POLSplitter deployed on %s", polSplitterAddr);
     }
 
+    /// @notice Deploys GenesisCreditFactory with the canonical home-chain eid baked in as an immutable.
+    /// @dev R1-F5 guardrail. `homeChainEid` is immutable on the factory and on every credit it deploys
+    ///      (injected into the credit init_code), and is the parameter source for `GenesisCredit.claim`'s
+    ///      home-chain gate (`endpoint.eid() == homeChainEid`). A remote-chain factory that baked in the
+    ///      remote eid would open merkle minting on the remote.
+    ///
+    ///      The script CANNOT auto-detect that mistake: a remote operator who sets `HOME_CHAIN_EID` to
+    ///      the remote eid makes `homeChainEid == localEid` hold on the remote, indistinguishable from a
+    ///      legitimate home-chain deploy. So the guardrail is procedural, in three parts:
+    ///        1. Single source — `homeChainEid` is read from the `HOME_CHAIN_EID` env var and is NEVER
+    ///           derived from the local endpoint. Every chain (home and remote) passes the same canonical
+    ///           value, eliminating the "copy the local eid" footgun. The raw uint256 is bound-checked
+    ///           before truncating to uint32, because the on-chain re-check below cannot catch truncation
+    ///           (it compares the truncated value against the immutable baked from that same value).
+    ///        2. On-chain re-check — after deploy the baked value is re-read and asserted equal to the
+    ///           env var. This catches constructor-arg packing/order mistakes (abi.encode misuse), NOT
+    ///           the semantic mistake of a wrong env value.
+    ///        3. Log — `homeChainEid` and the local eid are both logged so the operator can eyeball the
+    ///           relationship per docs/operations.md §3.12 (home: equal; remote: not equal). The local-eid
+    ///           read is best-effort: an unavailable endpoint in a no-fork simulate must not block the
+    ///           deploy broadcast, so failure degrades to an `<unavailable>` log line.
+    function _deployGenesisCreditFactory(uint256 nonce) internal {
+        address localEndpoint = endpoints[uint32(block.chainid)];
+        require(localEndpoint != address(0), "ZERO_LOCAL_ENDPOINT");
+        require(OUTRUN_DEPLOYER != address(0), "ZERO_OUTRUN_DEPLOYER");
+
+        // Single source of truth: canonical home eid from env, never derived from the local endpoint.
+        uint256 envEid = vm.envUint("HOME_CHAIN_EID");
+        require(envEid != 0, "ZERO_HOME_CHAIN_EID");
+        require(envEid <= type(uint32).max, "HOME_CHAIN_EID_OVERFLOW");
+        uint32 homeChainEid = uint32(envEid);
+
+        bytes32 salt = keccak256(abi.encodePacked("GenesisCreditFactory", nonce));
+        bytes memory code =
+            abi.encodePacked(type(GenesisCreditFactory).creationCode, abi.encode(localEndpoint, homeChainEid, owner));
+        address deployed = IOutrunDeployer(OUTRUN_DEPLOYER).deploy(salt, code);
+
+        // On-chain re-check: the factory actually received the canonical home eid. Guards against
+        // constructor-arg packing/order mistakes only; the semantic check is an operator step.
+        require(_readUint32(deployed, "homeChainEid()") == homeChainEid, "HOME_CHAIN_EID_MISMATCH");
+
+        console.log("GenesisCreditFactory deployed on %s", deployed);
+        console.log("homeChainEid=%s", uint256(homeChainEid));
+        // Best-effort local-eid log for operator eyeball (home: homeChainEid==localEid; remote: !=).
+        // Wrapped so an unavailable endpoint in a no-fork simulate cannot block the deploy broadcast.
+        (bool ok, bytes memory eidData) = localEndpoint.staticcall(abi.encodeWithSignature("eid()"));
+        if (ok && eidData.length >= 32) {
+            console.log("localEid=%s", uint256(uint32(uint256(bytes32(eidData)))));
+        } else {
+            console.log("localEid=<unavailable; run against a forked RPC to read endpoint eid>");
+        }
+
+        CREDIT_FACTORY = deployed;
+    }
+
+    /// @dev Staticcall peer of `_readAddress`, for uint32 return values (e.g. `homeChainEid()`, endpoint `eid()`).
+    function _readUint32(address target, string memory signature) internal view returns (uint32 value) {
+        (bool success, bytes memory data) = target.staticcall(abi.encodeWithSignature(signature));
+        require(success && data.length >= 32, "STATICCALL_UINT32_FAILED");
+        value = uint32(uint256(bytes32(data)));
+    }
+
     function _beginMemeverseLauncherOwnerExecution(address initialOwner) internal virtual {
         // Hook point for subclasses. The default implementation does nothing —
         // fund metadata is set inline when deployCaller == initialOwner, or
@@ -662,6 +727,16 @@ contract MemeverseScript is BaseScript {
             POLEND_LEVERAGED_DEBT_FACTOR <= uint256(type(uint128).max) * 1e18, "POLEND_LEVERAGED_DEBT_FACTOR_OVERFLOW"
         );
 
+        // Wire the GenesisCreditFactory into POLend at initialize time. Prefer the factory
+        // deployed earlier in this script run (`_deployGenesisCreditFactory` sets CREDIT_FACTORY);
+        // fall back to the CREDIT_FACTORY_PROXY env var for a standalone POLend deploy where the
+        // factory was deployed in a prior run. The deploy-owner fallback remains only so a
+        // standalone POLend deploy with no factory still passes initialize's zero-check;
+        // setCreditFactory is then the post-deploy remediation path that swaps in the real factory.
+        address creditFactoryProxy =
+            CREDIT_FACTORY != address(0) ? CREDIT_FACTORY : vm.envOr("CREDIT_FACTORY_PROXY", initialOwner);
+        require(creditFactoryProxy != address(0), "ZERO_CREDIT_FACTORY_PROXY");
+
         bytes memory initializeData = abi.encodeCall(
             POLend.initialize,
             (
@@ -670,7 +745,8 @@ contract MemeverseScript is BaseScript {
                 POLEND_LEVERAGED_DEBT_FACTOR,
                 POLEND_TREASURY,
                 launcherProxy,
-                polSplitterProxy
+                polSplitterProxy,
+                creditFactoryProxy
             )
         );
         return abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initializeData));
@@ -796,6 +872,14 @@ contract MemeverseScript is BaseScript {
         );
         require(_readAddress(POLEND, "launcher()") == MEMEVERSE_LAUNCHER, "POLEND_LAUNCHER_NOT_READY");
         require(_readAddress(POLEND, "splitter()") == POLSPLITTER, "POLEND_SPLITTER_NOT_READY");
+        // creditFactory is a POLend runtime pointer resolved on the user path
+        // (leveragedGenesisWithCredit -> IGenesisCreditFactory(creditFactory).creditOf). Like the
+        // bootstrap/fee siblings it is lazy-wired at initialize (a standalone POLend deploy with
+        // CREDIT_FACTORY_PROXY unset falls back to the deploy owner); readiness must confirm a real
+        // contract is bound before opening, else the owner placeholder (an EOA with no code) lets the
+        // first leveragedGenesisWithCredit silently revert until setCreditFactory. Has-code (not !=0):
+        // the owner fallback is non-zero and would pass a zero-check.
+        _requireContractCode(_readAddress(POLEND, "creditFactory()"), "POLEND_CREDIT_FACTORY_NOT_READY");
         require(_readAddress(POLSPLITTER, "launcher()") == MEMEVERSE_LAUNCHER, "POLSPLITTER_LAUNCHER_NOT_READY");
         require(_readPolSplitterPolend() == POLEND, "POLSPLITTER_POLEND_NOT_READY");
 

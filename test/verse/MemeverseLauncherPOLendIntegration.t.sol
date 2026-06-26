@@ -114,7 +114,8 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
     function _deployRealPOLend() internal returns (POLend realPolend) {
         POLend implementation = new POLend();
         bytes memory data = abi.encodeCall(
-            POLend.initialize, (address(this), 0.1 ether, 10 ether, address(this), launcherProxy, address(splitter))
+            POLend.initialize,
+            (address(this), 0.1 ether, 10 ether, address(this), launcherProxy, address(splitter), address(this))
         );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
     }
@@ -129,7 +130,8 @@ contract MemeverseLauncherPOLendIntegrationTest is Test, MemeverseLauncherTestHe
 
         POLend polendImplementation = new POLend();
         bytes memory polendData = abi.encodeCall(
-            POLend.initialize, (address(this), 0.1 ether, 10 ether, address(this), launcherProxy, address(realSplitter))
+            POLend.initialize,
+            (address(this), 0.1 ether, 10 ether, address(this), launcherProxy, address(realSplitter), address(this))
         );
         realPolend = POLend(address(new ERC1967Proxy(address(polendImplementation), polendData)));
 

@@ -106,7 +106,7 @@
       "^package\\.json$",
       "^remappings\\.txt$",
       "^script/harness/.*$",
-      "^solhint.*\\.config\\.js$"
+      "^\\.?solhint.*(\\.config\\.js|\\.json)$"
     ],
     "solidity_prod": [
       "^src/.*\\.sol$",

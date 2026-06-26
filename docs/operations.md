@@ -371,6 +371,8 @@ cast call $LAUNCHER_PROXY "getLauncherContracts()" --rpc-url $RPC
 
 fee sibling 进 readiness check：`feeDistributorImpl`（`LauncherContracts` 第 10 字段）与 `feePreviewReader`（第 11 字段）由脚本 `_readLauncherImplSiblings` 取值后 `_requireContractCode` 校验非零且有代码，与 `bootstrapImpl` 对称（均为用户路径上使用的 delegatecall/view sibling：`::redeemAndDistributeFees` / `changeStage` Locked→Unlocked 会 delegatecall `feeDistributorImpl`，`feePreviewReader` 供链下预览）；未接线时 readiness 失败、阻断 registration 打开，运行时 `FeeDistributorImplNotSet` 守卫仅作兜底。`[代码已证]`
 
+`creditFactory` 进 readiness check：POLend 的 `creditFactory` 指针由脚本 `_readAddress(POLEND, "creditFactory()")` 取值后 `_requireContractCode` 校验有代码，与 bootstrap/fee sibling 同类（用户路径接线指针——`leveragedGenesisWithCredit` 经 `IGenesisCreditFactory(creditFactory).creditOf(uAsset)` 解析 GenesisCredit）；未接线或被占位 owner 兜底（`_buildPOLendCreationCode` 在未设 `CREDIT_FACTORY_PROXY` 时写入的 EOA，无代码）时 readiness 失败、阻断 registration 打开。`cast call $POLEND_PROXY "creditFactory()(address)" --rpc-url $RPC` 应返回非零且有代码的 factory 地址。`[代码已证]`
+
 **MemeverseUniswapHook：**
 
 ```bash
@@ -532,6 +534,51 @@ cast call $INCENTIVIZER_PROXY "governor()(address)" --rpc-url $RPC
 - `MemeverseDynamicFeeEngine::accrueRebate` 受 `onlyAuthorizedCaller` 保护，且 hook 仅在 `_beforeSwap` / `_afterSwap` 内调用该函数——此时 PoolManager 处于 unlock session。修复后 `accrueRebate` 是纯记账（`pendingRebate[referrer][currency] += amount` + emit，无 PoolManager 调用、无外部调用），不再有"engine 内部 `poolManager.take` 在非 unlock 上下文 revert"的问题；take 由 hook 在 `_collectProtocolFee` 内的 unlock session 中执行（v4 `PoolManager.take` delta 记调用者 hook，被 beforeSwap specifiedDelta credit 抵消），故 rebate accrual 仍与 swap 生命周期严格绑定（`onlyAuthorizedCaller` + hook 调用点均在 unlock 内）。`[代码已证]`
 
 `[代码已证]`
+
+### 3.12 GenesisCredit 冷启动运维
+
+GenesisCredit 是 per-uAsset ERC20+OFT 凭证，固定 18 decimals，与某个 18-dec `uAsset` raw-unit 1:1 对应（符号约定 `cr` + uAsset symbol，如 `crUUSD`）。`leveragedGenesisWithCredit` 用它抵扣杠杆利息，等价"免费借贷参与创世"。`[代码已证]`
+
+> 精度约束：当前 credit path 只支持 `uAsset.decimals() == 18`。非 18-dec `uAsset`（如 6-dec 稳定币）可走普通 `genesis` / `leveragedGenesis`，但不得部署 GenesisCredit、不得启用 `leveragedGenesisWithCredit`；否则 `1e18` raw credit 会被当作 `1e18` raw uAsset 利息，导致 debt / launch gate / YT / residual 按错误数量级计算。
+
+#### 部署时序
+
+- `GenesisCreditFactory` 必须先于 `POLend` 部署完成。当 `_deployGenesisCreditFactory` 先于 `_deployPOLend` 执行时，脚本把已部署 factory 地址自动写入 POLend `initialize` 的 `creditFactory` 参数（`_buildPOLendCreationCode` 优先读本次脚本部署的 factory，回退到 `CREDIT_FACTORY_PROXY` env）；后续 `leveragedGenesisWithCredit` 经 `creditOf(uAsset)` 查 GenesisCredit 地址。`setCreditFactory`（owner-only）保留为事后修正 / 迁移入口，不再是主接线路径。readiness 校验 `POLend.creditFactory()` 有代码，阻断占位（未设 `CREDIT_FACTORY_PROXY` 时 owner 兜底写入的 EOA，无代码）无声通过——避免系统开放后 `leveragedGenesisWithCredit` 首次解析因对无代码地址 staticcall 返空、`abi.decode` revert 而阻断 credit 路径。
+- 无循环依赖：`GenesisCreditFactory` 自内联 CREATE3（不依赖 `OutrunDeployer`），仅依赖 LayerZero `lzEndpoint`，不依赖 POLend / Launcher。
+- per-uAsset GenesisCredit 通过 `deployCredit(uAsset, name, symbol, delegate)` 按需部署，`salt = keccak256(abi.encode(uAsset))` 保证本链确定性地址（同链不同 uAsset 不冲突、`predictCredit` 可预测；factory 地址作 CREATE3 namespace）。跨链同址需 `factory + uAsset` 均跨链同址（部署前提），非合约强制；`uAsset` 是外部 Outrun 资产，其跨链同址性非本代码校验。`setPeer` 必须按各链实际 `creditOf(localUAsset)` 配置，不得复用本链地址。
+
+#### `deployCredit(uAsset, name, symbol, delegate)` 流程
+
+- owner-only；`uAsset != address(0)`。
+- `uAsset.decimals() == 18`：GenesisCredit 固定 18 decimals，credit path 要求 credit 与 `uAsset` 同 raw-unit 口径；非 18-dec `uAsset` 调 `deployCredit` 直接 revert `InvalidUAssetDecimals`，部署前运维必须核验该 `uAsset` decimals。
+- CREATE3 部署 GenesisCredit（ERC20+OFT），初始化 `name / symbol / delegate`。
+- 成功后返回（或可经 `creditOf(uAsset)` 读到）GenesisCredit 地址；同 `uAsset` 重复部署 revert（salt consumed）。
+- 部署后须把目标链设为 peer（OFT `setPeer`），否则跨链桥 revert。
+- OFT 精度决策：`decimals() = 18`（全链恒定，跨链不变）；`sharedDecimals()` 用默认 6，禁止覆写为 18（否则单笔跨链上限骤降到 18.4 单位）。
+
+#### `homeChainEid` 部署参数护栏
+
+- `GenesisCreditFactory.homeChainEid` 与 `GenesisCredit.homeChainEid` 均为 immutable：factory 构造时写入并注入每个 credit 的 init_code，部署后无法修正。它是 `claim` 的 home-chain 门控（`endpoint.eid() == homeChainEid`）的参数来源——远程链 factory 若误把 `homeChainEid_` 设成本地 remote eid，门控在远程成立，叠加 owner 在远程也 `setMerkleRoot` 即可双铸。
+- 脚本无法自动判定此误配：远程链把 `HOME_CHAIN_EID` 填成本地 eid 时，`homeChainEid == localEid` 在远程成立，与合法的 home 链部署不可区分。故护栏是程序性的三层（与 `script/MemeverseScript.s.sol::_deployGenesisCreditFactory` NatSpec 对齐）：
+  1. 单一来源：部署脚本 `_deployGenesisCreditFactory`（`script/MemeverseScript.s.sol`）从 `HOME_CHAIN_EID` env 读规范 home eid，**绝不**从本地 endpoint 派生。每条链（home 与 remote）都传同一个规范值，消除"照搬本地 eid"的脚枪。
+  2. 部署后链上复核：脚本 re-read factory 的 `homeChainEid()` 并 assert 等于 env 值（防构造参数打包/顺序错误，**不**防 env 本身填错）。
+  3. 日志人工对照：脚本打印 `homeChainEid` 与 `localEid`（localEid 为 best-effort，无 fork simulate 时退化为 `<unavailable>`），运维据此判定 home/remote 关系。
+- 部署后人工对照（runbook）：home 链日志须 `homeChainEid == localEid`；remote 链日志须 `homeChainEid != localEid`。任一链不符合则立即停手，已部署 factory 作废重部。
+- 第二道防线（运维纪律）：`setMerkleRoot` 仅在 home 实例调用；远程实例 `merkleRoot` 恒为 `bytes32(0)`，即便门控因 `homeChainEid` 误配在远程成立，`claim` 路径对零 root 仍 revert `InvalidProof`。此纪律是 homechain-only claim 设计的隐式防线，不得破坏。
+- 部署路径唯一性：`GenesisCreditFactory` 必须仅经 `_deployGenesisCreditFactory` 部署，运维不得带外手动 `new GenesisCreditFactory(...)`——手动部署绕过上述全部护栏（单一来源 / re-check / 日志），直接重引入 R1-F5 双铸风险。若因故必须带外部署，必须人工完成等价校验：构造参数 `homeChainEid_` 取规范 home eid、部署后 `cast call <factory> homeChainEid()` 核对、`cast call <endpoint> eid()` 对照 home/remote 关系。
+
+#### `setMerkleRoot` 配置
+
+- GenesisCredit 的 `claim(...)` 是 permissionless merkle claim：任何地址凭 merkle proof 领取分配给它的 credit。
+- merkle root 由链下快照生成（链下计算每个 claimer 的分配额，构造 merkle tree，发布 root）。
+- root 只在 **home 链（Ethereum 主网）** 写入：操作方可先通过 `GenesisCreditFactory.creditOf(uAsset)` 查询对应 GenesisCredit 地址；只有该 GenesisCredit 的 owner（部署时传入 `deployCredit(..., delegate)` 的 `delegate`，或后续 `transferOwnership` 后的新 owner）可以直接调用 `GenesisCredit.setMerkleRoot(root)`；非 home 链调用 `claim` 直接 revert，防止跨链重复领取。
+- 安全敏感：root 必须仅 home 链；目标链上的 GenesisCredit 不接受 claim，只能从 home 链 claim 后经 OFT 桥过来。
+
+#### home 链运维要点
+
+- home 链是 Ethereum 主网；GenesisCredit 的 merkle claim 单点写入发生在这里。
+- 运维发布 merkle root 前必须核验链下快照（claimer 列表 + 分配额）正确性，root 一旦写入、credit 被 claim 后不可撤销。
+- 目标链的 GenesisCredit 是 OFT 接收端，不持有可 claim 的 merkle root；用户在 home 链 claim 后把 token 经 OFT `send` 到目标链即可在目标链使用。
 
 ## 4. 治理周期相关操作语义
 

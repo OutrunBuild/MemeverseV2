@@ -2,6 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -18,6 +19,7 @@ import {
     ReentrantClaimMockERC20
 } from "../mocks/polend/POLendMocks.sol";
 import {POLendStorageHelper} from "../mocks/polend/POLendStorageHelper.sol";
+import {MockGenesisCreditFactory} from "../mocks/credit/MockGenesisCreditFactory.sol";
 
 contract MockLauncherForPOLend {
     mapping(uint256 verseId => uint256 totalNormalFunds) internal normalFunds;
@@ -236,6 +238,10 @@ contract POLendTest is Test, POLendStorageHelper {
         uint256 residualUAsset,
         uint256 residualMemecoin
     );
+    event LeveragedGenesisWithCredit(uint256 indexed verseId, address indexed user, uint256 creditAmount);
+    event CreditBurned(uint256 indexed verseId, address indexed uAsset, uint256 totalCreditInterest);
+    event ClaimRefund(uint256 indexed verseId, address indexed user, address indexed to, uint256 refundedAmount);
+    event CreditRefunded(uint256 indexed verseId, address indexed user, address indexed to, uint256 amount);
 
     BurnableMockERC20 internal uAsset;
     BurnableMockERC20 internal otherUAsset;
@@ -288,7 +294,7 @@ contract POLendTest is Test, POLendStorageHelper {
     ) internal returns (POLend deployed) {
         POLend implementation = new POLend();
         return _deployPOLendWithImplementation(
-            implementation, interestRate, leveragedDebtFactor, treasury, launcher_, splitter_
+            implementation, interestRate, leveragedDebtFactor, treasury, launcher_, splitter_, address(this)
         );
     }
 
@@ -298,10 +304,12 @@ contract POLendTest is Test, POLendStorageHelper {
         uint256 leveragedDebtFactor,
         address treasury,
         address launcher_,
-        address splitter_
+        address splitter_,
+        address creditFactory_
     ) internal returns (POLend deployed) {
         bytes memory data = abi.encodeCall(
-            POLend.initialize, (address(this), interestRate, leveragedDebtFactor, treasury, launcher_, splitter_)
+            POLend.initialize,
+            (address(this), interestRate, leveragedDebtFactor, treasury, launcher_, splitter_, creditFactory_)
         );
         return POLend(address(new ERC1967Proxy(address(implementation), data)));
     }
@@ -318,24 +326,34 @@ contract POLendTest is Test, POLendStorageHelper {
         POLend implementation = new POLend();
 
         vm.expectRevert(IPOLend.ZeroInput.selector);
-        _deployPOLendWithImplementation(implementation, 0, 10e18, address(this), address(launcher), address(splitter));
+        _deployPOLendWithImplementation(
+            implementation, 0, 10e18, address(this), address(launcher), address(splitter), address(this)
+        );
 
         implementation = new POLend();
 
         vm.expectRevert(IPOLend.InvalidConfig.selector);
         _deployPOLendWithImplementation(
-            implementation, 1e18 + 1, 10e18, address(this), address(launcher), address(splitter)
+            implementation, 1e18 + 1, 10e18, address(this), address(launcher), address(splitter), address(this)
         );
 
         implementation = new POLend();
 
         vm.expectRevert(IPOLend.ZeroInput.selector);
-        _deployPOLendWithImplementation(implementation, 1e18, 0, address(this), address(launcher), address(splitter));
+        _deployPOLendWithImplementation(
+            implementation, 1e18, 0, address(this), address(launcher), address(splitter), address(this)
+        );
 
         implementation = new POLend();
 
         POLend deployed = _deployPOLendWithImplementation(
-            implementation, 1e18, MAX_LEVERAGED_DEBT_FACTOR, address(this), address(launcher), address(splitter)
+            implementation,
+            1e18,
+            MAX_LEVERAGED_DEBT_FACTOR,
+            address(this),
+            address(launcher),
+            address(splitter),
+            address(this)
         );
         assertEq(deployed.leveragedDebtFactor(), MAX_LEVERAGED_DEBT_FACTOR, "max factor stored");
     }
@@ -345,7 +363,13 @@ contract POLendTest is Test, POLendStorageHelper {
 
         vm.expectRevert(IPOLend.InvalidConfig.selector);
         _deployPOLendWithImplementation(
-            implementation, 1e18, MAX_LEVERAGED_DEBT_FACTOR + 1, address(this), address(launcher), address(splitter)
+            implementation,
+            1e18,
+            MAX_LEVERAGED_DEBT_FACTOR + 1,
+            address(this),
+            address(launcher),
+            address(splitter),
+            address(this)
         );
     }
 
@@ -353,24 +377,32 @@ contract POLendTest is Test, POLendStorageHelper {
         POLend implementation = new POLend();
 
         vm.expectRevert(IPOLend.ZeroInput.selector);
-        _deployPOLendWithImplementation(implementation, 1e17, 10e18, address(0), address(launcher), address(splitter));
+        _deployPOLendWithImplementation(
+            implementation, 1e17, 10e18, address(0), address(launcher), address(splitter), address(this)
+        );
 
         implementation = new POLend();
 
         vm.expectRevert(IPOLend.ZeroInput.selector);
-        _deployPOLendWithImplementation(implementation, 1e17, 10e18, address(this), address(0), address(splitter));
+        _deployPOLendWithImplementation(
+            implementation, 1e17, 10e18, address(this), address(0), address(splitter), address(this)
+        );
 
         implementation = new POLend();
 
         vm.expectRevert(IPOLend.ZeroInput.selector);
-        _deployPOLendWithImplementation(implementation, 1e17, 10e18, address(this), address(launcher), address(0));
+        _deployPOLendWithImplementation(
+            implementation, 1e17, 10e18, address(this), address(launcher), address(0), address(this)
+        );
     }
 
     function testImplementationInitializerIsDisabled() external {
         POLend implementation = new POLend();
 
         vm.expectRevert(INVALID_INITIALIZATION_SELECTOR);
-        implementation.initialize(address(this), 1e17, 10e18, address(this), address(launcher), address(splitter));
+        implementation.initialize(
+            address(this), 1e17, 10e18, address(this), address(launcher), address(splitter), address(this)
+        );
     }
 
     function testSetMaxSettlementDustReserve_ConfiguresGlobalState() external {
@@ -507,6 +539,223 @@ contract POLendTest is Test, POLendStorageHelper {
         vm.prank(ALICE);
         vm.expectRevert(IPOLend.DebtCapExceeded.selector);
         polend.leveragedGenesis(VERSE_ID, 1 ether);
+    }
+
+    // --- leveragedGenesisWithCredit ---
+
+    /// @dev Stand up a fresh MockGenesisCreditFactory + credit token, register the
+    ///      (uAsset -> credit) pair, fund `user` with `amount` and approve POLend.
+    function _setupCreditPath(address user, uint256 amount)
+        internal
+        returns (BurnableMockERC20 credit, MockGenesisCreditFactory factory)
+    {
+        factory = new MockGenesisCreditFactory();
+        credit = new BurnableMockERC20("CREDIT", "CREDIT");
+        factory.setCreditOf(address(uAsset), address(credit));
+        polend.setCreditFactory(address(factory));
+        credit.mint(user, amount);
+        vm.prank(user);
+        credit.approve(address(polend), amount);
+    }
+
+    function test_LeveragedGenesisWithCredit_TransfersCreditAndAccumulates() external {
+        (BurnableMockERC20 credit,) = _setupCreditPath(ALICE, 10 ether);
+
+        vm.expectEmit(true, true, false, true);
+        emit LeveragedGenesisWithCredit(VERSE_ID, ALICE, 10 ether);
+        vm.prank(ALICE);
+        uint256 borrowed = polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+
+        assertEq(borrowed, 100 ether, "borrowed");
+        assertEq(credit.balanceOf(address(polend)), 10 ether, "polend escrows credit");
+        assertEq(credit.balanceOf(ALICE), 0, "user credit consumed");
+
+        IPOLend.LendMarket memory market = polend.getLendMarket(VERSE_ID);
+        assertEq(market.totalLeveragedInterest, 10 ether, "aggregate interest");
+        assertEq(market.totalCreditInterest, 10 ether, "credit interest tally");
+        assertEq(uint256(market.state), uint256(IPOLend.MarketState.Genesis), "state genesis");
+        // Aggregate debt view sees real + credit interest converted through the same rate.
+        assertEq(polend.getUserLeveragedDebt(VERSE_ID, ALICE), 100 ether, "user debt");
+    }
+
+    function test_RevertWhen_NoCreditForUAsset() external {
+        MockGenesisCreditFactory factory = new MockGenesisCreditFactory();
+        polend.setCreditFactory(address(factory));
+        // Factory has no credit registered for `uAsset` => factory.creditOf returns address(0).
+
+        vm.prank(ALICE);
+        vm.expectRevert(IPOLend.NoCreditForUAsset.selector);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+    }
+
+    function test_RevertWhen_LeveragedGenesisWithCredit_ZeroAmount() external {
+        _setupCreditPath(ALICE, 0);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IPOLend.ZeroInput.selector);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 0);
+    }
+
+    function test_RevertWhen_LeveragedGenesisWithCredit_NotGenesisStage() external {
+        _setupCreditPath(ALICE, 10 ether);
+        launcher.setVerseStage(VERSE_ID, IMemeverseLauncher.Stage.Locked);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IPOLend.InvalidState.selector);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+    }
+
+    /// @dev GenesisCredit is fixed at 18 decimals, so a 6-dec uAsset must not enter the credit path:
+    ///     its raw credit units would be treated as raw uAsset interest, scaling debt / launch gate /
+    ///     YT / residual by 1e12. POLend must reject the mismatch on first credit-token resolution
+    ///     (after `creditOf` succeeds, before caching) with `CreditDecimalsMismatch(uAsset, credit)`.
+    function test_RevertWhen_LeveragedGenesisWithCredit_CreditDecimalsMismatch() external {
+        uint256 verseId = 300;
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        launcher.setVerseUAsset(verseId, address(usdc));
+        launcher.setGenesisFunds(verseId, 0);
+        launcher.setFundMetaData(address(usdc), 1_000 ether, 1);
+        polend.setMaxSettlementDustReserve(address(usdc), uint128(MAX_SETTLEMENT_DUST));
+        vm.prank(address(launcher));
+        polend.registerLendMarket(verseId);
+
+        // 18-dec GenesisCredit mapped to a 6-dec uAsset — exactly the misconfiguration the check
+        // guards against. The check fires before any transferFrom, so no credit funding is needed.
+        MockGenesisCreditFactory factory = new MockGenesisCreditFactory();
+        BurnableMockERC20 credit = new BurnableMockERC20("CREDIT", "CREDIT");
+        factory.setCreditOf(address(usdc), address(credit));
+        polend.setCreditFactory(address(factory));
+
+        vm.prank(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(IPOLend.CreditDecimalsMismatch.selector, uint8(6), uint8(18)));
+        polend.leveragedGenesisWithCredit(verseId, 10 ether);
+    }
+
+    function test_LeveragedGenesisWithCredit_RespectsDebtCap() external {
+        // Configure tight debt cap: interestRate=1e18, factor=2e18, minTotalFund=100 → cap=200 debt.
+        uint256 verseId = 250;
+        MockSplitterForPOLend localSplitter = new MockSplitterForPOLend();
+        POLend localPolend = _deployPOLend(1e18, 2e18, address(this), address(launcher), address(localSplitter));
+        launcher.setVerseUAsset(verseId, address(uAsset));
+        launcher.setGenesisFunds(verseId, 0);
+        launcher.setFundMetaData(address(uAsset), 100, 1);
+        localPolend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
+        vm.prank(address(launcher));
+        localPolend.registerLendMarket(verseId);
+
+        MockGenesisCreditFactory factory = new MockGenesisCreditFactory();
+        BurnableMockERC20 credit = new BurnableMockERC20("CREDIT", "CREDIT");
+        factory.setCreditOf(address(uAsset), address(credit));
+        localPolend.setCreditFactory(address(factory));
+
+        credit.mint(ALICE, 201);
+        vm.prank(ALICE);
+        credit.approve(address(localPolend), 201);
+
+        // 200 credit interest => previewDebt = 200 == cap, accepted.
+        vm.prank(ALICE);
+        localPolend.leveragedGenesisWithCredit(verseId, 200);
+
+        // 1 more credit => previewDebt = 201 > 200 => DebtCapExceeded.
+        vm.prank(ALICE);
+        vm.expectRevert(IPOLend.DebtCapExceeded.selector);
+        localPolend.leveragedGenesisWithCredit(verseId, 1);
+    }
+
+    function test_LeveragedGenesisWithCredit_RevertsWhenAggregateTotalGenesisFundsWouldExceedSupportedMaximum()
+        external
+    {
+        // normalFunds at the uint128 ceiling => aggregate genesis cap = 0. With
+        // actualNormalFunds == MAX the strict-`>` L233 guard is false, and the huge
+        // capBase keeps L238 (_debtCap) out of reach, so any credit debt hits only
+        // the L237 MAX_SUPPORTED guard => InvalidConfig (not DebtCapExceeded).
+        // Mirrors the real-uAsset aggregate case (testLeveragedGenesis_...Aggregate...).
+        uint256 verseId = 251;
+        MockSplitterForPOLend localSplitter = new MockSplitterForPOLend();
+        POLend localPolend = _deployPOLend(1e18, 2e18, address(this), address(launcher), address(localSplitter));
+        launcher.setVerseUAsset(verseId, address(uAsset));
+        launcher.setGenesisFunds(verseId, type(uint128).max);
+        launcher.setFundMetaData(address(uAsset), 1, 1);
+        localPolend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
+        vm.prank(address(launcher));
+        localPolend.registerLendMarket(verseId);
+
+        MockGenesisCreditFactory factory = new MockGenesisCreditFactory();
+        BurnableMockERC20 credit = new BurnableMockERC20("CREDIT", "CREDIT");
+        factory.setCreditOf(address(uAsset), address(credit));
+        localPolend.setCreditFactory(address(factory));
+
+        credit.mint(ALICE, 1);
+        vm.prank(ALICE);
+        credit.approve(address(localPolend), 1);
+
+        vm.prank(ALICE);
+        vm.expectRevert(IPOLend.InvalidConfig.selector);
+        localPolend.leveragedGenesisWithCredit(verseId, 1);
+    }
+
+    function test_LeveragedGenesisWithCredit_RevertsWhenCumulativeAggregateTotalGenesisFundsWouldExceedSupportedMaximum()
+        external
+    {
+        // normalFunds = MAX - 10 => aggregate genesis cap = 10. capBase = max(1,
+        // MAX-10) is huge, so L238 (_debtCap) never binds; the L237 MAX guard is the
+        // sole gate. First credit(10) fits exactly (previewDebt == cap); a further
+        // credit(1) pushes cumulative debt to 11 > 10 => InvalidConfig.
+        // Mirrors the real-uAsset cumulative case (testLeveragedGenesis_...Cumulative...).
+        uint256 verseId = 252;
+        MockSplitterForPOLend localSplitter = new MockSplitterForPOLend();
+        POLend localPolend = _deployPOLend(1e18, 2e18, address(this), address(launcher), address(localSplitter));
+        launcher.setVerseUAsset(verseId, address(uAsset));
+        launcher.setGenesisFunds(verseId, uint256(type(uint128).max) - 10);
+        launcher.setFundMetaData(address(uAsset), 1, 1);
+        localPolend.setMaxSettlementDustReserve(address(uAsset), uint128(MAX_SETTLEMENT_DUST));
+        vm.prank(address(launcher));
+        localPolend.registerLendMarket(verseId);
+
+        MockGenesisCreditFactory factory = new MockGenesisCreditFactory();
+        BurnableMockERC20 credit = new BurnableMockERC20("CREDIT", "CREDIT");
+        factory.setCreditOf(address(uAsset), address(credit));
+        localPolend.setCreditFactory(address(factory));
+
+        credit.mint(ALICE, 11);
+        vm.prank(ALICE);
+        credit.approve(address(localPolend), 11);
+
+        // First credit(10): previewDebt 10 == aggregate cap 10, accepted.
+        vm.prank(ALICE);
+        localPolend.leveragedGenesisWithCredit(verseId, 10);
+
+        // Second credit(1): cumulative previewDebt 11 > aggregate cap 10 => InvalidConfig.
+        vm.prank(ALICE);
+        vm.expectRevert(IPOLend.InvalidConfig.selector);
+        localPolend.leveragedGenesisWithCredit(verseId, 1);
+    }
+
+    function test_LeveragedGenesisWithCredit_MixedWithRealGenesis() external {
+        // Real leveraged genesis first.
+        uAsset.mint(ALICE, 10 ether);
+        vm.prank(ALICE);
+        uAsset.approve(address(polend), 10 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesis(VERSE_ID, 10 ether);
+
+        // Then credit-funded leveraged genesis for the same verse & user.
+        (BurnableMockERC20 credit,) = _setupCreditPath(BOB, 4 ether);
+        vm.prank(BOB);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 4 ether);
+
+        IPOLend.LendMarket memory market = polend.getLendMarket(VERSE_ID);
+        assertEq(market.totalLeveragedInterest, 14 ether, "aggregate interest");
+        assertEq(market.totalCreditInterest, 4 ether, "credit-only tally");
+        assertEq(uAsset.balanceOf(address(polend)), 10 ether, "uAsset escrow unchanged");
+        assertEq(credit.balanceOf(address(polend)), 4 ether, "credit escrow");
+        assertEq(polend.leveragedInterestPaid(VERSE_ID, ALICE), 10 ether, "alice real interest");
+        // Getter now returns the view-layer aggregate (real + credit): BOB has 0 real + 4e18 credit.
+        assertEq(polend.leveragedInterestPaid(VERSE_ID, BOB), 4 ether, "bob combined real+credit interest");
+        // BOB's debt comes from credit ledger only; aggregate user debt view sums both ledgers.
+        assertEq(polend.getUserLeveragedDebt(VERSE_ID, BOB), 40 ether, "bob debt via credit");
+        assertEq(polend.getUserLeveragedDebt(VERSE_ID, ALICE), 100 ether, "alice debt via real");
+        assertEq(polend.getTotalLeveragedDebt(VERSE_ID), 140 ether, "total debt aggregates");
     }
 
     function testRegisterLendMarket_TargetABIReadsUAssetAndDoesNotInitializeTokens() external {
@@ -807,6 +1056,180 @@ contract POLendTest is Test, POLendStorageHelper {
         polend.finalizeLeveragedGenesis(VERSE_ID);
     }
 
+    // --- finalizeLeveragedGenesis: credit-aware split & burn ---
+
+    /// @notice Mixed-source finalize: only the real-uAsset slice funds the dust reserve and
+    ///         treasury sweep; the credit-funded slice is burned in-place from POLend's escrow.
+    function test_Finalize_ReserveTreasuryOnlyOnRealInterest() external {
+        // Real 100e18 (uAsset) + credit 50e18 (mock credit) => aggregate 150e18 interest,
+        // debt = 150e18 / 0.1e18 = 1_500e18.
+        uAsset.mint(ALICE, 100 ether);
+        vm.prank(ALICE);
+        uAsset.approve(address(polend), 100 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesis(VERSE_ID, 100 ether);
+
+        (BurnableMockERC20 credit,) = _setupCreditPath(BOB, 50 ether);
+        vm.prank(BOB);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 50 ether);
+
+        uint256 treasuryBefore = uAsset.balanceOf(address(this));
+        uint256 polendCreditBefore = credit.balanceOf(address(polend));
+        assertEq(polendCreditBefore, 50 ether, "polend escrows credit pre-finalize");
+
+        // Reserve/treasury split is over real 100e18 only (not aggregate 150e18).
+        vm.expectEmit(true, true, false, true);
+        emit CreditBurned(VERSE_ID, address(uAsset), 50 ether);
+        vm.expectEmit(true, true, false, true);
+        emit SettlementDustReservedFromInterest(
+            VERSE_ID,
+            address(uAsset),
+            100 ether,
+            MAX_SETTLEMENT_DUST,
+            100 ether - MAX_SETTLEMENT_DUST,
+            MAX_SETTLEMENT_DUST
+        );
+        vm.prank(address(launcher));
+        polend.finalizeLeveragedGenesis(VERSE_ID);
+
+        // Aggregate debt still minted to launcher.
+        assertEq(uAsset.balanceOf(address(launcher)), 1_500 ether, "aggregate debt minted");
+        // Reserve capped at MAX_SETTLEMENT_DUST, the rest of real interest goes to treasury.
+        assertEq(
+            uAsset.balanceOf(address(this)) - treasuryBefore,
+            100 ether - MAX_SETTLEMENT_DUST,
+            "treasury swept real-only excess"
+        );
+        (uint128 reserve,) = polend.settlementDustStates(address(uAsset));
+        assertEq(reserve, uint128(MAX_SETTLEMENT_DUST), "reserve credited from real interest");
+        // Credit escrow burned to zero; no credit transferred elsewhere.
+        assertEq(credit.balanceOf(address(polend)), 0, "credit burned from escrow");
+        assertEq(credit.totalSupply(), 0, "credit supply reduced by burn");
+    }
+
+    /// @notice A second credit entry after a factory swap must still escrow into the token cached
+    ///     at first entry. The finalize/claimRefund factory-swap tests enter only once, so they
+    ///     cannot catch a regression that re-resolves and overwrites the cache on every entry
+    ///     (which would strand the first entrant's credit once the factory mapping changes).
+    function test_LeveragedGenesisWithCredit_SecondEntryUsesCachedCreditTokenAfterFactoryChange() external {
+        // First entry locks the cache to creditA.
+        (BurnableMockERC20 creditA,) = _setupCreditPath(ALICE, 10 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+
+        // Swap the factory mapping to a different token for the same uAsset.
+        MockGenesisCreditFactory factoryB = new MockGenesisCreditFactory();
+        BurnableMockERC20 creditB = new BurnableMockERC20("CREDIT_B", "CREDIT_B");
+        factoryB.setCreditOf(address(uAsset), address(creditB));
+        polend.setCreditFactory(address(factoryB));
+
+        // BOB approves both tokens so the entry succeeds whichever token it pulls; the balance
+        // assertions below discriminate, rather than relying on a transferFrom revert.
+        creditA.mint(BOB, 10 ether);
+        creditB.mint(BOB, 10 ether);
+        vm.startPrank(BOB);
+        creditA.approve(address(polend), 10 ether);
+        creditB.approve(address(polend), 10 ether);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+        vm.stopPrank();
+
+        // Second entry must escrow into the cached creditA, not re-resolve to creditB.
+        assertEq(creditA.balanceOf(address(polend)), 20 ether, "both entries escrowed in creditA");
+        assertEq(creditB.balanceOf(address(polend)), 0, "creditB not pulled");
+        assertEq(polend.getLendMarket(VERSE_ID).creditToken, address(creditA), "cache still creditA");
+    }
+
+    /// @notice Finalize burns the credit token cached at entry even if the factory mapping changes.
+    function test_Finalize_ReadsCachedCreditTokenAfterFactoryChange() external {
+        (BurnableMockERC20 creditA,) = _setupCreditPath(ALICE, 10 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+
+        MockGenesisCreditFactory factoryB = new MockGenesisCreditFactory();
+        BurnableMockERC20 creditB = new BurnableMockERC20("CREDIT_B", "CREDIT_B");
+        factoryB.setCreditOf(address(uAsset), address(creditB));
+        polend.setCreditFactory(address(factoryB));
+        creditB.mint(address(polend), 10 ether);
+
+        uint256 polendCreditABefore = creditA.balanceOf(address(polend));
+        uint256 creditASupplyBefore = creditA.totalSupply();
+        uint256 polendCreditBBefore = creditB.balanceOf(address(polend));
+        uint256 creditBSupplyBefore = creditB.totalSupply();
+
+        // Factory changes after entry must not redirect the cached credit escrow.
+        vm.prank(address(launcher));
+        polend.finalizeLeveragedGenesis(VERSE_ID);
+
+        assertEq(creditA.burnedAmount(), polendCreditABefore, "creditA burned");
+        assertEq(creditA.balanceOf(address(polend)), 0, "creditA escrow cleared");
+        assertEq(creditA.totalSupply(), creditASupplyBefore - polendCreditABefore, "creditA supply burned");
+        assertEq(creditB.burnedAmount(), 0, "creditB not burned");
+        assertEq(creditB.balanceOf(address(polend)), polendCreditBBefore, "creditB decoy unchanged");
+        assertEq(creditB.totalSupply(), creditBSupplyBefore, "creditB supply unchanged");
+    }
+
+    /// @notice Pure-credit finalize: real slice is zero, so no dust/treasury movement; only burn.
+    function test_Finalize_PureCredit_NoReserveTreasury_OnlyBurn() external {
+        (BurnableMockERC20 credit,) = _setupCreditPath(ALICE, 10 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+
+        uint256 treasuryBefore = uAsset.balanceOf(address(this));
+        (uint128 reserveBefore,) = polend.settlementDustStates(address(uAsset));
+
+        vm.expectEmit(true, true, false, true);
+        emit CreditBurned(VERSE_ID, address(uAsset), 10 ether);
+        // realInterest == 0 => credited/treasuryInterest both zero, reserve unchanged.
+        vm.expectEmit(true, true, false, true);
+        emit SettlementDustReservedFromInterest(VERSE_ID, address(uAsset), 0, 0, 0, reserveBefore);
+        vm.prank(address(launcher));
+        polend.finalizeLeveragedGenesis(VERSE_ID);
+
+        assertEq(uAsset.balanceOf(address(this)), treasuryBefore, "no treasury sweep");
+        (uint128 reserveAfter,) = polend.settlementDustStates(address(uAsset));
+        assertEq(reserveAfter, reserveBefore, "no reserve credit");
+        // Debt = 10e18 / 0.1e18 = 100e18, still minted from credit-only interest.
+        assertEq(uAsset.balanceOf(address(launcher)), 100 ether, "debt minted from credit");
+        assertEq(credit.balanceOf(address(polend)), 0, "credit fully burned");
+        assertEq(credit.totalSupply(), 0, "credit supply zero");
+    }
+
+    /// @notice Pure-real finalize: no credit participants => no burn call, behavior matches
+    ///         pre-credit-feature finalize.
+    function test_Finalize_PureReal_NoBurn() external {
+        // Register a credit factory + token so any errant burn would be observable.
+        (BurnableMockERC20 credit,) = _setupCreditPath(BOB, 0);
+        uAsset.mint(ALICE, 10 ether);
+        vm.prank(ALICE);
+        uAsset.approve(address(polend), 10 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesis(VERSE_ID, 10 ether);
+
+        uint256 creditSupplyBefore = credit.totalSupply();
+        uint256 polendCreditBefore = credit.balanceOf(address(polend));
+        uint256 treasuryBefore = uAsset.balanceOf(address(this));
+
+        // Only the dust event fires; no CreditBurned. Real interest == aggregate.
+        vm.recordLogs();
+        vm.prank(address(launcher));
+        polend.finalizeLeveragedGenesis(VERSE_ID);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 creditBurnedTopic = keccak256("CreditBurned(uint256,address,uint256)");
+        for (uint256 i; i < logs.length; ++i) {
+            assertTrue(logs[i].topics.length == 0 || logs[i].topics[0] != creditBurnedTopic, "no CreditBurned");
+        }
+
+        assertEq(credit.totalSupply(), creditSupplyBefore, "credit supply unchanged");
+        assertEq(credit.balanceOf(address(polend)), polendCreditBefore, "no credit escrow change");
+        assertEq(uAsset.balanceOf(address(launcher)), 100 ether, "debt minted");
+        assertEq(
+            uAsset.balanceOf(address(this)) - treasuryBefore,
+            10 ether - MAX_SETTLEMENT_DUST,
+            "treasury swept real interest"
+        );
+    }
+
     function testClaimRefund_ReturnsInterestOnlyInRefund() external {
         seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
         setRefundStateForTest(address(polend), VERSE_ID);
@@ -868,6 +1291,148 @@ contract POLendTest is Test, POLendStorageHelper {
         assertTrue(hookedUAsset.sawExpectedRevert(), "reentrant refund blocked");
     }
 
+    /// @dev Mixed participant: holds both real-uAsset and credit interest. Refund must pay out
+    ///      both ledgers and emit both events.
+    function test_ClaimRefund_RefundsCreditAndUAsset() external {
+        BurnableMockERC20 credit = _wireCreditFactoryForUAsset(address(uAsset));
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 100 ether);
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 50 ether);
+        setRefundStateForTest(address(polend), VERSE_ID);
+        // Direct-seeded credit position bypasses leveragedGenesisWithCredit, so cache the credit token
+        // the production claimRefund reads; otherwise it reverts NoCreditForUAsset.
+        seedMarketCreditTokenForTest(address(polend), VERSE_ID, address(credit));
+        uAsset.mint(address(polend), 100 ether);
+        credit.mint(address(polend), 50 ether);
+
+        vm.expectEmit(true, true, true, true);
+        emit ClaimRefund(VERSE_ID, ALICE, CAROL, 100 ether);
+        vm.expectEmit(true, true, true, true);
+        emit CreditRefunded(VERSE_ID, ALICE, CAROL, 50 ether);
+        vm.prank(ALICE);
+        uint256 refunded = _claimRefund(VERSE_ID, CAROL);
+
+        assertEq(refunded, 100 ether, "returns real-uAsset amount only");
+        assertEq(uAsset.balanceOf(CAROL), 100 ether, "uAsset refunded");
+        assertEq(credit.balanceOf(CAROL), 50 ether, "credit refunded");
+    }
+
+    /// @notice Refund pays the credit token cached at entry even if the factory mapping changes.
+    function test_ClaimRefund_ReadsCachedCreditTokenAfterFactoryChange() external {
+        (BurnableMockERC20 creditA,) = _setupCreditPath(ALICE, 10 ether);
+        vm.prank(ALICE);
+        polend.leveragedGenesisWithCredit(VERSE_ID, 10 ether);
+
+        MockGenesisCreditFactory factoryB = new MockGenesisCreditFactory();
+        BurnableMockERC20 creditB = new BurnableMockERC20("CREDIT_B", "CREDIT_B");
+        factoryB.setCreditOf(address(uAsset), address(creditB));
+        polend.setCreditFactory(address(factoryB));
+        creditB.mint(address(polend), 10 ether);
+
+        uint256 polendCreditBBefore = creditB.balanceOf(address(polend));
+
+        vm.prank(address(launcher));
+        polend.markRefundable(VERSE_ID);
+
+        // Factory changes after entry must not redirect the cached credit refund.
+        vm.prank(ALICE);
+        _claimRefund(VERSE_ID, CAROL);
+
+        assertEq(creditA.balanceOf(CAROL), 10 ether, "carol got creditA");
+        assertEq(creditB.balanceOf(CAROL), 0, "carol got no creditB");
+        assertEq(creditA.balanceOf(address(polend)), 0, "creditA escrow cleared");
+        assertEq(creditB.balanceOf(address(polend)), polendCreditBBefore, "creditB decoy unchanged");
+        assertEq(creditB.burnedAmount(), 0, "creditB not burned");
+    }
+
+    /// @dev Pure credit participant: realPaid == 0 must not revert; only credit branch fires.
+    function test_ClaimRefund_PureCreditUser_GetsNoUAsset_OnlyCredit() external {
+        BurnableMockERC20 credit = _wireCreditFactoryForUAsset(address(uAsset));
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 50 ether);
+        setRefundStateForTest(address(polend), VERSE_ID);
+        // Direct-seeded credit position bypasses leveragedGenesisWithCredit, so cache the credit token
+        // the production claimRefund reads; otherwise it reverts NoCreditForUAsset.
+        seedMarketCreditTokenForTest(address(polend), VERSE_ID, address(credit));
+        credit.mint(address(polend), 50 ether);
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        uint256 refunded = _claimRefund(VERSE_ID, CAROL);
+
+        assertEq(refunded, 0, "no real-uAsset refunded");
+        assertEq(uAsset.balanceOf(CAROL), 0, "no uAsset transferred");
+        assertEq(credit.balanceOf(CAROL), 50 ether, "credit refunded");
+
+        // No `ClaimRefund` event should fire when realPaid == 0; `CreditRefunded` must fire exactly once.
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 claimRefundSig = keccak256("ClaimRefund(uint256,address,address,uint256)");
+        bytes32 creditRefundedSig = keccak256("CreditRefunded(uint256,address,address,uint256)");
+        uint256 claimRefundCount;
+        uint256 creditRefundedCount;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(polend)) continue;
+            if (logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] == claimRefundSig) ++claimRefundCount;
+            else if (logs[i].topics[0] == creditRefundedSig) ++creditRefundedCount;
+        }
+        assertEq(claimRefundCount, 0, "no ClaimRefund event");
+        assertEq(creditRefundedCount, 1, "one CreditRefunded event");
+    }
+
+    /// @dev Back-compat: pure real-uAsset participant matches legacy behaviour exactly (no credit
+    ///      branch, no factory call, ClaimRefund only).
+    function test_ClaimRefund_PureRealUser_BackCompat() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        setRefundStateForTest(address(polend), VERSE_ID);
+        uAsset.mint(address(polend), 10 ether);
+
+        vm.expectEmit(true, true, true, true);
+        emit ClaimRefund(VERSE_ID, ALICE, CAROL, 10 ether);
+        vm.prank(ALICE);
+        uint256 refunded = _claimRefund(VERSE_ID, CAROL);
+
+        assertEq(refunded, 10 ether, "refund returns real amount");
+        assertEq(uAsset.balanceOf(CAROL), 10 ether, "uAsset refunded");
+    }
+
+    function test_RevertWhen_ClaimRefund_BothLedgersZero() external {
+        setRefundStateForTest(address(polend), VERSE_ID);
+
+        vm.prank(ALICE);
+        _expectLowLevelRevert(
+            abi.encodeWithSignature("claimRefund(uint256,address)", VERSE_ID, CAROL), IPOLend.InvalidClaim.selector
+        );
+    }
+
+    function test_RevertWhen_ClaimRefund_AlreadyClaimedAcrossBothLedgers() external {
+        BurnableMockERC20 credit = _wireCreditFactoryForUAsset(address(uAsset));
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 5 ether);
+        setRefundStateForTest(address(polend), VERSE_ID);
+        // Direct-seeded credit position bypasses leveragedGenesisWithCredit, so cache the credit token
+        // the production claimRefund reads; otherwise it reverts NoCreditForUAsset.
+        seedMarketCreditTokenForTest(address(polend), VERSE_ID, address(credit));
+        uAsset.mint(address(polend), 10 ether);
+        credit.mint(address(polend), 5 ether);
+
+        vm.prank(ALICE);
+        _claimRefund(VERSE_ID, CAROL);
+
+        // Second claim must revert via the `CLAIM_REFUND` flag, regardless of remaining balance.
+        vm.prank(ALICE);
+        _expectLowLevelRevert(
+            abi.encodeWithSignature("claimRefund(uint256,address)", VERSE_ID, CAROL), IPOLend.InvalidClaim.selector
+        );
+    }
+
+    /// @dev Stand up a fresh MockGenesisCreditFactory + credit token for the given uAsset and
+    ///      wire it into POLend. Returns the credit token so tests can mint/inspect balances.
+    function _wireCreditFactoryForUAsset(address uAsset_) internal returns (BurnableMockERC20 credit) {
+        MockGenesisCreditFactory factory = new MockGenesisCreditFactory();
+        credit = new BurnableMockERC20("CREDIT", "CREDIT");
+        factory.setCreditOf(uAsset_, address(credit));
+        polend.setCreditFactory(address(factory));
+    }
+
     function testClaimLeveragedYT_MarksCallerAndTransfersToRecipient() external {
         seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
         seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 30 ether);
@@ -923,6 +1488,60 @@ contract POLendTest is Test, POLendStorageHelper {
         assertTrue(success, "claim");
         assertEq(abi.decode(data, (uint256)), 100 ether, "interest-proportional yt");
         assertEq(yt.balanceOf(CAROL), 100 ether, "recipient yt");
+    }
+
+    /// @dev Pure-credit participant: real==0, credit==50e18, total=100e18 (BOB holds 50e18 real).
+    ///      Credit user must receive YT pro-rata to their credit interest share.
+    function test_ClaimLeveragedYT_CreditUserGetsProRataYT() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 50 ether);
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 50 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 400 ether);
+        yt.mint(address(polend), 400 ether);
+
+        vm.prank(ALICE);
+        assertEq(_claimLeveragedYT(VERSE_ID, CAROL), 200 ether, "credit-only YT share");
+        assertEq(yt.balanceOf(CAROL), 200 ether, "recipient yt");
+    }
+
+    /// @dev Mixed participant: real=30, credit=20, total=100 (BOB holds 50 real).
+    ///      Claim must use real+credit aggregate as the numerator.
+    function test_ClaimLeveragedYT_MixedUser_GetsAggregatedShare() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 30 ether);
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 20 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 50 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 100 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 400 ether);
+        yt.mint(address(polend), 400 ether);
+
+        vm.prank(ALICE);
+        assertEq(_claimLeveragedYT(VERSE_ID, CAROL), 200 ether, "aggregated YT share");
+        assertEq(yt.balanceOf(CAROL), 200 ether, "recipient yt");
+    }
+
+    /// @dev Both ledgers zero must revert via InvalidClaim, even when totalLeveragedInterest > 0.
+    function test_RevertWhen_ClaimLeveragedYT_BothZero() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 50 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 50 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 100 ether);
+        yt.mint(address(polend), 100 ether);
+
+        vm.prank(ALICE);
+        _expectLowLevelRevert(
+            abi.encodeWithSignature("claimLeveragedYT(uint256,address)", VERSE_ID, CAROL), IPOLend.InvalidClaim.selector
+        );
+    }
+
+    /// @dev Backward-compat: pure-real user (credit==0) keeps identical behavior.
+    function test_ClaimLeveragedYT_PureReal_BackCompat() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 30 ether);
+        seedMarketForTest(address(polend), VERSE_ID, address(yt), 40 ether);
+        setLockedStateForTest(address(polend), VERSE_ID, 400 ether);
+        yt.mint(address(polend), 400 ether);
+
+        vm.prank(ALICE);
+        assertEq(_claimLeveragedYT(VERSE_ID, CAROL), 100 ether, "pure-real unchanged");
     }
 
     function testClaimLeveragedYT_BlocksReentrantClaim() external {
@@ -1028,6 +1647,67 @@ contract POLendTest is Test, POLendStorageHelper {
         assertTrue(hookedUAsset.sawExpectedRevert(), "reentrant residual claim blocked");
     }
 
+    /// @dev Pure-credit participant: real==0, credit==50e18, total=100e18 (BOB holds 50e18 real).
+    ///      Credit user must receive residual uAsset+memecoin pro-rata to their credit interest share
+    ///      (spec docs/spec/polend/leveraged-lending.md §6.5; denominator totalLeveragedInterest already includes credit).
+    function test_ClaimResidual_PureCreditUser_CanClaim() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 50 ether);
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 50 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 200 ether, 100 ether, 100 ether);
+        uAsset.mint(address(polend), 200 ether);
+        memecoin.mint(address(polend), 100 ether);
+
+        vm.prank(ALICE);
+        (uint256 uAssetAmount, uint256 memecoinAmount) = _claimResidual(VERSE_ID, CAROL);
+        assertEq(uAssetAmount, 100 ether, "credit-only uAsset share");
+        assertEq(memecoinAmount, 50 ether, "credit-only memecoin share");
+        assertEq(uAsset.balanceOf(CAROL), 100 ether, "recipient uAsset");
+        assertEq(memecoin.balanceOf(CAROL), 50 ether, "recipient memecoin");
+    }
+
+    /// @dev Mixed participant: real=30, credit=20, total=100 (BOB holds 50 real).
+    ///      Claim must use real+credit aggregate as the numerator.
+    function test_ClaimResidual_CreditUserGetsProRataResidual() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 30 ether);
+        seedCreditPositionForTest(address(polend), VERSE_ID, ALICE, 20 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 50 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 200 ether, 100 ether, 100 ether);
+        uAsset.mint(address(polend), 200 ether);
+        memecoin.mint(address(polend), 100 ether);
+
+        vm.prank(ALICE);
+        (uint256 uAssetAmount, uint256 memecoinAmount) = _claimResidual(VERSE_ID, CAROL);
+        assertEq(uAssetAmount, 100 ether, "aggregated uAsset share");
+        assertEq(memecoinAmount, 50 ether, "aggregated memecoin share");
+    }
+
+    /// @dev Both ledgers zero must revert via InvalidClaim, even when totalLeveragedInterest > 0.
+    function test_RevertWhen_ClaimResidual_BothZero() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 50 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 200 ether, 100 ether, 100 ether);
+        uAsset.mint(address(polend), 200 ether);
+        memecoin.mint(address(polend), 100 ether);
+
+        vm.prank(ALICE);
+        _expectLowLevelRevert(
+            abi.encodeWithSignature("claimResidual(uint256,address)", VERSE_ID, CAROL), IPOLend.InvalidClaim.selector
+        );
+    }
+
+    /// @dev Backward-compat: pure-real user (credit==0) keeps identical behavior.
+    function test_ClaimResidual_PureReal_BackCompat() external {
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, ALICE, 10 ether);
+        seedLeveragedPositionForTest(address(polend), VERSE_ID, BOB, 30 ether);
+        seedResidualForTest(address(polend), VERSE_ID, 200 ether, 100 ether, 40 ether);
+        uAsset.mint(address(polend), 200 ether);
+        memecoin.mint(address(polend), 100 ether);
+
+        vm.prank(ALICE);
+        (uint256 uAssetAmount, uint256 memecoinAmount) = _claimResidual(VERSE_ID, CAROL);
+        assertEq(uAssetAmount, 50 ether, "pure-real uAsset unchanged");
+        assertEq(memecoinAmount, 25 ether, "pure-real memecoin unchanged");
+    }
+
     function testOwnerSetters_ValidateOwnerBoundsAndEmitEvents() external {
         vm.prank(ALICE);
         _expectLowLevelRevert(abi.encodeWithSignature("setProtocolTreasury(address)", CAROL), bytes4(0));
@@ -1041,6 +1721,21 @@ contract POLendTest is Test, POLendStorageHelper {
         (bool treasurySuccess,) = address(polend).call(abi.encodeWithSignature("setProtocolTreasury(address)", CAROL));
         assertTrue(treasurySuccess, "set treasury");
         assertEq(polend.treasury(), CAROL, "treasury");
+
+        // setCreditFactory mirrors setProtocolTreasury: owner-only, rejects zero, emits CreditFactoryChanged.
+        vm.prank(ALICE);
+        _expectLowLevelRevert(abi.encodeWithSignature("setCreditFactory(address)", CAROL), bytes4(0));
+
+        _expectLowLevelRevert(
+            abi.encodeWithSignature("setCreditFactory(address)", address(0)), IPOLend.ZeroInput.selector
+        );
+
+        address oldFactory = polend.creditFactory();
+        vm.expectEmit(true, true, false, true);
+        emit IPOLend.CreditFactoryChanged(oldFactory, CAROL);
+        (bool factorySuccess,) = address(polend).call(abi.encodeWithSignature("setCreditFactory(address)", CAROL));
+        assertTrue(factorySuccess, "set creditFactory");
+        assertEq(polend.creditFactory(), CAROL, "creditFactory");
 
         vm.prank(ALICE);
         _expectLowLevelRevert(abi.encodeWithSignature("setDefaultInterestRate(uint256)", 2e17), bytes4(0));

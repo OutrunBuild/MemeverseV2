@@ -196,6 +196,36 @@ totalNormalFunds + previewDebt <= MAX_SUPPORTED_TOTAL_GENESIS_FUNDS
 event LeveragedGenesis(uint256 indexed verseId, address indexed user, uint256 interestAmount);
 ```
 
+### 4.1 GenesisCredit 抵扣杠杆创世
+
+`leveragedGenesisWithCredit(verseId, creditAmount)`：冷启动期允许用户用 GenesisCredit（与该 verse `uAsset` raw-unit 1:1 对应的 ERC20/OFT）抵扣杠杆利息，等价于"免费借贷参与创世"。
+
+GenesisCredit 当前固定 18 decimals，因此 credit path 只支持 `uAsset.decimals() == 18` 的 verse。`GenesisCreditFactory.deployCredit` 必须拒绝非 18-dec `uAsset`（revert `InvalidUAssetDecimals`），`POLend.leveragedGenesisWithCredit` 在该 verse 首次解析 credit token 的流程内（经 `creditOf(uAsset)` 取得地址后、写入 `market.creditToken` 缓存前）校验 `uAsset` 与 GenesisCredit 均为 18 decimals；不满足时 revert `CreditDecimalsMismatch`。非 18-dec `uAsset` 仍可走普通 `genesis` 与真付 `uAsset` 的 `leveragedGenesis`，但不得启用 GenesisCredit credit path。
+
+- 只允许 Launcher 已注册的 verse
+- 只允许 Launcher verse 处于 `Genesis`
+- market 为 `None` 时，本次调用成功后进入 `Genesis`
+- market 为 `Genesis` 时，继续累计
+- `creditAmount > 0`
+- 要求该 verse 的 `uAsset` 已完成全局 reserve 配置
+- 经 `GenesisCreditFactory` 查该 `uAsset` 对应的 GenesisCredit 地址；无则 revert `NoCreditForUAsset`（credit 是可选路径，不影响正常 `leveragedGenesis`）
+- `GenesisCredit.transferFrom(msg.sender, POLend, creditAmount)` → 托管到 `POLend`（**不 burn**，finalize 时统一 burn）
+- `creditInterestPaid[verseId][msg.sender] += creditAmount`
+- `market.totalCreditInterest += creditAmount`
+- `market.totalLeveragedInterest += creditAmount`（real + credit 合计，用于 launch gate + D 推导 + debt cap 预检）
+- 不 mint `uAsset`（与正常路径一致，mint 发生在 finalize）
+- emit `LeveragedGenesisWithCredit(verseId, user, creditAmount)`
+
+Debt cap 预检与正常路径同一公式，用 `nextTotalLeveragedInterest`（real + credit 合计）推导 `previewDebt <= debtCap`。GenesisCredit 抵扣的利息同样吃 debt cap，不引入额外 uAsset 通胀上限放松。
+
+GenesisCredit 抵扣的利息**计入 `minTotalFund` 启动门槛且不封顶**（launch gate 策略）：协议可纯靠发 GenesisCredit 把 verse 推到 `Locked`。这是有意的冷启动策略，`debtCap` + aggregate `MAX_SUPPORTED_TOTAL_GENESIS_FUNDS` 仍对 D 的 mint 量封顶，故自助启动的 D 通胀有界。
+
+事件：
+
+```solidity
+event LeveragedGenesisWithCredit(uint256 indexed verseId, address indexed user, uint256 creditAmount);
+```
+
 如果最终进入 `Refund`：
 
 - 杠杆用户只取回自己支付的利息
@@ -222,11 +252,16 @@ POLend.markRefundable(verseId)
 - 只允许 `Refund`
 - 权益和领取标记基于 `msg.sender`
 - `to != address(0)`，退款转给 `to`
-- 按 `leveragedInterestPaid[verseId][msg.sender]` 全额退还该 verse 的 `uAsset`
-- 一次性领取
-- 不清零 `leveragedInterestPaid[verseId][msg.sender]`
+- real 部分：按 `leveragedInterestPaid[verseId][msg.sender]` 退回该 verse 的 `uAsset`（原路径，存储字段复用旧名承载 real 部分），退回成功 emit `ClaimRefund(verseId, user, to, amount)`
+- credit 部分：按 `creditInterestPaid[verseId][msg.sender]` 从 POLend 托管余额 `GenesisCredit.transfer(to, amount)` 退回 GenesisCredit token（不凭空 materialize uAsset）
+- 一次性领取（real 与 credit 合并一次 claim）
+- 不清零 `leveragedInterestPaid` / `creditInterestPaid`
 - 用 `refundClaimed` 标记
-- `leveragedInterestPaid[verseId][msg.sender] = 0` 或重复领取 revert `InvalidClaim`
+- `leveragedInterestPaid == 0 && creditInterestPaid == 0` 或重复领取 revert `InvalidClaim`
+- credit 退回成功后 emit `CreditRefunded(verseId, user, to, amount)`
+- 返回值 `refundedAmount` 仅承载 real-uAsset 退款额（credit-only 参与者为 0）；credit 退款额只由 `CreditRefunded` 事件承载。credit-only 参与者一次成功调用返回 0 且不 emit `ClaimRefund`——索引器/前端必须以 `ClaimRefund` 或 `CreditRefunded` 判定退款成功，不可单看 `refundedAmount > 0` 或仅监听 `ClaimRefund`
+
+real 用户退 uAsset、credit 用户退 GenesisCredit，两条物理隔离；退的是托管中的真实 token，不凭空 materialize uAsset。
 
 普通 refund、preorder refund、杠杆 `claimRefund` 三套账本独立，同一用户可分别领取自己参与过的部分。
 
@@ -263,11 +298,11 @@ POLend.markRefundable(verseId)
 - 只在 `getTotalLeveragedDebt(verseId) > 0` 时调用
 - 要求该 verse 的 `uAsset` 已完成全局 reserve 配置：`settlementDustStates[uAsset].maxReserve > 0`
 - 先把 market 状态设为 `Locked`
-- mint `totalLeveragedDebt` 数量的该 verse `uAsset` 到 `Launcher`
-- 调用 `_creditSettlementDustReserve(uAsset, totalLeveragedInterest)`，把 `credited` 注入该 `uAsset` 全局 reserve
-- 把 `excess` 作为 `treasuryInterest` 转给 `POLend.protocolTreasury`
+- mint `totalLeveragedDebt` 数量的该 verse `uAsset` 到 `Launcher`（基于合计 `totalLeveragedInterest`，real + credit 一同推导）
+- 拆分 reserve/treasury **只对真付部分 realInterest**：`realInterest = market.totalLeveragedInterest - market.totalCreditInterest`，调用 `_creditSettlementDustReserve(uAsset, realInterest)`，把 `credited` 注入该 `uAsset` 全局 reserve，`excess` 作为 `treasuryInterest` 转给 `POLend.protocolTreasury`。credit 部分无 token 流入，跳过 reserve/treasury 拆分
+- 若 `market.totalCreditInterest > 0`：**burn 托管的 GenesisCredit** `GenesisCredit.burn(market.totalCreditInterest)`（POLend 烧自己托管的 credit 余额，permissionless 自烧，无需 burner 权限模型），并 emit `CreditBurned(verseId, uAsset, totalCreditInterest)`。`totalCreditInterest == 0` 的 real-only finalize 跳过 burn 与事件——`GenesisCredit.burn(0)` 会 `revert ZeroInput()`，且无销毁发生不应发审计事件
 - `globalDebtByUAsset[market.uAsset] += totalLeveragedDebt`
-- emit `SettlementDustReservedFromInterest(verseId, uAsset, totalLeveragedInterest, credited, treasuryInterest, reserveAfter)`
+- emit `SettlementDustReservedFromInterest(verseId, uAsset, realInterest, credited, treasuryInterest, reserveAfter)`
 
 mint 数量：
 
@@ -276,6 +311,8 @@ mintedUAsset = totalLeveragedInterest * 1e18 / market.interestRate
 ```
 
 `finalizeLeveragedGenesis` 不重复检查 debt cap。
+
+混池 burn 安全性：POLend 对某 uAsset 的 GenesisCredit 托管余额是该 uAsset 所有 verse 的 credit 利息合计（混池）。`markRefundable` 与 `finalizeLeveragedGenesis` 都 `require market.state == Genesis` 并分别迁移到 `Refund` / `Locked`（状态机互斥），同一 verse 的 refund 与 finalize 不会都发生，故 finalize 时刻该 verse 的 `totalCreditInterest` 仍精确等于其未退走的托管量，按 `market.totalCreditInterest` burn 不会误烧其他 verse 的份额（详见 [core.md §6.3](core.md)）。
 
 `finalizeLeveragedGenesis` 完成成功路径的利息 reserve / treasury 拆分后，`claimRefund` 不可用。
 
@@ -411,10 +448,13 @@ normalYT = totalNormalClaimableYT * userGenesisFund / totalNormalFunds
 `userGenesisFund = 0` revert `InvalidClaim`。
 
 ```text
+userInterestPaid = leveragedInterestPaid[verseId][msg.sender] + creditInterestPaid[verseId][msg.sender]
 leveragedYT = totalLeveragedYT * userInterestPaid / totalLeveragedInterest
 ```
 
-`userInterestPaid = 0` revert `InvalidClaim`。
+`totalLeveragedDebt` 含 credit 部分（mint 基于合计），故杠杆 YT 份额随之增大，credit 用户按合计切 YT 与 real 用户等价。
+
+`leveragedInterestPaid == 0 && creditInterestPaid == 0` revert `InvalidClaim`。
 
 `claimLeveragedYT` 的权益和领取标记基于 `msg.sender`；`to != address(0)`，`YT` 转给 `to`。
 

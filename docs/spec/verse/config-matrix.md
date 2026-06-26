@@ -23,7 +23,7 @@
 | `MemeverseLauncher` | `executorRewardRate` | `setExecutorRewardRate` | `< 10000` | fee 分账（执行者奖励） | `[代码已证]` |
 | `MemeverseLauncher` | `preorderCapRatio`,`preorderVestingDuration` | `setPreorderConfig` | 非零；`capRatio <= 10000` | preorder 容量和线性释放 | `[代码已证]` |
 | `MemeverseLauncher` | `oftReceiveGasLimit`,`yieldDispatcherGasLimit` | `setGasLimits` | 两者 `>0` | 远端分发 OFT options | `[代码已证]` |
-| `MemeverseRegistrationCenter` | `supportedUAssets` | `setSupportedUAsset` | uAsset 非零 | 注册可用募资币种白名单 | `[代码已证]` |
+| `MemeverseRegistrationCenter` | `supportedUAssets` | `setSupportedUAsset` | uAsset 非零 | 注册可用募资币种白名单；普通 `genesis` / `leveragedGenesis` 支持任意 decimals 的 `uAsset`，但 GenesisCredit credit path（`leveragedGenesisWithCredit` + `GenesisCreditFactory.deployCredit`）只支持 `uAsset.decimals() == 18`，非 18-dec `uAsset` 不得部署 GenesisCredit `[目标规范]`（`InvalidUAssetDecimals` / `CreditDecimalsMismatch` 待 factory/POLend 校验落地） | `[代码已证]`（credit path 18-dec 强制为 `[目标规范]`） |
 | `MemeverseRegistrationCenter` | `min/maxDurationDays` | `setDurationDaysRange` | 非零，且 min < max | 注册 durationDays 校验 | `[代码已证]` |
 | `MemeverseRegistrationCenter` | `registerGasLimit` | `setRegisterGasLimit` | `>0` | center 向远端 registrar fan-out 的 receive gas | `[代码已证]` |
 | `MemeverseRegistrarAtLocal` | `registrationCenter` | `setRegistrationCenter` | 非零 | 本地 registrar 信任中心地址 | `[代码已证]` |

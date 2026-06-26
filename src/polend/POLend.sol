@@ -2,6 +2,7 @@
 pragma solidity ^0.8.35;
 
 import {IERC20} from "../common/token/OutrunERC20Init.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -13,8 +14,13 @@ import {IPOLend} from "./interfaces/IPOLend.sol";
 import {IPOLSplitter} from "./interfaces/IPOLSplitter.sol";
 import {IUniversalAssets} from "./interfaces/IUniversalAssets.sol";
 import {IMemeverseLauncher} from "../verse/interfaces/IMemeverseLauncher.sol";
+import {IGenesisCreditFactory} from "../credit/interfaces/IGenesisCreditFactory.sol";
+import {IGenesisCredit} from "../credit/interfaces/IGenesisCredit.sol";
 import {OutrunOwnableUpgradeable} from "../common/access/OutrunOwnableUpgradeable.sol";
 
+/// @title POLend
+/// @notice Leveraged-genesis lend market: escrows leveraged interest (real uAsset and GenesisCredit),
+///         mints debt to the launcher, runs global settlement, and distributes YT/residuals pro-rata.
 contract POLend layout at erc7201("outrun.storage.POLend")
     is
     Initializable,
@@ -40,6 +46,9 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         address treasury;
         address launcher;
         address splitter;
+        // Credit-factory-written interest per user; added on top of leveragedInterestPaid.
+        mapping(uint256 => mapping(address => uint256)) creditInterestPaid;
+        address creditFactory;
         mapping(uint256 => LendMarket) lendMarkets;
         mapping(uint256 => mapping(address => uint256)) leveragedInterestPaid;
         mapping(uint256 => ResidualState) residualStates;
@@ -65,17 +74,27 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         _;
     }
 
+    /// @notice One-time proxy initializer. Sets the owner plus all integration pointers and leverage parameters.
+    /// @param initialOwner Address to grant contract ownership.
+    /// @param interestRate_ Default interest rate (1e18-scaled; (0, 1e18]).
+    /// @param leveragedDebtFactor_ Leveraged-debt factor applied to the launcher debt cap.
+    /// @param treasury_ Protocol treasury receiving excess interest and reserve overflow.
+    /// @param launcher_ MemeverseLauncher authorized to drive verse lifecycle.
+    /// @param splitter_ POLSplitter authorized to redeem PTs and burn backing.
+    /// @param creditFactory_ GenesisCreditFactory issuing credit tokens.
     function initialize(
         address initialOwner,
         uint256 interestRate_,
         uint256 leveragedDebtFactor_,
         address treasury_,
         address launcher_,
-        address splitter_
+        address splitter_,
+        address creditFactory_
     ) external initializer {
         if (interestRate_ == 0) revert ZeroInput();
         if (interestRate_ > 1e18) revert InvalidConfig();
         if (treasury_ == address(0) || launcher_ == address(0) || splitter_ == address(0)) revert ZeroInput();
+        if (creditFactory_ == address(0)) revert ZeroInput();
         _validateLeverageConfig(interestRate_, leveragedDebtFactor_);
 
         __OutrunOwnable_init(initialOwner);
@@ -86,8 +105,11 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         polendStorage.treasury = treasury_;
         polendStorage.launcher = launcher_;
         polendStorage.splitter = splitter_;
+        polendStorage.creditFactory = creditFactory_;
     }
 
+    /// @notice Update the protocol treasury (onlyOwner). Emits `ProtocolTreasuryChanged`.
+    /// @param newTreasury New treasury address (must not be zero).
     function setProtocolTreasury(address newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert ZeroInput();
 
@@ -96,6 +118,18 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit ProtocolTreasuryChanged(oldTreasury, newTreasury);
     }
 
+    /// @notice Update the credit factory that issues GenesisCredit tokens (onlyOwner). Emits `CreditFactoryChanged`.
+    /// @param newFactory New credit factory address (must not be zero).
+    function setCreditFactory(address newFactory) external onlyOwner {
+        if (newFactory == address(0)) revert ZeroInput();
+
+        address oldFactory = polendStorage.creditFactory;
+        polendStorage.creditFactory = newFactory;
+        emit CreditFactoryChanged(oldFactory, newFactory);
+    }
+
+    /// @notice Update the default interest rate applied to future markets (onlyOwner). Emits `DefaultInterestRateChanged`.
+    /// @param newRate New rate (1e18-scaled; (0, 1e18]).
     function setDefaultInterestRate(uint256 newRate) external onlyOwner {
         if (newRate == 0) revert ZeroInput();
         if (newRate > 1e18) revert InvalidConfig();
@@ -106,6 +140,8 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit DefaultInterestRateChanged(oldRate, newRate);
     }
 
+    /// @notice Update the leveraged-debt factor applied to the launcher debt cap (onlyOwner). Emits `LeveragedDebtFactorChanged`.
+    /// @param newFactor New factor (must satisfy the leverage-config validation).
     function setLeveragedDebtFactor(uint256 newFactor) external onlyOwner {
         _validateLeverageConfig(polendStorage.defaultInterestRate, newFactor);
         uint256 oldFactor = polendStorage.leveragedDebtFactor;
@@ -113,6 +149,9 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit LeveragedDebtFactorChanged(oldFactor, newFactor);
     }
 
+    /// @notice Configure the settlement-dust reserve cap for a uAsset (onlyOwner). Emits `SettlementDustReserveConfigured`.
+    /// @param uAsset Universal-asset address (must not be zero).
+    /// @param maxReserve New reserve cap (must be >= the currently funded reserve).
     function setMaxSettlementDustReserve(address uAsset, uint128 maxReserve) external onlyOwner {
         if (uAsset == address(0) || maxReserve == 0) revert ZeroInput();
 
@@ -123,6 +162,10 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit SettlementDustReserveConfigured(uAsset, oldMaxReserve, maxReserve);
     }
 
+    /// @notice Register a new lend market for a verse (onlyLauncher). Resolves the uAsset from the launcher
+    ///         and seeds a market in `None` state with the default interest rate. The verse's uAsset must
+    ///         already have a non-zero settlement-dust reserve configured.
+    /// @param verseId Verse identifier to register.
     function registerLendMarket(uint256 verseId) external onlyLauncher {
         if (polendStorage.lendMarkets[verseId].uAsset != address(0)) revert InvalidState();
         _validateLeverageConfig(polendStorage.defaultInterestRate, polendStorage.leveragedDebtFactor);
@@ -134,11 +177,20 @@ contract POLend layout at erc7201("outrun.storage.POLend")
             yt: address(0),
             interestRate: polendStorage.defaultInterestRate,
             totalLeveragedInterest: 0,
+            totalCreditInterest: 0,
             totalLeveragedYT: 0,
-            state: MarketState.None
+            state: MarketState.None,
+            creditToken: address(0)
         });
     }
 
+    /// @notice Open or top up a leveraged-genesis position by paying real-uAsset interest.
+    ///         Pulls `interestAmount` of uAsset from the caller and accrues the borrowed debt
+    ///         (interest / rate) against the verse. Caps enforce the per-verse debt ceiling and
+    ///         the aggregate genesis-funds limit.
+    /// @param verseId Verse identifier (must be in Genesis stage).
+    /// @param interestAmount uAsset interest to pay (must be > 0).
+    /// @return borrowedAmount Leveraged debt generated by this interest payment.
     function leveragedGenesis(uint256 verseId, uint256 interestAmount)
         external
         whenNotPaused
@@ -170,12 +222,84 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit LeveragedGenesis(verseId, msg.sender, interestAmount);
     }
 
+    /// @notice Same accounting as `leveragedGenesis`, but interest is paid in GenesisCredit
+    ///         (escrowed in POLend) instead of the verse's uAsset.
+    /// @dev    Credit interest is tracked in a dedicated ledger (`creditInterestPaid` +
+    ///         `market.totalCreditInterest`) and also added to `totalLeveragedInterest` so debt
+    ///         math and downstream settlement/claim logic stay identical to the real-uAsset path.
+    ///         CEI is preserved: state updates happen before the external transferFrom.
+    /// @param verseId Verse identifier (must be in Genesis stage).
+    /// @param creditAmount GenesisCredit to pay (must be > 0).
+    /// @return borrowedAmount Leveraged debt generated by this credit payment.
+    function leveragedGenesisWithCredit(uint256 verseId, uint256 creditAmount)
+        external
+        whenNotPaused
+        returns (uint256 borrowedAmount)
+    {
+        if (creditAmount == 0) revert ZeroInput();
+
+        LendMarket storage market = polendStorage.lendMarkets[verseId];
+        if (market.interestRate == 0) revert InvalidState();
+        if (market.state != MarketState.None && market.state != MarketState.Genesis) revert InvalidState();
+        if (IMemeverseLauncher(polendStorage.launcher).getStageByVerseId(verseId) != IMemeverseLauncher.Stage.Genesis) {
+            revert InvalidState();
+        }
+        // Read the cached credit token first; only resolve via the factory on first credit
+        // entry for this verse. This locks the token identity at first entry and avoids
+        // re-resolving through the mutable creditFactory pointer on every subsequent entry.
+        address credit = market.creditToken;
+        if (credit == address(0)) {
+            // Cold path only (first credit entry for this verse): resolves the credit token via
+            // creditOf and runs the 18-decimals guard. Declared inside the block rather than at
+            // the function top so the warm path — which skips this block — does not pay a cold
+            // SLOAD of market.uAsset (slot 0) it would never use.
+            address marketUAsset = market.uAsset;
+            credit = IGenesisCreditFactory(polendStorage.creditFactory).creditOf(marketUAsset);
+            if (credit == address(0)) revert NoCreditForUAsset();
+            // GenesisCredit is fixed at 18 decimals, so credit-path raw-unit accounting (creditAmount
+            // is summed into totalLeveragedInterest and converted to debt at the same rate as real
+            // uAsset interest) only stays correct when the verse uAsset is also 18 decimals. A
+            // replaceable creditFactory pointer could map a non-18-dec uAsset to an 18-dec credit, so
+            // guard at the use boundary too, before caching. Runs once per verse, on first entry.
+            uint8 uAssetDecimals = IERC20Metadata(marketUAsset).decimals();
+            uint8 creditDecimals = IERC20Metadata(credit).decimals();
+            if (uAssetDecimals != 18 || creditDecimals != 18) {
+                revert CreditDecimalsMismatch(uAssetDecimals, creditDecimals);
+            }
+            market.creditToken = credit;
+        }
+
+        uint256 actualNormalFunds = IMemeverseLauncher(polendStorage.launcher).totalNormalFunds(verseId);
+        if (actualNormalFunds > MAX_SUPPORTED_TOTAL_GENESIS_FUNDS) revert InvalidConfig();
+
+        uint256 nextTotalInterest = market.totalLeveragedInterest + creditAmount;
+        uint256 previewTotalDebt = Math.mulDiv(nextTotalInterest, 1e18, market.interestRate);
+        if (previewTotalDebt > MAX_SUPPORTED_TOTAL_GENESIS_FUNDS - actualNormalFunds) revert InvalidConfig();
+        if (previewTotalDebt > _debtCap(verseId)) revert DebtCapExceeded();
+
+        borrowedAmount = Math.mulDiv(creditAmount, 1e18, market.interestRate);
+        polendStorage.creditInterestPaid[verseId][msg.sender] += creditAmount;
+        market.totalCreditInterest += creditAmount;
+        market.totalLeveragedInterest = nextTotalInterest;
+        if (market.state == MarketState.None) market.state = MarketState.Genesis;
+        IERC20(credit).safeTransferFrom(msg.sender, address(this), creditAmount);
+        emit LeveragedGenesisWithCredit(verseId, msg.sender, creditAmount);
+    }
+
+    /// @notice Mark a verse's market as refundable (onlyLauncher). Transitions a `Genesis`-state
+    ///         market to `Refund`, enabling `claimRefund` for participants of a failed verse.
+    /// @param verseId Verse identifier to transition.
     function markRefundable(uint256 verseId) external onlyLauncher {
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Genesis) revert InvalidState();
         market.state = MarketState.Refund;
     }
 
+    /// @notice Finalize a verse's leveraged genesis and lock its debt (onlyLauncher). Credits the
+    ///         real-uAsset interest into the dust reserve and treasury, mints the aggregate debt as
+    ///         uAsset to the launcher, burns the escrowed GenesisCredit for the credit-funded slice,
+    ///         and accrues the verse debt to the per-uAsset global ledger.
+    /// @param verseId Verse identifier to finalize.
     function finalizeLeveragedGenesis(uint256 verseId) external onlyLauncher {
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Genesis) revert InvalidState();
@@ -184,19 +308,49 @@ contract POLend layout at erc7201("outrun.storage.POLend")
 
         address marketUAsset = market.uAsset;
         uint256 totalLeveragedInterest = market.totalLeveragedInterest;
+        uint256 totalCredit = market.totalCreditInterest;
+        // Only the real-uAsset slice of the leveraged-genesis interest is actually escrowed in
+        // this contract as `marketUAsset`. Credit-funded participants paid in GenesisCredit
+        // (escrowed separately), so the dust-reserve + treasury split must operate on the real
+        // portion only — otherwise we'd try to transfer uAsset we don't hold.
+        uint256 realInterest = totalLeveragedInterest - totalCredit;
+
         (uint256 credited, uint256 treasuryInterest, uint256 reserveAfter) =
-            _creditSettlementDustReserve(marketUAsset, totalLeveragedInterest);
+            _creditSettlementDustReserve(marketUAsset, realInterest);
 
         market.state = MarketState.Locked;
         polendStorage.globalDebtByUAsset[marketUAsset] += debt;
 
+        // Debt minting uses the aggregate (real + credit) interest via `_totalLeveragedDebt`, so
+        // credit interest still backs `debt` for the launcher — the only behavioral split is on
+        // dust/treasury sweeps and the credit-burn below.
         IUniversalAssets(marketUAsset).mint(polendStorage.launcher, debt);
         if (treasuryInterest != 0) IERC20(marketUAsset).safeTransfer(polendStorage.treasury, treasuryInterest);
+
+        // Burn the escrowed GenesisCredit so the credit-funded portion exits supply at finalize
+        // time. Per-verse `totalCreditInterest` is exclusive of other verses (state machine
+        // forbids re-entering `Genesis`), keeping the same-uAsset multi-verse pool conserved.
+        if (totalCredit != 0) {
+            // Read the cached credit token locked at first credit entry, not the live factory
+            // pointer (which setCreditFactory could have changed). Guard against zero as defense
+            // in depth — finalize only runs for markets that had credit participation, so the
+            // cache is always populated when totalCredit != 0.
+            address credit = market.creditToken;
+            if (credit == address(0)) revert NoCreditForUAsset();
+            IGenesisCredit(credit).burn(totalCredit);
+            emit CreditBurned(verseId, marketUAsset, totalCredit);
+        }
+
         emit SettlementDustReservedFromInterest(
-            verseId, marketUAsset, totalLeveragedInterest, credited, treasuryInterest, reserveAfter
+            verseId, marketUAsset, realInterest, credited, treasuryInterest, reserveAfter
         );
     }
 
+    /// @notice Record the YT token and its total supply for a locked verse (onlyLauncher). Enables
+    ///         `claimLeveragedYT` to distribute YT pro-rata to leveraged participants.
+    /// @param verseId Verse identifier (must be in Locked state).
+    /// @param yt YT token address (must not be zero).
+    /// @param totalLeveragedYT Total YT to distribute (must be > 0).
     function recordLeveragedYT(uint256 verseId, address yt, uint256 totalLeveragedYT) external onlyLauncher {
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked || market.yt != address(0)) revert InvalidState();
@@ -205,6 +359,11 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         market.totalLeveragedYT = totalLeveragedYT;
     }
 
+    /// @notice Execute global settlement for a verse (onlyLauncher). Recovers uAsset from POL and
+    ///         PT redemption, repays the verse debt, consumes the settlement-dust reserve to cover any
+    ///         deficit, stores the residual uAsset/memecoin for pro-rata claims, and transitions the
+    ///         market to `Settled`. Reverts if the reserve cannot cover a deficit.
+    /// @param verseId Verse identifier (must be in Locked state).
     function executeGlobalSettlement(uint256 verseId) external onlyLauncher nonReentrant {
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked) revert InvalidState();
@@ -256,6 +415,12 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         );
     }
 
+    /// @notice Fund the settlement-dust reserve for a uAsset. Pulls `amount` from the caller; the
+    ///         in-cap portion is credited to the reserve and any excess is forwarded to the treasury.
+    ///         The launcher may over-fund beyond the cap (excess still spills to treasury); other
+    ///         callers are rejected if `amount` exceeds the remaining capacity.
+    /// @param uAsset Universal-asset address (must have a configured reserve cap).
+    /// @param amount uAsset amount to deposit (must be > 0).
     function fundSettlementDustReserve(address uAsset, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroInput();
 
@@ -271,11 +436,20 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         IERC20(uAsset).safeTransferFrom(msg.sender, address(this), amount);
         uint256 credited = Math.min(amount, capacity);
         uint256 excess = amount - credited;
-        state.reserve = uint128(reserve + credited);
+        // Skip the no-op SSTORE when reserve is already at capacity (launcher path: the
+        // full amount spills to treasury as excess, credited == 0, reserve unchanged).
+        if (credited != 0) state.reserve = uint128(reserve + credited);
         if (excess != 0) IERC20(uAsset).safeTransfer(polendStorage.treasury, excess);
         emit SettlementDustReserveFunded(uAsset, msg.sender, amount, credited, excess);
     }
 
+    /// @notice Pre-redeem a PT-fee amount and mint its uAsset backing ahead of settlement (onlyLauncher).
+    ///         Accrues the resulting uAsset backing to the per-uAsset global debt and mints it as
+    ///         uAsset to `mintTo` so the splitter can later redeem/burn it.
+    /// @param verseId Verse identifier (must be in Locked state).
+    /// @param ptAmount PT amount to pre-redeem (must be > 0).
+    /// @param mintTo Recipient of the minted uAsset backing (must not be zero).
+    /// @return uAssetBacking uAsset amount minted for the PT fee.
     function preRedeemPTFee(uint256 verseId, uint256 ptAmount, address mintTo)
         external
         onlyLauncher
@@ -292,6 +466,11 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit PreRedeemPTFee(verseId, market.uAsset, ptAmount, uAssetBacking, mintTo);
     }
 
+    /// @notice Burn previously pre-redeemed uAsset backing (onlySplitter). Reverses the debt accrued
+    ///         by `preRedeemPTFee` by repaying the uAsset from the splitter, keeping the global debt
+    ///         ledger consistent after PT redemption.
+    /// @param verseId Verse identifier whose backing to burn.
+    /// @param amount uAsset amount to repay (must be > 0).
     function burnPreRedeemedBacking(uint256 verseId, uint256 amount) external onlySplitter {
         if (amount == 0) revert ZeroInput();
 
@@ -300,27 +479,68 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         IUniversalAssets(marketUAsset).repay(polendStorage.splitter, amount);
     }
 
+    /// @notice Refund a caller's leveraged-genesis interest after the verse fails and the market
+    ///         enters `Refund`. Returns the real-uAsset interest paid; any GenesisCredit interest
+    ///         paid by the same caller is also refunded as the same-denomination credit token.
+    /// @dev    F-3: judgement is the conjunction of both ledgers (`realPaid == 0 && creditPaid == 0`)
+    ///         and is performed before per-asset routing, so a credit-only participant can claim
+    ///         credit back without reverting on the real ledger being empty. Real-uAsset and credit
+    ///         payouts are physically isolated: each branch is gated by its own non-zero guard so we
+    ///         never transfer an asset we don't actually hold for this caller. `_consumeClaimFlag`
+    ///         runs before any external transfer (CEI) and prevents double-claim across both
+    ///         branches in a single call. Accumulator state is left intact; the per-verse
+    ///         state-machine (Refund is terminal for these ledgers, see spec §6.2) provides the
+    ///         non-replay invariant — only the per-user `claimFlags` bit needs to flip.
+    /// @param verseId Verse identifier (must be in Refund state).
+    /// @param to Recipient of the refunded uAsset and credit (must not be zero).
+    /// @return refundedAmount Real-uAsset amount refunded (zero for credit-only participants).
     function claimRefund(uint256 verseId, address to) external nonReentrant returns (uint256 refundedAmount) {
         if (to == address(0)) revert ZeroInput();
 
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Refund) revert InvalidState();
 
-        refundedAmount = polendStorage.leveragedInterestPaid[verseId][msg.sender];
-        if (refundedAmount == 0) revert InvalidClaim();
+        uint256 realPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender];
+        uint256 creditPaid = polendStorage.creditInterestPaid[verseId][msg.sender];
+        // Allow any participant with either ledger non-zero to claim; reject only when both are zero.
+        if (realPaid == 0 && creditPaid == 0) revert InvalidClaim();
 
         _consumeClaimFlag(verseId, msg.sender, CLAIM_REFUND);
-        IERC20(market.uAsset).safeTransfer(to, refundedAmount);
-        emit ClaimRefund(verseId, msg.sender, to, refundedAmount);
+
+        // Returned value keeps the historical contract: real-uAsset interest refunded.
+        // Credit interest is surfaced through the `CreditRefunded` event.
+        refundedAmount = realPaid;
+
+        if (realPaid != 0) {
+            IERC20(market.uAsset).safeTransfer(to, realPaid);
+            emit ClaimRefund(verseId, msg.sender, to, realPaid);
+        }
+        if (creditPaid != 0) {
+            // Read the cached credit token locked at first credit entry, not the live factory
+            // pointer, so a mid-flight setCreditFactory cannot strand escrowed credit.
+            address credit = market.creditToken;
+            if (credit == address(0)) revert NoCreditForUAsset();
+            IERC20(credit).safeTransfer(to, creditPaid);
+            emit CreditRefunded(verseId, msg.sender, to, creditPaid);
+        }
     }
 
+    /// @notice Claim a caller's pro-rata share of leveraged YT for a locked or settled verse.
+    ///         Share is `(real + credit interest paid) / totalLeveragedInterest` of the verse's
+    ///         total YT; the per-user claim flag prevents double-claiming.
+    /// @param verseId Verse identifier (Locked or Settled state).
+    /// @param to Recipient of the YT (must not be zero).
+    /// @return amount YT tokens transferred to `to`.
     function claimLeveragedYT(uint256 verseId, address to) external nonReentrant returns (uint256 amount) {
         if (to == address(0)) revert ZeroInput();
 
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Locked && market.state != MarketState.Settled) revert InvalidState();
 
-        uint256 interestPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender];
+        // Aggregate real + credit interest: credit participants share YT pro-rata to combined paid interest
+        // (spec docs/spec/polend/genesis.md §7; totalLeveragedInterest = real + credit combined, see core.md §6.3).
+        uint256 interestPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender]
+            + polendStorage.creditInterestPaid[verseId][msg.sender];
         uint256 totalLeveragedInterest = market.totalLeveragedInterest;
         if (interestPaid == 0 || totalLeveragedInterest == 0) revert InvalidClaim();
 
@@ -330,6 +550,13 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         emit ClaimLeveragedYT(verseId, msg.sender, to, amount);
     }
 
+    /// @notice Claim a caller's pro-rata share of post-settlement residual uAsset and memecoin.
+    ///         Share is `(real + credit interest paid) / totalLeveragedInterest` of the verse's
+    ///         residual assets; the per-user claim flag prevents double-claiming.
+    /// @param verseId Verse identifier (must be in Settled state).
+    /// @param to Recipient of the residual assets (must not be zero).
+    /// @return uAssetAmount Residual uAsset transferred to `to`.
+    /// @return memecoinAmount Residual memecoin transferred to `to`.
     function claimResidual(uint256 verseId, address to)
         external
         nonReentrant
@@ -340,7 +567,10 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.state != MarketState.Settled) revert InvalidState();
 
-        uint256 interestPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender];
+        // Aggregate real + credit interest: credit participants share residual pro-rata to combined paid interest
+        // (spec docs/spec/polend/settlement-and-fees.md §7; totalLeveragedInterest = real + credit combined, see core.md §6.3).
+        uint256 interestPaid = polendStorage.leveragedInterestPaid[verseId][msg.sender]
+            + polendStorage.creditInterestPaid[verseId][msg.sender];
         uint256 totalLeveragedInterest = market.totalLeveragedInterest;
         if (interestPaid == 0 || totalLeveragedInterest == 0) revert InvalidClaim();
 
@@ -360,44 +590,81 @@ contract POLend layout at erc7201("outrun.storage.POLend")
 
     // --- View functions (replacing auto-generated public getters) ---
 
+    /// @notice Default per-verse interest rate applied to newly registered lend markets.
+    /// @return Configured default interest rate (1e18-scaled).
     function defaultInterestRate() external view returns (uint256) {
         return polendStorage.defaultInterestRate;
     }
 
+    /// @notice Leveraged-debt multiplier factor (1e18-scaled) applied to the launcher debt cap base.
+    /// @return Configured leveraged debt factor.
     function leveragedDebtFactor() external view returns (uint256) {
         return polendStorage.leveragedDebtFactor;
     }
 
+    /// @notice Protocol treasury that receives excess interest and dust-reserve overflow.
+    /// @return Configured treasury address.
     function treasury() external view returns (address) {
         return polendStorage.treasury;
     }
 
+    /// @notice MemeverseLauncher authorized to register markets and drive the verse lifecycle.
+    /// @return Configured launcher address.
     function launcher() external view returns (address) {
         return polendStorage.launcher;
     }
 
+    /// @notice POLSplitter authorized to redeem PTs and burn pre-redeemed backing.
+    /// @return Configured splitter address.
     function splitter() external view returns (address) {
         return polendStorage.splitter;
     }
 
+    /// @notice Address of the credit factory registered to write per-user credit interest.
+    /// @return Registered credit factory address.
+    function creditFactory() external view returns (address) {
+        return polendStorage.creditFactory;
+    }
+
+    /// @notice Full lend-market snapshot for a verse (uAsset, YT, interest rate, accumulators, state).
+    /// @param verseId Verse identifier whose market to read.
+    /// @return LendMarket struct copy for the verse.
     function lendMarkets(uint256 verseId) external view returns (LendMarket memory) {
         return polendStorage.lendMarkets[verseId];
     }
 
+    /// @notice Aggregate interest (real uAsset + GenesisCredit) a user paid into a verse's leveraged genesis.
+    /// @param verseId Verse identifier.
+    /// @param user Participant address.
+    /// @return Combined real-uAsset and credit interest paid by the user.
     function leveragedInterestPaid(uint256 verseId, address user) external view returns (uint256) {
-        return polendStorage.leveragedInterestPaid[verseId][user];
+        // View-layer aggregate (real + credit) per docs/spec/polend/core.md: storage is split,
+        // but the public view exposes the combined interest the user paid, matching
+        // `getUserLeveragedDebt`'s aggregate accounting. The real-only ledger is internal.
+        return polendStorage.leveragedInterestPaid[verseId][user] + polendStorage.creditInterestPaid[verseId][user];
     }
 
+    /// @notice Post-settlement residual assets claimable pro-rata by leveraged participants.
+    /// @param verseId Settled verse identifier.
+    /// @return residualUAsset Recovered uAsset left after repaying debt.
+    /// @return residualMemecoin Recovered memecoin left after settlement.
     function residualStates(uint256 verseId) external view returns (uint256 residualUAsset, uint256 residualMemecoin) {
         ResidualState storage r = polendStorage.residualStates[verseId];
         residualUAsset = r.residualUAsset;
         residualMemecoin = r.residualMemecoin;
     }
 
+    /// @notice Aggregate outstanding uAsset debt across all settled/live verses for one uAsset.
+    /// @param uAsset Universal-asset address.
+    /// @return Total uAsset debt currently accounted under this uAsset.
     function globalDebtByUAsset(address uAsset) external view returns (uint256) {
         return polendStorage.globalDebtByUAsset[uAsset];
     }
 
+    /// @notice Settlement-dust reserve configuration for a uAsset.
+    /// @param uAsset Universal-asset address.
+    /// @return reserve Current funded reserve covering settlement deficits.
+    /// @return maxReserve Configured cap on the reserve.
     function settlementDustStates(address uAsset) external view returns (uint128 reserve, uint128 maxReserve) {
         SettlementDustState storage state = polendStorage.settlementDustStates[uAsset];
         return (state.reserve, state.maxReserve);
@@ -405,23 +672,40 @@ contract POLend layout at erc7201("outrun.storage.POLend")
 
     // --- External view helpers ---
 
+    /// @notice Total leveraged debt owed by a verse (totalLeveragedInterest / interestRate).
+    /// @param verseId Verse identifier.
+    /// @return Computed leveraged debt for the verse.
     function getTotalLeveragedDebt(uint256 verseId) external view returns (uint256) {
         return _totalLeveragedDebt(polendStorage.lendMarkets[verseId]);
     }
 
+    /// @notice A user's pro-rata share of a verse's leveraged debt (real + credit interest aggregated).
+    /// @param verseId Verse identifier.
+    /// @param user Participant address (must not be zero).
+    /// @return Debt attributable to the user's combined paid interest.
     function getUserLeveragedDebt(uint256 verseId, address user) external view returns (uint256) {
         if (user == address(0)) revert ZeroInput();
 
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.interestRate == 0) revert InvalidState();
-        return Math.mulDiv(polendStorage.leveragedInterestPaid[verseId][user], 1e18, market.interestRate);
+        // Aggregate debt: real leveraged genesis + credit-factory-issued interest share the
+        // same interestRate, so we sum interest paid before converting to debt.
+        uint256 totalInterest =
+            polendStorage.leveragedInterestPaid[verseId][user] + polendStorage.creditInterestPaid[verseId][user];
+        return Math.mulDiv(totalInterest, 1e18, market.interestRate);
     }
 
+    /// @notice Alias for `globalDebtByUAsset` with an explicit zero-address guard.
+    /// @param uAsset Universal-asset address (must not be zero).
+    /// @return Total uAsset debt currently accounted under this uAsset.
     function getTotalDebtByUAsset(address uAsset) external view returns (uint256) {
         if (uAsset == address(0)) revert ZeroInput();
         return polendStorage.globalDebtByUAsset[uAsset];
     }
 
+    /// @notice Consolidated leveraged-debt snapshot for a verse: totals, rate, and remaining capacity.
+    /// @param verseId Verse identifier.
+    /// @return info LeveragedDebtInfo struct with current debt and headroom figures.
     function getLeveragedDebtInfo(uint256 verseId) external view returns (LeveragedDebtInfo memory info) {
         LendMarket storage market = polendStorage.lendMarkets[verseId];
         if (market.interestRate == 0) revert InvalidState();
@@ -432,10 +716,23 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         (info.debtCap, info.remainingAdditionalInterest) = _debtCapacity(verseId, market);
     }
 
+    /// @notice Total interest (real uAsset + GenesisCredit combined) paid into a verse's leveraged genesis.
+    /// @param verseId Verse identifier.
+    /// @return Aggregate interest backing the verse's leveraged debt.
     function getTotalLeveragedInterest(uint256 verseId) external view returns (uint256) {
         return polendStorage.lendMarkets[verseId].totalLeveragedInterest;
     }
 
+    /// @notice GenesisCredit-funded slice of a verse's total leveraged interest.
+    /// @param verseId Verse identifier.
+    /// @return Total credit interest paid into the verse.
+    function getTotalCreditInterest(uint256 verseId) external view returns (uint256) {
+        return polendStorage.lendMarkets[verseId].totalCreditInterest;
+    }
+
+    /// @notice Convenience wrapper returning the full lend-market snapshot for a verse.
+    /// @param verseId Verse identifier.
+    /// @return market LendMarket struct copy for the verse.
     function getLendMarket(uint256 verseId) external view returns (LendMarket memory market) {
         return polendStorage.lendMarkets[verseId];
     }
@@ -521,7 +818,10 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         credited = Math.min(amount, capacity);
         excess = amount - credited;
         reserveAfter = reserve + credited;
-        state.reserve = uint128(reserveAfter);
+        // Skip the no-op SSTORE when nothing was credited (pure-credit finalize with
+        // realInterest == 0, or reserve already at capacity). reserveAfter == reserve here,
+        // so omitting the write leaves state identical.
+        if (credited != 0) state.reserve = uint128(reserveAfter);
     }
 
     function _consumeClaimFlag(uint256 verseId, address account, uint8 mask) internal {
@@ -548,10 +848,14 @@ contract POLend layout at erc7201("outrun.storage.POLend")
         memecoinAmount = IERC20(memecoin).balanceOf(address(this)) - beforeMemecoin;
     }
 
+    /// @notice Pause leveraged-genesis entry (onlyOwner). Blocks `leveragedGenesis` and
+    ///         `leveragedGenesisWithCredit` via `whenNotPaused`.
     function pause() external onlyOwner {
         _pause();
     }
 
+    /// @notice Unpause leveraged-genesis entry (onlyOwner). Re-enables `leveragedGenesis` and
+    ///         `leveragedGenesisWithCredit`.
     function unpause() external onlyOwner {
         _unpause();
     }
