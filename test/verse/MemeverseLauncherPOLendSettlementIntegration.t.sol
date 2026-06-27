@@ -153,11 +153,14 @@ contract MemeverseLauncherPOLendSettlementIntegrationTest is Test, MemeverseLaun
             )
         );
 
-        // 6. Inject real POLend/Splitter into Launcher proxy storage and allow unlimited dust reserve
-        //    so finalizeLeveragedGenesis can credit interest and executeGlobalSettlement has headroom.
+        // 6. Inject real POLend/Splitter into Launcher proxy storage, then configure and seed settlement
+        //    dust coverage so pure-leverage settlement can spend rounding dust without finalize refill.
         setPolendForTest(launcherProxy, address(polend));
         setPolSplitterForTest(launcherProxy, address(splitter));
         polend.setMaxSettlementDustReserve(address(uAsset), type(uint128).max);
+        uAsset.mint(address(this), 1e6);
+        uAsset.approve(address(polend), 1e6);
+        polend.fundSettlementDustReserve(address(uAsset), 1e6);
 
         // 7. Hook wiring first: setMemeverseUniswapHook validates hook.launcher()==launcherProxy
         //    while router is still zero (boundLauncher path), so the hook must bind the launcher

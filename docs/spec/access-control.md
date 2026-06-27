@@ -40,7 +40,7 @@
 | `MemeverseLauncher.registerMemeverse` | 仅 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol::registerMemeverse` |
 | `MemeverseLauncher.setExternalInfo` | `governor` 或 `memeverseRegistrar` | `src/verse/MemeverseLauncher.sol::setExternalInfo` |
 | Launcher 生命周期入口 | `genesis`/`changeStage`/`refund`/`claimNormalYT`/POLend `claimLeveragedYT`/`redeemAndDistributeFees` 等无白名单，靠阶段与输入校验 | `src/verse/MemeverseLauncher.sol::genesis`, `::changeStage`, `::refund`, `::claimNormalYT`, `::redeemAndDistributeFees` |
-| `POLend` 杠杆创世与配置 | `leveragedGenesis` 为用户入口，靠 Launcher Genesis 阶段、累计 debt cap 与 aggregate genesis funds 上限约束；`setLeveragedDebtFactor` 为 owner-only，并受 `uint128.max * 1e18` 技术上限约束 | `src/polend/POLend.sol::leveragedGenesis`, `::setLeveragedDebtFactor`, `::_creditSettlementDustReserve` |
+| `POLend` 杠杆创世与配置 | `leveragedGenesis` 为用户入口，靠 Launcher Genesis 阶段、累计 debt cap 与 aggregate genesis funds 上限约束；`setLeveragedDebtFactor` 为 owner-only，并受 `uint128.max * 1e18` 技术上限约束 | `src/polend/POLend.sol::leveragedGenesis`, `::setLeveragedDebtFactor` |
 | `MemeverseRegistrationCenter` | `registration` 对外开放；参数配置和 gas dust 清理是 `onlyOwner` | `src/verse/registration/MemeverseRegistrationCenter.sol::registration`, `::removeGasDust`, `::setSupportedUAsset`, `::setDurationDaysRange`, `::setRegisterGasLimit` |
 | `MemeverseRegistrarAtLocal` | `localRegistration` 仅 center；`setRegistrationCenter` 仅 owner | `src/verse/registration/MemeverseRegistrarAtLocal.sol::localRegistration`, `::setRegistrationCenter` |
 | `MemeverseRegistrarOmnichain` | `setRegistrationGasLimit` 仅 owner | `src/verse/registration/MemeverseRegistrarOmnichain.sol::setRegistrationGasLimit` |
